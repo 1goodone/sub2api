@@ -198,6 +198,10 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 	return openAIResponsesRequiredCapability(imageIntent, platform)
 }
 
+func shouldEnableCodexQuotaOverdraftForResponses(legacyCompact, nativeV2, imageIntent bool) bool {
+	return !legacyCompact && !nativeV2 && !imageIntent
+}
+
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
@@ -362,6 +366,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if !apiKeyAllowsModel(c, apiKey, reqModel) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -507,7 +515,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。
 	// 生图意图只影响能力路由与图片计费，不关门：混合 /v1/responses 请求的
 	// token 计费部分仍受利润门保护，独立图片/视频端点才在门外。
-	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	requestCtx := c.Request.Context()
+	if shouldEnableCodexQuotaOverdraftForResponses(legacyCompact, nativeV2, imageIntent) {
+		requestCtx = service.WithCodexQuotaOverdraftScheduling(requestCtx)
+	}
+	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(requestCtx, apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
 
 	for {
@@ -617,8 +629,20 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			return h.forwardResponsesWithCodexQuotaOverdraftSilentRetry(
+				c,
+				account,
+				attemptBody,
+				reqStream,
+				reqLog,
+				func(body []byte) (*service.OpenAIForwardResult, error) {
+					return h.gatewayService.Forward(c.Request.Context(), c, account, body)
+				},
+			)
 		}()
+		if service.CodexQuotaOverdraftSilentResponseCommitted(c) {
+			streamStarted = true
+		}
 		cyberBlockKeyHTTP := ""
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockKeyHTTP = service.CyberSessionBlockKey(apiKey.ID, c, sessionHashBody)
@@ -793,9 +817,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs, c.Request.Context())
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), nil, c.Request.Context())
 		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
@@ -1010,6 +1034,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if !apiKeyAllowsModel(c, apiKey, reqModel) {
+		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -1080,7 +1108,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	effectiveMappedModel := preferredMappedModel
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
-	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	msgPricingCtx := service.WithCodexQuotaOverdraftScheduling(c.Request.Context())
+	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(msgPricingCtx, apiKey.GroupID)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
 	for {
@@ -1327,9 +1356,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if result != nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, result.FirstTokenMs, c.Request.Context())
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, nil, c.Request.Context())
 		}
 
 		submitMessagesUsage(result)
@@ -1776,6 +1805,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	if !apiKeyAllowsModel(c, apiKey, reqModel) {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, groupDisabledModelMessage)
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
@@ -1812,6 +1845,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
+	}
+	if !imageIntent {
+		ctx = service.WithCodexQuotaOverdraftScheduling(ctx)
+		c.Request = c.Request.WithContext(ctx)
 	}
 
 	// F5a: 握手层会话屏蔽检查。WS 握手无 body，显式标识仅来自握手 header
@@ -2138,6 +2175,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if model == "" {
 					model = reqModel
 				}
+				if !apiKeyAllowsModel(c, apiKey, model) {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, groupDisabledModelMessage, nil)
+				}
 				if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
@@ -2271,7 +2311,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if scheduleModel == "" {
 					scheduleModel = turnRequestedModel
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs, ctx)
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)

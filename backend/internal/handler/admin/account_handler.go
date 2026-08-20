@@ -152,6 +152,12 @@ type UpdateAccountRequest struct {
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
+// SetCodexQuotaOverdraftRequest changes the explicit per-account opt-in. The
+// pointer preserves false as a supplied value for Gin's required validation.
+type SetCodexQuotaOverdraftRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
 	AccountIDs              []int64                   `json:"account_ids"`
@@ -1016,6 +1022,66 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// SetCodexQuotaOverdraft toggles Codex quota overdraft for one OpenAI OAuth
+// parent account. It deliberately uses an Extra merge so probe/runtime fields
+// and unrelated account settings remain untouched.
+// PUT /api/v1/admin/accounts/:id/codex-quota-overdraft
+func (h *AccountHandler) SetCodexQuotaOverdraft(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req SetCodexQuotaOverdraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if account == nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	if !account.IsOpenAIOAuth() || account.IsShadow() {
+		response.BadRequest(c, "Codex quota overdraft is only available for OpenAI OAuth parent accounts")
+		return
+	}
+	var updateErr error
+	if !*req.Enabled {
+		if disabler, ok := h.adminService.(interface {
+			DisableCodexQuotaOverdraft(context.Context, int64) error
+		}); ok {
+			updateErr = disabler.DisableCodexQuotaOverdraft(c.Request.Context(), accountID)
+		} else {
+			updateErr = h.adminService.UpdateAccountExtra(c.Request.Context(), accountID, map[string]any{
+				service.CodexQuotaOverdraftEnabledExtraKey: false,
+			})
+		}
+	} else {
+		updateErr = h.adminService.UpdateAccountExtra(c.Request.Context(), accountID, map[string]any{
+			service.CodexQuotaOverdraftEnabledExtraKey: true,
+		})
+	}
+	if updateErr != nil {
+		response.ErrorFrom(c, updateErr)
+		return
+	}
+	updated, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if updated == nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updated))
 }
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。

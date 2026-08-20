@@ -286,6 +286,21 @@ func canCopyAccountsFromGroupPlatform(targetPlatform, sourcePlatform string) boo
 	return sourcePlatform == targetPlatform
 }
 
+func accountAssignedToGroup(account *Account, groupID int64) bool {
+	if account == nil {
+		return false
+	}
+	if containsInt64(account.GroupIDs, groupID) {
+		return true
+	}
+	for _, assignment := range account.AccountGroups {
+		if assignment.GroupID == groupID {
+			return true
+		}
+	}
+	return false
+}
+
 func groupSupportsOAuthOnlyFilter(platform string) bool {
 	return platform == PlatformOpenAI ||
 		platform == PlatformAntigravity ||
@@ -298,6 +313,10 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
+	}
+	accountTypePreference, err := normalizeAccountTypePreference(input.AccountTypePreference)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_TYPE_PREFERENCE", err.Error())
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
@@ -502,9 +521,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		AllowLive:                       input.AllowLive,
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
+		AccountTypePreference:           accountTypePreference,
 		DefaultMappedModel:              input.DefaultMappedModel,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		DisabledModels:                  normalizeDisabledModels(input.DisabledModels),
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
@@ -863,6 +884,28 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.RequirePrivacySet != nil {
 		group.RequirePrivacySet = *input.RequirePrivacySet
 	}
+	if input.AccountTypePreference != nil {
+		preference, err := normalizeAccountTypePreference(*input.AccountTypePreference)
+		if err != nil {
+			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_TYPE_PREFERENCE", err.Error())
+		}
+		group.AccountTypePreference = preference
+	}
+	if input.FocusAccountID != nil {
+		if *input.FocusAccountID <= 0 {
+			group.FocusAccountID = nil
+		} else {
+			account, err := s.accountRepo.GetByID(ctx, *input.FocusAccountID)
+			if err != nil {
+				return nil, infraerrors.BadRequest("INVALID_FOCUS_ACCOUNT", "focus account not found")
+			}
+			if !accountAssignedToGroup(account, id) {
+				return nil, infraerrors.BadRequest("INVALID_FOCUS_ACCOUNT", "focus account must belong to the group")
+			}
+			focusAccountID := account.ID
+			group.FocusAccountID = &focusAccountID
+		}
+	}
 	if input.DefaultMappedModel != nil {
 		group.DefaultMappedModel = *input.DefaultMappedModel
 	}
@@ -871,6 +914,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
+	}
+	if input.DisabledModels != nil {
+		group.DisabledModels = normalizeDisabledModels(*input.DisabledModels)
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit

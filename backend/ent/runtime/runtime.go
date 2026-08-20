@@ -1165,44 +1165,54 @@ func init() {
 	groupDescRequirePrivacySet := groupFields[49].Descriptor()
 	// group.DefaultRequirePrivacySet holds the default value on creation for the require_privacy_set field.
 	group.DefaultRequirePrivacySet = groupDescRequirePrivacySet.Default.(bool)
+	// groupDescAccountTypePreference is the schema descriptor for account_type_preference field.
+	groupDescAccountTypePreference := groupFields[51].Descriptor()
+	// group.DefaultAccountTypePreference holds the default value on creation for the account_type_preference field.
+	group.DefaultAccountTypePreference = groupDescAccountTypePreference.Default.(string)
+	// group.AccountTypePreferenceValidator is a validator for the "account_type_preference" field. It is called by the builders before save.
+	group.AccountTypePreferenceValidator = groupDescAccountTypePreference.Validators[0].(func(string) error)
 	// groupDescDefaultMappedModel is the schema descriptor for default_mapped_model field.
-	groupDescDefaultMappedModel := groupFields[50].Descriptor()
+	groupDescDefaultMappedModel := groupFields[52].Descriptor()
 	// group.DefaultDefaultMappedModel holds the default value on creation for the default_mapped_model field.
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
-	groupDescMessagesDispatchModelConfig := groupFields[51].Descriptor()
+	groupDescMessagesDispatchModelConfig := groupFields[53].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
 	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
-	groupDescModelsListConfig := groupFields[52].Descriptor()
+	groupDescModelsListConfig := groupFields[54].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
+	// groupDescDisabledModels is the schema descriptor for disabled_models field.
+	groupDescDisabledModels := groupFields[55].Descriptor()
+	// group.DefaultDisabledModels holds the default value on creation for the disabled_models field.
+	group.DefaultDisabledModels = groupDescDisabledModels.Default.([]string)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[53].Descriptor()
+	groupDescRpmLimit := groupFields[56].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	// groupDescMaxReasoningEffort is the schema descriptor for max_reasoning_effort field.
-	groupDescMaxReasoningEffort := groupFields[54].Descriptor()
+	groupDescMaxReasoningEffort := groupFields[57].Descriptor()
 	// group.DefaultMaxReasoningEffort holds the default value on creation for the max_reasoning_effort field.
 	group.DefaultMaxReasoningEffort = groupDescMaxReasoningEffort.Default.(string)
 	// group.MaxReasoningEffortValidator is a validator for the "max_reasoning_effort" field. It is called by the builders before save.
 	group.MaxReasoningEffortValidator = groupDescMaxReasoningEffort.Validators[0].(func(string) error)
 	// groupDescReasoningEffortMappings is the schema descriptor for reasoning_effort_mappings field.
-	groupDescReasoningEffortMappings := groupFields[55].Descriptor()
+	groupDescReasoningEffortMappings := groupFields[58].Descriptor()
 	// group.DefaultReasoningEffortMappings holds the default value on creation for the reasoning_effort_mappings field.
 	group.DefaultReasoningEffortMappings = groupDescReasoningEffortMappings.Default.([]domain.ReasoningEffortMapping)
 	// groupDescProfitControlEnabled is the schema descriptor for profit_control_enabled field.
-	groupDescProfitControlEnabled := groupFields[56].Descriptor()
+	groupDescProfitControlEnabled := groupFields[59].Descriptor()
 	// group.DefaultProfitControlEnabled holds the default value on creation for the profit_control_enabled field.
 	group.DefaultProfitControlEnabled = groupDescProfitControlEnabled.Default.(bool)
 	// groupDescProfitMinMargin is the schema descriptor for profit_min_margin field.
-	groupDescProfitMinMargin := groupFields[57].Descriptor()
+	groupDescProfitMinMargin := groupFields[60].Descriptor()
 	// group.DefaultProfitMinMargin holds the default value on creation for the profit_min_margin field.
 	group.DefaultProfitMinMargin = groupDescProfitMinMargin.Default.(float64)
 	// groupDescProfitSafetyBuffer is the schema descriptor for profit_safety_buffer field.
-	groupDescProfitSafetyBuffer := groupFields[58].Descriptor()
+	groupDescProfitSafetyBuffer := groupFields[61].Descriptor()
 	// group.DefaultProfitSafetyBuffer holds the default value on creation for the profit_safety_buffer field.
 	group.DefaultProfitSafetyBuffer = groupDescProfitSafetyBuffer.Default.(float64)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

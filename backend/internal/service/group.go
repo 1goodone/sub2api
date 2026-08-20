@@ -15,6 +15,12 @@ type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfi
 type GroupModelsListConfig = domain.GroupModelsListConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
+const (
+	AccountTypePreferenceDefault     = "default"
+	AccountTypePreferenceAuthFirst   = "auth_first"
+	AccountTypePreferenceAPIKeyFirst = "apikey_first"
+)
+
 type Group struct {
 	ID             int64
 	Name           string
@@ -102,9 +108,12 @@ type Group struct {
 	AllowLive                   bool
 	RequireOAuthOnly            bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
+	FocusAccountID              *int64
+	AccountTypePreference       string
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
+	DisabledModels              []string
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
@@ -131,6 +140,95 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+func normalizeAccountTypePreference(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", AccountTypePreferenceDefault:
+		return AccountTypePreferenceDefault, nil
+	case AccountTypePreferenceAuthFirst:
+		return AccountTypePreferenceAuthFirst, nil
+	case AccountTypePreferenceAPIKeyFirst:
+		return AccountTypePreferenceAPIKeyFirst, nil
+	default:
+		return "", fmt.Errorf("invalid account_type_preference")
+	}
+}
+
+func accountRoutingPreferenceRank(group *Group, account *Account) int {
+	if account == nil {
+		return 3
+	}
+	if group != nil && group.FocusAccountID != nil && *group.FocusAccountID == account.ID {
+		return 0
+	}
+	switch groupAccountTypePreference(group) {
+	case AccountTypePreferenceAuthFirst:
+		if isAuthRoutingAccountType(account.Type) {
+			return 1
+		}
+		return 2
+	case AccountTypePreferenceAPIKeyFirst:
+		if isAPIRoutingAccountType(account.Type) {
+			return 1
+		}
+		return 2
+	default:
+		return 1
+	}
+}
+
+func isAuthRoutingAccountType(accountType string) bool {
+	return accountType == AccountTypeOAuth || accountType == AccountTypeSetupToken
+}
+
+func isAPIRoutingAccountType(accountType string) bool {
+	return accountType == AccountTypeAPIKey ||
+		accountType == AccountTypeUpstream ||
+		accountType == AccountTypeBedrock
+}
+
+func groupAccountTypePreference(group *Group) string {
+	if group == nil {
+		return AccountTypePreferenceDefault
+	}
+	preference, err := normalizeAccountTypePreference(group.AccountTypePreference)
+	if err != nil {
+		return AccountTypePreferenceDefault
+	}
+	return preference
+}
+
+func groupHasAccountRoutingPreference(group *Group) bool {
+	return group != nil &&
+		(group.FocusAccountID != nil && *group.FocusAccountID > 0 ||
+			groupAccountTypePreference(group) != AccountTypePreferenceDefault)
+}
+
+func groupFocusOverridesSticky(group *Group, stickyAccountID int64, routedAccountIDs []int64) bool {
+	if group == nil || group.FocusAccountID == nil || *group.FocusAccountID <= 0 || *group.FocusAccountID == stickyAccountID {
+		return false
+	}
+	return len(routedAccountIDs) == 0 || containsInt64(routedAccountIDs, *group.FocusAccountID)
+}
+
+func groupAccountTypePreferenceOverridesSticky(group *Group, stickyAccount *Account) bool {
+	if stickyAccount == nil {
+		return false
+	}
+	switch groupAccountTypePreference(group) {
+	case AccountTypePreferenceAuthFirst:
+		return !isAuthRoutingAccountType(stickyAccount.Type)
+	case AccountTypePreferenceAPIKeyFirst:
+		return !isAPIRoutingAccountType(stickyAccount.Type)
+	default:
+		return false
+	}
+}
+
+func groupRoutingOverridesSticky(group *Group, stickyAccountID int64, stickyAccount *Account, routedAccountIDs []int64) bool {
+	return groupFocusOverridesSticky(group, stickyAccountID, routedAccountIDs) ||
+		groupAccountTypePreferenceOverridesSticky(group, stickyAccount)
 }
 
 func (g *Group) IsActive() bool {

@@ -3,14 +3,47 @@
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
-          <AccountTableFilters
-            v-model:searchQuery="params.search"
-            :filters="params"
-            :groups="groups"
-            @update:filters="(newFilters) => Object.assign(params, newFilters)"
-            @change="debouncedReload"
-            @update:searchQuery="debouncedReload"
-          />
+          <div class="min-w-0 flex-1">
+            <AccountTableFilters
+              v-model:searchQuery="params.search"
+              :filters="params"
+              :groups="groups"
+              @update:filters="(newFilters) => Object.assign(params, newFilters)"
+              @change="debouncedReload"
+              @update:searchQuery="debouncedReload"
+            />
+            <div
+              v-if="selectedRoutingGroup"
+              data-test="selected-group-routing-preference"
+              class="mt-2 flex flex-wrap items-center gap-2 text-xs"
+            >
+              <span class="font-medium text-gray-700 dark:text-gray-300">
+                {{ selectedRoutingGroup.name }}
+              </span>
+              <span class="text-gray-500 dark:text-gray-400">
+                {{ t('admin.groups.accountRouting.preference') }}
+              </span>
+              <div class="inline-grid grid-cols-3 overflow-hidden rounded-md border border-gray-200 dark:border-dark-600">
+                <button
+                  v-for="option in accountTypePreferenceOptions"
+                  :key="option.value"
+                  type="button"
+                  class="min-h-8 border-r border-gray-200 px-2.5 py-1 font-medium transition-colors last:border-r-0 disabled:cursor-wait disabled:opacity-50 dark:border-dark-600"
+                  :class="(selectedRoutingGroup.account_type_preference ?? 'default') === option.value
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700'"
+                  :disabled="updatingRoutingGroupId != null"
+                  :data-test="`group-routing-preference-${option.value}`"
+                  @click="handleSetSelectedGroupPreference(option.value)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+              <span class="text-gray-400 dark:text-gray-500">
+                {{ t('admin.groups.accountRouting.preferenceHint') }}
+              </span>
+            </div>
+          </div>
           <AccountTableActions
             :loading="loading"
             @refresh="handleManualRefresh"
@@ -304,7 +337,14 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell
+              :groups="row.groups"
+              :max-display="4"
+              :account-id="row.id"
+              :routing-groups="groups"
+              :updating-group-id="updatingRoutingGroupId"
+              @toggle-focus="handleToggleGroupFocus(row, $event)"
+            />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -456,7 +496,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -532,7 +572,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountTypePreference, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -608,6 +648,8 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
+const togglingCodexOverdraft = ref<number | null>(null)
+const updatingRoutingGroupId = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
@@ -1081,6 +1123,20 @@ const {
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
+})
+
+const accountTypePreferenceOptions = computed(() => [
+  { value: 'default' as AccountTypePreference, label: t('admin.groups.accountRouting.default') },
+  { value: 'auth_first' as AccountTypePreference, label: t('admin.groups.accountRouting.authFirst') },
+  { value: 'apikey_first' as AccountTypePreference, label: t('admin.groups.accountRouting.apiFirst') }
+])
+const selectedRoutingGroup = computed(() => {
+  const groupId = Number(params.group)
+  if (!Number.isSafeInteger(groupId) || groupId <= 0) return null
+  const group = groups.value.find(item => item.id === groupId)
+  return group && ['openai', 'antigravity', 'anthropic', 'gemini'].includes(group.platform)
+    ? group
+    : null
 })
 
 const {
@@ -2147,6 +2203,42 @@ const patchAccountInList = (updatedAccount: Account) => {
   accounts.value = nextAccounts
   syncAccountRefs(mergedAccount)
 }
+const patchRoutingGroup = (updated: AdminGroup) => {
+  const index = groups.value.findIndex(group => group.id === updated.id)
+  if (index < 0) return
+  const next = [...groups.value]
+  next[index] = updated
+  groups.value = next
+}
+const handleSetSelectedGroupPreference = async (preference: AccountTypePreference) => {
+  const group = selectedRoutingGroup.value
+  if (!group || updatingRoutingGroupId.value != null || (group.account_type_preference ?? 'default') === preference) return
+  updatingRoutingGroupId.value = group.id
+  try {
+    patchRoutingGroup(await adminAPI.groups.update(group.id, { account_type_preference: preference }))
+    appStore.showSuccess(t('admin.groups.groupUpdated'))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.groupRouting.updateFailed')))
+  } finally {
+    updatingRoutingGroupId.value = null
+  }
+}
+const handleToggleGroupFocus = async (account: Account, groupId: number) => {
+  const group = groups.value.find(item => item.id === groupId)
+  if (!group || updatingRoutingGroupId.value != null) return
+  updatingRoutingGroupId.value = groupId
+  try {
+    const focusAccountId = group.focus_account_id === account.id ? 0 : account.id
+    patchRoutingGroup(await adminAPI.groups.update(groupId, { focus_account_id: focusAccountId }))
+    appStore.showSuccess(t(focusAccountId === 0
+      ? 'admin.accounts.groupRouting.focusCleared'
+      : 'admin.accounts.groupRouting.focusSet'))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.groupRouting.updateFailed')))
+  } finally {
+    updatingRoutingGroupId.value = null
+  }
+}
 const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBillingProbeSnapshot) => {
   const account = accounts.value.find(item => item.id === accountID)
   if (!account) return
@@ -2382,6 +2474,24 @@ const handleToggleSchedulable = async (a: Account) => {
     appStore.showError(t('admin.accounts.failedToToggleSchedulable'))
   } finally {
     togglingSchedulable.value = null
+  }
+}
+const handleToggleCodexOverdraft = async (a: Account) => {
+  if (togglingCodexOverdraft.value === a.id) return
+  const enabled = a.extra?.codex_quota_overdraft_enabled !== true
+  togglingCodexOverdraft.value = a.id
+  try {
+    const updated = await adminAPI.accounts.setCodexQuotaOverdraftEnabled(a.id, enabled)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t(enabled
+      ? 'admin.accounts.codexQuotaOverdraftEnabled'
+      : 'admin.accounts.codexQuotaOverdraftDisabled'))
+  } catch (error) {
+    console.error('Failed to toggle Codex quota overdraft:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.codexQuotaOverdraftToggleFailed')))
+  } finally {
+    togglingCodexOverdraft.value = null
   }
 }
 const handleShowTempUnsched = (a: Account) => { tempUnschedAcc.value = a; showTempUnsched.value = true }

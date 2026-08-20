@@ -21,6 +21,18 @@
       >
         <span>+{{ hiddenCount }}</span>
       </button>
+      <button
+        v-if="editable"
+        ref="moreButtonRef"
+        type="button"
+        class="inline-flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+        :title="t('admin.accounts.groupRouting.manage')"
+        :aria-label="t('admin.accounts.groupRouting.manage')"
+        :aria-expanded="showPopover"
+        @click.stop="showPopover = !showPopover"
+      >
+        <Icon name="cog" size="xs" />
+      </button>
     </div>
 
     <!-- Popover 显示完整列表 -->
@@ -52,16 +64,48 @@
               </svg>
             </button>
           </div>
-          <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
-            <GroupBadge
+          <p v-if="editable" class="mb-3 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.groupRouting.focusHint') }}
+          </p>
+          <div class="max-h-72 space-y-2 overflow-y-auto">
+            <div
               v-for="group in groups"
               :key="group.id"
-              :name="group.name"
-              :platform="group.platform"
-              :subscription-type="group.subscription_type"
-              :rate-multiplier="group.rate_multiplier"
-              :show-rate="false"
-            />
+              class="border-b border-gray-100 pb-2 last:border-b-0 last:pb-0 dark:border-dark-700"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <GroupBadge
+                  :name="group.name"
+                  :platform="group.platform"
+                  :subscription-type="group.subscription_type"
+                  :rate-multiplier="group.rate_multiplier"
+                  :show-rate="false"
+                />
+                <span
+                  v-if="routingGroup(group.id)?.focus_account_id === accountId"
+                  class="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-300"
+                >
+                  <Icon name="fire" size="xs" />
+                  {{ t('admin.accounts.groupRouting.focused') }}
+                </span>
+              </div>
+              <div v-if="editable" class="mt-2 flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  class="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:cursor-wait disabled:opacity-50"
+                  :class="routingGroup(group.id)?.focus_account_id === accountId
+                    ? 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-200'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'"
+                  :disabled="updatingGroupId === group.id"
+                  @click.stop="emit('toggleFocus', group.id)"
+                >
+                  <Icon name="fire" size="xs" />
+                  {{ routingGroup(group.id)?.focus_account_id === accountId
+                    ? t('admin.accounts.groupRouting.clearFocus')
+                    : t('admin.accounts.groupRouting.setFocus') }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </Transition>
@@ -81,22 +125,32 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from '@/components/common/GroupBadge.vue'
-import type { Group } from '@/types'
+import Icon from '@/components/icons/Icon.vue'
+import type { AdminGroup, Group } from '@/types'
 
 interface Props {
   groups: Group[] | null | undefined
   maxDisplay?: number
+  accountId?: number
+  routingGroups?: AdminGroup[]
+  updatingGroupId?: number | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   maxDisplay: 4
 })
 
+const emit = defineEmits<{
+  toggleFocus: [groupId: number]
+}>()
+
 const { t } = useI18n()
 
 const moreButtonRef = ref<HTMLElement | null>(null)
 const popoverRef = ref<HTMLElement | null>(null)
 const showPopover = ref(false)
+const editable = computed(() => props.accountId != null && props.routingGroups != null)
+const routingGroup = (groupId: number) => props.routingGroups?.find(group => group.id === groupId)
 
 // 显示的分组（最多显示 maxDisplay 个）
 const displayGroups = computed(() => {

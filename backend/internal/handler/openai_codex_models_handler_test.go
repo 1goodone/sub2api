@@ -16,6 +16,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 type codexModelsFailoverAccountRepo struct {
@@ -127,6 +128,13 @@ func TestCompositeCodexModelsReusesExistingManifestSelection(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
+}
+
+func TestFilterCodexModelsManifestRemovesDisabledModels(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-allowed","name":"Allowed"},{"slug":"GPT-BLOCKED","name":"Blocked"}],"metadata":{"version":1}}`)
+	filtered, err := filterCodexModelsManifest(body, &service.Group{DisabledModels: []string{"gpt-blocked"}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"models":[{"slug":"gpt-allowed","name":"Allowed"}],"metadata":{"version":1}}`, string(filtered))
 }
 
 func TestCodexModelsFailsOverFromRetryableUpstreamStatus(t *testing.T) {

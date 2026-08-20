@@ -614,6 +614,8 @@ export interface AdminGroup extends Group {
   profit_min_margin: number
   profit_safety_buffer: number
 
+  focus_account_id?: number | null
+  account_type_preference?: AccountTypePreference
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
   model_routing_enabled: boolean
@@ -633,10 +635,13 @@ export interface AdminGroup extends Group {
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   models_list_config?: ModelsListConfig
+  disabled_models?: string[]
 
   // 分组排序
   sort_order: number
 }
+
+export type AccountTypePreference = 'default' | 'auth_first' | 'apikey_first'
 
 export interface ModelsListConfig {
   enabled: boolean
@@ -806,6 +811,7 @@ export interface CreateGroupRequest {
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
+  disabled_models?: string[]
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -817,6 +823,7 @@ export interface CreateGroupRequest {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  account_type_preference?: AccountTypePreference
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
 }
@@ -868,6 +875,7 @@ export interface UpdateGroupRequest {
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
+  disabled_models?: string[]
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -879,6 +887,8 @@ export interface UpdateGroupRequest {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  focus_account_id?: number | null
+  account_type_preference?: AccountTypePreference
   copy_accounts_from_group_ids?: number[]
 }
 
@@ -1128,6 +1138,7 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
+    codex_quota_overdraft_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
     codex_reset_credit_snapshot?: {
       available_count?: number
@@ -1263,6 +1274,31 @@ export interface UsageProgress {
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
   used_requests?: number
   limit_requests?: number
+  overdraft_active?: boolean
+  overdraft_stats?: WindowStats | null
+  overdraft_started_at?: string | null
+  overdraft_recover_at?: string | null
+}
+
+export interface CodexQuotaOverdraftProbeState {
+  status: 'pending' | 'passed' | 'failed' | 'inconclusive' | 'recovered'
+  quota_window: '5h' | '7d' | 'multiple'
+  cycle_key: string
+  attempts: number
+  limit: number
+  model?: string
+  reason_code?: string
+  started_at: string
+  tested_at?: string | null
+  retry_at?: string | null
+  retry_count?: number
+  recover_at?: string | null
+  five_hour_recover_at?: string | null
+  seven_day_recover_at?: string | null
+  overdraft_started_at?: string | null
+  five_hour_overdraft_started_at?: string | null
+  seven_day_overdraft_started_at?: string | null
+  observed_rate_limit_reset_at?: string | null
 }
 
 // Antigravity 单个模型的配额信息
@@ -1319,6 +1355,7 @@ export interface AccountUsageInfo {
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
+  codex_quota_overdraft?: CodexQuotaOverdraftProbeState | null
   seven_day_sonnet: UsageProgress | null
   seven_day_fable?: UsageProgress | null
   thirty_day?: UsageProgress | null

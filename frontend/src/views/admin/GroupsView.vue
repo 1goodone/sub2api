@@ -877,6 +877,20 @@
           </div>
         </div>
 
+        <div class="border-t pt-4">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.disabledModels.title") }}
+          </label>
+          <p class="mb-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.disabledModels.hint") }}
+          </p>
+          <ModelTagInput
+            v-model:models="createForm.disabled_models"
+            :platform="createForm.platform"
+            :placeholder="t('admin.groups.disabledModels.placeholder')"
+          />
+        </div>
+
         <!-- 图片生成计费配置 -->
         <div
           v-if="supportsImagePricingPlatform(createForm.platform)"
@@ -1854,6 +1868,29 @@
             {{ t("admin.groups.accountFilters.title") }}
           </h4>
 
+          <div>
+            <label class="text-sm text-gray-600 dark:text-gray-400">
+              {{ t("admin.groups.accountRouting.preference") }}
+            </label>
+            <div class="mt-2 grid grid-cols-3 overflow-hidden rounded-md border border-gray-200 dark:border-dark-600">
+              <button
+                v-for="option in accountTypePreferenceOptions"
+                :key="option.value"
+                type="button"
+                class="min-h-9 border-r border-gray-200 px-2 py-1 text-xs font-medium transition-colors last:border-r-0 dark:border-dark-600"
+                :class="createForm.account_type_preference === option.value
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700'"
+                @click="createForm.account_type_preference = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.accountRouting.preferenceHint") }}
+            </p>
+          </div>
+
           <!-- require_oauth_only toggle -->
           <div class="flex items-center justify-between">
             <div>
@@ -2601,6 +2638,20 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="border-t pt-4">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.disabledModels.title") }}
+          </label>
+          <p class="mb-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.disabledModels.hint") }}
+          </p>
+          <ModelTagInput
+            v-model:models="editForm.disabled_models"
+            :platform="editForm.platform"
+            :placeholder="t('admin.groups.disabledModels.placeholder')"
+          />
         </div>
 
         <!-- 图片生成计费配置 -->
@@ -3576,6 +3627,29 @@
             {{ t("admin.groups.accountFilters.title") }}
           </h4>
 
+          <div>
+            <label class="text-sm text-gray-600 dark:text-gray-400">
+              {{ t("admin.groups.accountRouting.preference") }}
+            </label>
+            <div class="mt-2 grid grid-cols-3 overflow-hidden rounded-md border border-gray-200 dark:border-dark-600">
+              <button
+                v-for="option in accountTypePreferenceOptions"
+                :key="option.value"
+                type="button"
+                class="min-h-9 border-r border-gray-200 px-2 py-1 text-xs font-medium transition-colors last:border-r-0 dark:border-dark-600"
+                :class="editForm.account_type_preference === option.value
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700'"
+                @click="editForm.account_type_preference = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.accountRouting.preferenceHint") }}
+            </p>
+          </div>
+
           <!-- require_oauth_only toggle -->
           <div class="flex items-center justify-between">
             <div>
@@ -4413,6 +4487,7 @@ import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
 import type {
+  AccountTypePreference,
   AdminGroup,
   CompositeModelRoute,
   CompositeModelRouteInput,
@@ -4442,6 +4517,7 @@ import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesMo
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
+import ModelTagInput from "@/components/admin/channel/ModelTagInput.vue";
 import type { PricingFormEntry } from "@/components/admin/channel/types";
 import {
   apiIntervalsToForm,
@@ -4567,6 +4643,11 @@ const groupPricingToAPI = (
     }));
 
 const { t } = useI18n();
+const accountTypePreferenceOptions = computed(() => [
+  { value: "default" as AccountTypePreference, label: t("admin.groups.accountRouting.default") },
+  { value: "auth_first" as AccountTypePreference, label: t("admin.groups.accountRouting.authFirst") },
+  { value: "apikey_first" as AccountTypePreference, label: t("admin.groups.accountRouting.apiFirst") },
+]);
 const appStore = useAppStore();
 const onboardingStore = useOnboardingStore();
 
@@ -5082,6 +5163,8 @@ const createForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  account_type_preference: "default" as AccountTypePreference,
+  disabled_models: [] as string[],
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5444,6 +5527,8 @@ const editForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  account_type_preference: "default" as AccountTypePreference,
+  disabled_models: [] as string[],
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5890,6 +5975,8 @@ const closeCreateModal = () => {
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
+  createForm.account_type_preference = "default";
+  createForm.disabled_models = [];
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
@@ -6152,6 +6239,9 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.exact_model_mappings;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
+  editForm.account_type_preference =
+    group.account_type_preference ?? "default";
+  editForm.disabled_models = [...(group.disabled_models ?? [])];
   editForm.model_routing_enabled = group.model_routing_enabled || false;
   editForm.supported_model_scopes = group.supported_model_scopes || [
     "claude",
@@ -6669,6 +6759,7 @@ watch(
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
+      createForm.account_type_preference = "default";
     }
     resetDisabledBatchImagePricing(createForm);
     resetModelsListState(createModelsListState);
@@ -6719,6 +6810,7 @@ watch(
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
+      editForm.account_type_preference = "default";
     }
     resetDisabledBatchImagePricing(editForm);
     if (editingGroup.value) {

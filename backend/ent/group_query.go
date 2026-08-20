@@ -37,6 +37,7 @@ type GroupQuery struct {
 	withSubscriptions     *UserSubscriptionQuery
 	withUsageLogs         *UsageLogQuery
 	withAccounts          *AccountQuery
+	withFocusAccount      *AccountQuery
 	withAllowedUsers      *UserQuery
 	withAccountGroups     *AccountGroupQuery
 	withUserAllowedGroups *UserAllowedGroupQuery
@@ -180,6 +181,28 @@ func (_q *GroupQuery) QueryAccounts() *AccountQuery {
 			sqlgraph.From(group.Table, group.FieldID, selector),
 			sqlgraph.To(account.Table, account.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, true, group.AccountsTable, group.AccountsPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryFocusAccount chains the current query on the "focus_account" edge.
+func (_q *GroupQuery) QueryFocusAccount() *AccountQuery {
+	query := (&AccountClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, selector),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, group.FocusAccountTable, group.FocusAccountColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -450,6 +473,7 @@ func (_q *GroupQuery) Clone() *GroupQuery {
 		withSubscriptions:     _q.withSubscriptions.Clone(),
 		withUsageLogs:         _q.withUsageLogs.Clone(),
 		withAccounts:          _q.withAccounts.Clone(),
+		withFocusAccount:      _q.withFocusAccount.Clone(),
 		withAllowedUsers:      _q.withAllowedUsers.Clone(),
 		withAccountGroups:     _q.withAccountGroups.Clone(),
 		withUserAllowedGroups: _q.withUserAllowedGroups.Clone(),
@@ -511,6 +535,17 @@ func (_q *GroupQuery) WithAccounts(opts ...func(*AccountQuery)) *GroupQuery {
 		opt(query)
 	}
 	_q.withAccounts = query
+	return _q
+}
+
+// WithFocusAccount tells the query-builder to eager-load the nodes that are connected to
+// the "focus_account" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *GroupQuery) WithFocusAccount(opts ...func(*AccountQuery)) *GroupQuery {
+	query := (&AccountClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withFocusAccount = query
 	return _q
 }
 
@@ -625,12 +660,13 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	var (
 		nodes       = []*Group{}
 		_spec       = _q.querySpec()
-		loadedTypes = [8]bool{
+		loadedTypes = [9]bool{
 			_q.withAPIKeys != nil,
 			_q.withRedeemCodes != nil,
 			_q.withSubscriptions != nil,
 			_q.withUsageLogs != nil,
 			_q.withAccounts != nil,
+			_q.withFocusAccount != nil,
 			_q.withAllowedUsers != nil,
 			_q.withAccountGroups != nil,
 			_q.withUserAllowedGroups != nil,
@@ -689,6 +725,12 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 		if err := _q.loadAccounts(ctx, query, nodes,
 			func(n *Group) { n.Edges.Accounts = []*Account{} },
 			func(n *Group, e *Account) { n.Edges.Accounts = append(n.Edges.Accounts, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withFocusAccount; query != nil {
+		if err := _q.loadFocusAccount(ctx, query, nodes, nil,
+			func(n *Group, e *Account) { n.Edges.FocusAccount = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -906,6 +948,38 @@ func (_q *GroupQuery) loadAccounts(ctx context.Context, query *AccountQuery, nod
 	}
 	return nil
 }
+func (_q *GroupQuery) loadFocusAccount(ctx context.Context, query *AccountQuery, nodes []*Group, init func(*Group), assign func(*Group, *Account)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Group)
+	for i := range nodes {
+		if nodes[i].FocusAccountID == nil {
+			continue
+		}
+		fk := *nodes[i].FocusAccountID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(account.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "focus_account_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *GroupQuery) loadAllowedUsers(ctx context.Context, query *UserQuery, nodes []*Group, init func(*Group), assign func(*Group, *User)) error {
 	edgeIDs := make([]driver.Value, len(nodes))
 	byID := make(map[int64]*Group)
@@ -1055,6 +1129,9 @@ func (_q *GroupQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != group.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withFocusAccount != nil {
+			_spec.Node.AddColumnOnce(group.FieldFocusAccountID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {

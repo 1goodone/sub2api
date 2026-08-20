@@ -1017,6 +1017,40 @@ func (_u *GroupUpdate) SetNillableRequirePrivacySet(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (_u *GroupUpdate) SetFocusAccountID(v int64) *GroupUpdate {
+	_u.mutation.SetFocusAccountID(v)
+	return _u
+}
+
+// SetNillableFocusAccountID sets the "focus_account_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableFocusAccountID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetFocusAccountID(*v)
+	}
+	return _u
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (_u *GroupUpdate) ClearFocusAccountID() *GroupUpdate {
+	_u.mutation.ClearFocusAccountID()
+	return _u
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (_u *GroupUpdate) SetAccountTypePreference(v string) *GroupUpdate {
+	_u.mutation.SetAccountTypePreference(v)
+	return _u
+}
+
+// SetNillableAccountTypePreference sets the "account_type_preference" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAccountTypePreference(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetAccountTypePreference(*v)
+	}
+	return _u
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_u *GroupUpdate) SetDefaultMappedModel(v string) *GroupUpdate {
 	_u.mutation.SetDefaultMappedModel(v)
@@ -1056,6 +1090,18 @@ func (_u *GroupUpdate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	if v != nil {
 		_u.SetModelsListConfig(*v)
 	}
+	return _u
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (_u *GroupUpdate) SetDisabledModels(v []string) *GroupUpdate {
+	_u.mutation.SetDisabledModels(v)
+	return _u
+}
+
+// AppendDisabledModels appends value to the "disabled_models" field.
+func (_u *GroupUpdate) AppendDisabledModels(v []string) *GroupUpdate {
+	_u.mutation.AppendDisabledModels(v)
 	return _u
 }
 
@@ -1237,6 +1283,11 @@ func (_u *GroupUpdate) AddAccounts(v ...*Account) *GroupUpdate {
 	return _u.AddAccountIDs(ids...)
 }
 
+// SetFocusAccount sets the "focus_account" edge to the Account entity.
+func (_u *GroupUpdate) SetFocusAccount(v *Account) *GroupUpdate {
+	return _u.SetFocusAccountID(v.ID)
+}
+
 // AddAllowedUserIDs adds the "allowed_users" edge to the User entity by IDs.
 func (_u *GroupUpdate) AddAllowedUserIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAllowedUserIDs(ids...)
@@ -1362,6 +1413,12 @@ func (_u *GroupUpdate) RemoveAccounts(v ...*Account) *GroupUpdate {
 	return _u.RemoveAccountIDs(ids...)
 }
 
+// ClearFocusAccount clears the "focus_account" edge to the Account entity.
+func (_u *GroupUpdate) ClearFocusAccount() *GroupUpdate {
+	_u.mutation.ClearFocusAccount()
+	return _u
+}
+
 // ClearAllowedUsers clears all "allowed_users" edges to the User entity.
 func (_u *GroupUpdate) ClearAllowedUsers() *GroupUpdate {
 	_u.mutation.ClearAllowedUsers()
@@ -1475,6 +1532,11 @@ func (_u *GroupUpdate) check() error {
 	if v, ok := _u.mutation.AudioSttPricePerHour(); ok {
 		if err := group.AudioSttPricePerHourValidator(v); err != nil {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.AccountTypePreference(); ok {
+		if err := group.AccountTypePreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "account_type_preference", err: fmt.Errorf(`ent: validator failed for field "Group.account_type_preference": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
@@ -1803,6 +1865,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.RequirePrivacySet(); ok {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.AccountTypePreference(); ok {
+		_spec.SetField(group.FieldAccountTypePreference, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 	}
@@ -1811,6 +1876,14 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.DisabledModels(); ok {
+		_spec.SetField(group.FieldDisabledModels, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedDisabledModels(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, group.FieldDisabledModels, value)
+		})
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -2079,6 +2152,35 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FocusAccountCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.FocusAccountTable,
+			Columns: []string{group.FocusAccountColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FocusAccountIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.FocusAccountTable,
+			Columns: []string{group.FocusAccountColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.AllowedUsersCleared() {
@@ -3138,6 +3240,40 @@ func (_u *GroupUpdateOne) SetNillableRequirePrivacySet(v *bool) *GroupUpdateOne 
 	return _u
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (_u *GroupUpdateOne) SetFocusAccountID(v int64) *GroupUpdateOne {
+	_u.mutation.SetFocusAccountID(v)
+	return _u
+}
+
+// SetNillableFocusAccountID sets the "focus_account_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableFocusAccountID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetFocusAccountID(*v)
+	}
+	return _u
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (_u *GroupUpdateOne) ClearFocusAccountID() *GroupUpdateOne {
+	_u.mutation.ClearFocusAccountID()
+	return _u
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (_u *GroupUpdateOne) SetAccountTypePreference(v string) *GroupUpdateOne {
+	_u.mutation.SetAccountTypePreference(v)
+	return _u
+}
+
+// SetNillableAccountTypePreference sets the "account_type_preference" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAccountTypePreference(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAccountTypePreference(*v)
+	}
+	return _u
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_u *GroupUpdateOne) SetDefaultMappedModel(v string) *GroupUpdateOne {
 	_u.mutation.SetDefaultMappedModel(v)
@@ -3177,6 +3313,18 @@ func (_u *GroupUpdateOne) SetNillableModelsListConfig(v *domain.GroupModelsListC
 	if v != nil {
 		_u.SetModelsListConfig(*v)
 	}
+	return _u
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (_u *GroupUpdateOne) SetDisabledModels(v []string) *GroupUpdateOne {
+	_u.mutation.SetDisabledModels(v)
+	return _u
+}
+
+// AppendDisabledModels appends value to the "disabled_models" field.
+func (_u *GroupUpdateOne) AppendDisabledModels(v []string) *GroupUpdateOne {
+	_u.mutation.AppendDisabledModels(v)
 	return _u
 }
 
@@ -3358,6 +3506,11 @@ func (_u *GroupUpdateOne) AddAccounts(v ...*Account) *GroupUpdateOne {
 	return _u.AddAccountIDs(ids...)
 }
 
+// SetFocusAccount sets the "focus_account" edge to the Account entity.
+func (_u *GroupUpdateOne) SetFocusAccount(v *Account) *GroupUpdateOne {
+	return _u.SetFocusAccountID(v.ID)
+}
+
 // AddAllowedUserIDs adds the "allowed_users" edge to the User entity by IDs.
 func (_u *GroupUpdateOne) AddAllowedUserIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAllowedUserIDs(ids...)
@@ -3481,6 +3634,12 @@ func (_u *GroupUpdateOne) RemoveAccounts(v ...*Account) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearFocusAccount clears the "focus_account" edge to the Account entity.
+func (_u *GroupUpdateOne) ClearFocusAccount() *GroupUpdateOne {
+	_u.mutation.ClearFocusAccount()
+	return _u
 }
 
 // ClearAllowedUsers clears all "allowed_users" edges to the User entity.
@@ -3609,6 +3768,11 @@ func (_u *GroupUpdateOne) check() error {
 	if v, ok := _u.mutation.AudioSttPricePerHour(); ok {
 		if err := group.AudioSttPricePerHourValidator(v); err != nil {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.AccountTypePreference(); ok {
+		if err := group.AccountTypePreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "account_type_preference", err: fmt.Errorf(`ent: validator failed for field "Group.account_type_preference": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
@@ -3954,6 +4118,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	if value, ok := _u.mutation.RequirePrivacySet(); ok {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.AccountTypePreference(); ok {
+		_spec.SetField(group.FieldAccountTypePreference, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 	}
@@ -3962,6 +4129,14 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.DisabledModels(); ok {
+		_spec.SetField(group.FieldDisabledModels, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedDisabledModels(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, group.FieldDisabledModels, value)
+		})
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -4230,6 +4405,35 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FocusAccountCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.FocusAccountTable,
+			Columns: []string{group.FocusAccountColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FocusAccountIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.FocusAccountTable,
+			Columns: []string{group.FocusAccountColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.AllowedUsersCleared() {

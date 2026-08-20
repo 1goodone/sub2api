@@ -68,6 +68,8 @@ var openAIAdvancedSchedulerSettingSF singleflight.Group
 
 type OpenAIAccountScheduleRequest struct {
 	GroupID                 *int64
+	FocusAccountID          int64
+	AccountTypePreference   string
 	Platform                string
 	SessionHash             string
 	StickyAccountID         int64
@@ -86,6 +88,30 @@ type OpenAIAccountScheduleRequest struct {
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
 	RequireCompact bool
 	ExcludedIDs    map[int64]struct{}
+}
+
+func (r OpenAIAccountScheduleRequest) routingGroup() *Group {
+	var focusAccountID *int64
+	if r.FocusAccountID > 0 {
+		id := r.FocusAccountID
+		focusAccountID = &id
+	}
+	return &Group{
+		FocusAccountID:        focusAccountID,
+		AccountTypePreference: r.AccountTypePreference,
+	}
+}
+
+func (r OpenAIAccountScheduleRequest) focusOverridesSticky() bool {
+	return r.FocusAccountID > 0 && r.FocusAccountID != r.StickyAccountID
+}
+
+func (r OpenAIAccountScheduleRequest) routingOverridesStickyAccount(account *Account) bool {
+	accountID := r.StickyAccountID
+	if account != nil {
+		accountID = account.ID
+	}
+	return groupRoutingOverridesSticky(r.routingGroup(), accountID, account, nil)
 }
 
 type OpenAIAccountScheduleDecision struct {
@@ -403,6 +429,13 @@ func (s *defaultOpenAIAccountScheduler) Select(
 				selection = nil
 			}
 		}
+		if selection != nil && selection.Account != nil &&
+			req.PreviousResponseCanMove && req.routingOverridesStickyAccount(selection.Account) {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			selection = nil
+		}
 		if selection != nil && selection.Account != nil {
 			decision.Layer = openAIAccountScheduleLayerPreviousResponse
 			decision.StickyPreviousHit = true
@@ -500,6 +533,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, false, nil
+	}
+	if req.routingOverridesStickyAccount(account) {
 		return nil, false, nil
 	}
 	// Free-tier soft gate: sticky session must not pin an over-quota free OAuth account.
@@ -607,14 +643,15 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
-	account   *Account
-	loadInfo  *AccountLoadInfo
-	loadKnown bool
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	account     *Account
+	loadInfo    *AccountLoadInfo
+	loadKnown   bool
+	routingRank int
+	score       float64
+	priority    int
+	errorRate   float64
+	ttft        float64
+	hasTTFT     bool
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -649,6 +686,9 @@ func (h *openAIAccountCandidateHeap) Pop() any {
 }
 
 func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right openAIAccountCandidateScore) bool {
+	if left.routingRank != right.routingRank {
+		return left.routingRank < right.routingRank
+	}
 	if left.score != right.score {
 		return left.score > right.score
 	}
@@ -815,6 +855,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	filtered []*Account,
 	loadMap map[int64]*AccountLoadInfo,
 ) openAIAccountLoadPlan {
+	routingGroup := req.routingGroup()
 	allCandidates := make([]openAIAccountCandidateScore, 0, len(filtered))
 	for _, account := range filtered {
 		loadInfo, loadKnown := loadMap[account.ID]
@@ -827,12 +868,13 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			errorRate, ttft, hasTTFT = s.stats.snapshot(account.ID)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
-			account:   account,
-			loadInfo:  loadInfo,
-			loadKnown: loadKnown,
-			errorRate: errorRate,
-			ttft:      ttft,
-			hasTTFT:   hasTTFT,
+			account:     account,
+			loadInfo:    loadInfo,
+			loadKnown:   loadKnown,
+			routingRank: accountRoutingPreferenceRank(routingGroup, account),
+			errorRate:   errorRate,
+			ttft:        ttft,
+			hasTTFT:     hasTTFT,
 		})
 	}
 
@@ -854,6 +896,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		candidates:                candidates,
 		staleSnapshotCompactRetry: staleSnapshotCompactRetry,
 		candidateCount:            len(candidates),
+		includeOverflowFallback:   groupHasAccountRoutingPreference(routingGroup),
 	}
 	if len(candidates) == 0 {
 		plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
@@ -985,7 +1028,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
 				item.score += weights.Previous
 			}
-			if req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
+			if !req.focusOverridesSticky() && req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
 				item.score += weights.SessionSticky
 			}
 		}
@@ -1008,7 +1051,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	buildTierOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
@@ -1019,7 +1062,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		ranked := selectTopKOpenAICandidates(pool, groupTopK)
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
-			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+			stickyIDs := []int64{req.StickyPreviousAccountID}
+			if !req.focusOverridesSticky() {
+				stickyIDs = append(stickyIDs, req.StickyAccountID)
+			}
+			for _, stickyID := range stickyIDs {
 				if stickyID <= 0 {
 					continue
 				}
@@ -1057,6 +1104,25 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		})
 		return append(primary, overflow...)
 	}
+	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if len(pool) <= 1 || !groupHasAccountRoutingPreference(req.routingGroup()) {
+			return buildTierOrder(pool)
+		}
+		ordered := append([]openAIAccountCandidateScore(nil), pool...)
+		sort.SliceStable(ordered, func(i, j int) bool {
+			return ordered[i].routingRank < ordered[j].routingRank
+		})
+		result := make([]openAIAccountCandidateScore, 0, len(ordered))
+		for start := 0; start < len(ordered); {
+			end := start + 1
+			for end < len(ordered) && ordered[end].routingRank == ordered[start].routingRank {
+				end++
+			}
+			result = append(result, buildTierOrder(ordered[start:end])...)
+			start = end
+		}
+		return result
+	}
 
 	if req.RequireCompact {
 		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
@@ -1088,6 +1154,9 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
+		if a.routingRank != b.routingRank {
+			return a.routingRank < b.routingRank
+		}
 		if a.account.Priority != b.account.Priority {
 			return a.account.Priority < b.account.Priority
 		}
@@ -1395,7 +1464,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
-		account := &accounts[i]
+		account := normalizeCodexQuotaOverdraftAccountForScheduling(ctx, &accounts[i])
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
 				filterStats.exclude("excluded")
@@ -1447,7 +1516,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 	}
 
-	if req.SubscriptionPriority {
+	if req.SubscriptionPriority && !groupHasAccountRoutingPreference(req.routingGroup()) {
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
 		if len(subscriptionAccounts) > 0 {
 			attempt := s.trySelectByLoadBalancePool(ctx, req, subscriptionAccounts, loadMap, budget)
@@ -2237,9 +2306,20 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if stickyWeighted && previousResponseCanMove && strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
 		stickyPreviousAccountID = s.ResolveAccountIDByPreviousResponseIDForScheduler(ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact)
 	}
+	routingGroup := openAIAccountRoutingGroup(ctx, groupID)
+	focusAccountID := int64(0)
+	accountTypePreference := AccountTypePreferenceDefault
+	if routingGroup != nil {
+		if routingGroup.FocusAccountID != nil {
+			focusAccountID = *routingGroup.FocusAccountID
+		}
+		accountTypePreference = groupAccountTypePreference(routingGroup)
+	}
 
 	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
+		FocusAccountID:          focusAccountID,
+		AccountTypePreference:   accountTypePreference,
 		Platform:                platform,
 		SessionHash:             sessionHash,
 		StickyAccountID:         stickyAccountID,
@@ -2299,9 +2379,10 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 	return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == requiredTransport
 }
 
-func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int) {
+func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int, requestCtx ...context.Context) {
 	if success {
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
+		s.observeCodexQuotaOverdraftScheduleSuccess(accountID, model, requestCtx)
 	}
 	scheduler := s.getOpenAIAccountScheduler(context.Background())
 	if scheduler == nil {

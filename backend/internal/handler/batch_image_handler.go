@@ -34,6 +34,15 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 		batchImageError(c, service.ErrBatchImageInvalidItems)
 		return
 	}
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, req.Model) {
+		batchImageError(c, infraerrors.New(http.StatusForbidden, "MODEL_DISABLED", groupDisabledModelMessage))
+		return
+	}
 	owner, ok := batchImageOwnerFromContext(c)
 	if !ok {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
@@ -129,6 +138,11 @@ func (h *BatchImageHandler) List(c *gin.Context) {
 }
 
 func (h *BatchImageHandler) Models(c *gin.Context) {
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
+		return
+	}
 	owner, ok := batchImageOwnerFromContext(c)
 	if !ok {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
@@ -139,6 +153,13 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 		batchImageError(c, err)
 		return
 	}
+	filtered := got.Data[:0]
+	for _, model := range got.Data {
+		if apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.ID) {
+			filtered = append(filtered, model)
+		}
+	}
+	got.Data = filtered
 	c.JSON(http.StatusOK, got)
 }
 

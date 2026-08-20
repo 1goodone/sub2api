@@ -1,22 +1,21 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
-    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
-
+  <div class="app-shell min-h-screen bg-[#edf2f7] dark:bg-dark-950">
     <!-- Sidebar -->
     <AppSidebar />
 
     <!-- Main Content Area -->
     <div
       class="relative min-h-screen transition-all duration-300"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
+      :class="[sidebarCollapsed ? 'lg:ml-[88px]' : 'lg:ml-[272px]']"
     >
       <!-- Header -->
       <AppHeader />
 
       <!-- Main Content -->
-      <main class="p-4 md:p-6 lg:p-8">
-        <slot />
+      <main class="px-3 py-5 sm:px-4 md:px-5 lg:px-4 lg:pb-7 lg:pt-6">
+        <div class="mx-auto max-w-[1600px]">
+          <slot />
+        </div>
       </main>
     </div>
   </div>

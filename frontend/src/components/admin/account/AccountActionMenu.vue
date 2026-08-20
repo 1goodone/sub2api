@@ -41,6 +41,15 @@
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}
             </button>
+            <button
+              v-if="isOpenAIOAuthParent"
+              :disabled="codexOverdraftLoading"
+              @click="$emit('toggle-codex-overdraft', account); $emit('close')"
+              class="flex w-full items-center gap-2 px-4 py-2 text-sm text-cyan-600 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-cyan-400 dark:hover:bg-dark-700"
+            >
+              <Icon :name="codexOverdraftLoading ? 'refresh' : 'beaker'" size="sm" :class="{ 'animate-spin': codexOverdraftLoading }" />
+              {{ t(account.extra?.codex_quota_overdraft_enabled === true ? 'admin.accounts.codexQuotaOverdraftDisable' : 'admin.accounts.codexQuotaOverdraftEnable') }}
+            </button>
             <button v-if="supportsPrivacy" @click="$emit('set-privacy', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="shield" size="sm" />
               {{ t('admin.accounts.setPrivacy') }}
@@ -67,8 +76,13 @@ import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 
-const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
+const props = withDefaults(defineProps<{
+  show: boolean
+  account: Account | null
+  position: { top: number; left: number } | null
+  codexOverdraftLoading?: boolean
+}>(), { codexOverdraftLoading: false })
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'toggle-codex-overdraft'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false

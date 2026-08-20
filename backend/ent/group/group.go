@@ -122,12 +122,18 @@ const (
 	FieldRequireOauthOnly = "require_oauth_only"
 	// FieldRequirePrivacySet holds the string denoting the require_privacy_set field in the database.
 	FieldRequirePrivacySet = "require_privacy_set"
+	// FieldFocusAccountID holds the string denoting the focus_account_id field in the database.
+	FieldFocusAccountID = "focus_account_id"
+	// FieldAccountTypePreference holds the string denoting the account_type_preference field in the database.
+	FieldAccountTypePreference = "account_type_preference"
 	// FieldDefaultMappedModel holds the string denoting the default_mapped_model field in the database.
 	FieldDefaultMappedModel = "default_mapped_model"
 	// FieldMessagesDispatchModelConfig holds the string denoting the messages_dispatch_model_config field in the database.
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldDisabledModels holds the string denoting the disabled_models field in the database.
+	FieldDisabledModels = "disabled_models"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// FieldMaxReasoningEffort holds the string denoting the max_reasoning_effort field in the database.
@@ -150,6 +156,8 @@ const (
 	EdgeUsageLogs = "usage_logs"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
+	// EdgeFocusAccount holds the string denoting the focus_account edge name in mutations.
+	EdgeFocusAccount = "focus_account"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
 	EdgeAllowedUsers = "allowed_users"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
@@ -191,6 +199,13 @@ const (
 	// AccountsInverseTable is the table name for the Account entity.
 	// It exists in this package in order to avoid circular dependency with the "account" package.
 	AccountsInverseTable = "accounts"
+	// FocusAccountTable is the table that holds the focus_account relation/edge.
+	FocusAccountTable = "groups"
+	// FocusAccountInverseTable is the table name for the Account entity.
+	// It exists in this package in order to avoid circular dependency with the "account" package.
+	FocusAccountInverseTable = "accounts"
+	// FocusAccountColumn is the table column denoting the focus_account relation/edge.
+	FocusAccountColumn = "focus_account_id"
 	// AllowedUsersTable is the table that holds the allowed_users relation/edge. The primary key declared below.
 	AllowedUsersTable = "user_allowed_groups"
 	// AllowedUsersInverseTable is the table name for the User entity.
@@ -268,9 +283,12 @@ var Columns = []string{
 	FieldAllowLive,
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
+	FieldFocusAccountID,
+	FieldAccountTypePreference,
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldDisabledModels,
 	FieldRpmLimit,
 	FieldMaxReasoningEffort,
 	FieldReasoningEffortMappings,
@@ -390,6 +408,10 @@ var (
 	DefaultRequireOauthOnly bool
 	// DefaultRequirePrivacySet holds the default value on creation for the "require_privacy_set" field.
 	DefaultRequirePrivacySet bool
+	// DefaultAccountTypePreference holds the default value on creation for the "account_type_preference" field.
+	DefaultAccountTypePreference string
+	// AccountTypePreferenceValidator is a validator for the "account_type_preference" field. It is called by the builders before save.
+	AccountTypePreferenceValidator func(string) error
 	// DefaultDefaultMappedModel holds the default value on creation for the "default_mapped_model" field.
 	DefaultDefaultMappedModel string
 	// DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
@@ -398,6 +420,8 @@ var (
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
 	DefaultModelsListConfig domain.GroupModelsListConfig
+	// DefaultDisabledModels holds the default value on creation for the "disabled_models" field.
+	DefaultDisabledModels []string
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 	// DefaultMaxReasoningEffort holds the default value on creation for the "max_reasoning_effort" field.
@@ -667,6 +691,16 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRequirePrivacySet, opts...).ToFunc()
 }
 
+// ByFocusAccountID orders the results by the focus_account_id field.
+func ByFocusAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFocusAccountID, opts...).ToFunc()
+}
+
+// ByAccountTypePreference orders the results by the account_type_preference field.
+func ByAccountTypePreference(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountTypePreference, opts...).ToFunc()
+}
+
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
@@ -767,6 +801,13 @@ func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByFocusAccountField orders the results by focus_account field.
+func ByFocusAccountField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFocusAccountStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByAllowedUsersCount orders the results by allowed_users count.
 func ByAllowedUsersCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -841,6 +882,13 @@ func newAccountsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, AccountsTable, AccountsPrimaryKey...),
+	)
+}
+func newFocusAccountStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(FocusAccountInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, FocusAccountTable, FocusAccountColumn),
 	)
 }
 func newAllowedUsersStep() *sqlgraph.Step {

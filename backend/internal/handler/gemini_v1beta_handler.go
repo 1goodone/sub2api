@@ -48,7 +48,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
 	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+		models := antigravity.FallbackGeminiModelsList()
+		filtered := models.Models[:0]
+		for _, model := range models.Models {
+			if apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.Name) {
+				filtered = append(filtered, model)
+			}
+		}
+		models.Models = filtered
+		c.JSON(http.StatusOK, models)
 		return
 	}
 
@@ -58,7 +66,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
 			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.FallbackModelsList())
+			models := gemini.FallbackModelsList()
+			filtered := models.Models[:0]
+			for _, model := range models.Models {
+				if apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.Name) {
+					filtered = append(filtered, model)
+				}
+			}
+			models.Models = filtered
+			c.JSON(http.StatusOK, models)
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -72,9 +88,23 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		models := gemini.FallbackModelsList()
+		filtered := models.Models[:0]
+		for _, model := range models.Models {
+			if apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.Name) {
+				filtered = append(filtered, model)
+			}
+		}
+		models.Models = filtered
+		c.JSON(http.StatusOK, models)
 		return
 	}
+	filteredBody, err := filterGeminiModelsBody(res.Body, apiKey.Group)
+	if err != nil {
+		googleError(c, http.StatusBadGateway, "Invalid upstream models response")
+		return
+	}
+	res.Body = filteredBody
 	writeUpstreamResponse(c, res)
 }
 
@@ -102,6 +132,10 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	// 见 service/upstream_path_guard.go。
 	if !service.IsSafeGeminiModelPathSegment(modelName) {
 		googleError(c, http.StatusBadRequest, "Invalid model in URL")
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, modelName) {
+		googleError(c, http.StatusForbidden, groupDisabledModelMessage)
 		return
 	}
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
@@ -179,6 +213,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 先在入口校验片段合规性，见 service/upstream_path_guard.go。
 	if !service.IsSafeGeminiModelPathSegment(modelName) {
 		googleError(c, http.StatusBadRequest, "Invalid model in URL")
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, modelName) {
+		googleError(c, http.StatusForbidden, groupDisabledModelMessage)
 		return
 	}
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
@@ -698,6 +736,38 @@ func googleError(c *gin.Context, status int, message string) {
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})
+}
+
+func filterGeminiModelsBody(body []byte, group *service.Group) ([]byte, error) {
+	if group == nil || len(group.DisabledModels) == 0 {
+		return body, nil
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+	var models []json.RawMessage
+	if err := json.Unmarshal(envelope["models"], &models); err != nil {
+		return nil, err
+	}
+	filtered := make([]json.RawMessage, 0, len(models))
+	for _, rawModel := range models {
+		var model struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(rawModel, &model); err != nil || !group.IsModelDisabled(model.Name) {
+			filtered = append(filtered, rawModel)
+		}
+	}
+	if len(filtered) == len(models) {
+		return body, nil
+	}
+	encoded, err := json.Marshal(filtered)
+	if err != nil {
+		return nil, err
+	}
+	envelope["models"] = encoded
+	return json.Marshal(envelope)
 }
 
 func writeUpstreamResponse(c *gin.Context, res *service.UpstreamHTTPResult) {

@@ -15,7 +15,8 @@ import {
   probeUpstreamBilling,
   probeUpstreamBillingBatch,
   setUpstreamBillingProbeEnabled,
-  updateUpstreamBillingProbeSettings
+  updateUpstreamBillingProbeSettings,
+  setCodexQuotaOverdraftEnabled
 } from '@/api/admin/accounts'
 
 describe('admin account upstream billing probe API', () => {
@@ -49,5 +50,12 @@ describe('admin account upstream billing probe API', () => {
     expect(put).toHaveBeenCalledWith('/admin/accounts/7/upstream-billing-probe', { enabled: true })
     expect(post).toHaveBeenNthCalledWith(1, '/admin/accounts/7/upstream-billing-probe')
     expect(post).toHaveBeenNthCalledWith(2, '/admin/accounts/upstream-billing-probe/batch', { account_ids: [7] })
+  })
+
+  it('uses the per-account Codex overdraft endpoint', async () => {
+    put.mockResolvedValueOnce({ data: { id: 8, extra: { codex_quota_overdraft_enabled: true } } })
+
+    await expect(setCodexQuotaOverdraftEnabled(8, true)).resolves.toMatchObject({ id: 8 })
+    expect(put).toHaveBeenCalledWith('/admin/accounts/8/codex-quota-overdraft', { enabled: true })
   })
 })

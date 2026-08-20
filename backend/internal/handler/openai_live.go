@@ -44,6 +44,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(gjson.GetBytes(request.Session, "model").String())
+	if model == "" {
+		model = "gpt-live"
+	}
 	if !compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live only supports OpenAI models for Composite groups")
 		return
@@ -55,6 +58,10 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 			return
 		}
 		request.Session = rewrittenSession
+	}
+	if !apiKeyAllowsModel(c, apiKey, model) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
 	}
 	reqLog := requestLogger(
 		c,

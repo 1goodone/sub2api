@@ -161,6 +161,9 @@ func OpenAICompactKeepaliveAdjustedWrittenSize(c *gin.Context) int {
 	if c == nil || c.Writer == nil {
 		return -1
 	}
+	if size, ok := codexQuotaOverdraftSilentAdjustedWrittenSize(c); ok {
+		return size
+	}
 	streamKeepaliveBytes := 0
 	if value, ok := c.Get(openAIStreamKeepaliveBytesKey); ok {
 		streamKeepaliveBytes, _ = value.(int)

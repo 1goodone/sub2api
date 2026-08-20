@@ -169,6 +169,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	body = parsedReq.Body.Bytes()
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
+	if reqModel == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, reqModel) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
@@ -1088,14 +1096,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
+			availableModels = filterAPIKeyModels(apiKey, availableModels)
 			writeCustomModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
 		if len(availableModels) > 0 {
+			availableModels = filterAPIKeyModels(apiKey, availableModels)
 			writeModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
+		writeModelsList(c, service.PlatformComposite, filterAPIKeyModels(apiKey, defaultModelIDsForPlatform(service.PlatformComposite)))
 		return
 	}
 
@@ -1104,40 +1114,45 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		availableModels = filterAPIKeyModels(apiKey, availableModels)
 		writeCustomModelsList(c, platform, availableModels)
 		return
 	}
 
 	if len(availableModels) > 0 {
+		availableModels = filterAPIKeyModels(apiKey, availableModels)
 		writeModelsList(c, platform, availableModels)
 		return
 	}
 
 	// Fallback to default models
 	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
+		writeOpenAIModelsList(c, filterAPIKeyModels(apiKey, defaultModelIDsForPlatform(service.PlatformOpenAI)))
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
+		models := make([]geminicli.Model, 0, len(geminicli.DefaultModels))
+		for _, model := range geminicli.DefaultModels {
+			if apiKey == nil || apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.ID) {
+				models = append(models, model)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
 		return
 	}
 	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
+		writeGrokModelsList(c, filterAPIKeyModels(apiKey, xai.DefaultModelIDs()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   claude.DefaultModels,
-	})
+	models := make([]claude.Model, 0, len(claude.DefaultModels))
+	for _, model := range claude.DefaultModels {
+		if apiKey == nil || apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.ID) {
+			models = append(models, model)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
 }
 
 func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
@@ -1415,9 +1430,17 @@ func mergeModelIDs(primary, secondary []string) []string {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+	models := antigravity.DefaultModels()
+	filtered := models[:0]
+	for _, model := range models {
+		if apiKey == nil || apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.ID) {
+			filtered = append(filtered, model)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   antigravity.DefaultModels(),
+		"data":   filtered,
 	})
 }
 
@@ -2014,6 +2037,14 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 	body = parsedReq.Body.Bytes()
+	if parsedReq.Model == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, parsedReq.Model) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
 	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
 	SetClaudeCodeClientContext(c, body, parsedReq)
 	ensureCompositeTargetPlatform(c, apiKey, parsedReq.Model)
@@ -2021,11 +2052,6 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
 	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
-	// 验证 model 必填
-	if parsedReq.Model == "" {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return
-	}
 	if !compositeTargetPlatformResolved(c, apiKey, parsedReq.Model) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return

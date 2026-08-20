@@ -16,6 +16,7 @@ import (
 
 func profitAuthTestAPIKey() *APIKey {
 	groupID := int64(50)
+	focusAccountID := int64(501)
 	return &APIKey{
 		ID:      82,
 		UserID:  40,
@@ -29,17 +30,20 @@ func profitAuthTestAPIKey() *APIKey {
 			Concurrency: 5,
 		},
 		Group: &Group{
-			ID:                   groupID,
-			Name:                 "VIP-roundtrip",
-			Platform:             PlatformOpenAI,
-			Status:               StatusActive,
-			Hydrated:             true,
-			RateMultiplier:       0.06,
-			SubscriptionType:     SubscriptionTypeStandard,
-			PeakRateEnabled:      false,
-			ProfitControlEnabled: true,
-			ProfitMinMargin:      0.2,
-			ProfitSafetyBuffer:   0.05,
+			ID:                    groupID,
+			Name:                  "VIP-roundtrip",
+			Platform:              PlatformOpenAI,
+			Status:                StatusActive,
+			Hydrated:              true,
+			RateMultiplier:        0.06,
+			SubscriptionType:      SubscriptionTypeStandard,
+			PeakRateEnabled:       false,
+			ProfitControlEnabled:  true,
+			ProfitMinMargin:       0.2,
+			ProfitSafetyBuffer:    0.05,
+			DisabledModels:        []string{"gpt-5.4"},
+			FocusAccountID:        &focusAccountID,
+			AccountTypePreference: AccountTypePreferenceAuthFirst,
 		},
 	}
 }
@@ -53,7 +57,7 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
 	require.NotNil(t, snapshot)
 	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
-	require.Equal(t, 20, snapshot.Version, "v20 起认证快照携带分组长上下文与模型定价字段")
+	require.Equal(t, 22, snapshot.Version, "v22 起认证快照携带分组账号路由偏好")
 
 	// 模拟 L2 缓存的完整 JSON 往返（与 apiKeyCache.SetAuthCache/GetAuthCache 同构）。
 	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
@@ -70,6 +74,10 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.InDelta(t, 0.2, materialized.Group.ProfitMinMargin, 1e-12)
 	require.InDelta(t, 0.05, materialized.Group.ProfitSafetyBuffer, 1e-12)
 	require.InDelta(t, 0.06, materialized.Group.RateMultiplier, 1e-12)
+	require.True(t, materialized.Group.IsModelDisabled("GPT-5.4"))
+	require.NotNil(t, materialized.Group.FocusAccountID)
+	require.Equal(t, int64(501), *materialized.Group.FocusAccountID)
+	require.Equal(t, AccountTypePreferenceAuthFirst, materialized.Group.AccountTypePreference)
 
 	// 中间件语义：materialized.Group 进请求 ctx → 门必须按快照配置装上。
 	ctx := context.WithValue(context.Background(), ctxkey.Group, materialized.Group)

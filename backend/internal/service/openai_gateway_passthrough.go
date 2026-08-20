@@ -465,6 +465,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	body = s.prepareCodexQuotaOverdraftBody(ctx, account, isOpenAIResponsesCompactPath(c), body)
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -922,6 +923,9 @@ func recordOpenAIStreamKeepaliveBytes(c *gin.Context, written int) {
 }
 
 func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
+	if codexQuotaOverdraftSilentResponseActive(c) {
+		return false
+	}
 	if localStarted {
 		return true
 	}

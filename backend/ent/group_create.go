@@ -732,6 +732,34 @@ func (_c *GroupCreate) SetNillableRequirePrivacySet(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (_c *GroupCreate) SetFocusAccountID(v int64) *GroupCreate {
+	_c.mutation.SetFocusAccountID(v)
+	return _c
+}
+
+// SetNillableFocusAccountID sets the "focus_account_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableFocusAccountID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetFocusAccountID(*v)
+	}
+	return _c
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (_c *GroupCreate) SetAccountTypePreference(v string) *GroupCreate {
+	_c.mutation.SetAccountTypePreference(v)
+	return _c
+}
+
+// SetNillableAccountTypePreference sets the "account_type_preference" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountTypePreference(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetAccountTypePreference(*v)
+	}
+	return _c
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_c *GroupCreate) SetDefaultMappedModel(v string) *GroupCreate {
 	_c.mutation.SetDefaultMappedModel(v)
@@ -771,6 +799,12 @@ func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	if v != nil {
 		_c.SetModelsListConfig(*v)
 	}
+	return _c
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (_c *GroupCreate) SetDisabledModels(v []string) *GroupCreate {
+	_c.mutation.SetDisabledModels(v)
 	return _c
 }
 
@@ -923,6 +957,11 @@ func (_c *GroupCreate) AddAccounts(v ...*Account) *GroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAccountIDs(ids...)
+}
+
+// SetFocusAccount sets the "focus_account" edge to the Account entity.
+func (_c *GroupCreate) SetFocusAccount(v *Account) *GroupCreate {
+	return _c.SetFocusAccountID(v.ID)
 }
 
 // AddAllowedUserIDs adds the "allowed_users" edge to the User entity by IDs.
@@ -1103,6 +1142,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRequirePrivacySet
 		_c.mutation.SetRequirePrivacySet(v)
 	}
+	if _, ok := _c.mutation.AccountTypePreference(); !ok {
+		v := group.DefaultAccountTypePreference
+		_c.mutation.SetAccountTypePreference(v)
+	}
 	if _, ok := _c.mutation.DefaultMappedModel(); !ok {
 		v := group.DefaultDefaultMappedModel
 		_c.mutation.SetDefaultMappedModel(v)
@@ -1114,6 +1157,10 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		v := group.DefaultModelsListConfig
 		_c.mutation.SetModelsListConfig(v)
+	}
+	if _, ok := _c.mutation.DisabledModels(); !ok {
+		v := group.DefaultDisabledModels
+		_c.mutation.SetDisabledModels(v)
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		v := group.DefaultRpmLimit
@@ -1292,6 +1339,14 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.RequirePrivacySet(); !ok {
 		return &ValidationError{Name: "require_privacy_set", err: errors.New(`ent: missing required field "Group.require_privacy_set"`)}
 	}
+	if _, ok := _c.mutation.AccountTypePreference(); !ok {
+		return &ValidationError{Name: "account_type_preference", err: errors.New(`ent: missing required field "Group.account_type_preference"`)}
+	}
+	if v, ok := _c.mutation.AccountTypePreference(); ok {
+		if err := group.AccountTypePreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "account_type_preference", err: fmt.Errorf(`ent: validator failed for field "Group.account_type_preference": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.DefaultMappedModel(); !ok {
 		return &ValidationError{Name: "default_mapped_model", err: errors.New(`ent: missing required field "Group.default_mapped_model"`)}
 	}
@@ -1305,6 +1360,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		return &ValidationError{Name: "models_list_config", err: errors.New(`ent: missing required field "Group.models_list_config"`)}
+	}
+	if _, ok := _c.mutation.DisabledModels(); !ok {
+		return &ValidationError{Name: "disabled_models", err: errors.New(`ent: missing required field "Group.disabled_models"`)}
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
@@ -1568,6 +1626,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
 		_node.RequirePrivacySet = value
 	}
+	if value, ok := _c.mutation.AccountTypePreference(); ok {
+		_spec.SetField(group.FieldAccountTypePreference, field.TypeString, value)
+		_node.AccountTypePreference = value
+	}
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 		_node.DefaultMappedModel = value
@@ -1579,6 +1641,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 		_node.ModelsListConfig = value
+	}
+	if value, ok := _c.mutation.DisabledModels(); ok {
+		_spec.SetField(group.FieldDisabledModels, field.TypeJSON, value)
+		_node.DisabledModels = value
 	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -1686,6 +1752,23 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FocusAccountIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.FocusAccountTable,
+			Columns: []string{group.FocusAccountColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.FocusAccountID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.AllowedUsersIDs(); len(nodes) > 0 {
@@ -2642,6 +2725,36 @@ func (u *GroupUpsert) UpdateRequirePrivacySet() *GroupUpsert {
 	return u
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (u *GroupUpsert) SetFocusAccountID(v int64) *GroupUpsert {
+	u.Set(group.FieldFocusAccountID, v)
+	return u
+}
+
+// UpdateFocusAccountID sets the "focus_account_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateFocusAccountID() *GroupUpsert {
+	u.SetExcluded(group.FieldFocusAccountID)
+	return u
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (u *GroupUpsert) ClearFocusAccountID() *GroupUpsert {
+	u.SetNull(group.FieldFocusAccountID)
+	return u
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (u *GroupUpsert) SetAccountTypePreference(v string) *GroupUpsert {
+	u.Set(group.FieldAccountTypePreference, v)
+	return u
+}
+
+// UpdateAccountTypePreference sets the "account_type_preference" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountTypePreference() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountTypePreference)
+	return u
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (u *GroupUpsert) SetDefaultMappedModel(v string) *GroupUpsert {
 	u.Set(group.FieldDefaultMappedModel, v)
@@ -2675,6 +2788,18 @@ func (u *GroupUpsert) SetModelsListConfig(v domain.GroupModelsListConfig) *Group
 // UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
 	u.SetExcluded(group.FieldModelsListConfig)
+	return u
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (u *GroupUpsert) SetDisabledModels(v []string) *GroupUpsert {
+	u.Set(group.FieldDisabledModels, v)
+	return u
+}
+
+// UpdateDisabledModels sets the "disabled_models" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDisabledModels() *GroupUpsert {
+	u.SetExcluded(group.FieldDisabledModels)
 	return u
 }
 
@@ -3845,6 +3970,41 @@ func (u *GroupUpsertOne) UpdateRequirePrivacySet() *GroupUpsertOne {
 	})
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (u *GroupUpsertOne) SetFocusAccountID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetFocusAccountID(v)
+	})
+}
+
+// UpdateFocusAccountID sets the "focus_account_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateFocusAccountID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateFocusAccountID()
+	})
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (u *GroupUpsertOne) ClearFocusAccountID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearFocusAccountID()
+	})
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (u *GroupUpsertOne) SetAccountTypePreference(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountTypePreference(v)
+	})
+}
+
+// UpdateAccountTypePreference sets the "account_type_preference" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountTypePreference() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountTypePreference()
+	})
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (u *GroupUpsertOne) SetDefaultMappedModel(v string) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -3884,6 +4044,20 @@ func (u *GroupUpsertOne) SetModelsListConfig(v domain.GroupModelsListConfig) *Gr
 func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (u *GroupUpsertOne) SetDisabledModels(v []string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisabledModels(v)
+	})
+}
+
+// UpdateDisabledModels sets the "disabled_models" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDisabledModels() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisabledModels()
 	})
 }
 
@@ -5235,6 +5409,41 @@ func (u *GroupUpsertBulk) UpdateRequirePrivacySet() *GroupUpsertBulk {
 	})
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (u *GroupUpsertBulk) SetFocusAccountID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetFocusAccountID(v)
+	})
+}
+
+// UpdateFocusAccountID sets the "focus_account_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateFocusAccountID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateFocusAccountID()
+	})
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (u *GroupUpsertBulk) ClearFocusAccountID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearFocusAccountID()
+	})
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (u *GroupUpsertBulk) SetAccountTypePreference(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountTypePreference(v)
+	})
+}
+
+// UpdateAccountTypePreference sets the "account_type_preference" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountTypePreference() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountTypePreference()
+	})
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (u *GroupUpsertBulk) SetDefaultMappedModel(v string) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -5274,6 +5483,20 @@ func (u *GroupUpsertBulk) SetModelsListConfig(v domain.GroupModelsListConfig) *G
 func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (u *GroupUpsertBulk) SetDisabledModels(v []string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisabledModels(v)
+	})
+}
+
+// UpdateDisabledModels sets the "disabled_models" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDisabledModels() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisabledModels()
 	})
 }
 

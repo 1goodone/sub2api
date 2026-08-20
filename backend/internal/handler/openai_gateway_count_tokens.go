@@ -143,6 +143,11 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 // The route middleware already authenticates the API key and resolves the
 // group; this handler intentionally does not select an account or check billing.
 func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok {
+		h.anthropicErrorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
@@ -166,6 +171,10 @@ func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
 	}
 	if parsedReq.Model == "" {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+	if !apiKeyAllowsModel(c, apiKey, parsedReq.Model) {
+		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
 		return
 	}
 
@@ -242,6 +251,10 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	}
 
 	reqModel := parsedReq.Model
+	if !apiKeyAllowsModel(c, apiKey, reqModel) {
+		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	// composite+grok 在路由层已分流到 GrokCountTokens，这里可达的目标平台是
 	// openai 与 CN 供应商；CN 账号由 ForwardCountTokensAsAnthropic 本地估算。

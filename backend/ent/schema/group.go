@@ -2,6 +2,7 @@ package schema
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -248,6 +249,21 @@ func (Group) Fields() []ent.Field {
 		field.Bool("require_privacy_set").
 			Default(false).
 			Comment("调度时仅允许 privacy 已成功设置的账号"),
+		field.Int64("focus_account_id").
+			Optional().
+			Nillable().
+			Comment("分组集火账号；可用时优先于普通会话粘性和其他账号"),
+		field.String("account_type_preference").
+			Default("default").
+			Validate(func(value string) error {
+				switch value {
+				case "default", "auth_first", "apikey_first":
+					return nil
+				default:
+					return fmt.Errorf("invalid account type preference %q", value)
+				}
+			}).
+			Comment("分组账号类型偏好：default/auth_first/apikey_first"),
 		field.String("default_mapped_model").
 			MaxLen(100).
 			Default("").
@@ -260,6 +276,10 @@ func (Group) Fields() []ent.Field {
 			Default(domain.GroupModelsListConfig{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度"),
+		field.JSON("disabled_models", []string{}).
+			Default([]string{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组禁用模型列表；优先于模型映射和账号调度"),
 
 		// 分组级每分钟请求数上限（0 = 不限制）。设置后优先于用户级兜底生效。
 		field.Int("rpm_limit").
@@ -301,6 +321,10 @@ func (Group) Edges() []ent.Edge {
 		edge.From("accounts", Account.Type).
 			Ref("groups").
 			Through("account_groups", AccountGroup.Type),
+		edge.To("focus_account", Account.Type).
+			Field("focus_account_id").
+			Unique().
+			Annotations(entsql.OnDelete(entsql.SetNull)),
 		edge.From("allowed_users", User.Type).
 			Ref("allowed_groups").
 			Through("user_allowed_groups", UserAllowedGroup.Type),

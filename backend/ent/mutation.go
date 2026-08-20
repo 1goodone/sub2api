@@ -22160,9 +22160,12 @@ type GroupMutation struct {
 	allow_live                              *bool
 	require_oauth_only                      *bool
 	require_privacy_set                     *bool
+	account_type_preference                 *string
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
 	models_list_config                      *domain.GroupModelsListConfig
+	disabled_models                         *[]string
+	appenddisabled_models                   []string
 	rpm_limit                               *int
 	addrpm_limit                            *int
 	max_reasoning_effort                    *string
@@ -22189,6 +22192,8 @@ type GroupMutation struct {
 	accounts                                map[int64]struct{}
 	removedaccounts                         map[int64]struct{}
 	clearedaccounts                         bool
+	focus_account                           *int64
+	clearedfocus_account                    bool
 	allowed_users                           map[int64]struct{}
 	removedallowed_users                    map[int64]struct{}
 	clearedallowed_users                    bool
@@ -25016,6 +25021,91 @@ func (m *GroupMutation) ResetRequirePrivacySet() {
 	m.require_privacy_set = nil
 }
 
+// SetFocusAccountID sets the "focus_account_id" field.
+func (m *GroupMutation) SetFocusAccountID(i int64) {
+	m.focus_account = &i
+}
+
+// FocusAccountID returns the value of the "focus_account_id" field in the mutation.
+func (m *GroupMutation) FocusAccountID() (r int64, exists bool) {
+	v := m.focus_account
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFocusAccountID returns the old "focus_account_id" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldFocusAccountID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFocusAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFocusAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFocusAccountID: %w", err)
+	}
+	return oldValue.FocusAccountID, nil
+}
+
+// ClearFocusAccountID clears the value of the "focus_account_id" field.
+func (m *GroupMutation) ClearFocusAccountID() {
+	m.focus_account = nil
+	m.clearedFields[group.FieldFocusAccountID] = struct{}{}
+}
+
+// FocusAccountIDCleared returns if the "focus_account_id" field was cleared in this mutation.
+func (m *GroupMutation) FocusAccountIDCleared() bool {
+	_, ok := m.clearedFields[group.FieldFocusAccountID]
+	return ok
+}
+
+// ResetFocusAccountID resets all changes to the "focus_account_id" field.
+func (m *GroupMutation) ResetFocusAccountID() {
+	m.focus_account = nil
+	delete(m.clearedFields, group.FieldFocusAccountID)
+}
+
+// SetAccountTypePreference sets the "account_type_preference" field.
+func (m *GroupMutation) SetAccountTypePreference(s string) {
+	m.account_type_preference = &s
+}
+
+// AccountTypePreference returns the value of the "account_type_preference" field in the mutation.
+func (m *GroupMutation) AccountTypePreference() (r string, exists bool) {
+	v := m.account_type_preference
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountTypePreference returns the old "account_type_preference" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAccountTypePreference(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountTypePreference is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountTypePreference requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountTypePreference: %w", err)
+	}
+	return oldValue.AccountTypePreference, nil
+}
+
+// ResetAccountTypePreference resets all changes to the "account_type_preference" field.
+func (m *GroupMutation) ResetAccountTypePreference() {
+	m.account_type_preference = nil
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (m *GroupMutation) SetDefaultMappedModel(s string) {
 	m.default_mapped_model = &s
@@ -25122,6 +25212,57 @@ func (m *GroupMutation) OldModelsListConfig(ctx context.Context) (v domain.Group
 // ResetModelsListConfig resets all changes to the "models_list_config" field.
 func (m *GroupMutation) ResetModelsListConfig() {
 	m.models_list_config = nil
+}
+
+// SetDisabledModels sets the "disabled_models" field.
+func (m *GroupMutation) SetDisabledModels(s []string) {
+	m.disabled_models = &s
+	m.appenddisabled_models = nil
+}
+
+// DisabledModels returns the value of the "disabled_models" field in the mutation.
+func (m *GroupMutation) DisabledModels() (r []string, exists bool) {
+	v := m.disabled_models
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisabledModels returns the old "disabled_models" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldDisabledModels(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisabledModels is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisabledModels requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisabledModels: %w", err)
+	}
+	return oldValue.DisabledModels, nil
+}
+
+// AppendDisabledModels adds s to the "disabled_models" field.
+func (m *GroupMutation) AppendDisabledModels(s []string) {
+	m.appenddisabled_models = append(m.appenddisabled_models, s...)
+}
+
+// AppendedDisabledModels returns the list of values that were appended to the "disabled_models" field in this mutation.
+func (m *GroupMutation) AppendedDisabledModels() ([]string, bool) {
+	if len(m.appenddisabled_models) == 0 {
+		return nil, false
+	}
+	return m.appenddisabled_models, true
+}
+
+// ResetDisabledModels resets all changes to the "disabled_models" field.
+func (m *GroupMutation) ResetDisabledModels() {
+	m.disabled_models = nil
+	m.appenddisabled_models = nil
 }
 
 // SetRpmLimit sets the "rpm_limit" field.
@@ -25685,6 +25826,33 @@ func (m *GroupMutation) ResetAccounts() {
 	m.removedaccounts = nil
 }
 
+// ClearFocusAccount clears the "focus_account" edge to the Account entity.
+func (m *GroupMutation) ClearFocusAccount() {
+	m.clearedfocus_account = true
+	m.clearedFields[group.FieldFocusAccountID] = struct{}{}
+}
+
+// FocusAccountCleared reports if the "focus_account" edge to the Account entity was cleared.
+func (m *GroupMutation) FocusAccountCleared() bool {
+	return m.FocusAccountIDCleared() || m.clearedfocus_account
+}
+
+// FocusAccountIDs returns the "focus_account" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// FocusAccountID instead. It exists only for internal usage by the builders.
+func (m *GroupMutation) FocusAccountIDs() (ids []int64) {
+	if id := m.focus_account; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetFocusAccount resets all changes to the "focus_account" edge.
+func (m *GroupMutation) ResetFocusAccount() {
+	m.focus_account = nil
+	m.clearedfocus_account = false
+}
+
 // AddAllowedUserIDs adds the "allowed_users" edge to the User entity by ids.
 func (m *GroupMutation) AddAllowedUserIDs(ids ...int64) {
 	if m.allowed_users == nil {
@@ -25773,7 +25941,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 62)
+	fields := make([]string, 0, 65)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25933,6 +26101,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.require_privacy_set != nil {
 		fields = append(fields, group.FieldRequirePrivacySet)
 	}
+	if m.focus_account != nil {
+		fields = append(fields, group.FieldFocusAccountID)
+	}
+	if m.account_type_preference != nil {
+		fields = append(fields, group.FieldAccountTypePreference)
+	}
 	if m.default_mapped_model != nil {
 		fields = append(fields, group.FieldDefaultMappedModel)
 	}
@@ -25941,6 +26115,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.models_list_config != nil {
 		fields = append(fields, group.FieldModelsListConfig)
+	}
+	if m.disabled_models != nil {
+		fields = append(fields, group.FieldDisabledModels)
 	}
 	if m.rpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
@@ -26074,12 +26251,18 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.RequireOauthOnly()
 	case group.FieldRequirePrivacySet:
 		return m.RequirePrivacySet()
+	case group.FieldFocusAccountID:
+		return m.FocusAccountID()
+	case group.FieldAccountTypePreference:
+		return m.AccountTypePreference()
 	case group.FieldDefaultMappedModel:
 		return m.DefaultMappedModel()
 	case group.FieldMessagesDispatchModelConfig:
 		return m.MessagesDispatchModelConfig()
 	case group.FieldModelsListConfig:
 		return m.ModelsListConfig()
+	case group.FieldDisabledModels:
+		return m.DisabledModels()
 	case group.FieldRpmLimit:
 		return m.RpmLimit()
 	case group.FieldMaxReasoningEffort:
@@ -26207,12 +26390,18 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldRequireOauthOnly(ctx)
 	case group.FieldRequirePrivacySet:
 		return m.OldRequirePrivacySet(ctx)
+	case group.FieldFocusAccountID:
+		return m.OldFocusAccountID(ctx)
+	case group.FieldAccountTypePreference:
+		return m.OldAccountTypePreference(ctx)
 	case group.FieldDefaultMappedModel:
 		return m.OldDefaultMappedModel(ctx)
 	case group.FieldMessagesDispatchModelConfig:
 		return m.OldMessagesDispatchModelConfig(ctx)
 	case group.FieldModelsListConfig:
 		return m.OldModelsListConfig(ctx)
+	case group.FieldDisabledModels:
+		return m.OldDisabledModels(ctx)
 	case group.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
 	case group.FieldMaxReasoningEffort:
@@ -26605,6 +26794,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRequirePrivacySet(v)
 		return nil
+	case group.FieldFocusAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFocusAccountID(v)
+		return nil
+	case group.FieldAccountTypePreference:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountTypePreference(v)
+		return nil
 	case group.FieldDefaultMappedModel:
 		v, ok := value.(string)
 		if !ok {
@@ -26625,6 +26828,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetModelsListConfig(v)
+		return nil
+	case group.FieldDisabledModels:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisabledModels(v)
 		return nil
 	case group.FieldRpmLimit:
 		v, ok := value.(int)
@@ -27091,6 +27301,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
 	}
+	if m.FieldCleared(group.FieldFocusAccountID) {
+		fields = append(fields, group.FieldFocusAccountID)
+	}
 	return fields
 }
 
@@ -27170,6 +27383,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldFocusAccountID:
+		m.ClearFocusAccountID()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -27338,6 +27554,12 @@ func (m *GroupMutation) ResetField(name string) error {
 	case group.FieldRequirePrivacySet:
 		m.ResetRequirePrivacySet()
 		return nil
+	case group.FieldFocusAccountID:
+		m.ResetFocusAccountID()
+		return nil
+	case group.FieldAccountTypePreference:
+		m.ResetAccountTypePreference()
+		return nil
 	case group.FieldDefaultMappedModel:
 		m.ResetDefaultMappedModel()
 		return nil
@@ -27346,6 +27568,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldModelsListConfig:
 		m.ResetModelsListConfig()
+		return nil
+	case group.FieldDisabledModels:
+		m.ResetDisabledModels()
 		return nil
 	case group.FieldRpmLimit:
 		m.ResetRpmLimit()
@@ -27371,7 +27596,7 @@ func (m *GroupMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *GroupMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.api_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27386,6 +27611,9 @@ func (m *GroupMutation) AddedEdges() []string {
 	}
 	if m.accounts != nil {
 		edges = append(edges, group.EdgeAccounts)
+	}
+	if m.focus_account != nil {
+		edges = append(edges, group.EdgeFocusAccount)
 	}
 	if m.allowed_users != nil {
 		edges = append(edges, group.EdgeAllowedUsers)
@@ -27427,6 +27655,10 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case group.EdgeFocusAccount:
+		if id := m.focus_account; id != nil {
+			return []ent.Value{*id}
+		}
 	case group.EdgeAllowedUsers:
 		ids := make([]ent.Value, 0, len(m.allowed_users))
 		for id := range m.allowed_users {
@@ -27439,7 +27671,7 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *GroupMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.removedapi_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27507,7 +27739,7 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *GroupMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.clearedapi_keys {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27522,6 +27754,9 @@ func (m *GroupMutation) ClearedEdges() []string {
 	}
 	if m.clearedaccounts {
 		edges = append(edges, group.EdgeAccounts)
+	}
+	if m.clearedfocus_account {
+		edges = append(edges, group.EdgeFocusAccount)
 	}
 	if m.clearedallowed_users {
 		edges = append(edges, group.EdgeAllowedUsers)
@@ -27543,6 +27778,8 @@ func (m *GroupMutation) EdgeCleared(name string) bool {
 		return m.clearedusage_logs
 	case group.EdgeAccounts:
 		return m.clearedaccounts
+	case group.EdgeFocusAccount:
+		return m.clearedfocus_account
 	case group.EdgeAllowedUsers:
 		return m.clearedallowed_users
 	}
@@ -27553,6 +27790,9 @@ func (m *GroupMutation) EdgeCleared(name string) bool {
 // if that edge is not defined in the schema.
 func (m *GroupMutation) ClearEdge(name string) error {
 	switch name {
+	case group.EdgeFocusAccount:
+		m.ClearFocusAccount()
+		return nil
 	}
 	return fmt.Errorf("unknown Group unique edge %s", name)
 }
@@ -27575,6 +27815,9 @@ func (m *GroupMutation) ResetEdge(name string) error {
 		return nil
 	case group.EdgeAccounts:
 		m.ResetAccounts()
+		return nil
+	case group.EdgeFocusAccount:
+		m.ResetFocusAccount()
 		return nil
 	case group.EdgeAllowedUsers:
 		m.ResetAllowedUsers()

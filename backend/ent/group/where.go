@@ -300,6 +300,16 @@ func RequirePrivacySet(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRequirePrivacySet, v))
 }
 
+// FocusAccountID applies equality check predicate on the "focus_account_id" field. It's identical to FocusAccountIDEQ.
+func FocusAccountID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldFocusAccountID, v))
+}
+
+// AccountTypePreference applies equality check predicate on the "account_type_preference" field. It's identical to AccountTypePreferenceEQ.
+func AccountTypePreference(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountTypePreference, v))
+}
+
 // DefaultMappedModel applies equality check predicate on the "default_mapped_model" field. It's identical to DefaultMappedModelEQ.
 func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
@@ -2290,6 +2300,101 @@ func RequirePrivacySetNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldRequirePrivacySet, v))
 }
 
+// FocusAccountIDEQ applies the EQ predicate on the "focus_account_id" field.
+func FocusAccountIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldFocusAccountID, v))
+}
+
+// FocusAccountIDNEQ applies the NEQ predicate on the "focus_account_id" field.
+func FocusAccountIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldFocusAccountID, v))
+}
+
+// FocusAccountIDIn applies the In predicate on the "focus_account_id" field.
+func FocusAccountIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldFocusAccountID, vs...))
+}
+
+// FocusAccountIDNotIn applies the NotIn predicate on the "focus_account_id" field.
+func FocusAccountIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldFocusAccountID, vs...))
+}
+
+// FocusAccountIDIsNil applies the IsNil predicate on the "focus_account_id" field.
+func FocusAccountIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldFocusAccountID))
+}
+
+// FocusAccountIDNotNil applies the NotNil predicate on the "focus_account_id" field.
+func FocusAccountIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldFocusAccountID))
+}
+
+// AccountTypePreferenceEQ applies the EQ predicate on the "account_type_preference" field.
+func AccountTypePreferenceEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceNEQ applies the NEQ predicate on the "account_type_preference" field.
+func AccountTypePreferenceNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceIn applies the In predicate on the "account_type_preference" field.
+func AccountTypePreferenceIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccountTypePreference, vs...))
+}
+
+// AccountTypePreferenceNotIn applies the NotIn predicate on the "account_type_preference" field.
+func AccountTypePreferenceNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccountTypePreference, vs...))
+}
+
+// AccountTypePreferenceGT applies the GT predicate on the "account_type_preference" field.
+func AccountTypePreferenceGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceGTE applies the GTE predicate on the "account_type_preference" field.
+func AccountTypePreferenceGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceLT applies the LT predicate on the "account_type_preference" field.
+func AccountTypePreferenceLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceLTE applies the LTE predicate on the "account_type_preference" field.
+func AccountTypePreferenceLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceContains applies the Contains predicate on the "account_type_preference" field.
+func AccountTypePreferenceContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceHasPrefix applies the HasPrefix predicate on the "account_type_preference" field.
+func AccountTypePreferenceHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceHasSuffix applies the HasSuffix predicate on the "account_type_preference" field.
+func AccountTypePreferenceHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceEqualFold applies the EqualFold predicate on the "account_type_preference" field.
+func AccountTypePreferenceEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldAccountTypePreference, v))
+}
+
+// AccountTypePreferenceContainsFold applies the ContainsFold predicate on the "account_type_preference" field.
+func AccountTypePreferenceContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldAccountTypePreference, v))
+}
+
 // DefaultMappedModelEQ applies the EQ predicate on the "default_mapped_model" field.
 func DefaultMappedModelEQ(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
@@ -2657,6 +2762,29 @@ func HasAccounts() predicate.Group {
 func HasAccountsWith(preds ...predicate.Account) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newAccountsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasFocusAccount applies the HasEdge predicate on the "focus_account" edge.
+func HasFocusAccount() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, FocusAccountTable, FocusAccountColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasFocusAccountWith applies the HasEdge predicate on the "focus_account" edge with a given conditions (other predicates).
+func HasFocusAccountWith(preds ...predicate.Account) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newFocusAccountStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

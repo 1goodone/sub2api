@@ -61,6 +61,10 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	accountTypePreference := groupIn.AccountTypePreference
+	if accountTypePreference == "" {
+		accountTypePreference = service.AccountTypePreferenceDefault
+	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
@@ -105,9 +109,12 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetAllowLive(groupIn.AllowLive).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
+		SetNillableFocusAccountID(groupIn.FocusAccountID).
+		SetAccountTypePreference(accountTypePreference).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
+		SetDisabledModels(groupIn.DisabledModels).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetMaxReasoningEffort(groupIn.MaxReasoningEffort).
 		SetReasoningEffortMappings(groupIn.ReasoningEffortMappings).
@@ -245,6 +252,10 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	accountTypePreference := groupIn.AccountTypePreference
+	if accountTypePreference == "" {
+		accountTypePreference = service.AccountTypePreferenceDefault
+	}
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
@@ -281,9 +292,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetAllowLive(groupIn.AllowLive).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
+		SetAccountTypePreference(accountTypePreference).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
+		SetDisabledModels(groupIn.DisabledModels).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetMaxReasoningEffort(groupIn.MaxReasoningEffort).
 		SetReasoningEffortMappings(groupIn.ReasoningEffortMappings).
@@ -345,6 +358,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetWebSearchPricePerCall(*groupIn.WebSearchPricePerCall)
 	} else {
 		builder = builder.ClearWebSearchPricePerCall()
+	}
+	if groupIn.FocusAccountID != nil {
+		builder = builder.SetFocusAccountID(*groupIn.FocusAccountID)
+	} else {
+		builder = builder.ClearFocusAccountID()
 	}
 	if groupIn.SearchPricePer1k != nil {
 		builder = builder.SetSearchPricePer1k(*groupIn.SearchPricePer1k)

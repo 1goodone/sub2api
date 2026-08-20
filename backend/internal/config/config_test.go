@@ -570,6 +570,20 @@ func TestLoadOpenAICompactModelFromEnv(t *testing.T) {
 	require.Equal(t, "gpt-5.3-codex", cfg.Gateway.OpenAICompactModel)
 }
 
+func TestLoadCodexQuotaOverdraftSwitch(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.CodexQuotaOverdraftEnabled)
+
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED", "true")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.CodexQuotaOverdraftEnabled)
+}
+
 func TestLoadDefaultGrokFreeQuotaSoftGate(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

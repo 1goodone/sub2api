@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -125,12 +126,18 @@ type Group struct {
 	RequireOauthOnly bool `json:"require_oauth_only,omitempty"`
 	// 调度时仅允许 privacy 已成功设置的账号
 	RequirePrivacySet bool `json:"require_privacy_set,omitempty"`
+	// 分组集火账号；可用时优先于普通会话粘性和其他账号
+	FocusAccountID *int64 `json:"focus_account_id,omitempty"`
+	// 分组账号类型偏好：default/auth_first/apikey_first
+	AccountTypePreference string `json:"account_type_preference,omitempty"`
 	// 默认映射模型 ID，当账号级映射找不到时使用此值
 	DefaultMappedModel string `json:"default_mapped_model,omitempty"`
 	// OpenAI Messages 调度模型配置：按 Claude 系列/精确模型映射到目标 GPT 模型
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	// 自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度
 	ModelsListConfig domain.GroupModelsListConfig `json:"models_list_config,omitempty"`
+	// 分组禁用模型列表；优先于模型映射和账号调度
+	DisabledModels []string `json:"disabled_models,omitempty"`
 	// 分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流
 	RpmLimit int `json:"rpm_limit,omitempty"`
 	// OpenAI reasoning effort 上限；可选 minimal/low/medium/high/xhigh/max
@@ -161,6 +168,8 @@ type GroupEdges struct {
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`
+	// FocusAccount holds the value of the focus_account edge.
+	FocusAccount *Account `json:"focus_account,omitempty"`
 	// AllowedUsers holds the value of the allowed_users edge.
 	AllowedUsers []*User `json:"allowed_users,omitempty"`
 	// AccountGroups holds the value of the account_groups edge.
@@ -169,7 +178,7 @@ type GroupEdges struct {
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [9]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -217,10 +226,21 @@ func (e GroupEdges) AccountsOrErr() ([]*Account, error) {
 	return nil, &NotLoadedError{edge: "accounts"}
 }
 
+// FocusAccountOrErr returns the FocusAccount value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e GroupEdges) FocusAccountOrErr() (*Account, error) {
+	if e.FocusAccount != nil {
+		return e.FocusAccount, nil
+	} else if e.loadedTypes[5] {
+		return nil, &NotFoundError{label: account.Label}
+	}
+	return nil, &NotLoadedError{edge: "focus_account"}
+}
+
 // AllowedUsersOrErr returns the AllowedUsers value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) AllowedUsersOrErr() ([]*User, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.AllowedUsers, nil
 	}
 	return nil, &NotLoadedError{edge: "allowed_users"}
@@ -229,7 +249,7 @@ func (e GroupEdges) AllowedUsersOrErr() ([]*User, error) {
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[7] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -238,7 +258,7 @@ func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[8] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
@@ -249,15 +269,15 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldReasoningEffortMappings:
+		case group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldDisabledModels, group.FieldReasoningEffortMappings:
 			values[i] = new([]byte)
 		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled:
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
+		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldFocusAccountID, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldAccountTypePreference, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -627,6 +647,19 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.RequirePrivacySet = value.Bool
 			}
+		case group.FieldFocusAccountID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field focus_account_id", values[i])
+			} else if value.Valid {
+				_m.FocusAccountID = new(int64)
+				*_m.FocusAccountID = value.Int64
+			}
+		case group.FieldAccountTypePreference:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field account_type_preference", values[i])
+			} else if value.Valid {
+				_m.AccountTypePreference = value.String
+			}
 		case group.FieldDefaultMappedModel:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field default_mapped_model", values[i])
@@ -647,6 +680,14 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value != nil && len(*value) > 0 {
 				if err := json.Unmarshal(*value, &_m.ModelsListConfig); err != nil {
 					return fmt.Errorf("unmarshal field models_list_config: %w", err)
+				}
+			}
+		case group.FieldDisabledModels:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field disabled_models", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.DisabledModels); err != nil {
+					return fmt.Errorf("unmarshal field disabled_models: %w", err)
 				}
 			}
 		case group.FieldRpmLimit:
@@ -723,6 +764,11 @@ func (_m *Group) QueryUsageLogs() *UsageLogQuery {
 // QueryAccounts queries the "accounts" edge of the Group entity.
 func (_m *Group) QueryAccounts() *AccountQuery {
 	return NewGroupClient(_m.config).QueryAccounts(_m)
+}
+
+// QueryFocusAccount queries the "focus_account" edge of the Group entity.
+func (_m *Group) QueryFocusAccount() *AccountQuery {
+	return NewGroupClient(_m.config).QueryFocusAccount(_m)
 }
 
 // QueryAllowedUsers queries the "allowed_users" edge of the Group entity.
@@ -960,6 +1006,14 @@ func (_m *Group) String() string {
 	builder.WriteString("require_privacy_set=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RequirePrivacySet))
 	builder.WriteString(", ")
+	if v := _m.FocusAccountID; v != nil {
+		builder.WriteString("focus_account_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("account_type_preference=")
+	builder.WriteString(_m.AccountTypePreference)
+	builder.WriteString(", ")
 	builder.WriteString("default_mapped_model=")
 	builder.WriteString(_m.DefaultMappedModel)
 	builder.WriteString(", ")
@@ -968,6 +1022,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("models_list_config=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ModelsListConfig))
+	builder.WriteString(", ")
+	builder.WriteString("disabled_models=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DisabledModels))
 	builder.WriteString(", ")
 	builder.WriteString("rpm_limit=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))

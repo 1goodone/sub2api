@@ -167,10 +167,19 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		for k, v := range excludedIDs {
 			localExcluded[k] = v
 		}
+		var firstBusyAccount *Account
 
 		for {
 			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
+				if firstBusyAccount != nil && s.checkAndRegisterSession(ctx, firstBusyAccount, sessionHash) {
+					return s.newSelectionResult(ctx, firstBusyAccount, false, nil, &AccountWaitPlan{
+						AccountID:      firstBusyAccount.ID,
+						MaxConcurrency: firstBusyAccount.Concurrency,
+						Timeout:        cfg.FallbackWaitTimeout,
+						MaxWaiting:     cfg.FallbackMaxWaiting,
+					})
+				}
 				return nil, err
 			}
 
@@ -183,6 +192,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					continue                               // 重新选择
 				}
 				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+			}
+			if groupHasAccountRoutingPreference(group) {
+				if firstBusyAccount == nil {
+					firstBusyAccount = account
+				}
+				localExcluded[account.ID] = struct{}{}
+				continue
 			}
 
 			// 对于等待计划的情况，也需要先检查会话限制
@@ -330,7 +346,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 		if len(routingCandidates) > 0 {
 			// 1.5. 在路由账号范围内检查粘性会话
-			if sessionHash != "" && stickyAccountID > 0 {
+			if sessionHash != "" && stickyAccountID > 0 &&
+				!groupRoutingOverridesSticky(group, stickyAccountID, accountByID[stickyAccountID], routingAccountIDs) {
 				slog.Debug("sticky.layer1_5_checking",
 					"sticky_account_id", stickyAccountID,
 					"in_routing_list", containsInt64(routingAccountIDs, stickyAccountID),
@@ -447,6 +464,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				// 排序：优先级 > 负载率 > 最后使用时间
 				sort.SliceStable(routingAvailable, func(i, j int) bool {
 					a, b := routingAvailable[i], routingAvailable[j]
+					if rankA, rankB := accountRoutingPreferenceRank(group, a.account), accountRoutingPreferenceRank(group, b.account); rankA != rankB {
+						return rankA < rankB
+					}
 					if a.account.Priority != b.account.Priority {
 						return a.account.Priority < b.account.Priority
 					}
@@ -465,6 +485,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					}
 				})
 				shuffleWithinSortGroups(routingAvailable)
+				sort.SliceStable(routingAvailable, func(i, j int) bool {
+					return accountRoutingPreferenceRank(group, routingAvailable[i].account) <
+						accountRoutingPreferenceRank(group, routingAvailable[j].account)
+				})
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
@@ -509,7 +533,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 1.5: 粘性会话（仅在无模型路由配置时生效） ============
-	if len(routingAccountIDs) == 0 && sessionHash != "" && stickyAccountID > 0 && !isExcluded(stickyAccountID) {
+	if len(routingAccountIDs) == 0 && sessionHash != "" && stickyAccountID > 0 &&
+		!groupRoutingOverridesSticky(group, stickyAccountID, accountByID[stickyAccountID], nil) && !isExcluded(stickyAccountID) {
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, ok := accountByID[accountID]
@@ -711,7 +736,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
 			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
+			candidates := filterByMinRoutingPreference(available, group)
+			candidates = filterByMinPriority(candidates)
 			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
 			if cfg.PreferSoonestReset {
 				candidates = filterBySoonestReset(candidates)
@@ -750,7 +776,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 3: 兜底排队 ============
-	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
+	s.sortCandidatesForFallback(candidates, group, preferOAuth, cfg.FallbackSelectionMode)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
 		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
@@ -1509,6 +1535,25 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	}), nil
 }
 
+func filterByMinRoutingPreference(accounts []accountWithLoad, group *Group) []accountWithLoad {
+	if len(accounts) == 0 || !groupHasAccountRoutingPreference(group) {
+		return accounts
+	}
+	minRank := accountRoutingPreferenceRank(group, accounts[0].account)
+	for _, acc := range accounts[1:] {
+		if rank := accountRoutingPreferenceRank(group, acc.account); rank < minRank {
+			minRank = rank
+		}
+	}
+	result := make([]accountWithLoad, 0, len(accounts))
+	for _, acc := range accounts {
+		if accountRoutingPreferenceRank(group, acc.account) == minRank {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
 // filterByMinPriority 过滤出优先级最小的账号集合
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -1764,7 +1809,7 @@ func sameLastUsedAt(a, b *time.Time) bool {
 
 // sortCandidatesForFallback 根据配置选择排序策略
 // mode: "last_used"(按最后使用时间) 或 "random"(随机)
-func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
+func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, group *Group, preferOAuth bool, mode string) {
 	if mode == "random" {
 		// 先按优先级排序，然后在同优先级内随机打乱
 		sortAccountsByPriorityOnly(accounts, preferOAuth)
@@ -1772,6 +1817,39 @@ func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOA
 	} else {
 		// 默认按最后使用时间排序
 		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
+	}
+	sortAccountsByGroupRoutingPreference(accounts, group)
+}
+
+func sortAccountsByGroupRoutingPreference(accounts []*Account, group *Group) {
+	if len(accounts) <= 1 || !groupHasAccountRoutingPreference(group) {
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return accountRoutingPreferenceRank(group, accounts[i]) < accountRoutingPreferenceRank(group, accounts[j])
+	})
+}
+
+func isBetterAccountForGroup(group *Group, candidate, current *Account, preferOAuth bool) bool {
+	if current == nil {
+		return candidate != nil
+	}
+	if rankA, rankB := accountRoutingPreferenceRank(group, candidate), accountRoutingPreferenceRank(group, current); rankA != rankB {
+		return rankA < rankB
+	}
+	if candidate.Priority != current.Priority {
+		return candidate.Priority < current.Priority
+	}
+	switch {
+	case candidate.LastUsedAt == nil && current.LastUsedAt != nil:
+		return true
+	case candidate.LastUsedAt != nil && current.LastUsedAt == nil:
+		return false
+	case candidate.LastUsedAt == nil:
+		return preferOAuth && candidate.Platform == PlatformGemini && current.Platform == PlatformGemini &&
+			candidate.Type != current.Type && candidate.Type == AccountTypeOAuth
+	default:
+		return candidate.LastUsedAt.Before(*current.LastUsedAt)
 	}
 }
 
@@ -1837,11 +1915,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		// 1) Sticky session only applies if the bound account is within the routing set.
 		if sessionHash != "" && s.cache != nil {
 			accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-			if err == nil && accountID > 0 && containsInt64(routingAccountIDs, accountID) {
+			if err == nil && accountID > 0 && containsInt64(routingAccountIDs, accountID) &&
+				!groupFocusOverridesSticky(schedGroup, accountID, routingAccountIDs) {
 				if _, excluded := excludedIDs[accountID]; !excluded {
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
-					if err == nil {
+					if err == nil && !groupAccountTypePreferenceOverridesSticky(schedGroup, account) {
 						clearSticky := shouldClearStickySession(account, requestedModel)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
@@ -1918,27 +1997,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 				continue
 			}
-			if selected == nil {
+			if isBetterAccountForGroup(schedGroup, acc, selected, preferOAuth) {
 				selected = acc
-				continue
-			}
-			if acc.Priority < selected.Priority {
-				selected = acc
-			} else if acc.Priority == selected.Priority {
-				switch {
-				case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-					selected = acc
-				case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-					// keep selected (never used is preferred)
-				case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-					if preferOAuth && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-						selected = acc
-					}
-				default:
-					if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-						selected = acc
-					}
-				}
 			}
 		}
 
@@ -1959,11 +2019,11 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	// 1. 查询粘性会话
 	if sessionHash != "" && s.cache != nil {
 		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-		if err == nil && accountID > 0 {
+		if err == nil && accountID > 0 && !groupFocusOverridesSticky(schedGroup, accountID, nil) {
 			if _, excluded := excludedIDs[accountID]; !excluded {
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
-				if err == nil {
+				if err == nil && !groupAccountTypePreferenceOverridesSticky(schedGroup, account) {
 					clearSticky := shouldClearStickySession(account, requestedModel)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
@@ -2035,27 +2095,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 			continue
 		}
-		if selected == nil {
+		if isBetterAccountForGroup(schedGroup, acc, selected, preferOAuth) {
 			selected = acc
-			continue
-		}
-		if acc.Priority < selected.Priority {
-			selected = acc
-		} else if acc.Priority == selected.Priority {
-			switch {
-			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-				selected = acc
-			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-				// keep selected (never used is preferred)
-			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-				if preferOAuth && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-					selected = acc
-				}
-			default:
-				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-					selected = acc
-				}
-			}
 		}
 	}
 
@@ -2101,11 +2142,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		// 1) Sticky session only applies if the bound account is within the routing set.
 		if sessionHash != "" && s.cache != nil {
 			accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-			if err == nil && accountID > 0 && containsInt64(routingAccountIDs, accountID) {
+			if err == nil && accountID > 0 && containsInt64(routingAccountIDs, accountID) &&
+				!groupFocusOverridesSticky(schedGroup, accountID, routingAccountIDs) {
 				if _, excluded := excludedIDs[accountID]; !excluded {
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
-					if err == nil {
+					if err == nil && !groupAccountTypePreferenceOverridesSticky(schedGroup, account) {
 						clearSticky := shouldClearStickySession(account, requestedModel)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
@@ -2184,27 +2226,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 				continue
 			}
-			if selected == nil {
+			if isBetterAccountForGroup(schedGroup, acc, selected, preferOAuth) {
 				selected = acc
-				continue
-			}
-			if acc.Priority < selected.Priority {
-				selected = acc
-			} else if acc.Priority == selected.Priority {
-				switch {
-				case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-					selected = acc
-				case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-					// keep selected (never used is preferred)
-				case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-					if preferOAuth && acc.Platform == PlatformGemini && selected.Platform == PlatformGemini && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-						selected = acc
-					}
-				default:
-					if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-						selected = acc
-					}
-				}
 			}
 		}
 
@@ -2225,11 +2248,11 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	// 1. 查询粘性会话
 	if sessionHash != "" && s.cache != nil {
 		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-		if err == nil && accountID > 0 {
+		if err == nil && accountID > 0 && !groupFocusOverridesSticky(schedGroup, accountID, nil) {
 			if _, excluded := excludedIDs[accountID]; !excluded {
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
-				if err == nil {
+				if err == nil && !groupAccountTypePreferenceOverridesSticky(schedGroup, account) {
 					clearSticky := shouldClearStickySession(account, requestedModel)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
@@ -2302,27 +2325,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 			continue
 		}
-		if selected == nil {
+		if isBetterAccountForGroup(schedGroup, acc, selected, preferOAuth) {
 			selected = acc
-			continue
-		}
-		if acc.Priority < selected.Priority {
-			selected = acc
-		} else if acc.Priority == selected.Priority {
-			switch {
-			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-				selected = acc
-			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-				// keep selected (never used is preferred)
-			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-				if preferOAuth && acc.Platform == PlatformGemini && selected.Platform == PlatformGemini && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-					selected = acc
-				}
-			default:
-				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-					selected = acc
-				}
-			}
 		}
 	}
 

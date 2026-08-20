@@ -102,9 +102,12 @@ type APIKeyAuthGroupSnapshot struct {
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
 	AllowLive                   bool                              `json:"allow_live"`
+	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
+	AccountTypePreference       string                            `json:"account_type_preference,omitempty"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	ModelsListConfig            GroupModelsListConfig             `json:"models_list_config,omitempty"`
+	DisabledModels              []string                          `json:"disabled_models,omitempty"`
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）；用于 billing_cache_service.checkRPM 级联判断。
 	RPMLimit int `json:"rpm_limit"`

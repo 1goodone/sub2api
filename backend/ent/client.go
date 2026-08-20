@@ -3204,6 +3204,22 @@ func (c *GroupClient) QueryAccounts(_m *Group) *AccountQuery {
 	return query
 }
 
+// QueryFocusAccount queries the focus_account edge of a Group.
+func (c *GroupClient) QueryFocusAccount(_m *Group) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, group.FocusAccountTable, group.FocusAccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAllowedUsers queries the allowed_users edge of a Group.
 func (c *GroupClient) QueryAllowedUsers(_m *Group) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()

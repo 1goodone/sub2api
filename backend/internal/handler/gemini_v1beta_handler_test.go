@@ -50,6 +50,13 @@ func TestGeminiV1BetaHandler_PlatformRoutingInvariant(t *testing.T) {
 	}
 }
 
+func TestFilterGeminiModelsBodyRemovesDisabledModels(t *testing.T) {
+	body := []byte(`{"models":[{"name":"models/gemini-allowed"},{"name":"models/GEMINI-BLOCKED"}],"nextPageToken":"next"}`)
+	filtered, err := filterGeminiModelsBody(body, &service.Group{DisabledModels: []string{"gemini-blocked"}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"models":[{"name":"models/gemini-allowed"}],"nextPageToken":"next"}`, string(filtered))
+}
+
 // TestGeminiV1BetaHandler_ListModelsAntigravityFallback 验证 ListModels 的 antigravity 降级逻辑
 // 当没有 gemini 账户但有 antigravity 账户时，应返回静态模型列表
 func TestGeminiV1BetaHandler_ListModelsAntigravityFallback(t *testing.T) {

@@ -1,6 +1,8 @@
 <template>
-  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50">
-    <div class="flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
+  <header
+    class="glass sticky top-0 z-30 border-b border-slate-200/80 shadow-glass-sm dark:border-dark-800 lg:top-4 lg:mx-4 lg:mt-4 lg:rounded-2xl lg:border lg:border-white/80 lg:bg-white/95 dark:lg:border-dark-700 dark:lg:bg-dark-900/95"
+  >
+    <div class="flex h-[72px] items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
@@ -32,7 +34,7 @@
           :href="docUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
+          class="hidden items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-sm font-medium text-gray-600 transition duration-150 hover:border-slate-200 hover:bg-white hover:text-gray-900 hover:shadow-sm dark:text-dark-400 dark:hover:border-dark-700 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
         >
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
@@ -57,7 +59,7 @@
         <!-- Balance Display -->
         <div
           v-if="user"
-          class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
+          class="group relative hidden items-center gap-2 rounded-lg border border-primary-100 bg-primary-50 px-3 py-1.5 dark:border-primary-900/40 dark:bg-primary-900/20 sm:flex"
         >
           <svg
             class="h-4 w-4 text-primary-600 dark:text-primary-400"
@@ -82,7 +84,7 @@
             {{ balanceFrozenLabel }}
           </span>
           <div
-            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg group-hover:block dark:border-dark-700 dark:bg-dark-800"
+            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-popup group-hover:block dark:border-dark-700 dark:bg-dark-800"
           >
             <div class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceAvailableText }}</span>
@@ -105,10 +107,10 @@
         <div v-if="user" class="relative" ref="dropdownRef">
           <button
             @click="toggleDropdown"
-            class="flex items-center gap-2 rounded-xl p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-800"
+            class="flex items-center gap-2 rounded-lg border border-transparent p-1.5 transition duration-150 hover:border-slate-200 hover:bg-white hover:shadow-sm dark:hover:border-dark-700 dark:hover:bg-dark-800"
             :aria-label="t('common.userMenu')"
           >
-            <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-sm font-medium text-white shadow-sm">
+            <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-primary-600 text-sm font-medium text-white shadow-sm">
               <img
                 v-if="avatarUrl"
                 :src="avatarUrl"

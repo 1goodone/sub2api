@@ -529,6 +529,12 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
   return data
 }
 
+/** Toggle Codex quota overdraft for one OpenAI OAuth parent account. */
+export async function setCodexQuotaOverdraftEnabled(id: number, enabled: boolean): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/codex-quota-overdraft`, { enabled })
+  return data
+}
+
 /**
  * Get available models for an account
  * @param id - Account ID
@@ -1010,6 +1016,7 @@ export const accountsAPI = {
   getTempUnschedulableStatus,
   resetTempUnschedulable,
   setSchedulable,
+  setCodexQuotaOverdraftEnabled,
   getAvailableModels,
   syncUpstreamModels,
   syncUpstreamModelsPreview,

@@ -406,6 +406,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSessionExtraKey)
 	delete(accountExtra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
+	// Per-account Codex overdraft is an explicit admin opt-in. New accounts
+	// must never inherit a caller-supplied enabled flag.
+	delete(accountExtra, CodexQuotaOverdraftEnabledExtraKey)
+	delete(accountExtra, CodexQuotaOverdraftProbeExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
 		Name:        input.Name,
@@ -635,6 +639,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSessionExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
+		delete(normalizedExtra, CodexQuotaOverdraftEnabledExtraKey)
+		delete(normalizedExtra, CodexQuotaOverdraftProbeExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -649,6 +655,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
+			CodexQuotaOverdraftEnabledExtraKey,
+			CodexQuotaOverdraftProbeExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
@@ -866,6 +874,18 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
+	if requested, exists := updates[CodexQuotaOverdraftEnabledExtraKey]; exists {
+		if _, ok := requested.(bool); !ok {
+			return infraerrors.BadRequest("INVALID_CODEX_QUOTA_OVERDRAFT_ENABLED", "codex_quota_overdraft_enabled must be a boolean")
+		}
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !isCodexQuotaOverdraftAccount(account) {
+			return infraerrors.BadRequest("CODEX_QUOTA_OVERDRAFT_ACCOUNT_INVALID", "codex quota overdraft is only available for OpenAI OAuth parent accounts")
+		}
+	}
 	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
@@ -881,6 +901,44 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	return s.accountRepo.UpdateExtra(ctx, id, updates)
 }
 
+// DisableCodexQuotaOverdraft turns off the per-account switch and drops the
+// persisted probe state. The concrete repository may perform this as one
+// durable scheduler update; the fallback keeps narrow test repositories and
+// older implementations functional.
+func (s *adminServiceImpl) DisableCodexQuotaOverdraft(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	clearRuntimeBlock := account != nil && codexQuotaOverdraftPauseReason(account.TempUnschedulableReason)
+	if cleaner, ok := s.accountRepo.(interface {
+		DisableCodexQuotaOverdraft(context.Context, int64) error
+	}); ok {
+		if err := cleaner.DisableCodexQuotaOverdraft(ctx, id); err != nil {
+			return err
+		}
+	} else {
+		if err := s.accountRepo.UpdateExtra(ctx, id, map[string]any{
+			CodexQuotaOverdraftEnabledExtraKey: false,
+			// UpdateExtra is a merge operation. A JSON null is the portable
+			// fallback for repositories that do not implement the atomic
+			// disable method; the state parser treats it as absent.
+			CodexQuotaOverdraftProbeExtraKey: nil,
+		}); err != nil {
+			return err
+		}
+		if clearRuntimeBlock {
+			if err := s.accountRepo.ClearTempUnschedulable(ctx, id); err != nil {
+				return err
+			}
+		}
+	}
+	if clearRuntimeBlock && s.runtimeBlocker != nil {
+		s.runtimeBlocker.ClearAccountSchedulingBlock(id)
+	}
+	return nil
+}
+
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
@@ -892,6 +950,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSessionExtraKey)
 	delete(input.Extra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
+	delete(input.Extra, CodexQuotaOverdraftEnabledExtraKey)
+	delete(input.Extra, CodexQuotaOverdraftProbeExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)

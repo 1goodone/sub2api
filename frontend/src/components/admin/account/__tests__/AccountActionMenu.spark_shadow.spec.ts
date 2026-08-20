@@ -173,4 +173,55 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
 
     wrapper.unmount()
   })
+
+  it('仅 OpenAI OAuth 母账号显示透支开关', () => {
+    const eligible = mount(AccountActionMenu, {
+      props: { show: true, account: makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null }), position },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).toContain('admin.accounts.codexQuotaOverdraftEnable')
+    eligible.unmount()
+
+    const ineligible = mount(AccountActionMenu, {
+      props: { show: true, account: makeAccount({ platform: 'openai', type: 'apikey', parent_account_id: null }), position },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).not.toContain('admin.accounts.codexQuotaOverdraftEnable')
+    ineligible.unmount()
+  })
+
+  it('透支开关点击时携带账号并关闭菜单', async () => {
+    const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const button = getBodyButtons().find(b => b.textContent?.includes('admin.accounts.codexQuotaOverdraftEnable'))
+    expect(button).toBeDefined()
+    button!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('toggle-codex-overdraft')?.[0]?.[0]).toMatchObject({ id: account.id })
+    expect(wrapper.emitted('close')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('已启用账号显示关闭透支文案', () => {
+    const wrapper = mount(AccountActionMenu, {
+      props: {
+        show: true,
+        account: makeAccount({
+          platform: 'openai',
+          type: 'oauth',
+          parent_account_id: null,
+          extra: { codex_quota_overdraft_enabled: true }
+        }),
+        position
+      },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).toContain('admin.accounts.codexQuotaOverdraftDisable')
+    wrapper.unmount()
+  })
 })

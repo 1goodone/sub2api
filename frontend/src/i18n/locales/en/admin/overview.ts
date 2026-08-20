@@ -830,11 +830,19 @@ export default {
       rateLabel: 'rate',
       accountFilters: {
         title: 'Account Filter Controls',
-        oauthOnly: 'Only allow OAuth accounts',
-        oauthOnlyEnabled: 'Enabled — API Key accounts will be excluded',
+        oauthOnly: 'Only allow OAuth accounts (hard filter)',
+        oauthOnlyEnabled: 'Enabled (hard filter) — API Key accounts will be excluded',
         privacySetOnly: 'Only allow accounts with privacy protection set',
         privacySetOnlyEnabled: 'Enabled — accounts with unset Privacy will be excluded',
         disabled: 'Disabled'
+      },
+      accountRouting: {
+        preference: 'Account type priority',
+        default: 'Default',
+        authFirst: 'Auth first',
+        apiFirst: 'Key/API first',
+        preferenceHint:
+          'Soft preference for ordering; falls back automatically when the preferred type is full or unavailable. Auth includes OAuth/Setup Token; Key/API includes API Key/Upstream/Bedrock.'
       },
       form: {
         name: 'Name',
@@ -1056,6 +1064,11 @@ export default {
         selectedSummary: 'Selected {selected} / {total}',
         selectAll: 'Select all',
         invertSelection: 'Invert'
+      },
+      disabledModels: {
+        title: 'Disabled Models',
+        hint: 'Highest priority: matching model calls are rejected before model mapping, routing, or account selection.',
+        placeholder: 'Enter a model ID and press Enter, for example gpt-5.4'
       },
       compositeRoutes: {
         action: 'Routes',

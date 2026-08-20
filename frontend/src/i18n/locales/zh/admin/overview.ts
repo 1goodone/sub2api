@@ -906,11 +906,19 @@ export default {
       rateLabel: '倍率',
       accountFilters: {
         title: '账号过滤控制',
-        oauthOnly: '仅允许 OAuth 账号',
-        oauthOnlyEnabled: '已启用 — 排除 API Key 类型账号',
+        oauthOnly: '仅允许 OAuth 账号（硬限制）',
+        oauthOnlyEnabled: '已启用（硬限制）— 排除 API Key 类型账号',
         privacySetOnly: '仅允许隐私保护已设置的账号',
         privacySetOnlyEnabled: '已启用 — Privacy 未设置的账号将被排除',
         disabled: '未启用'
+      },
+      accountRouting: {
+        preference: '账号类型优先级',
+        default: '默认调度',
+        authFirst: 'Auth 优先',
+        apiFirst: 'Key/API 优先',
+        preferenceHint:
+          '软偏好，仅影响排序；首选类型满载或不可用时自动回退。Auth 包含 OAuth/Setup Token，Key/API 包含 API Key/Upstream/Bedrock。'
       },
       enterGroupName: '请输入分组名称',
       optionalDescription: '可选描述',
@@ -1053,6 +1061,11 @@ export default {
         selectedSummary: '已选 {selected} / {total}',
         selectAll: '全选',
         invertSelection: '反选'
+      },
+      disabledModels: {
+        title: '禁用模型',
+        hint: '最高优先级：命中的模型会直接拒绝调用，不受模型映射、路由或账号配置影响。',
+        placeholder: '输入模型 ID 后按 Enter，例如 gpt-5.4'
       },
       compositeRoutes: {
         action: '路由',
