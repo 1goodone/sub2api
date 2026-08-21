@@ -50,6 +50,20 @@ func (_c *AccountGroupCreate) SetNillablePriority(v *int) *AccountGroupCreate {
 	return _c
 }
 
+// SetIsFocus sets the "is_focus" field.
+func (_c *AccountGroupCreate) SetIsFocus(v bool) *AccountGroupCreate {
+	_c.mutation.SetIsFocus(v)
+	return _c
+}
+
+// SetNillableIsFocus sets the "is_focus" field if the given value is not nil.
+func (_c *AccountGroupCreate) SetNillableIsFocus(v *bool) *AccountGroupCreate {
+	if v != nil {
+		_c.SetIsFocus(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *AccountGroupCreate) SetCreatedAt(v time.Time) *AccountGroupCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -113,6 +127,10 @@ func (_c *AccountGroupCreate) defaults() {
 		v := accountgroup.DefaultPriority
 		_c.mutation.SetPriority(v)
 	}
+	if _, ok := _c.mutation.IsFocus(); !ok {
+		v := accountgroup.DefaultIsFocus
+		_c.mutation.SetIsFocus(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := accountgroup.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -129,6 +147,9 @@ func (_c *AccountGroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "AccountGroup.priority"`)}
+	}
+	if _, ok := _c.mutation.IsFocus(); !ok {
+		return &ValidationError{Name: "is_focus", err: errors.New(`ent: missing required field "AccountGroup.is_focus"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "AccountGroup.created_at"`)}
@@ -165,6 +186,10 @@ func (_c *AccountGroupCreate) createSpec() (*AccountGroup, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.Priority(); ok {
 		_spec.SetField(accountgroup.FieldPriority, field.TypeInt, value)
 		_node.Priority = value
+	}
+	if value, ok := _c.mutation.IsFocus(); ok {
+		_spec.SetField(accountgroup.FieldIsFocus, field.TypeBool, value)
+		_node.IsFocus = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(accountgroup.FieldCreatedAt, field.TypeTime, value)
@@ -298,6 +323,18 @@ func (u *AccountGroupUpsert) AddPriority(v int) *AccountGroupUpsert {
 	return u
 }
 
+// SetIsFocus sets the "is_focus" field.
+func (u *AccountGroupUpsert) SetIsFocus(v bool) *AccountGroupUpsert {
+	u.Set(accountgroup.FieldIsFocus, v)
+	return u
+}
+
+// UpdateIsFocus sets the "is_focus" field to the value that was provided on create.
+func (u *AccountGroupUpsert) UpdateIsFocus() *AccountGroupUpsert {
+	u.SetExcluded(accountgroup.FieldIsFocus)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -389,6 +426,20 @@ func (u *AccountGroupUpsertOne) AddPriority(v int) *AccountGroupUpsertOne {
 func (u *AccountGroupUpsertOne) UpdatePriority() *AccountGroupUpsertOne {
 	return u.Update(func(s *AccountGroupUpsert) {
 		s.UpdatePriority()
+	})
+}
+
+// SetIsFocus sets the "is_focus" field.
+func (u *AccountGroupUpsertOne) SetIsFocus(v bool) *AccountGroupUpsertOne {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.SetIsFocus(v)
+	})
+}
+
+// UpdateIsFocus sets the "is_focus" field to the value that was provided on create.
+func (u *AccountGroupUpsertOne) UpdateIsFocus() *AccountGroupUpsertOne {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.UpdateIsFocus()
 	})
 }
 
@@ -626,6 +677,20 @@ func (u *AccountGroupUpsertBulk) AddPriority(v int) *AccountGroupUpsertBulk {
 func (u *AccountGroupUpsertBulk) UpdatePriority() *AccountGroupUpsertBulk {
 	return u.Update(func(s *AccountGroupUpsert) {
 		s.UpdatePriority()
+	})
+}
+
+// SetIsFocus sets the "is_focus" field.
+func (u *AccountGroupUpsertBulk) SetIsFocus(v bool) *AccountGroupUpsertBulk {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.SetIsFocus(v)
+	})
+}
+
+// UpdateIsFocus sets the "is_focus" field to the value that was provided on create.
+func (u *AccountGroupUpsertBulk) UpdateIsFocus() *AccountGroupUpsertBulk {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.UpdateIsFocus()
 	})
 }
 

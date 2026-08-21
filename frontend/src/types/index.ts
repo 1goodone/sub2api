@@ -615,6 +615,7 @@ export interface AdminGroup extends Group {
   profit_safety_buffer: number
 
   focus_account_id?: number | null
+  focus_account_ids?: number[]
   account_type_preference?: AccountTypePreference
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
@@ -888,6 +889,7 @@ export interface UpdateGroupRequest {
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   focus_account_id?: number | null
+  focus_account_ids?: number[]
   account_type_preference?: AccountTypePreference
   copy_accounts_from_group_ids?: number[]
 }

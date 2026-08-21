@@ -82,7 +82,7 @@
                   :show-rate="false"
                 />
                 <span
-                  v-if="routingGroup(group.id)?.focus_account_id === accountId"
+                  v-if="isFocused(group.id)"
                   class="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-300"
                 >
                   <Icon name="fire" size="xs" />
@@ -93,14 +93,14 @@
                 <button
                   type="button"
                   class="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:cursor-wait disabled:opacity-50"
-                  :class="routingGroup(group.id)?.focus_account_id === accountId
+                  :class="isFocused(group.id)
                     ? 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-200'
                     : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'"
                   :disabled="updatingGroupId === group.id"
                   @click.stop="emit('toggleFocus', group.id)"
                 >
                   <Icon name="fire" size="xs" />
-                  {{ routingGroup(group.id)?.focus_account_id === accountId
+                  {{ isFocused(group.id)
                     ? t('admin.accounts.groupRouting.clearFocus')
                     : t('admin.accounts.groupRouting.setFocus') }}
                 </button>
@@ -151,6 +151,12 @@ const popoverRef = ref<HTMLElement | null>(null)
 const showPopover = ref(false)
 const editable = computed(() => props.accountId != null && props.routingGroups != null)
 const routingGroup = (groupId: number) => props.routingGroups?.find(group => group.id === groupId)
+const isFocused = (groupId: number) => {
+  const group = routingGroup(groupId)
+  if (!group || props.accountId == null) return false
+  const focusAccountIds = group.focus_account_ids ?? (group.focus_account_id ? [group.focus_account_id] : [])
+  return focusAccountIds.includes(props.accountId)
+}
 
 // 显示的分组（最多显示 maxDisplay 个）
 const displayGroups = computed(() => {

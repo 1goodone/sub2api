@@ -86,7 +86,11 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.hydrateAPIKeyGroupFocus(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetKeyAndOwnerID 根据 API Key ID 获取其 key 与所有者（用户）ID。
@@ -237,7 +241,33 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.hydrateAPIKeyGroupFocus(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *apiKeyRepository) hydrateAPIKeyGroupFocus(ctx context.Context, apiKey *service.APIKey) error {
+	if apiKey == nil || apiKey.Group == nil || r.sql == nil {
+		return nil
+	}
+	if apiKey.Group.FocusAccountID == nil || *apiKey.Group.FocusAccountID <= 0 {
+		apiKey.Group.FocusAccountIDs = nil
+		return nil
+	}
+	focusByGroup, err := loadGroupFocusAccountIDs(ctx, r.sql, []int64{apiKey.Group.ID})
+	if err != nil {
+		return err
+	}
+	apiKey.Group.FocusAccountIDs = append([]int64(nil), focusByGroup[apiKey.Group.ID]...)
+	if len(apiKey.Group.FocusAccountIDs) == 0 {
+		apiKey.Group.FocusAccountID = nil
+	} else {
+		legacyID := apiKey.Group.FocusAccountIDs[0]
+		apiKey.Group.FocusAccountID = &legacyID
+	}
+	return nil
 }
 
 func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fields service.APIKeyUpdateFields) error {

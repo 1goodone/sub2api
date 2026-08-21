@@ -17,6 +17,7 @@ import (
 func profitAuthTestAPIKey() *APIKey {
 	groupID := int64(50)
 	focusAccountID := int64(501)
+	focusAccountIDs := []int64{501, 502}
 	return &APIKey{
 		ID:      82,
 		UserID:  40,
@@ -43,6 +44,7 @@ func profitAuthTestAPIKey() *APIKey {
 			ProfitSafetyBuffer:    0.05,
 			DisabledModels:        []string{"gpt-5.4"},
 			FocusAccountID:        &focusAccountID,
+			FocusAccountIDs:       focusAccountIDs,
 			AccountTypePreference: AccountTypePreferenceAuthFirst,
 		},
 	}
@@ -57,7 +59,7 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
 	require.NotNil(t, snapshot)
 	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
-	require.Equal(t, 22, snapshot.Version, "v22 起认证快照携带分组账号路由偏好")
+	require.Equal(t, 23, snapshot.Version, "v23 起认证快照携带多账号集火池")
 
 	// 模拟 L2 缓存的完整 JSON 往返（与 apiKeyCache.SetAuthCache/GetAuthCache 同构）。
 	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
@@ -77,6 +79,7 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.True(t, materialized.Group.IsModelDisabled("GPT-5.4"))
 	require.NotNil(t, materialized.Group.FocusAccountID)
 	require.Equal(t, int64(501), *materialized.Group.FocusAccountID)
+	require.Equal(t, []int64{501, 502}, materialized.Group.FocusAccountIDs)
 	require.Equal(t, AccountTypePreferenceAuthFirst, materialized.Group.AccountTypePreference)
 
 	// 中间件语义：materialized.Group 进请求 ctx → 门必须按快照配置装上。

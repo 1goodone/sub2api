@@ -19,6 +19,7 @@ const (
 	AccountTypePreferenceDefault     = "default"
 	AccountTypePreferenceAuthFirst   = "auth_first"
 	AccountTypePreferenceAPIKeyFirst = "apikey_first"
+	focusPoolStickySessionTTL        = 5 * time.Minute
 )
 
 type Group struct {
@@ -109,6 +110,7 @@ type Group struct {
 	RequireOAuthOnly            bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
 	FocusAccountID              *int64
+	FocusAccountIDs             []int64
 	AccountTypePreference       string
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
@@ -159,7 +161,7 @@ func accountRoutingPreferenceRank(group *Group, account *Account) int {
 	if account == nil {
 		return 3
 	}
-	if group != nil && group.FocusAccountID != nil && *group.FocusAccountID == account.ID {
+	if groupHasFocusAccount(group, account.ID) {
 		return 0
 	}
 	switch groupAccountTypePreference(group) {
@@ -201,15 +203,76 @@ func groupAccountTypePreference(group *Group) string {
 
 func groupHasAccountRoutingPreference(group *Group) bool {
 	return group != nil &&
-		(group.FocusAccountID != nil && *group.FocusAccountID > 0 ||
+		(len(group.FocusAccountIDs) > 0 ||
+			group.FocusAccountID != nil && *group.FocusAccountID > 0 ||
 			groupAccountTypePreference(group) != AccountTypePreferenceDefault)
 }
 
 func groupFocusOverridesSticky(group *Group, stickyAccountID int64, routedAccountIDs []int64) bool {
-	if group == nil || group.FocusAccountID == nil || *group.FocusAccountID <= 0 || *group.FocusAccountID == stickyAccountID {
+	if group == nil || !groupHasAccountRoutingPreferenceFocus(group) || groupHasFocusAccount(group, stickyAccountID) {
 		return false
 	}
-	return len(routedAccountIDs) == 0 || containsInt64(routedAccountIDs, *group.FocusAccountID)
+	if len(routedAccountIDs) == 0 {
+		return true
+	}
+	for _, accountID := range group.FocusAccountIDs {
+		if containsInt64(routedAccountIDs, accountID) {
+			return true
+		}
+	}
+	if group.FocusAccountID != nil && containsInt64(routedAccountIDs, *group.FocusAccountID) {
+		return true
+	}
+	return false
+}
+
+func groupHasAccountRoutingPreferenceFocus(group *Group) bool {
+	return group != nil && (len(group.FocusAccountIDs) > 0 || group.FocusAccountID != nil && *group.FocusAccountID > 0)
+}
+
+func groupFocusAccountIDs(group *Group) []int64 {
+	if group == nil {
+		return nil
+	}
+	ids := uniquePositiveInt64Values(group.FocusAccountIDs)
+	if group.FocusAccountID != nil && *group.FocusAccountID > 0 && !containsInt64(ids, *group.FocusAccountID) {
+		ids = append(ids, *group.FocusAccountID)
+	}
+	return ids
+}
+
+func groupHasFocusAccount(group *Group, accountID int64) bool {
+	if group == nil || accountID <= 0 {
+		return false
+	}
+	return containsInt64(group.FocusAccountIDs, accountID) ||
+		group.FocusAccountID != nil && *group.FocusAccountID == accountID
+}
+
+func routingPreferenceStickyTTL(group *Group, fallback time.Duration) time.Duration {
+	if groupHasAccountRoutingPreferenceFocus(group) && fallback > focusPoolStickySessionTTL {
+		return focusPoolStickySessionTTL
+	}
+	return fallback
+}
+
+func uniquePositiveInt64Values(values []int64) []int64 {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func groupAccountTypePreferenceOverridesSticky(group *Group, stickyAccount *Account) bool {

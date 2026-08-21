@@ -937,7 +937,11 @@ func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, 
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
+	var group *Group
+	if groupID != nil {
+		group = s.groupFromContext(ctx, *groupID)
+	}
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, routingPreferenceStickyTTL(group, stickySessionTTL))
 }
 
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky

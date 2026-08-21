@@ -2228,9 +2228,13 @@ const handleToggleGroupFocus = async (account: Account, groupId: number) => {
   if (!group || updatingRoutingGroupId.value != null) return
   updatingRoutingGroupId.value = groupId
   try {
-    const focusAccountId = group.focus_account_id === account.id ? 0 : account.id
-    patchRoutingGroup(await adminAPI.groups.update(groupId, { focus_account_id: focusAccountId }))
-    appStore.showSuccess(t(focusAccountId === 0
+    const currentFocusAccountIds = group.focus_account_ids ?? (group.focus_account_id ? [group.focus_account_id] : [])
+    const isFocused = currentFocusAccountIds.includes(account.id)
+    const focusAccountIds = isFocused
+      ? currentFocusAccountIds.filter(id => id !== account.id)
+      : [...currentFocusAccountIds, account.id]
+    patchRoutingGroup(await adminAPI.groups.update(groupId, { focus_account_ids: focusAccountIds }))
+    appStore.showSuccess(t(isFocused
       ? 'admin.accounts.groupRouting.focusCleared'
       : 'admin.accounts.groupRouting.focusSet'))
   } catch (error) {

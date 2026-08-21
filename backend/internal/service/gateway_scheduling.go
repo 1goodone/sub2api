@@ -392,6 +392,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							}
 
 							if stickyCacheMissReason == "" {
+								if err == nil && result != nil && !result.Acquired && groupHasFocusAccount(group, stickyAccountID) {
+									_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+									stickyCacheMissReason = "focus_pool_slot_busy"
+								}
+							}
+
+							if stickyCacheMissReason == "" {
 								waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, stickyAccountID)
 								if waitingCount < cfg.StickySessionMaxWaiting {
 									// 会话数量限制检查（等待计划也需要占用会话配额）
@@ -422,6 +429,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 						// 记录粘性缓存未命中的结构化日志
 						if stickyCacheMissReason != "" {
+							if groupHasFocusAccount(group, stickyAccountID) {
+								_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+							}
 							baseRPM := stickyAccount.GetBaseRPM()
 							var currentRPM int
 							if count, ok := rpmFromPrefetchContext(ctx, stickyAccount.ID); ok {
@@ -594,7 +604,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 								"result", "slot_acquired",
 							)
 							if s.cache != nil {
-								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, routingPreferenceStickyTTL(group, stickySessionTTL))
 							}
 							return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 						}
@@ -605,8 +615,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						)
 					}
 
+					focusSlotBusy := err == nil && result != nil && !result.Acquired && groupHasFocusAccount(group, accountID)
+					if focusSlotBusy {
+						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+					}
 					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
-					if waitingCount < cfg.StickySessionMaxWaiting {
+					if !focusSlotBusy && waitingCount < cfg.StickySessionMaxWaiting {
 						// 会话数量限制检查（等待计划也需要占用会话配额）
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 							// 会话限制已满，继续到 Layer 2
@@ -625,6 +639,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						}
 					}
 				} else if !clearSticky {
+					if groupHasFocusAccount(group, accountID) {
+						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+					}
 					slog.Debug("sticky.layer1_5_no_routing_miss",
 						"account_id", accountID,
 						"reason", "gate_check_failed",

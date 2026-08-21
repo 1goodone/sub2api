@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22: include group account routing preference
+const apiKeyAuthSnapshotVersion = 23 // v23: include multi-account focus pool
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -418,6 +418,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			AllowLive:                       apiKey.Group.AllowLive,
 			FocusAccountID:                  apiKey.Group.FocusAccountID,
+			FocusAccountIDs:                 append([]int64(nil), apiKey.Group.FocusAccountIDs...),
 			AccountTypePreference:           groupAccountTypePreference(apiKey.Group),
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
@@ -518,6 +519,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			AllowLive:                       snapshot.Group.AllowLive,
 			FocusAccountID:                  snapshot.Group.FocusAccountID,
+			FocusAccountIDs:                 append([]int64(nil), snapshot.Group.FocusAccountIDs...),
 			AccountTypePreference:           snapshot.Group.AccountTypePreference,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,

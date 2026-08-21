@@ -23,6 +23,8 @@ type AccountGroup struct {
 	GroupID int64 `json:"group_id,omitempty"`
 	// Priority holds the value of the "priority" field.
 	Priority int `json:"priority,omitempty"`
+	// IsFocus holds the value of the "is_focus" field.
+	IsFocus bool `json:"is_focus,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -69,6 +71,8 @@ func (*AccountGroup) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case accountgroup.FieldIsFocus:
+			values[i] = new(sql.NullBool)
 		case accountgroup.FieldAccountID, accountgroup.FieldGroupID, accountgroup.FieldPriority:
 			values[i] = new(sql.NullInt64)
 		case accountgroup.FieldCreatedAt:
@@ -105,6 +109,12 @@ func (_m *AccountGroup) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field priority", values[i])
 			} else if value.Valid {
 				_m.Priority = int(value.Int64)
+			}
+		case accountgroup.FieldIsFocus:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field is_focus", values[i])
+			} else if value.Valid {
+				_m.IsFocus = value.Bool
 			}
 		case accountgroup.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -165,6 +175,9 @@ func (_m *AccountGroup) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("priority=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Priority))
+	builder.WriteString(", ")
+	builder.WriteString("is_focus=")
+	builder.WriteString(fmt.Sprintf("%v", _m.IsFocus))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

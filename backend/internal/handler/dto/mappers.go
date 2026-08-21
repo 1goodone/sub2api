@@ -151,6 +151,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,
 		ModelPricing:                g.ModelPricing,
 		FocusAccountID:              g.FocusAccountID,
+		FocusAccountIDs:             append([]int64(nil), g.FocusAccountIDs...),
 		AccountTypePreference:       g.AccountTypePreference,
 		ModelRouting:                g.ModelRouting,
 		ModelRoutingEnabled:         g.ModelRoutingEnabled,

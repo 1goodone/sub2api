@@ -102,9 +102,9 @@ export default {
         focused: 'Focused',
         setFocus: 'Focus here',
         clearFocus: 'Clear focus',
-        focusSet: 'This account is now the group focus account',
-        focusCleared: 'The group focus account was cleared',
-        focusHint: 'Preferred while available; full or unavailable accounts fall back automatically.',
+        focusSet: 'This account was added to the group focus pool',
+        focusCleared: 'This account was removed from the group focus pool',
+        focusHint: 'Select multiple accounts; the focus pool is preferred and falls back when unavailable.',
         updateFailed: 'Failed to update group routing settings'
       },
       platforms: {

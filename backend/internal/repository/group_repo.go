@@ -57,6 +57,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
+	normalizeGroupFocusAccountIDs(groupIn)
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
@@ -162,7 +163,11 @@ func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operat
 	if err != nil {
 		return nil, fmt.Errorf("find group duplicate operation: %w", err)
 	}
-	return groupEntityToService(row), nil
+	out := groupEntityToService(row)
+	if err := r.hydrateGroupFocusAccountIDs(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // CreateFromSource atomically persists a copied group, clones the source
@@ -190,8 +195,8 @@ func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service
 	}
 	result, err := txClient.ExecContext(
 		ctx,
-		`INSERT INTO account_groups (account_id, group_id, priority, created_at)
-		 SELECT ag.account_id, $2, ag.priority, NOW()
+		`INSERT INTO account_groups (account_id, group_id, priority, is_focus, created_at)
+		 SELECT ag.account_id, $2, ag.priority, ag.is_focus, NOW()
 		 FROM account_groups ag
 		 JOIN accounts a ON a.id = ag.account_id
 		 WHERE ag.group_id = $1
@@ -244,19 +249,33 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrGroupNotFound, nil)
 	}
-	return groupEntityToService(m), nil
+	out := groupEntityToService(m)
+	if err := r.hydrateGroupFocusAccountIDs(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	focusAccountIDs := normalizeGroupFocusAccountIDs(groupIn)
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	txClient := r.client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
 	}
 	accountTypePreference := groupIn.AccountTypePreference
 	if accountTypePreference == "" {
 		accountTypePreference = service.AccountTypePreferenceDefault
 	}
-	builder := r.client.Group.UpdateOneID(groupIn.ID).
+	builder := txClient.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
@@ -412,10 +431,25 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
-	groupIn.UpdatedAt = updated.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+	query := `UPDATE account_groups SET is_focus = FALSE WHERE group_id = $1 AND is_focus`
+	args := []any{groupIn.ID}
+	if len(focusAccountIDs) > 0 {
+		placeholders, focusArgs := numberedInt64Args(2, focusAccountIDs)
+		query = fmt.Sprintf(`UPDATE account_groups SET is_focus = account_id IN (%s) WHERE group_id = $1`, placeholders)
+		args = append(args, focusArgs...)
+	}
+	if _, err := txClient.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("update group focus pool: %w", err)
+	}
+	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
 	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	groupIn.UpdatedAt = updated.UpdatedAt
 	return nil
 }
 
@@ -480,6 +514,9 @@ func (r *groupRepository) ListWithFilters(ctx context.Context, params pagination
 		g := groupEntityToService(groups[i])
 		outGroups = append(outGroups, *g)
 		groupIDs = append(groupIDs, g.ID)
+	}
+	if err := r.hydrateGroupFocusAccountIDs(ctx, groupPointers(outGroups)...); err != nil {
+		return nil, nil, err
 	}
 
 	counts, err := r.loadAccountCounts(ctx, groupIDs)
@@ -578,6 +615,9 @@ func (r *groupRepository) listWithAccountCountSort(ctx context.Context, q *dbent
 			outGroups[idx] = *g
 		}
 	}
+	if err := r.hydrateGroupFocusAccountIDs(ctx, groupPointers(outGroups)...); err != nil {
+		return nil, nil, err
+	}
 
 	return outGroups, paginationResultFromTotal(int64(total), params), nil
 }
@@ -652,6 +692,9 @@ func (r *groupRepository) ListActive(ctx context.Context) ([]service.Group, erro
 		outGroups = append(outGroups, *g)
 		groupIDs = append(groupIDs, g.ID)
 	}
+	if err := r.hydrateGroupFocusAccountIDs(ctx, groupPointers(outGroups)...); err != nil {
+		return nil, err
+	}
 
 	counts, err := r.loadAccountCounts(ctx, groupIDs)
 	if err == nil {
@@ -724,6 +767,9 @@ func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform str
 		g := groupEntityToService(groups[i])
 		outGroups = append(outGroups, *g)
 		groupIDs = append(groupIDs, g.ID)
+	}
+	if err := r.hydrateGroupFocusAccountIDs(ctx, groupPointers(outGroups)...); err != nil {
+		return nil, err
 	}
 
 	counts, err := r.loadAccountCounts(ctx, groupIDs)
@@ -926,6 +972,109 @@ type groupAccountCounts struct {
 	Total       int64
 	Active      int64
 	RateLimited int64
+}
+
+func normalizeGroupFocusAccountIDs(groupIn *service.Group) []int64 {
+	if groupIn == nil {
+		return nil
+	}
+	ids := uniquePositiveInt64s(groupIn.FocusAccountIDs)
+	if len(ids) == 0 && groupIn.FocusAccountID != nil && *groupIn.FocusAccountID > 0 {
+		ids = []int64{*groupIn.FocusAccountID}
+	}
+	groupIn.FocusAccountIDs = ids
+	if len(ids) == 0 {
+		groupIn.FocusAccountID = nil
+	} else {
+		legacyID := ids[0]
+		groupIn.FocusAccountID = &legacyID
+	}
+	return ids
+}
+
+func groupPointers(groups []service.Group) []*service.Group {
+	result := make([]*service.Group, len(groups))
+	for i := range groups {
+		result[i] = &groups[i]
+	}
+	return result
+}
+
+func (r *groupRepository) hydrateGroupFocusAccountIDs(ctx context.Context, groups ...*service.Group) error {
+	if r.sql == nil {
+		for _, group := range groups {
+			normalizeGroupFocusAccountIDs(group)
+		}
+		return nil
+	}
+	groupIDs := make([]int64, 0, len(groups))
+	for _, group := range groups {
+		if group != nil && group.ID > 0 && group.FocusAccountID != nil && *group.FocusAccountID > 0 {
+			groupIDs = append(groupIDs, group.ID)
+		}
+	}
+	focusByGroup, err := loadGroupFocusAccountIDs(ctx, r.sql, groupIDs)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		ids := focusByGroup[group.ID]
+		group.FocusAccountIDs = append([]int64(nil), ids...)
+		if len(ids) == 0 {
+			group.FocusAccountID = nil
+		} else {
+			legacyID := ids[0]
+			group.FocusAccountID = &legacyID
+		}
+	}
+	return nil
+}
+
+func loadGroupFocusAccountIDs(ctx context.Context, exec sqlExecutor, groupIDs []int64) (map[int64][]int64, error) {
+	result := make(map[int64][]int64, len(groupIDs))
+	groupIDs = uniquePositiveInt64s(groupIDs)
+	if len(groupIDs) == 0 || exec == nil {
+		return result, nil
+	}
+	placeholders, args := numberedInt64Args(1, groupIDs)
+	rows, err := exec.QueryContext(ctx, fmt.Sprintf(`
+		SELECT ag.group_id, ag.account_id
+		FROM account_groups ag
+		JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
+		WHERE ag.group_id IN (%s)
+		  AND (ag.is_focus OR g.focus_account_id = ag.account_id)
+		ORDER BY ag.group_id,
+		         CASE WHEN g.focus_account_id = ag.account_id THEN 0 ELSE 1 END,
+		         ag.priority,
+		         ag.account_id`, placeholders), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var groupID, accountID int64
+		if err := rows.Scan(&groupID, &accountID); err != nil {
+			return nil, err
+		}
+		result[groupID] = append(result[groupID], accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func numberedInt64Args(start int, values []int64) (string, []any) {
+	placeholders := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, value := range values {
+		placeholders[i] = fmt.Sprintf("$%d", start+i)
+		args[i] = value
+	}
+	return strings.Join(placeholders, ", "), args
 }
 
 const (

@@ -170,6 +170,7 @@ type AdminGroup struct {
 	ProfitSafetyBuffer    float64                       `json:"profit_safety_buffer"`
 	ModelPricing          []service.ChannelModelPricing `json:"model_pricing"`
 	FocusAccountID        *int64                        `json:"focus_account_id"`
+	FocusAccountIDs       []int64                       `json:"focus_account_ids"`
 	AccountTypePreference string                        `json:"account_type_preference"`
 
 	// 模型路由配置（仅 anthropic 平台使用）

@@ -69,6 +69,7 @@ var openAIAdvancedSchedulerSettingSF singleflight.Group
 type OpenAIAccountScheduleRequest struct {
 	GroupID                 *int64
 	FocusAccountID          int64
+	FocusAccountIDs         []int64
 	AccountTypePreference   string
 	Platform                string
 	SessionHash             string
@@ -98,12 +99,13 @@ func (r OpenAIAccountScheduleRequest) routingGroup() *Group {
 	}
 	return &Group{
 		FocusAccountID:        focusAccountID,
+		FocusAccountIDs:       append([]int64(nil), r.FocusAccountIDs...),
 		AccountTypePreference: r.AccountTypePreference,
 	}
 }
 
 func (r OpenAIAccountScheduleRequest) focusOverridesSticky() bool {
-	return r.FocusAccountID > 0 && r.FocusAccountID != r.StickyAccountID
+	return groupFocusOverridesSticky(r.routingGroup(), r.StickyAccountID, nil)
 }
 
 func (r OpenAIAccountScheduleRequest) routingOverridesStickyAccount(account *Account) bool {
@@ -573,6 +575,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
 		}), false, nil
+	}
+	if acquireErr == nil && result != nil && !result.Acquired && groupHasFocusAccount(req.routingGroup(), accountID) {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, false, nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -2308,17 +2314,20 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	}
 	routingGroup := openAIAccountRoutingGroup(ctx, groupID)
 	focusAccountID := int64(0)
+	var focusAccountIDs []int64
 	accountTypePreference := AccountTypePreferenceDefault
 	if routingGroup != nil {
 		if routingGroup.FocusAccountID != nil {
 			focusAccountID = *routingGroup.FocusAccountID
 		}
+		focusAccountIDs = groupFocusAccountIDs(routingGroup)
 		accountTypePreference = groupAccountTypePreference(routingGroup)
 	}
 
 	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
 		FocusAccountID:          focusAccountID,
+		FocusAccountIDs:         focusAccountIDs,
 		AccountTypePreference:   accountTypePreference,
 		Platform:                platform,
 		SessionHash:             sessionHash,

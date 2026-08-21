@@ -100,9 +100,9 @@ export default {
         focused: '集火中',
         setFocus: '设为集火',
         clearFocus: '取消集火',
-        focusSet: '已将该账号设为分组集火账号',
-        focusCleared: '已取消分组集火账号',
-        focusHint: '账号可用时优先使用；满载或不可用时自动回退到其他账号。',
+        focusSet: '已将该账号加入分组集火池',
+        focusCleared: '已将该账号移出分组集火池',
+        focusHint: '可同时选择多个账号；优先在集火池内调度，池内不可用时自动回退。',
         updateFailed: '更新分组调度设置失败'
       },
       columns: {

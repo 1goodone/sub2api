@@ -147,6 +147,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		RequireOAuthOnly:                source.RequireOAuthOnly,
 		RequirePrivacySet:               source.RequirePrivacySet,
 		FocusAccountID:                  cloneGroupValuePointer(source.FocusAccountID),
+		FocusAccountIDs:                 append([]int64(nil), source.FocusAccountIDs...),
 		AccountTypePreference:           groupAccountTypePreference(source),
 		DefaultMappedModel:              source.DefaultMappedModel,
 		MessagesDispatchModelConfig:     cloneGroupMessagesDispatchModelConfig(source.MessagesDispatchModelConfig),

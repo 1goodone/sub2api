@@ -344,6 +344,7 @@ type UpdateGroupInput struct {
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
 	FocusAccountID              *int64
+	FocusAccountIDs             *[]int64
 	AccountTypePreference       *string
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            *GroupModelsListConfig

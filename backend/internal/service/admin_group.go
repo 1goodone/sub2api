@@ -891,19 +891,31 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		}
 		group.AccountTypePreference = preference
 	}
-	if input.FocusAccountID != nil {
-		if *input.FocusAccountID <= 0 {
-			group.FocusAccountID = nil
-		} else {
-			account, err := s.accountRepo.GetByID(ctx, *input.FocusAccountID)
+	requestedFocusAccountIDs := input.FocusAccountIDs
+	if requestedFocusAccountIDs == nil && input.FocusAccountID != nil {
+		legacyIDs := []int64{}
+		if *input.FocusAccountID > 0 {
+			legacyIDs = append(legacyIDs, *input.FocusAccountID)
+		}
+		requestedFocusAccountIDs = &legacyIDs
+	}
+	if requestedFocusAccountIDs != nil {
+		focusAccountIDs := uniquePositiveInt64Values(*requestedFocusAccountIDs)
+		for _, focusAccountID := range focusAccountIDs {
+			account, err := s.accountRepo.GetByID(ctx, focusAccountID)
 			if err != nil {
 				return nil, infraerrors.BadRequest("INVALID_FOCUS_ACCOUNT", "focus account not found")
 			}
 			if !accountAssignedToGroup(account, id) {
 				return nil, infraerrors.BadRequest("INVALID_FOCUS_ACCOUNT", "focus account must belong to the group")
 			}
-			focusAccountID := account.ID
-			group.FocusAccountID = &focusAccountID
+		}
+		group.FocusAccountIDs = focusAccountIDs
+		if len(focusAccountIDs) == 0 {
+			group.FocusAccountID = nil
+		} else {
+			legacyID := focusAccountIDs[0]
+			group.FocusAccountID = &legacyID
 		}
 	}
 	if input.DefaultMappedModel != nil {

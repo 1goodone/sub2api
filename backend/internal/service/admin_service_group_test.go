@@ -42,6 +42,19 @@ type groupRepoStubForAdmin struct {
 	listWithFiltersErr         error
 }
 
+type focusPoolAccountRepoStub struct {
+	AccountRepository
+	accounts map[int64]*Account
+}
+
+func (s focusPoolAccountRepoStub) GetByID(_ context.Context, id int64) (*Account, error) {
+	account := s.accounts[id]
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	return account, nil
+}
+
 func (s *groupRepoStubForAdmin) Create(_ context.Context, g *Group) error {
 	if s.createID > 0 {
 		g.ID = s.createID
@@ -179,6 +192,54 @@ func TestAdminService_CreateGroup_RejectsTimePricing(t *testing.T) {
 	require.Equal(t, int32(http.StatusBadRequest), appErr.Code)
 	require.Equal(t, "GROUP_MODEL_TIME_PRICING_UNSUPPORTED", appErr.Reason)
 	require.Nil(t, repo.created)
+}
+
+func TestAdminService_UpdateGroup_MultipleFocusAccounts(t *testing.T) {
+	groupID := int64(7)
+	existing := &Group{
+		ID: groupID, Name: "focus-pool", Platform: PlatformOpenAI,
+		Status: StatusActive, SubscriptionType: SubscriptionTypeStandard, Hydrated: true,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existing}
+	svc := &adminServiceImpl{
+		groupRepo: repo,
+		accountRepo: focusPoolAccountRepoStub{accounts: map[int64]*Account{
+			11: {ID: 11, GroupIDs: []int64{groupID}},
+			12: {ID: 12, AccountGroups: []AccountGroup{{GroupID: groupID}}},
+		}},
+	}
+	focusAccountIDs := []int64{11, 12, 11}
+
+	updated, err := svc.UpdateGroup(context.Background(), groupID, &UpdateGroupInput{
+		FocusAccountIDs: &focusAccountIDs,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{11, 12}, updated.FocusAccountIDs)
+	require.NotNil(t, updated.FocusAccountID)
+	require.Equal(t, int64(11), *updated.FocusAccountID)
+	require.Same(t, updated, repo.updated)
+}
+
+func TestAdminService_UpdateGroup_RejectsFocusAccountOutsideGroup(t *testing.T) {
+	groupID := int64(7)
+	repo := &groupRepoStubForAdmin{getByID: &Group{
+		ID: groupID, Name: "focus-pool", Platform: PlatformOpenAI,
+		Status: StatusActive, SubscriptionType: SubscriptionTypeStandard, Hydrated: true,
+	}}
+	svc := &adminServiceImpl{
+		groupRepo: repo,
+		accountRepo: focusPoolAccountRepoStub{accounts: map[int64]*Account{
+			11: {ID: 11, GroupIDs: []int64{8}},
+		}},
+	}
+	focusAccountIDs := []int64{11}
+
+	_, err := svc.UpdateGroup(context.Background(), groupID, &UpdateGroupInput{
+		FocusAccountIDs: &focusAccountIDs,
+	})
+	require.Error(t, err)
+	require.Equal(t, "INVALID_FOCUS_ACCOUNT", infraerrors.FromError(err).Reason)
+	require.Nil(t, repo.updated)
 }
 
 func TestAdminService_UpdateGroup_RejectsTimePricing(t *testing.T) {

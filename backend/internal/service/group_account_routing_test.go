@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -11,19 +12,22 @@ import (
 
 func TestGroupAccountRoutingPreferenceRank(t *testing.T) {
 	focusID := int64(3)
+	secondFocusID := int64(4)
 	auth := &Account{ID: 1, Type: AccountTypeOAuth}
 	api := &Account{ID: 2, Type: AccountTypeUpstream}
 	focus := &Account{ID: focusID, Type: AccountTypeAPIKey}
+	secondFocus := &Account{ID: secondFocusID, Type: AccountTypeOAuth}
 
 	group := &Group{
-		FocusAccountID:        &focusID,
+		FocusAccountIDs:       []int64{focusID, secondFocusID},
 		AccountTypePreference: AccountTypePreferenceAuthFirst,
 	}
 	require.Equal(t, 0, accountRoutingPreferenceRank(group, focus))
+	require.Equal(t, 0, accountRoutingPreferenceRank(group, secondFocus))
 	require.Equal(t, 1, accountRoutingPreferenceRank(group, auth))
 	require.Equal(t, 2, accountRoutingPreferenceRank(group, api))
 
-	group.FocusAccountID = nil
+	group.FocusAccountIDs = nil
 	group.AccountTypePreference = AccountTypePreferenceAPIKeyFirst
 	require.Equal(t, 1, accountRoutingPreferenceRank(group, api))
 	require.Equal(t, 1, accountRoutingPreferenceRank(group, &Account{ID: 4, Type: AccountTypeBedrock}))
@@ -32,10 +36,12 @@ func TestGroupAccountRoutingPreferenceRank(t *testing.T) {
 
 func TestGroupRoutingPreferenceOverridesOldStickySession(t *testing.T) {
 	focusID := int64(9)
-	group := &Group{FocusAccountID: &focusID}
+	secondFocusID := int64(10)
+	group := &Group{FocusAccountIDs: []int64{focusID, secondFocusID}}
 
 	require.True(t, groupFocusOverridesSticky(group, 4, nil))
 	require.False(t, groupFocusOverridesSticky(group, focusID, nil))
+	require.False(t, groupFocusOverridesSticky(group, secondFocusID, nil))
 	require.False(t, groupFocusOverridesSticky(group, 4, []int64{4, 5}),
 		"model routing must win when the focus account is outside the route")
 	require.True(t, groupFocusOverridesSticky(group, 4, []int64{4, focusID}))
@@ -55,6 +61,16 @@ func TestGroupRoutingPreferenceOverridesOldStickySession(t *testing.T) {
 	require.False(t, groupAccountTypePreferenceOverridesSticky(
 		&Group{AccountTypePreference: AccountTypePreferenceAPIKeyFirst},
 		&Account{Type: AccountTypeBedrock},
+	))
+}
+
+func TestFocusPoolUsesShortIdleStickyTTLOnlyForConfiguredGroups(t *testing.T) {
+	require.Equal(t, focusPoolStickySessionTTL, routingPreferenceStickyTTL(
+		&Group{FocusAccountIDs: []int64{1, 2}}, time.Hour,
+	))
+	require.Equal(t, time.Hour, routingPreferenceStickyTTL(&Group{}, time.Hour))
+	require.Equal(t, 2*time.Minute, routingPreferenceStickyTTL(
+		&Group{FocusAccountIDs: []int64{1}}, 2*time.Minute,
 	))
 }
 
@@ -308,6 +324,132 @@ func TestOpenAIFocusFallsBackWhenConcurrencyIsFull(t *testing.T) {
 	require.Equal(t, int64(432), selection.Account.ID)
 	require.GreaterOrEqual(t, len(acquiredIDs), 2)
 	require.Equal(t, []int64{focusID, 432}, acquiredIDs[:2])
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIFocusPoolTriesOtherFocusBeforeNormalFallback(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(45)
+	firstFocusID := int64(451)
+	secondFocusID := int64(452)
+	normalID := int64(453)
+	group := routingTestGroup(groupID)
+	group.FocusAccountIDs = []int64{firstFocusID, secondFocusID}
+	accounts := []Account{
+		routingTestAccount(firstFocusID, groupID, AccountTypeAPIKey, 0),
+		routingTestAccount(secondFocusID, groupID, AccountTypeOAuth, 100),
+		routingTestAccount(normalID, groupID, AccountTypeOAuth, 0),
+	}
+
+	t.Run("uses another focus account", func(t *testing.T) {
+		acquiredIDs := make([]int64, 0, 3)
+		svc := routingTestOpenAIService(accounts, &schedulerTestGatewayCache{}, schedulerTestConcurrencyCache{
+			acquireResults: map[int64]bool{firstFocusID: false, secondFocusID: true, normalID: true},
+			acquiredIDs:    &acquiredIDs,
+		})
+		ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+		selection, _, err := svc.SelectAccountWithScheduler(
+			ctx, &groupID, "", "focus-pool", "", nil, OpenAIUpstreamTransportAny, false,
+		)
+		require.NoError(t, err)
+		require.Equal(t, secondFocusID, selection.Account.ID)
+		require.Equal(t, []int64{firstFocusID, secondFocusID}, acquiredIDs[:2])
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+	})
+
+	t.Run("falls back after the focus pool is exhausted", func(t *testing.T) {
+		acquiredIDs := make([]int64, 0, 3)
+		svc := routingTestOpenAIService(accounts, &schedulerTestGatewayCache{}, schedulerTestConcurrencyCache{
+			acquireResults: map[int64]bool{firstFocusID: false, secondFocusID: false, normalID: true},
+			acquiredIDs:    &acquiredIDs,
+		})
+		ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+		selection, _, err := svc.SelectAccountWithScheduler(
+			ctx, &groupID, "", "focus-pool-fallback", "", nil, OpenAIUpstreamTransportAny, false,
+		)
+		require.NoError(t, err)
+		require.Equal(t, normalID, selection.Account.ID)
+		require.Equal(t, []int64{firstFocusID, secondFocusID, normalID}, acquiredIDs[:3])
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+	})
+}
+
+func TestOpenAIFocusPoolEscapesBusyStickyAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(46)
+	firstFocusID := int64(461)
+	secondFocusID := int64(462)
+	group := routingTestGroup(groupID)
+	group.FocusAccountIDs = []int64{firstFocusID, secondFocusID}
+	accounts := []Account{
+		routingTestAccount(firstFocusID, groupID, AccountTypeOAuth, 0),
+		routingTestAccount(secondFocusID, groupID, AccountTypeOAuth, 100),
+	}
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{}}
+	svc := routingTestOpenAIService(accounts, cache, schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{firstFocusID: false, secondFocusID: true},
+	})
+	sessionHash := "focus-sticky-busy"
+	sessionKey := svc.openAISessionCacheKey(sessionHash)
+	cache.sessionBindings[sessionKey] = firstFocusID
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	selection, decision, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", sessionHash, "", nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, secondFocusID, selection.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.Equal(t, secondFocusID, cache.sessionBindings[sessionKey])
+	require.Equal(t, 1, cache.deletedSessions[sessionKey])
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestGatewayFocusPoolEscapesBusyStickyAccount(t *testing.T) {
+	groupID := int64(47)
+	firstFocusID := int64(471)
+	secondFocusID := int64(472)
+	group := routingTestGroup(groupID)
+	group.Platform = PlatformAnthropic
+	group.FocusAccountIDs = []int64{firstFocusID, secondFocusID}
+	accounts := []Account{
+		{ID: firstFocusID, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}},
+		{ID: secondFocusID, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, GroupIDs: []int64{groupID}},
+	}
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"focus-sticky-busy": firstFocusID}}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &GatewayService{
+		accountRepo: routingTestGatewayAccountRepo{schedulerTestOpenAIAccountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}},
+		cache:       cache,
+		cfg:         cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
+			acquireResults: map[int64]bool{firstFocusID: false, secondFocusID: true},
+		}),
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	selection, err := svc.SelectAccountWithLoadAwareness(
+		ctx, &groupID, "focus-sticky-busy", "", nil, "", 0,
+	)
+	require.NoError(t, err)
+	require.Equal(t, secondFocusID, selection.Account.ID)
+	require.Equal(t, secondFocusID, cache.sessionBindings["focus-sticky-busy"])
+	require.Equal(t, 1, cache.deletedSessions["focus-sticky-busy"])
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}

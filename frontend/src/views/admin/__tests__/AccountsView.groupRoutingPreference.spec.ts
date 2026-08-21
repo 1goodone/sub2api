@@ -65,6 +65,17 @@ const AccountTableFiltersStub = {
   `
 }
 
+const GroupCellDataTableStub = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.id">
+        <slot name="cell-groups" :row="row" />
+      </div>
+    </div>
+  `
+}
+
 describe('admin AccountsView selected group routing preference', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -132,5 +143,75 @@ describe('admin AccountsView selected group routing preference', () => {
 
     expect(updateGroup).toHaveBeenCalledWith(7, { account_type_preference: 'apikey_first' })
     expect(showSuccess).toHaveBeenCalledWith('admin.groups.groupUpdated')
+  })
+
+  it('adds an account without replacing existing focus pool members', async () => {
+    const group = {
+      id: 7,
+      name: 'OpenAI low rate',
+      platform: 'openai',
+      focus_account_id: 41,
+      focus_account_ids: [41, 42]
+    }
+    getAllGroups.mockResolvedValue([group])
+    listAccounts.mockResolvedValue({
+      items: [{
+        id: 43,
+        name: 'focus candidate',
+        platform: 'openai',
+        type: 'oauth',
+        status: 'active',
+        schedulable: true,
+        groups: [group]
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    updateGroup.mockResolvedValue({ ...group, focus_account_ids: [41, 42, 43] })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          AccountTableFilters: true,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountBulkActionsBar: true,
+          DataTable: GroupCellDataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: true,
+          TotpStepUpDialog: true,
+          Teleport: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('button[title="admin.accounts.groupRouting.manage"]').trigger('click')
+    const focusButton = wrapper.findAll('button')
+      .find(button => button.text().includes('admin.accounts.groupRouting.setFocus'))
+    expect(focusButton).toBeDefined()
+    await focusButton!.trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(7, { focus_account_ids: [41, 42, 43] })
   })
 })

@@ -103,6 +103,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
 	AllowLive                   bool                              `json:"allow_live"`
 	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
+	FocusAccountIDs             []int64                           `json:"focus_account_ids,omitempty"`
 	AccountTypePreference       string                            `json:"account_type_preference,omitempty"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`

@@ -221,6 +221,7 @@ type UpdateGroupRequest struct {
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	FocusAccountID              *int64                                     `json:"focus_account_id"`
+	FocusAccountIDs             *[]int64                                   `json:"focus_account_ids"`
 	AccountTypePreference       *string                                    `json:"account_type_preference" binding:"omitempty,oneof=default auth_first apikey_first"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
@@ -689,6 +690,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		FocusAccountID:                  req.FocusAccountID,
+		FocusAccountIDs:                 req.FocusAccountIDs,
 		AccountTypePreference:           req.AccountTypePreference,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
