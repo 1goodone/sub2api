@@ -50,6 +50,27 @@ func isCodexQuotaOverdraftAccount(account *Account) bool {
 		!account.IsShadow()
 }
 
+// PrepareCodexQuotaOverdraftForCreate normalizes system-managed overdraft
+// state for newly persisted accounts. Existing accounts are never affected.
+func PrepareCodexQuotaOverdraftForCreate(account *Account) {
+	if account == nil {
+		return
+	}
+	if account.Extra != nil {
+		delete(account.Extra, CodexQuotaOverdraftProbeExtraKey)
+	}
+	if !isCodexQuotaOverdraftAccount(account) {
+		if account.Extra != nil {
+			delete(account.Extra, CodexQuotaOverdraftEnabledExtraKey)
+		}
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any, 1)
+	}
+	account.Extra[CodexQuotaOverdraftEnabledExtraKey] = true
+}
+
 // CodexQuotaOverdraftEnabledForAccount is the single runtime gate for the
 // experimental behavior. The global switch remains an emergency kill switch;
 // an account must also be explicitly enabled in Extra.

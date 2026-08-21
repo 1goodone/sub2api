@@ -22,6 +22,34 @@ const parameterLimitTestDriverName = "sub2api_param_limit_test"
 
 var registerParameterLimitTestDriverOnce sync.Once
 
+func TestCreateAccountRecordEnablesCodexQuotaOverdraftForOpenAIOAuth(t *testing.T) {
+	_, client := newUserEntRepo(t)
+	ctx := context.Background()
+	account := &service.Account{
+		Name:        "new-openai-oauth",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Credentials: map[string]any{},
+		Extra: map[string]any{
+			service.CodexQuotaOverdraftEnabledExtraKey: false,
+			service.CodexQuotaOverdraftProbeExtraKey:   map[string]any{"status": "passed"},
+			"custom":                                   "keep",
+		},
+		Status:      service.StatusActive,
+		Schedulable: true,
+	}
+
+	require.NoError(t, createAccountRecord(ctx, client, account))
+	require.Equal(t, true, account.Extra[service.CodexQuotaOverdraftEnabledExtraKey])
+	require.NotContains(t, account.Extra, service.CodexQuotaOverdraftProbeExtraKey)
+
+	created, err := client.Account.Get(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, true, created.Extra[service.CodexQuotaOverdraftEnabledExtraKey])
+	require.NotContains(t, created.Extra, service.CodexQuotaOverdraftProbeExtraKey)
+	require.Equal(t, "keep", created.Extra["custom"])
+}
+
 func TestAccountsToService_LargeActiveAccountSetDoesNotExceedPostgresParameterLimit(t *testing.T) {
 	repo := newParameterLimitAccountRepo(t)
 
