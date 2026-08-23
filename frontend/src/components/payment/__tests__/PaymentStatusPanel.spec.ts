@@ -177,7 +177,99 @@ describe('PaymentStatusPanel', () => {
     expect(resumeOrder).toHaveBeenCalledWith(42)
     expect((resumedWindow as { opener?: unknown }).opener).toBeNull()
     expect(resumedWindow.location.href).toBe('https://pay.example.com/resume/42')
-    expect(wrapper.find('button').text()).not.toContain('payment.qr.cancelOrder')
+    expect(wrapper.find('[data-test="close-order"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('refreshes a resumable Cloudcat QR code without reopening the hosted page', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    verifyOrder.mockResolvedValue({ data: orderFactory('PENDING') })
+    resumeOrder.mockResolvedValue({
+      data: {
+        qr_code: 'https://qr.alipay.com/cloudcat-refreshed',
+        pay_url: 'https://catfk.com/shopApi/Pay/payment?trade_no=CAT-1',
+      },
+    })
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: 'https://qr.alipay.com/cloudcat-initial',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        outTradeNo: 'sub2_20260420abcd1234',
+        resumable: true,
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    await flushPromises()
+
+    expect(resumeOrder).toHaveBeenCalledWith(42)
+    expect(toCanvas).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://qr.alipay.com/cloudcat-refreshed',
+      expect.objectContaining({ width: 220 }),
+    )
+    expect(openSpy).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('closes a resumable Cloudcat order locally after confirmation', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    cancelOrder.mockResolvedValue({ data: { message: 'order closed locally' } })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: '',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        outTradeNo: 'sub2_20260420abcd1234',
+        resumable: true,
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="close-order"]').trigger('click')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledWith('payment.confirmCloudcatClose')
+    expect(cancelOrder).toHaveBeenCalledWith(42)
+    expect(wrapper.emitted('settled')).toEqual([['cancelled']])
+    expect(wrapper.text()).toContain('payment.qr.cancelled')
+    wrapper.unmount()
+  })
+
+  it('does not show closed when the provider reports payment during close', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('COMPLETED'))
+    cancelOrder.mockResolvedValue({ data: { message: 'already_paid' } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: '',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        outTradeNo: 'sub2_20260420abcd1234',
+        resumable: true,
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    await wrapper.get('[data-test="close-order"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('settled')).toEqual([['success']])
+    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).not.toContain('payment.qr.cancelledDesc')
     wrapper.unmount()
   })
 

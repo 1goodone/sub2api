@@ -28,7 +28,7 @@
               <Icon name="externalLink" size="sm" />
               <span>{{ resumingOrderId === row.id ? t('common.processing') : t('payment.qr.continuePayment') }}</span>
             </button>
-            <button v-if="row.status === 'PENDING' && !row.resumable" @click="handleCancel(row.id)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
+            <button v-if="row.status === 'PENDING'" @click="handleCancel(row)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
               <Icon name="x" size="sm" />
               <span>{{ t('payment.orders.cancel') }}</span>
             </button>
@@ -52,11 +52,13 @@
     </div>
 
     <!-- Cancel Confirm Dialog -->
-    <BaseDialog :show="!!cancelTargetId" :title="t('payment.orders.cancel')" width="narrow" @close="cancelTargetId = null">
-      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('payment.confirmCancel') }}</p>
+    <BaseDialog :show="!!cancelTarget" :title="t('payment.orders.cancel')" width="narrow" @close="cancelTarget = null">
+      <p class="text-sm text-gray-600 dark:text-gray-300">
+        {{ cancelTarget?.resumable ? t('payment.confirmCloudcatClose') : t('payment.confirmCancel') }}
+      </p>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button class="btn btn-secondary" @click="cancelTargetId = null">{{ t('common.cancel') }}</button>
+          <button class="btn btn-secondary" @click="cancelTarget = null">{{ t('common.cancel') }}</button>
           <button class="btn btn-danger" :disabled="actionLoading" @click="confirmCancel">{{ actionLoading ? t('common.processing') : t('payment.orders.cancel') }}</button>
         </div>
       </template>
@@ -98,6 +100,11 @@ import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { getPaymentPopupFeatures, isolatePaymentPopup } from '@/components/payment/providerConfig'
+import {
+  PAYMENT_RECOVERY_STORAGE_KEY,
+  createPaymentRecoverySnapshot,
+  writePaymentRecoverySnapshot,
+} from '@/components/payment/paymentFlow'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -116,7 +123,7 @@ const resumingOrderId = ref<number | null>(null)
 const orders = ref<PaymentOrder[]>([])
 const refundEligibleProviders = ref<Set<string>>(new Set())
 const currentFilter = ref('')
-const cancelTargetId = ref<number | null>(null)
+const cancelTarget = ref<PaymentOrder | null>(null)
 const refundTarget = ref<PaymentOrder | null>(null)
 const refundReason = ref('')
 const pagination = reactive({ page: 1, page_size: 20, total: 0 })
@@ -149,7 +156,7 @@ async function fetchOrders() {
 function handlePageChange(page: number) { pagination.page = page; fetchOrders() }
 function handlePageSizeChange(size: number) { pagination.page_size = size; pagination.page = 1; fetchOrders() }
 
-function handleCancel(orderId: number) { cancelTargetId.value = orderId }
+function handleCancel(order: PaymentOrder) { cancelTarget.value = order }
 
 async function handleResume(order: PaymentOrder) {
   if (!order.resumable || order.status !== 'PENDING' || resumingOrderId.value) return
@@ -162,6 +169,33 @@ async function handleResume(order: PaymentOrder) {
   resumingOrderId.value = order.id
   try {
     const response = await paymentAPI.resumeOrder(order.id)
+    const qrCode = String(response.data.qr_code || '').trim()
+    if (qrCode) {
+      if (!popup.closed) popup.close()
+      const recovery = createPaymentRecoverySnapshot({
+        orderId: response.data.order_id,
+        amount: response.data.amount,
+        qrCode,
+        expiresAt: response.data.expires_at,
+        paymentType: response.data.payment_type,
+        payUrl: '',
+        outTradeNo: response.data.out_trade_no,
+        clientSecret: '',
+        intentId: '',
+        currency: response.data.currency,
+        countryCode: '',
+        paymentEnv: '',
+        payAmount: response.data.pay_amount,
+        orderType: response.data.order_type,
+        paymentMode: 'qrcode',
+        resumeToken: '',
+        resumable: true,
+        alipayMobilePrecreateDeepLink: false,
+      })
+      writePaymentRecoverySnapshot(window.localStorage, recovery, PAYMENT_RECOVERY_STORAGE_KEY)
+      await router.push('/purchase')
+      return
+    }
     const payURL = String(response.data.pay_url || '').trim()
     if (!payURL) throw new Error(t('payment.qr.resumeFailed'))
     popup.location.href = payURL
@@ -174,12 +208,12 @@ async function handleResume(order: PaymentOrder) {
 }
 
 async function confirmCancel() {
-  if (!cancelTargetId.value) return
+  if (!cancelTarget.value) return
   actionLoading.value = true
   try {
-    await paymentAPI.cancelOrder(cancelTargetId.value)
+    await paymentAPI.cancelOrder(cancelTarget.value.id)
     appStore.showSuccess(t('common.success'))
-    cancelTargetId.value = null
+    cancelTarget.value = null
     await fetchOrders()
   } catch (err: unknown) {
     appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error')))

@@ -217,6 +217,10 @@ export function decidePaymentLaunch(
     return { kind: 'alipay_deep_link', paymentState: baseState, recovery: baseRecovery }
   }
 
+  if (baseState.resumable && baseState.qrCode) {
+    return { kind: 'qr_waiting', paymentState: baseState, recovery: baseRecovery }
+  }
+
   const normalizedPaymentMode = baseState.paymentMode.trim().toLowerCase()
   // When forceQRCode is on for alipay, treat the device as desktop so the mobile-redirect
   // branch is bypassed and we fall through to qr_waiting.

@@ -221,7 +221,7 @@
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
         <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
       </div>
-      <button v-if="!resumable" class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
+      <button data-test="close-order" class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
       </button>
     </template>
@@ -260,7 +260,7 @@
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
         <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
       </div>
-      <button v-if="!resumable" class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
+      <button data-test="close-order" class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
       </button>
     </template>
@@ -340,6 +340,8 @@ const outcome = ref<PaymentOutcome | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let windowTimer: ReturnType<typeof setInterval> | null = null
+let qrRefreshTimer: ReturnType<typeof setInterval> | null = null
+let qrRefreshInFlight = false
 let verifyAttempts = 0
 let lastVerifyAt = 0
 let alipayLauncher: AlipayDeepLinkLauncher | null = null
@@ -347,6 +349,7 @@ let popupWindow: Window | null = props.paymentWindow ?? null
 
 const VERIFY_RETRY_INTERVAL_MS = 15000
 const VERIFY_RETRY_MAX_ATTEMPTS = 6
+const CLOUDCAT_QR_REFRESH_INTERVAL_MS = 80000
 
 const isAlipay = computed(() => isBuiltInAlipayMethod(props.paymentType))
 const isWxpay = computed(() => isBuiltInWxpayMethod(props.paymentType))
@@ -422,6 +425,14 @@ async function resumePayment() {
   resuming.value = true
   try {
     const result = await paymentAPI.resumeOrder(props.orderId)
+    const nextQRCode = String(result.data.qr_code || '').trim()
+    if (nextQRCode) {
+      if (!win.closed) win.close()
+      popupWindow = null
+      qrUrl.value = nextQRCode
+      startCloudcatQRCodeRefresh(false)
+      return
+    }
     const payURL = String(result.data.pay_url || '').trim()
     if (!payURL) throw new Error(t('payment.qr.resumeFailed'))
     win.location.href = payURL
@@ -436,6 +447,27 @@ async function resumePayment() {
   } finally {
     resuming.value = false
   }
+}
+
+async function refreshCloudcatQRCode() {
+  if (!props.resumable || !props.orderId || outcome.value || qrRefreshInFlight) return
+  qrRefreshInFlight = true
+  try {
+    const result = await paymentAPI.resumeOrder(props.orderId)
+    const nextQRCode = String(result.data.qr_code || '').trim()
+    if (nextQRCode) qrUrl.value = nextQRCode
+  } catch {
+    // Keep the current QR and retry on the next interval; PayURL remains the fallback.
+  } finally {
+    qrRefreshInFlight = false
+  }
+}
+
+function startCloudcatQRCodeRefresh(refreshNow = true) {
+  if (qrRefreshTimer) clearInterval(qrRefreshTimer)
+  if (!props.resumable || !qrUrl.value || outcome.value) return
+  if (refreshNow) void refreshCloudcatQRCode()
+  qrRefreshTimer = setInterval(refreshCloudcatQRCode, CLOUDCAT_QR_REFRESH_INTERVAL_MS)
 }
 
 function checkPaymentWindow() {
@@ -554,10 +586,15 @@ function startCountdown(seconds: number) {
 }
 
 async function handleCancel() {
-  if (!props.orderId || props.resumable || cancelling.value) return
+  if (!props.orderId || cancelling.value) return
+  if (props.resumable && !window.confirm(t('payment.confirmCloudcatClose'))) return
   cancelling.value = true
   try {
-    await paymentAPI.cancelOrder(props.orderId)
+    const result = await paymentAPI.cancelOrder(props.orderId)
+    if (result.data.message === 'already_paid') {
+      await pollStatus()
+      return
+    }
     cleanup()
     setOutcome('cancelled')
   } catch (err: unknown) {
@@ -573,6 +610,7 @@ function cleanup() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
   if (windowTimer) { clearInterval(windowTimer); windowTimer = null }
+  if (qrRefreshTimer) { clearInterval(qrRefreshTimer); qrRefreshTimer = null }
   alipayLauncher?.dispose()
   alipayLauncher = null
 }
@@ -588,6 +626,7 @@ if (props.expiresAt) {
 startCountdown(seconds)
 pollTimer = setInterval(pollStatus, 3000)
 if (props.resumable) windowTimer = setInterval(checkPaymentWindow, 1000)
+if (props.resumable && qrUrl.value) startCloudcatQRCodeRefresh()
 renderQR()
 
 watch([() => qrUrl.value, showQRCode], () => renderQR())

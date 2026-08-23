@@ -179,6 +179,23 @@ describe('decidePaymentLaunch', () => {
     expect(decision.recovery.resumable).toBe(true)
   })
 
+  it('keeps a resumable Cloudcat order on the local QR flow', () => {
+    const decision = decidePaymentLaunch(createOrderResult({
+      pay_url: 'https://catfk.com/shopApi/Pay/payment?trade_no=CAT-1',
+      qr_code: 'https://qr.alipay.com/cloudcat-1',
+      payment_mode: 'popup',
+      resumable: true,
+    }), {
+      visibleMethod: 'alipay',
+      orderType: 'balance',
+      isMobile: true,
+    })
+
+    expect(decision.kind).toBe('qr_waiting')
+    expect(decision.paymentState.qrCode).toBe('https://qr.alipay.com/cloudcat-1')
+    expect(decision.recovery.payUrl).toBe('')
+  })
+
   it('prefers redirect on mobile when both pay_url and qr_code are present', () => {
     const decision = decidePaymentLaunch(createOrderResult({
       pay_url: 'https://pay.example.com/mobile/session',

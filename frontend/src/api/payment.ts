@@ -67,7 +67,7 @@ export const paymentAPI = {
 
   /** Cancel a pending order */
   cancelOrder(id: number) {
-    return apiClient.post(`/payment/orders/${id}/cancel`)
+    return apiClient.post<{ message: string }>(`/payment/orders/${id}/cancel`)
   },
 
   /** Verify order payment status with upstream provider */

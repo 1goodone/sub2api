@@ -404,11 +404,13 @@ type ResumePaymentOrderResult struct {
 	OutTradeNo  string    `json:"out_trade_no"`
 	Status      string    `json:"status"`
 	PayURL      string    `json:"pay_url"`
+	QRCode      string    `json:"qr_code,omitempty"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	PaymentType string    `json:"payment_type"`
 	OrderType   string    `json:"order_type"`
 	Amount      float64   `json:"amount"`
 	PayAmount   float64   `json:"pay_amount"`
+	Currency    string    `json:"currency"`
 	Resumable   bool      `json:"resumable"`
 }
 
@@ -429,16 +431,22 @@ func (h *PaymentHandler) ResumeOrder(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	qrCode := ""
+	if order.QrCode != nil {
+		qrCode = strings.TrimSpace(*order.QrCode)
+	}
 	response.Success(c, ResumePaymentOrderResult{
 		OrderID:     order.ID,
 		OutTradeNo:  order.OutTradeNo,
 		Status:      order.Status,
 		PayURL:      strings.TrimSpace(*order.PayURL),
+		QRCode:      qrCode,
 		ExpiresAt:   order.ExpiresAt,
 		PaymentType: order.PaymentType,
 		OrderType:   order.OrderType,
 		Amount:      order.Amount,
 		PayAmount:   order.PayAmount,
+		Currency:    service.PaymentOrderCurrency(order),
 		Resumable:   true,
 	})
 }

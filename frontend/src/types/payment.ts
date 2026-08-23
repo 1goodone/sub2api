@@ -231,11 +231,13 @@ export interface ResumeOrderResult {
   out_trade_no: string
   status: OrderStatus
   pay_url: string
+  qr_code?: string
   expires_at: string
   payment_type: string
   order_type: OrderType
   amount: number
   pay_amount: number
+  currency: string
   resumable: boolean
 }
 

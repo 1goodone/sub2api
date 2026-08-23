@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -16,6 +18,8 @@ func TestCloudcatCreatePaymentUsesMappedProductAndEmail(t *testing.T) {
 		"/shopApi/Shop/getUserChannel": `{"code":1,"data":[{"id":1,"code":"AlipayPc","status":1}]}`,
 		"/shopApi/Shop/getGoodsPrice":  `{"code":1,"data":{"total_amount":5}}`,
 		"/shopApi/Pay/order":           `{"code":1,"data":{"trade_no":"CAT-1","payurl":"https://catfk.com/pay/CAT-1","total_amount":5}}`,
+		"/pay/CAT-1":                   `<form action="https://openapi.alipay.com/gateway.do?charset=UTF-8" method="POST"><input name="method" value="alipay.trade.page.pay"><input name="sign" value="signed"></form>`,
+		"/gateway.do":                  `<html><input value="https://qr.alipay.com/cloudcat-test-1" id="J_qrCode"></html>`,
 	})
 	defer closeServer()
 
@@ -25,7 +29,7 @@ func TestCloudcatCreatePaymentUsesMappedProductAndEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreatePayment returned error: %v", err)
 	}
-	if result.TradeNo != "CAT-1" || result.PayURL != "https://catfk.com/pay/CAT-1" {
+	if result.TradeNo != "CAT-1" || result.PayURL != "https://catfk.com/pay/CAT-1" || result.QRCode != "https://qr.alipay.com/cloudcat-test-1" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	orderRequest := requests["/shopApi/Pay/order"]
@@ -108,26 +112,47 @@ func TestCloudcatVisitorIDSurvivesProviderRecreation(t *testing.T) {
 	}
 }
 
+func TestExtractCloudcatPaymentQRCodeValidatesAlipayPayload(t *testing.T) {
+	qrCode, err := extractCloudcatPaymentQRCode(strings.NewReader(`<input value="https://qr.alipay.com/order?a=1&amp;b=2" id="J_qrCode">`))
+	if err != nil {
+		t.Fatalf("extractCloudcatPaymentQRCode returned error: %v", err)
+	}
+	if qrCode != "https://qr.alipay.com/order?a=1&b=2" {
+		t.Fatalf("qr code = %q", qrCode)
+	}
+
+	_, err = extractCloudcatPaymentQRCode(strings.NewReader(`<input id="J_qrCode" value="https://evil.example/order">`))
+	if err == nil {
+		t.Fatal("extractCloudcatPaymentQRCode should reject an untrusted QR host")
+	}
+}
+
 func newCloudcatTestProvider(t *testing.T, responses map[string]string) (*Cloudcat, map[string]map[string]any, func()) {
 	t.Helper()
 	requests := make(map[string]map[string]any)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		decoder := json.NewDecoder(r.Body)
-		decoder.UseNumber()
-		if err := decoder.Decode(&payload); err != nil {
-			t.Errorf("decode %s request: %v", r.URL.Path, err)
-		}
-		requests[r.URL.Path] = payload
-		if len(r.Header.Get("Visitorid")) != 9 {
-			t.Errorf("Visitorid length = %d, want 9", len(r.Header.Get("Visitorid")))
+		if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+			var payload map[string]any
+			decoder := json.NewDecoder(r.Body)
+			decoder.UseNumber()
+			if err := decoder.Decode(&payload); err != nil {
+				t.Errorf("decode %s request: %v", r.URL.Path, err)
+			}
+			requests[r.URL.Path] = payload
+			if len(r.Header.Get("Visitorid")) != 9 {
+				t.Errorf("Visitorid length = %d, want 9", len(r.Header.Get("Visitorid")))
+			}
 		}
 		body, ok := responses[r.URL.Path]
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/shopApi/") {
+			w.Header().Set("Content-Type", "application/json")
+		} else {
+			w.Header().Set("Content-Type", "text/html")
+		}
 		_, _ = w.Write([]byte(body))
 	}))
 	provider, err := NewCloudcat("1", map[string]string{
@@ -139,5 +164,26 @@ func newCloudcatTestProvider(t *testing.T, responses map[string]string) (*Cloudc
 		t.Fatalf("NewCloudcat returned error: %v", err)
 	}
 	provider.apiBase = server.URL
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		server.Close()
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	provider.checkoutClient.Transport = cloudcatTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+		cloned := r.Clone(r.Context())
+		rewritten := *r.URL
+		rewritten.Scheme = serverURL.Scheme
+		rewritten.Host = serverURL.Host
+		cloned.URL = &rewritten
+		resp, err := http.DefaultTransport.RoundTrip(cloned)
+		if resp != nil {
+			resp.Request = r
+		}
+		return resp, err
+	})
 	return provider, requests, server.Close
 }
+
+type cloudcatTestRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f cloudcatTestRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

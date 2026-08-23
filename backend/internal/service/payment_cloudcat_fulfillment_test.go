@@ -329,6 +329,51 @@ func TestCloudcatPendingOrderCanResumeOnlyForOwnerBeforeExpiry(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCloudcatResumeReturnsFreshQRCode(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, nil)
+	ctx := context.Background()
+	inst, err := fixture.client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeCloudcat).
+		SetName("cloudcat-resume").
+		SetConfig("{}").
+		SetSupportedTypes(payment.TypeAlipay).
+		SetEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	payURL := "https://catfk.com/pay/CAT-TEST"
+	order, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+		SetStatus(OrderStatusPending).
+		SetPayURL(payURL).
+		SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	provider := &cloudcatResumeQRProvider{
+		paymentOrderLifecycleQueryProvider: &paymentOrderLifecycleQueryProvider{key: payment.TypeCloudcat},
+		qrCode:                             "https://qr.alipay.com/cloudcat-resume",
+	}
+	fixture.service.loadBalancer = &captureLoadBalancer{}
+	t.Cleanup(replacePaymentProviderFactoryForTest(t, provider))
+
+	resumed, err := fixture.service.ResumeCloudcatOrder(ctx, order.ID, order.UserID)
+	require.NoError(t, err)
+	require.NotNil(t, resumed.QrCode)
+	require.Equal(t, provider.qrCode, *resumed.QrCode)
+	require.Equal(t, payURL, provider.payURL)
+}
+
+type cloudcatResumeQRProvider struct {
+	*paymentOrderLifecycleQueryProvider
+	qrCode string
+	payURL string
+}
+
+func (p *cloudcatResumeQRProvider) ResolvePaymentQRCode(_ context.Context, payURL string) (string, error) {
+	p.payURL = payURL
+	return p.qrCode, nil
+}
+
 func TestCloudcatResumeRejectsExpiredCompletedAndUntrustedOrders(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -357,7 +402,7 @@ func TestCloudcatResumeRejectsExpiredCompletedAndUntrustedOrders(t *testing.T) {
 	}
 }
 
-func TestCloudcatPendingOrderCannotBeCancelledLocally(t *testing.T) {
+func TestCloudcatPendingOrderCanBeClosedLocally(t *testing.T) {
 	fixture := newCloudcatFulfillmentFixture(t, nil)
 	ctx := context.Background()
 	order, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
@@ -366,9 +411,78 @@ func TestCloudcatPendingOrderCannotBeCancelledLocally(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 
-	_, err = fixture.service.CancelOrder(ctx, order.ID, order.UserID)
-	require.Error(t, err)
+	outcome, err := fixture.service.CancelOrder(ctx, order.ID, order.UserID)
+	require.NoError(t, err)
+	require.Equal(t, checkPaidResultCancelled, outcome)
 	reloaded, getErr := fixture.client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, getErr)
-	require.Equal(t, OrderStatusPending, reloaded.Status)
+	require.Equal(t, OrderStatusCancelled, reloaded.Status)
+
+	logEntry, logErr := fixture.client.PaymentAuditLog.Query().Where(
+		paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
+		paymentauditlog.ActionEQ("ORDER_CANCELLED"),
+	).Only(ctx)
+	require.NoError(t, logErr)
+	require.Contains(t, logEntry.Detail, `"scope":"local_only"`)
+	require.Contains(t, logEntry.Detail, `"upstream_cancelled":false`)
+}
+
+func TestCloudcatCloseReportsPaymentThatWonTheStatusRace(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, nil)
+	ctx := context.Background()
+	stalePending, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+		SetStatus(OrderStatusPending).
+		SetRechargeCode("").
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+		SetStatus(OrderStatusPaid).
+		Save(ctx)
+	require.NoError(t, err)
+
+	outcome, err := fixture.service.cancelCore(ctx, stalePending, OrderStatusCancelled, "user:test", "user closed order locally")
+	require.NoError(t, err)
+	require.Equal(t, checkPaidResultAlreadyPaid, outcome)
+}
+
+func TestCloudcatClosedOrderRejectsLatePaidQuery(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, nil)
+	ctx := context.Background()
+	order, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+		SetStatus(OrderStatusCancelled).
+		SetRechargeCode("").
+		Save(ctx)
+	require.NoError(t, err)
+
+	err = fixture.service.handleCloudcatPaidQuery(ctx, order, &payment.QueryOrderResponse{
+		TradeNo:  "CAT-LATE-PAID",
+		Status:   payment.ProviderStatusPaid,
+		Amount:   order.PayAmount,
+		Metadata: map[string]string{payment.MetadataCloudcatRechargeCode: "LATE-CDK"},
+	})
+	require.ErrorContains(t, err, "closed locally")
+	require.Zero(t, fixture.balanceCalls)
+	require.Empty(t, fixture.redeemRepo.useCalls)
+
+	reloaded, getErr := fixture.client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, getErr)
+	require.Equal(t, OrderStatusCancelled, reloaded.Status)
+}
+
+func TestCloudcatClosedOrderRejectsLateWebhook(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, nil)
+	ctx := context.Background()
+	order, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+		SetStatus(OrderStatusCancelled).
+		SetRechargeCode("").
+		Save(ctx)
+	require.NoError(t, err)
+
+	err = fixture.service.toPaid(ctx, order, "CAT-LATE-WEBHOOK", order.PayAmount, payment.TypeCloudcat)
+	require.NoError(t, err)
+	require.Zero(t, fixture.balanceCalls)
+
+	reloaded, getErr := fixture.client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, getErr)
+	require.Equal(t, OrderStatusCancelled, reloaded.Status)
 }

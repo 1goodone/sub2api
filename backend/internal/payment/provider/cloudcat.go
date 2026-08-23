@@ -15,12 +15,16 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/imroc/req/v3"
+	"golang.org/x/net/html"
 )
 
 const (
 	cloudcatAPIBase         = "https://catfk.com"
 	cloudcatHTTPTimeout     = 12 * time.Second
+	cloudcatCheckoutTimeout = 8 * time.Second
 	cloudcatMaxResponseSize = 1 << 20
+	cloudcatCheckoutUA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 type cloudcatProductConfig struct {
@@ -34,16 +38,22 @@ type cloudcatProduct struct {
 	itemURL     string
 }
 
+type cloudcatPaymentForm struct {
+	action string
+	values url.Values
+}
+
 // Cloudcat implements the undocumented buyer-side CatFK JSON contract.
 // It deliberately has no webhook or refund support; Sub2API reconciles the
 // upstream order until CatFK exposes the purchased redeem code.
 type Cloudcat struct {
-	instanceID string
-	channelID  int64
-	products   map[int64]cloudcatProduct
-	apiBase    string
-	httpClient *http.Client
-	visitorID  string
+	instanceID     string
+	channelID      int64
+	products       map[int64]cloudcatProduct
+	apiBase        string
+	httpClient     *http.Client
+	checkoutClient *http.Client
+	visitorID      string
 }
 
 func NewCloudcat(instanceID string, config map[string]string) (*Cloudcat, error) {
@@ -76,13 +86,20 @@ func NewCloudcat(instanceID string, config map[string]string) (*Cloudcat, error)
 	if err != nil {
 		return nil, fmt.Errorf("cloudcat cookie jar: %w", err)
 	}
+	checkoutClient := req.C().
+		SetTimeout(cloudcatCheckoutTimeout).
+		ImpersonateChrome().
+		SetRedirectPolicy(cloudcatCheckoutRedirectPolicy).
+		GetClient()
+	checkoutClient.Jar = jar
 	return &Cloudcat{
-		instanceID: instanceID,
-		channelID:  channelID,
-		products:   products,
-		apiBase:    cloudcatAPIBase,
-		httpClient: &http.Client{Timeout: cloudcatHTTPTimeout, Jar: jar},
-		visitorID:  newCloudcatVisitorID(instanceID),
+		instanceID:     instanceID,
+		channelID:      channelID,
+		products:       products,
+		apiBase:        cloudcatAPIBase,
+		httpClient:     &http.Client{Timeout: cloudcatHTTPTimeout, Jar: jar},
+		checkoutClient: checkoutClient,
+		visitorID:      newCloudcatVisitorID(instanceID),
 	}, nil
 }
 
@@ -177,7 +194,80 @@ func (c *Cloudcat) CreatePayment(ctx context.Context, req payment.CreatePaymentR
 	if err != nil || createdMinor != minor {
 		return nil, fmt.Errorf("cloudcat created order amount does not match configured amount")
 	}
-	return &payment.CreatePaymentResponse{TradeNo: created.TradeNo, PayURL: created.PayURL}, nil
+	qrCode, _ := c.ResolvePaymentQRCode(ctx, created.PayURL)
+	return &payment.CreatePaymentResponse{TradeNo: created.TradeNo, PayURL: created.PayURL, QRCode: qrCode}, nil
+}
+
+// ResolvePaymentQRCode follows CatFK's hosted checkout to Alipay and extracts
+// the original QR payload. Callers keep PayURL as a fallback when this fails.
+func (c *Cloudcat) ResolvePaymentQRCode(ctx context.Context, payURL string) (string, error) {
+	if c == nil || c.checkoutClient == nil {
+		return "", fmt.Errorf("cloudcat checkout client is unavailable")
+	}
+	if err := ValidateCloudcatPaymentURL(payURL); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(payURL), nil)
+	if err != nil {
+		return "", fmt.Errorf("cloudcat checkout request: %w", err)
+	}
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("User-Agent", cloudcatCheckoutUA)
+	resp, err := c.checkoutClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cloudcat checkout: %w", err)
+	}
+	qrCode, form, err := parseCloudcatCheckoutResponse(resp)
+	if err != nil {
+		return "", err
+	}
+	if qrCode != "" {
+		return qrCode, nil
+	}
+	if form == nil {
+		return "", fmt.Errorf("cloudcat checkout did not contain a payment form")
+	}
+
+	formReq, err := http.NewRequestWithContext(ctx, http.MethodPost, form.action, strings.NewReader(form.values.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("cloudcat Alipay form request: %w", err)
+	}
+	formReq.Header.Set("Accept", "text/html,application/xhtml+xml")
+	formReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	formReq.Header.Set("User-Agent", cloudcatCheckoutUA)
+	resp, err = c.checkoutClient.Do(formReq)
+	if err != nil {
+		return "", fmt.Errorf("cloudcat Alipay checkout: %w", err)
+	}
+	qrCode, _, err = parseCloudcatCheckoutResponse(resp)
+	if err != nil {
+		return "", err
+	}
+	if qrCode == "" {
+		return "", fmt.Errorf("cloudcat Alipay checkout did not contain a QR code")
+	}
+	return qrCode, nil
+}
+
+func parseCloudcatCheckoutResponse(resp *http.Response) (string, *cloudcatPaymentForm, error) {
+	if resp == nil || resp.Body == nil {
+		return "", nil, fmt.Errorf("cloudcat checkout returned an empty response")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.Request == nil || resp.Request.URL == nil {
+		return "", nil, fmt.Errorf("cloudcat checkout returned no final URL")
+	}
+	if err := ValidateCloudcatPaymentURL(resp.Request.URL.String()); err != nil {
+		return "", nil, err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", nil, fmt.Errorf("cloudcat checkout HTTP %d", resp.StatusCode)
+	}
+	qrCode, form, err := parseCloudcatCheckout(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("parse cloudcat checkout from %s%s: %w", resp.Request.URL.Hostname(), resp.Request.URL.EscapedPath(), err)
+	}
+	return qrCode, form, nil
 }
 
 func (c *Cloudcat) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
@@ -466,6 +556,116 @@ func ValidateCloudcatPaymentURL(raw string) error {
 	host := strings.ToLower(parsed.Hostname())
 	if host != "catfk.com" && !strings.HasSuffix(host, ".catfk.com") && host != "alipay.com" && !strings.HasSuffix(host, ".alipay.com") {
 		return fmt.Errorf("cloudcat returned a payment URL on an untrusted host")
+	}
+	return nil
+}
+
+func cloudcatCheckoutRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("cloudcat checkout stopped after 10 redirects")
+	}
+	return ValidateCloudcatPaymentURL(req.URL.String())
+}
+
+func extractCloudcatPaymentQRCode(body io.Reader) (string, error) {
+	qrCode, _, err := parseCloudcatCheckout(body)
+	if err != nil {
+		return "", err
+	}
+	if qrCode == "" {
+		return "", fmt.Errorf("cloudcat checkout did not contain an Alipay QR code")
+	}
+	return qrCode, nil
+}
+
+func parseCloudcatCheckout(body io.Reader) (string, *cloudcatPaymentForm, error) {
+	limited := &io.LimitedReader{R: body, N: cloudcatMaxResponseSize + 1}
+	tokenizer := html.NewTokenizer(limited)
+	var form *cloudcatPaymentForm
+	inPaymentForm := false
+	formFieldCount := 0
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			if limited.N <= 0 {
+				return "", nil, fmt.Errorf("cloudcat checkout response is too large")
+			}
+			if errors.Is(tokenizer.Err(), io.EOF) {
+				if form != nil && len(form.values) > 0 {
+					return "", form, nil
+				}
+				return "", nil, fmt.Errorf("cloudcat checkout did not contain an Alipay QR code")
+			}
+			return "", nil, fmt.Errorf("parse cloudcat checkout: %w", tokenizer.Err())
+		case html.StartTagToken, html.SelfClosingTagToken:
+			token := tokenizer.Token()
+			if strings.EqualFold(token.Data, "form") && form == nil {
+				var action, method string
+				for _, attr := range token.Attr {
+					switch {
+					case strings.EqualFold(attr.Key, "action"):
+						action = strings.TrimSpace(attr.Val)
+					case strings.EqualFold(attr.Key, "method"):
+						method = strings.TrimSpace(attr.Val)
+					}
+				}
+				if strings.EqualFold(method, http.MethodPost) && ValidateCloudcatAlipayFormURL(action) == nil {
+					form = &cloudcatPaymentForm{action: action, values: make(url.Values)}
+					inPaymentForm = true
+				}
+				continue
+			}
+			if !strings.EqualFold(token.Data, "input") {
+				continue
+			}
+			var id, name, value string
+			for _, attr := range token.Attr {
+				switch {
+				case strings.EqualFold(attr.Key, "id"):
+					id = attr.Val
+				case strings.EqualFold(attr.Key, "name"):
+					name = attr.Val
+				case strings.EqualFold(attr.Key, "value"):
+					value = attr.Val
+				}
+			}
+			if id == "J_qrCode" {
+				if err := ValidateCloudcatQRCode(value); err != nil {
+					return "", nil, err
+				}
+				return strings.TrimSpace(value), nil, nil
+			}
+			if inPaymentForm && name != "" {
+				if formFieldCount >= 64 {
+					return "", nil, fmt.Errorf("cloudcat checkout returned too many form fields")
+				}
+				form.values.Add(name, value)
+				formFieldCount++
+			}
+		case html.EndTagToken:
+			if strings.EqualFold(tokenizer.Token().Data, "form") {
+				inPaymentForm = false
+			}
+		}
+	}
+}
+
+func ValidateCloudcatQRCode(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host != "qr.alipay.com" || parsed.Path == "" || parsed.Path == "/" || parsed.Fragment != "" {
+		return fmt.Errorf("cloudcat checkout returned an invalid Alipay QR code")
+	}
+	return nil
+}
+
+func ValidateCloudcatAlipayFormURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Hostname() == "" || parsed.Fragment != "" {
+		return fmt.Errorf("cloudcat checkout returned an invalid Alipay form URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "alipay.com" && !strings.HasSuffix(host, ".alipay.com") {
+		return fmt.Errorf("cloudcat checkout returned an untrusted Alipay form URL")
 	}
 	return nil
 }

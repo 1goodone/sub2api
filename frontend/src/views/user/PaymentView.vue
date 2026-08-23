@@ -333,6 +333,12 @@ const previewImage = ref('')
 
 const paymentPhase = ref<'select' | 'paying'>('select')
 
+watch(paymentPhase, (phase) => {
+  if (phase !== 'paying') return
+  document.documentElement.scrollTop = 0
+  document.body.scrollTop = 0
+}, { flush: 'post' })
+
 interface CreateOrderOptions {
   openid?: string
   wechatResumeToken?: string

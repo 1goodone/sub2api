@@ -107,13 +107,10 @@ func (s *PaymentService) CancelOrder(ctx context.Context, orderID, userID int64)
 	if o.UserID != userID {
 		return "", infraerrors.Forbidden("FORBIDDEN", "no permission for this order")
 	}
-	if isCloudcatOrder(o) {
-		return "", infraerrors.BadRequest("CLOUDCAT_CANCEL_UNSUPPORTED", "this payment order cannot be cancelled; it can be reopened while pending")
-	}
 	if o.Status != OrderStatusPending {
 		return "", infraerrors.BadRequest("INVALID_STATUS", "order cannot be cancelled in current status")
 	}
-	return s.cancelCore(ctx, o, OrderStatusCancelled, fmt.Sprintf("user:%d", userID), "user cancelled order")
+	return s.cancelCore(ctx, o, OrderStatusCancelled, fmt.Sprintf("user:%d", userID), "user closed order locally")
 }
 
 func (s *PaymentService) AdminCancelOrder(ctx context.Context, orderID int64) (string, error) {
@@ -121,17 +118,14 @@ func (s *PaymentService) AdminCancelOrder(ctx context.Context, orderID int64) (s
 	if err != nil {
 		return "", infraerrors.NotFound("NOT_FOUND", "order not found")
 	}
-	if isCloudcatOrder(o) {
-		return "", infraerrors.BadRequest("CLOUDCAT_CANCEL_UNSUPPORTED", "cloudcat payment orders cannot be cancelled upstream")
-	}
 	if o.Status != OrderStatusPending {
 		return "", infraerrors.BadRequest("INVALID_STATUS", "order cannot be cancelled in current status")
 	}
-	return s.cancelCore(ctx, o, OrderStatusCancelled, "admin", "admin cancelled order")
+	return s.cancelCore(ctx, o, OrderStatusCancelled, "admin", "admin closed order locally")
 }
 
-// ResumeCloudcatOrder returns the original hosted checkout URL only to the
-// owning user while the upstream-backed order is still payable.
+// ResumeCloudcatOrder returns a fresh QR payload when available and keeps the
+// original hosted checkout URL as a fallback.
 func (s *PaymentService) ResumeCloudcatOrder(ctx context.Context, orderID, userID int64) (*dbent.PaymentOrder, error) {
 	o, err := s.entClient.PaymentOrder.Get(ctx, orderID)
 	if err != nil {
@@ -155,12 +149,36 @@ func (s *PaymentService) ResumeCloudcatOrder(ctx context.Context, orderID, userI
 	if err := paymentprovider.ValidateCloudcatPaymentURL(*o.PayURL); err != nil {
 		return nil, infraerrors.Conflict("PAYMENT_URL_INVALID", "payment URL is invalid")
 	}
+	o.QrCode = nil
+	prov, err := s.getOrderProvider(ctx, o)
+	if err != nil {
+		return o, nil
+	}
+	cloudcat, ok := prov.(interface {
+		ResolvePaymentQRCode(context.Context, string) (string, error)
+	})
+	if !ok {
+		return o, nil
+	}
+	qrCode, err := cloudcat.ResolvePaymentQRCode(ctx, *o.PayURL)
+	if err != nil {
+		slog.Warn("refresh cloudcat QR code failed", "orderID", o.ID, "error", err)
+		return o, nil
+	}
+	o.QrCode = &qrCode
 	return o, nil
 }
 
 func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, fs, op, ad string) (string, error) {
 	if o.PaymentTradeNo != "" || o.PaymentType != "" {
-		if s.checkPaid(ctx, o) == checkPaidResultAlreadyPaid {
+		// Cloudcat has no cancellation API. Reconcile it before closing so a
+		// payment that already settled upstream is still fulfilled, while never
+		// sending an upstream cancellation request for an unpaid checkout.
+		checkPaidOpts := checkPaidOptions{cancelIfUnpaid: true}
+		if isCloudcatOrder(o) {
+			checkPaidOpts.cancelIfUnpaid = false
+		}
+		if s.checkPaidWithOptions(ctx, o, checkPaidOpts) == checkPaidResultAlreadyPaid {
 			return checkPaidResultAlreadyPaid, nil
 		}
 	}
@@ -168,12 +186,27 @@ func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, 
 	if err != nil {
 		return "", fmt.Errorf("update order status: %w", err)
 	}
+	if c == 0 {
+		current, err := s.entClient.PaymentOrder.Get(ctx, o.ID)
+		if err != nil {
+			return "", fmt.Errorf("reload order status: %w", err)
+		}
+		if current.Status == OrderStatusPaid || current.Status == OrderStatusRecharging || current.Status == OrderStatusCompleted || psIsRefundStatus(current.Status) {
+			return checkPaidResultAlreadyPaid, nil
+		}
+		return checkPaidResultCancelled, nil
+	}
 	if c > 0 {
 		auditAction := "ORDER_CANCELLED"
 		if fs == OrderStatusExpired {
 			auditAction = "ORDER_EXPIRED"
 		}
-		s.writeAuditLog(ctx, o.ID, auditAction, op, map[string]any{"detail": ad})
+		detail := map[string]any{"detail": ad}
+		if isCloudcatOrder(o) && fs == OrderStatusCancelled {
+			detail["scope"] = "local_only"
+			detail["upstream_cancelled"] = false
+		}
+		s.writeAuditLog(ctx, o.ID, auditAction, op, detail)
 	}
 	return checkPaidResultCancelled, nil
 }
@@ -355,6 +388,15 @@ func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.P
 	if o == nil || resp == nil {
 		return fmt.Errorf("cloudcat paid query is missing order data")
 	}
+	if o.Status == OrderStatusCancelled {
+		if !s.hasAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE") {
+			s.writeAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE", payment.TypeCloudcat, map[string]any{
+				"tradeNo": resp.TradeNo,
+				"reason":  "local order was closed before the upstream payment was observed",
+			})
+		}
+		return fmt.Errorf("cloudcat order %d was closed locally", o.ID)
+	}
 	if o.OrderType != payment.OrderTypeBalance {
 		return fmt.Errorf("cloudcat order %d is not a balance recharge", o.ID)
 	}
@@ -378,7 +420,6 @@ func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.P
 		paymentorder.IDEQ(o.ID),
 		paymentorder.Or(
 			paymentorder.StatusEQ(OrderStatusPending),
-			paymentorder.StatusEQ(OrderStatusCancelled),
 			paymentorder.And(paymentorder.StatusEQ(OrderStatusExpired), paymentorder.UpdatedAtGTE(grace)),
 		),
 	).SetStatus(OrderStatusPaid).

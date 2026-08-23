@@ -152,18 +152,31 @@ func expectedNotificationProviderKey(registry *payment.Registry, orderPaymentTyp
 
 func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, tradeNo string, paid float64, pk string) error {
 	previousStatus := o.Status
+	cloudcatPayment := isCloudcatOrder(o) || strings.EqualFold(strings.TrimSpace(pk), payment.TypeCloudcat)
+	if cloudcatPayment && previousStatus == OrderStatusCancelled {
+		if !s.hasAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE") {
+			s.writeAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE", payment.TypeCloudcat, map[string]any{
+				"tradeNo": tradeNo,
+				"reason":  "local order was closed before the upstream payment notification arrived",
+			})
+		}
+		return nil
+	}
 	now := time.Now()
 	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	eligibleStatuses := paymentorder.Or(
+		paymentorder.StatusEQ(OrderStatusPending),
+		paymentorder.And(
+			paymentorder.StatusEQ(OrderStatusExpired),
+			paymentorder.UpdatedAtGTE(grace),
+		),
+	)
+	if !cloudcatPayment {
+		eligibleStatuses = paymentorder.Or(eligibleStatuses, paymentorder.StatusEQ(OrderStatusCancelled))
+	}
 	c, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
-		paymentorder.Or(
-			paymentorder.StatusEQ(OrderStatusPending),
-			paymentorder.StatusEQ(OrderStatusCancelled),
-			paymentorder.And(
-				paymentorder.StatusEQ(OrderStatusExpired),
-				paymentorder.UpdatedAtGTE(grace),
-			),
-		),
+		eligibleStatuses,
 	).SetStatus(OrderStatusPaid).SetPayAmount(paid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
 	if err != nil {
 		return fmt.Errorf("update to PAID: %w", err)
