@@ -160,6 +160,25 @@ describe('decidePaymentLaunch', () => {
     expect(decision.recovery.resumeToken).toBe('resume-2')
   })
 
+  it('does not persist hosted URLs for resumable orders', () => {
+    const decision = decidePaymentLaunch(createOrderResult({
+      pay_url: 'https://pay.example.com/resumable/session',
+      payment_mode: 'popup',
+      out_trade_no: 'sub2_resumable',
+      resumable: true,
+    }), {
+      visibleMethod: 'alipay',
+      orderType: 'balance',
+      isMobile: false,
+    })
+
+    expect(decision.kind).toBe('redirect_waiting')
+    expect(decision.paymentState.payUrl).toBe('https://pay.example.com/resumable/session')
+    expect(decision.paymentState.resumable).toBe(true)
+    expect(decision.recovery.payUrl).toBe('')
+    expect(decision.recovery.resumable).toBe(true)
+  })
+
   it('prefers redirect on mobile when both pay_url and qr_code are present', () => {
     const decision = decidePaymentLaunch(createOrderResult({
       pay_url: 'https://pay.example.com/mobile/session',
@@ -394,6 +413,7 @@ describe('readPaymentRecoverySnapshot', () => {
       orderType: 'balance',
       paymentMode: 'popup',
       resumeToken: 'resume-33',
+      resumable: false,
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     }
 
@@ -423,6 +443,7 @@ describe('readPaymentRecoverySnapshot', () => {
       orderType: 'balance',
       paymentMode: 'popup',
       resumeToken: 'resume-55',
+      resumable: false,
       createdAt: Date.UTC(2024, 0, 1, 0, 0, 0),
     }
 

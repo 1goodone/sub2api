@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -34,6 +35,7 @@ func (s *PaymentConfigService) GetAvailableMethodLimits(ctx context.Context) (*M
 		ml := pcAggregateMethodLimits(pt, insts)
 		ml.DisplayName = s.pcAggregateMethodDisplayName(pt, insts)
 		ml.Currency = currency
+		ml.AmountOptions, ml.AmountSelectionOnly = s.pcCloudcatAmountOptions(insts)
 		resp.Methods[ml.PaymentType] = ml
 	}
 	resp.GlobalMin, resp.GlobalMax = pcComputeGlobalRange(resp.Methods)
@@ -97,6 +99,7 @@ func (s *PaymentConfigService) GetMethodLimits(ctx context.Context, types []stri
 		ml := pcAggregateMethodLimits(pt, matching)
 		ml.DisplayName = s.pcAggregateMethodDisplayName(pt, matching)
 		ml.Currency = currency
+		ml.AmountOptions, ml.AmountSelectionOnly = s.pcCloudcatAmountOptions(matching)
 		result = append(result, ml)
 	}
 	return result, nil
@@ -211,6 +214,65 @@ func (s *PaymentConfigService) pcInstanceEasyPayCustomMethodDisplayName(inst *db
 		}
 	}
 	return ""
+}
+
+type cloudcatAmountConfig struct {
+	Amount string `json:"amount"`
+}
+
+func cloudcatConfiguredAmountMinors(config map[string]string) (map[int64]struct{}, error) {
+	var products []cloudcatAmountConfig
+	if err := json.Unmarshal([]byte(strings.TrimSpace(config["products"])), &products); err != nil || len(products) == 0 {
+		return nil, fmt.Errorf("cloudcat products must be a non-empty JSON array")
+	}
+
+	amounts := make(map[int64]struct{}, len(products))
+	for _, product := range products {
+		minor, err := payment.AmountToMinorUnit(product.Amount, payment.DefaultPaymentCurrency)
+		if err != nil || minor <= 0 {
+			return nil, fmt.Errorf("cloudcat product amount %q is invalid", product.Amount)
+		}
+		amounts[minor] = struct{}{}
+	}
+	return amounts, nil
+}
+
+func (s *PaymentConfigService) pcCloudcatAmountOptions(instances []*dbent.PaymentProviderInstance) ([]float64, bool) {
+	if len(instances) == 0 {
+		return nil, false
+	}
+
+	var common map[int64]struct{}
+	for _, inst := range instances {
+		if inst == nil || !strings.EqualFold(strings.TrimSpace(inst.ProviderKey), payment.TypeCloudcat) {
+			return nil, false
+		}
+		config, _ := s.decryptConfig(inst.Config)
+		amounts, err := cloudcatConfiguredAmountMinors(config)
+		if err != nil {
+			return []float64{}, true
+		}
+		if common == nil {
+			common = amounts
+			continue
+		}
+		for amount := range common {
+			if _, ok := amounts[amount]; !ok {
+				delete(common, amount)
+			}
+		}
+	}
+
+	minors := make([]int64, 0, len(common))
+	for amount := range common {
+		minors = append(minors, amount)
+	}
+	sort.Slice(minors, func(i, j int) bool { return minors[i] < minors[j] })
+	options := make([]float64, len(minors))
+	for i, amount := range minors {
+		options[i] = payment.MinorUnitToAmount(amount, payment.DefaultPaymentCurrency)
+	}
+	return options, true
 }
 
 // pcGroupByPaymentType groups instances by user-facing payment type.

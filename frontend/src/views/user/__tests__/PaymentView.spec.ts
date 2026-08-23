@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
@@ -22,6 +22,7 @@ const showInfo = vi.hoisted(() => vi.fn())
 const showWarning = vi.hoisted(() => vi.fn())
 const getCheckoutInfo = vi.hoisted(() => vi.fn())
 const bridgeInvoke = vi.hoisted(() => vi.fn())
+const isMobileDevice = vi.hoisted(() => vi.fn(() => true))
 
 vi.mock('vue-router', async () => {
   const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
@@ -84,8 +85,13 @@ vi.mock('@/api/payment', () => ({
 }))
 
 vi.mock('@/utils/device', () => ({
-  isMobileDevice: () => true,
+  isMobileDevice,
 }))
+
+afterEach(() => {
+  isMobileDevice.mockReturnValue(true)
+  vi.restoreAllMocks()
+})
 
 function checkoutInfoFixture(overrides: Partial<CheckoutInfoResponse> = {}) {
   const wxpayMethod: MethodLimit = {
@@ -401,6 +407,75 @@ describe('PaymentView payment recovery', () => {
     ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = undefined
   })
 
+  it('offers a fixed provider amount even when it is outside the default presets', async () => {
+    const fixedAmountMethod: MethodLimit = {
+      daily_limit: 0,
+      daily_used: 0,
+      daily_remaining: 0,
+      single_min: 5,
+      single_max: 5,
+      fee_rate: 0,
+      available: true,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: { alipay: fixedAmountMethod },
+      global_min: 5,
+      global_max: 5,
+    }))
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'AmountInput' }).props('amounts')).toEqual([5])
+  })
+
+  it('uses Cloudcat product amounts as the only selectable recharge amounts', async () => {
+    const cloudcatMethod: MethodLimit = {
+      daily_limit: 0,
+      daily_used: 0,
+      daily_remaining: 0,
+      single_min: 1,
+      single_max: 5,
+      amount_options: [1],
+      amount_selection_only: true,
+      fee_rate: 0,
+      available: true,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: { alipay: cloudcatMethod },
+      global_min: 1,
+      global_max: 5,
+    }))
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    const amountInput = wrapper.findComponent({ name: 'AmountInput' })
+    expect(amountInput.props('amounts')).toEqual([1])
+    expect(amountInput.props('selectionOnly')).toBe(true)
+
+    amountInput.vm.$emit('update:modelValue', 2)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(submit?.attributes('disabled')).toBeDefined()
+  })
+
   it('restores a custom EasyPay method as the selected payment method', async () => {
     getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
       methods: {
@@ -461,6 +536,121 @@ describe('PaymentView payment recovery', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="method-selector"]').text()).toBe('ldc')
+  })
+
+  it('preopens desktop Alipay and keeps a resumable hosted URL out of local storage', async () => {
+    isMobileDevice.mockReturnValue(false)
+    const alipayMethod: MethodLimit = {
+      daily_limit: 0,
+      daily_used: 0,
+      daily_remaining: 0,
+      single_min: 0,
+      single_max: 0,
+      fee_rate: 0,
+      available: true,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { alipay: alipayMethod } }))
+    createOrder.mockResolvedValue({
+      order_id: 901,
+      amount: 5,
+      pay_amount: 5,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'alipay',
+      out_trade_no: 'sub2_hosted_901',
+      pay_url: 'https://pay.example.com/hosted/901',
+      payment_mode: 'popup',
+      resumable: true,
+    })
+    const popup = {
+      closed: false,
+      close: vi.fn(),
+      location: { href: '' },
+    }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const amountInput = wrapper.findComponent({ name: 'AmountInput' })
+    amountInput.vm.$emit('update:modelValue', 5)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(submit).toBeDefined()
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('', 'paymentPopup', expect.any(String))
+    expect(openSpy.mock.invocationCallOrder[0]).toBeLessThan(createOrder.mock.invocationCallOrder[0])
+    expect((popup as { opener?: unknown }).opener).toBeNull()
+    expect(popup.location.href).toBe('https://pay.example.com/hosted/901')
+    const recovery = window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY) || ''
+    expect(recovery).toContain('"resumable":true')
+    expect(recovery).not.toContain('https://pay.example.com/hosted/901')
+    wrapper.unmount()
+  })
+
+  it('keeps the local status shell when a resumable payment popup is blocked', async () => {
+    isMobileDevice.mockReturnValue(false)
+    const alipayMethod: MethodLimit = {
+      daily_limit: 0,
+      daily_used: 0,
+      daily_remaining: 0,
+      single_min: 0,
+      single_max: 0,
+      fee_rate: 0,
+      available: true,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { alipay: alipayMethod } }))
+    createOrder.mockResolvedValue({
+      order_id: 902,
+      amount: 5,
+      pay_amount: 5,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'alipay',
+      out_trade_no: 'sub2_hosted_902',
+      pay_url: 'https://pay.example.com/hosted/902',
+      payment_mode: 'popup',
+      resumable: true,
+    })
+    const originalLocation = window.location
+    const locationState = { href: 'http://localhost/purchase', origin: 'http://localhost' }
+    Object.defineProperty(window, 'location', { configurable: true, value: locationState })
+    vi.spyOn(window, 'open').mockReturnValue(null)
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'AmountInput' }).vm.$emit('update:modelValue', 5)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(locationState.href).toBe('http://localhost/purchase')
+    expect(showError).toHaveBeenCalledWith('payment.qr.popupBlocked')
+    expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toContain('"resumable":true')
+    wrapper.unmount()
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
   })
 })
 

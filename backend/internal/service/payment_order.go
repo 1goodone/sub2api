@@ -50,6 +50,7 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if user.Status != payment.EntityStatusActive {
 		return nil, infraerrors.Forbidden("USER_INACTIVE", "user account is disabled")
 	}
+	req.PayerEmail = strings.TrimSpace(user.Email)
 	if s.notificationEmailService != nil {
 		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)
 	}
@@ -213,10 +214,12 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	if err != nil {
 		return nil, fmt.Errorf("create order: %w", err)
 	}
-	code := fmt.Sprintf("PAY-%d-%d", order.ID, time.Now().UnixNano()%100000)
-	order, err = tx.PaymentOrder.UpdateOneID(order.ID).SetRechargeCode(code).Save(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("set recharge code: %w", err)
+	if !strings.EqualFold(selectedProviderKey, payment.TypeCloudcat) {
+		code := fmt.Sprintf("PAY-%d-%d", order.ID, time.Now().UnixNano()%100000)
+		order, err = tx.PaymentOrder.UpdateOneID(order.ID).SetRechargeCode(code).Save(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("set recharge code: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit order transaction: %w", err)
@@ -295,6 +298,12 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 		if merchantID := strings.TrimSpace(sel.Config["pid"]); merchantID != "" {
 			snapshot["merchant_id"] = merchantID
 		}
+	}
+	if providerKey == payment.TypeCloudcat {
+		if channelID := strings.TrimSpace(sel.Config["channelId"]); channelID != "" {
+			snapshot["merchant_id"] = channelID
+		}
+		snapshot["currency"] = payment.DefaultPaymentCurrency
 	}
 	if providerKey == payment.TypeStripe {
 		snapshot["currency"] = paymentProviderConfigCurrency(providerKey, sel.Config)
@@ -441,6 +450,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	}
 	providerReq := buildProviderCreatePaymentRequest(CreateOrderRequest{
 		PaymentType: req.PaymentType,
+		PayerEmail:  req.PayerEmail,
 		OpenID:      req.OpenID,
 		ClientIP:    req.ClientIP,
 		IsMobile:    req.IsMobile,
@@ -517,6 +527,7 @@ func buildProviderCreatePaymentRequest(req CreateOrderRequest, sel *payment.Inst
 		PaymentType:        req.PaymentType,
 		Subject:            subject,
 		ReturnURL:          req.ReturnURL,
+		PayerEmail:         strings.TrimSpace(req.PayerEmail),
 		OpenID:             strings.TrimSpace(req.OpenID),
 		ClientIP:           req.ClientIP,
 		IsMobile:           req.IsMobile,
@@ -612,6 +623,9 @@ func (s *PaymentService) buildWeChatOAuthRequiredResponse(ctx context.Context, r
 }
 
 func (s *PaymentService) validateSelectedCreateOrderInstance(ctx context.Context, req CreateOrderRequest, sel *payment.InstanceSelection) error {
+	if sel != nil && strings.EqualFold(strings.TrimSpace(sel.ProviderKey), payment.TypeCloudcat) && req.OrderType == payment.OrderTypeSubscription {
+		return infraerrors.BadRequest("CLOUDCAT_BALANCE_ONLY", "cloudcat only supports balance recharge orders")
+	}
 	if !requiresWeChatJSAPICompatibleSelection(req, sel) {
 		return nil
 	}
@@ -679,9 +693,20 @@ func validateSelectedCreateOrderAmountCurrency(payAmount string, sel *payment.In
 		return nil
 	}
 	currency := paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
-	if _, err := payment.AmountToMinorUnit(payAmount, currency); err != nil {
+	minor, err := payment.AmountToMinorUnit(payAmount, currency)
+	if err != nil {
 		return infraerrors.BadRequest("INVALID_AMOUNT", err.Error()).
 			WithMetadata(map[string]string{"currency": currency})
+	}
+	if !strings.EqualFold(strings.TrimSpace(sel.ProviderKey), payment.TypeCloudcat) {
+		return nil
+	}
+	amounts, err := cloudcatConfiguredAmountMinors(sel.Config)
+	if err != nil {
+		return infraerrors.ServiceUnavailable("PAYMENT_PROVIDER_MISCONFIGURED", "cloudcat product amounts are invalid")
+	}
+	if _, ok := amounts[minor]; !ok {
+		return infraerrors.BadRequest("INVALID_AMOUNT", "selected amount is not available for this payment method")
 	}
 	return nil
 }
@@ -751,6 +776,7 @@ func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest,
 		JSAPIPayload: pr.JSAPI,
 		ExpiresAt:    order.ExpiresAt,
 		PaymentMode:  sel.PaymentMode,
+		Resumable:    strings.EqualFold(strings.TrimSpace(sel.ProviderKey), payment.TypeCloudcat),
 	}
 }
 

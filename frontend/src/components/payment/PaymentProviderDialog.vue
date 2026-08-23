@@ -32,8 +32,8 @@
       <!-- Toggles + Payment mode + Supported types (single row) -->
       <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
         <ToggleSwitch :label="t('common.enabled')" :checked="form.enabled" @toggle="form.enabled = !form.enabled" />
-        <ToggleSwitch :label="t('admin.settings.payment.refundEnabled')" :checked="form.refund_enabled" @toggle="form.refund_enabled = !form.refund_enabled; if (!form.refund_enabled) form.allow_user_refund = false" />
-        <ToggleSwitch v-if="form.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="form.allow_user_refund" @toggle="form.allow_user_refund = !form.allow_user_refund" />
+        <ToggleSwitch v-if="form.provider_key !== 'cloudcat'" :label="t('admin.settings.payment.refundEnabled')" :checked="form.refund_enabled" @toggle="form.refund_enabled = !form.refund_enabled; if (!form.refund_enabled) form.allow_user_refund = false" />
+        <ToggleSwitch v-if="form.provider_key !== 'cloudcat' && form.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="form.allow_user_refund" @toggle="form.allow_user_refund = !form.allow_user_refund" />
         <div v-if="supportsPaymentMode" class="flex items-center gap-2">
           <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.paymentMode') }}</span>
           <div class="flex gap-1.5">
@@ -108,6 +108,48 @@
               @click="removeEasyPayCustomMethod(index)"
             >
               {{ t('common.delete') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="form.provider_key === 'cloudcat'" class="space-y-3 rounded-lg border border-gray-100 p-3 dark:border-dark-700">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h5 class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('admin.settings.payment.cloudcatProducts') }}
+            </h5>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.payment.cloudcatProductsHint') }}
+            </p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm shrink-0" data-test="add-cloudcat-product" @click="addCloudcatProduct">
+            {{ t('admin.settings.payment.addCloudcatProduct') }}
+          </button>
+        </div>
+        <div class="space-y-2">
+          <div
+            v-for="(product, index) in cloudcatProducts"
+            :key="index"
+            class="grid grid-cols-1 items-end gap-2 sm:grid-cols-[8rem_minmax(0,1fr)_2.5rem]"
+            data-test="cloudcat-product-row"
+          >
+            <div>
+              <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.cloudcatAmount') }}</label>
+              <input v-model="product.amount" type="number" min="0.01" step="0.01" inputmode="decimal" class="input mt-0.5" placeholder="5.00" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.cloudcatItemUrl') }}</label>
+              <input v-model="product.itemUrl" type="url" class="input mt-0.5" placeholder="https://catfk.com/item/ee9c69" />
+            </div>
+            <button
+              type="button"
+              class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 text-red-600 transition-colors hover:bg-red-50 dark:border-red-800/60 dark:text-red-300 dark:hover:bg-red-900/20"
+              :title="t('common.delete')"
+              :aria-label="t('common.delete')"
+              @click="removeCloudcatProduct(index)"
+            >
+              <Icon name="trash" size="sm" />
             </button>
           </div>
         </div>
@@ -311,9 +353,10 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select from '@/components/common/Select.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import type { ProviderInstance } from '@/types/payment'
-import type { EasyPayCustomMethod, TypeOption } from './providerConfig'
+import type { CloudcatProductMapping, EasyPayCustomMethod, TypeOption } from './providerConfig'
 import {
   PROVIDER_CONFIG_FIELDS,
   PROVIDER_SUPPORTED_TYPES,
@@ -327,6 +370,9 @@ import {
   extractBaseUrl,
   parseEasyPayCustomMethods,
   serializeEasyPayCustomMethods,
+  parseCloudcatProducts,
+  serializeCloudcatProducts,
+  validateCloudcatProducts,
 } from './providerConfig'
 
 /** Default payment_mode per provider key — "" means "no preference, use
@@ -411,6 +457,7 @@ const returnBaseUrl = ref('')
 const limitsExpanded = ref(false)
 const visibleFields = reactive<Record<string, boolean>>({})
 const easyPayCustomMethods = reactive<EasyPayCustomMethod[]>([])
+const cloudcatProducts = reactive<CloudcatProductMapping[]>([])
 
 // --- Computed ---
 const defaultBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
@@ -588,6 +635,15 @@ function removeEasyPayCustomMethod(index: number) {
   easyPayCustomMethods.splice(index, 1)
 }
 
+function addCloudcatProduct() {
+  cloudcatProducts.push({ amount: '', itemUrl: '' })
+}
+
+function removeCloudcatProduct(index: number) {
+  cloudcatProducts.splice(index, 1)
+  if (!cloudcatProducts.length) addCloudcatProduct()
+}
+
 function onKeyChange() {
   form.supported_types = [...(PROVIDER_SUPPORTED_TYPES[form.provider_key] || [])]
   form.payment_mode = defaultPaymentMode(form.provider_key)
@@ -603,12 +659,14 @@ function clearConfig() {
   returnBaseUrl.value = ''
   limitsExpanded.value = false
   easyPayCustomMethods.splice(0, easyPayCustomMethods.length)
+  cloudcatProducts.splice(0, cloudcatProducts.length)
 }
 
 function applyDefaults() {
   for (const f of PROVIDER_CONFIG_FIELDS[form.provider_key] || []) {
     if (f.defaultValue && !config[f.key]) config[f.key] = f.defaultValue
   }
+  if (form.provider_key === 'cloudcat' && !cloudcatProducts.length) addCloudcatProduct()
 }
 
 function getLimitVal(paymentType: string, field: string): string {
@@ -668,6 +726,13 @@ function handleSave() {
     }
     syncEasyPayCustomMethods()
   }
+  if (form.provider_key === 'cloudcat') {
+    const validationError = validateCloudcatProducts(cloudcatProducts)
+    if (validationError) {
+      emitValidationError(t(`admin.settings.payment.validationCloudcatProducts_${validationError}`))
+      return
+    }
+  }
   // Validate required config fields — all non-optional fields must be filled.
   // In edit mode, sensitive fields may be left blank to preserve the stored
   // value (backend merges blanks by preserving the existing secret).
@@ -700,6 +765,9 @@ function handleSave() {
   if (form.provider_key === 'easypay') {
     filteredConfig.customMethods = serializeEasyPayCustomMethods(normalizedEasyPayCustomMethods())
   }
+  if (form.provider_key === 'cloudcat') {
+    filteredConfig.products = serializeCloudcatProducts(cloudcatProducts)
+  }
 
   // Inject computed callback URLs (each URL = independent base + fixed path)
   // If base URL is empty, auto-fill with current domain
@@ -719,8 +787,8 @@ function handleSave() {
     supported_types: form.supported_types,
     enabled: form.enabled,
     payment_mode: supportsPaymentMode.value ? form.payment_mode : '',
-    refund_enabled: form.refund_enabled,
-    allow_user_refund: form.refund_enabled ? form.allow_user_refund : false,
+    refund_enabled: form.provider_key === 'cloudcat' ? false : form.refund_enabled,
+    allow_user_refund: form.provider_key === 'cloudcat' ? false : (form.refund_enabled ? form.allow_user_refund : false),
     config: filteredConfig,
     limits: serializeLimits(),
   })
@@ -808,8 +876,8 @@ function loadProvider(provider: ProviderInstance) {
   form.payment_mode = isValidPaymentMode(provider.provider_key, provider.payment_mode || '')
     ? (provider.payment_mode || '')
     : defaultPaymentMode(provider.provider_key)
-  form.refund_enabled = provider.refund_enabled
-  form.allow_user_refund = provider.allow_user_refund
+  form.refund_enabled = provider.provider_key === 'cloudcat' ? false : provider.refund_enabled
+  form.allow_user_refund = provider.provider_key === 'cloudcat' ? false : provider.allow_user_refund
   clearConfig()
   // Pre-fill config from API response. Backend omits sensitive fields entirely,
   // so those inputs stay blank — submitting blank preserves the stored secret.
@@ -819,6 +887,10 @@ function loadProvider(provider: ProviderInstance) {
       if (k === 'notifyUrl' || k === 'returnUrl') continue
       if (k === 'customMethods' && provider.provider_key === 'easypay') {
         easyPayCustomMethods.push(...parseEasyPayCustomMethods(v))
+        continue
+      }
+      if (k === 'products' && provider.provider_key === 'cloudcat') {
+        cloudcatProducts.push(...parseCloudcatProducts(v))
         continue
       }
       config[k] = v

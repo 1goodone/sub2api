@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 const pollOrderStatus = vi.hoisted(() => vi.fn())
 const cancelOrder = vi.hoisted(() => vi.fn())
 const verifyOrder = vi.hoisted(() => vi.fn())
+const resumeOrder = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
 const toCanvas = vi.hoisted(() => vi.fn())
 
@@ -33,6 +34,7 @@ vi.mock('@/api/payment', () => ({
   paymentAPI: {
     cancelOrder,
     verifyOrder,
+    resumeOrder,
   },
 }))
 
@@ -65,15 +67,17 @@ describe('PaymentStatusPanel', () => {
     pollOrderStatus.mockReset()
     cancelOrder.mockReset()
     verifyOrder.mockReset()
+    resumeOrder.mockReset()
     showError.mockReset()
     toCanvas.mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.useRealTimers()
   })
 
-  it('treats RECHARGING as a successful terminal state', async () => {
+  it('keeps RECHARGING in a processing state until fulfillment completes', async () => {
     pollOrderStatus.mockResolvedValue(orderFactory('RECHARGING'))
 
     const wrapper = mount(PaymentStatusPanel, {
@@ -96,8 +100,107 @@ describe('PaymentStatusPanel', () => {
     await flushPromises()
 
     expect(pollOrderStatus).toHaveBeenCalledWith(42)
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.text()).toContain('payment.result.processingHint')
+    expect(wrapper.text()).not.toContain('payment.result.success')
+    expect(wrapper.emitted('success')).toBeUndefined()
+  })
+
+  it('actively verifies every poll for a resumable order and succeeds only when completed', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    verifyOrder
+      .mockResolvedValueOnce({ data: orderFactory('PENDING') })
+      .mockResolvedValueOnce({ data: orderFactory('COMPLETED') })
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: '',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        outTradeNo: 'sub2_20260420abcd1234',
+        resumable: true,
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+    expect(verifyOrder).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('success')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+    expect(verifyOrder).toHaveBeenCalledTimes(2)
     expect(wrapper.emitted('success')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('detects a closed hosted window and resumes the same order', async () => {
+    const initialWindow = { closed: false }
+    const resumedWindow = {
+      closed: false,
+      close: vi.fn(),
+      location: { href: '' },
+    }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(resumedWindow as unknown as Window)
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    verifyOrder.mockResolvedValue({ data: orderFactory('PENDING') })
+    resumeOrder.mockResolvedValue({ data: { pay_url: 'https://pay.example.com/resume/42' } })
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: '',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        outTradeNo: 'sub2_20260420abcd1234',
+        resumable: true,
+        paymentWindow: initialWindow as Window,
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    initialWindow.closed = true
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('payment.qr.paymentWindowClosed')
+    expect(wrapper.find('[data-test="resume-payment"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="resume-payment"]').trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('', 'paymentPopup', expect.any(String))
+    expect(resumeOrder).toHaveBeenCalledWith(42)
+    expect((resumedWindow as { opener?: unknown }).opener).toBeNull()
+    expect(resumedWindow.location.href).toBe('https://pay.example.com/resume/42')
+    expect(wrapper.find('button').text()).not.toContain('payment.qr.cancelOrder')
+    wrapper.unmount()
+  })
+
+  it('renders FAILED separately from EXPIRED', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('FAILED'))
+
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: '',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+      },
+      global: { stubs: { Icon: true } },
+    })
+
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('payment.result.failed')
+    expect(wrapper.text()).toContain('payment.qr.failedDesc')
+    expect(wrapper.text()).not.toContain('payment.qr.expiredDesc')
   })
 
   it('shows reopen button in QR mode when payUrl is also available', async () => {

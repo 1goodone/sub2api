@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -480,6 +481,51 @@ func TestGetAvailableMethodLimitsUsesConfiguredVisibleMethodSource(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestGetAvailableMethodLimitsCloudcatUsesCommonProductAmounts(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	cloudcatConfig := func(channelID, products string) string {
+		raw, err := json.Marshal(map[string]string{"channelId": channelID, "products": products})
+		require.NoError(t, err)
+		return string(raw)
+	}
+
+	_, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeCloudcat).
+		SetName("Cloudcat A").
+		SetConfig(cloudcatConfig("1", `[{"amount":"1.00","itemUrl":"https://catfk.com/item/one"},{"amount":"5.00","itemUrl":"https://catfk.com/item/five"}]`)).
+		SetSupportedTypes("alipay").
+		SetLimits(`{"alipay":{"singleMin":1,"singleMax":5}}`).
+		SetEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeCloudcat).
+		SetName("Cloudcat B").
+		SetConfig(cloudcatConfig("2", `[{"amount":"1.00","itemUrl":"https://catfk.com/item/one-alt"},{"amount":"3.00","itemUrl":"https://catfk.com/item/three"}]`)).
+		SetSupportedTypes("alipay").
+		SetLimits(`{"alipay":{"singleMin":1,"singleMax":5}}`).
+		SetEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentConfigService{
+		entClient: client,
+		settingRepo: &paymentConfigSettingRepoStub{values: map[string]string{
+			SettingPaymentVisibleMethodAlipaySource: VisibleMethodSourceCloudcatAlipay,
+		}},
+	}
+	resp, err := svc.GetAvailableMethodLimits(ctx)
+	require.NoError(t, err)
+
+	alipay := resp.Methods[payment.TypeAlipay]
+	require.True(t, alipay.AmountSelectionOnly)
+	require.Equal(t, []float64{1}, alipay.AmountOptions)
+	encoded, err := json.Marshal(alipay)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "catfk.com")
 }
 
 func TestGetAvailableMethodLimitsPreservesLegacyCrossProviderBehaviorWhenVisibleMethodSourceMissing(t *testing.T) {

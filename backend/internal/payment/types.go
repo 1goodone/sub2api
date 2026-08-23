@@ -18,6 +18,7 @@ const (
 	TypeLink         PaymentType = "link"
 	TypeEasyPay      PaymentType = "easypay"
 	TypeAirwallex    PaymentType = "airwallex"
+	TypeCloudcat     PaymentType = "cloudcat"
 )
 
 // Order status constants shared across payment and service layers.
@@ -78,6 +79,10 @@ const DefaultLoadBalanceStrategy = "round-robin"
 // ConfigKeyPublishableKey is the config map key for Stripe's publishable key.
 const ConfigKeyPublishableKey = "publishableKey"
 
+// MetadataCloudcatRechargeCode is populated only after CatFK delivers the
+// purchased card. It must never be exposed through public order responses.
+const MetadataCloudcatRechargeCode = "cloudcat_recharge_code"
+
 // GetBasePaymentType extracts the base payment method from a composite key.
 // For example, "alipay_direct" -> "alipay".
 func GetBasePaymentType(t string) string {
@@ -107,6 +112,7 @@ type CreatePaymentRequest struct {
 	ReturnURL   string // Browser redirect URL after payment
 	OpenID      string // WeChat JSAPI payer OpenID when available
 	ClientIP    string // Payer's IP address
+	PayerEmail  string // Trusted account email used by hosted checkout providers
 	IsMobile    bool   // Whether the request comes from a mobile device
 	// AlipayMobilePrecreate routes a mobile Alipay request through
 	// alipay.trade.precreate instead of alipay.trade.wap.pay.

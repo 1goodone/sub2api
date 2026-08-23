@@ -127,7 +127,7 @@ func expectedNotificationProviderKeyForOrder(registry *payment.Registry, order *
 }
 
 func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey string, metadata map[string]string) error {
-	if order == nil || len(metadata) == 0 {
+	if order == nil || (len(metadata) == 0 && !strings.EqualFold(strings.TrimSpace(providerKey), payment.TypeCloudcat)) {
 		return nil
 	}
 
@@ -219,6 +219,16 @@ func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey str
 		}
 		if actual := strings.TrimSpace(metadata["status"]); actual != "" && !strings.EqualFold(actual, "SUCCEEDED") {
 			return fmt.Errorf("airwallex status mismatch: expected SUCCEEDED, got %s", actual)
+		}
+	case payment.TypeCloudcat:
+		if expected := strings.TrimSpace(snapshot.MerchantID); expected != "" {
+			actual := strings.TrimSpace(metadata["channel_id"])
+			if actual == "" {
+				return fmt.Errorf("cloudcat query missing channel_id")
+			}
+			if expected != actual {
+				return fmt.Errorf("cloudcat channel_id mismatch: expected %s, got %s", expected, actual)
+			}
 		}
 	}
 

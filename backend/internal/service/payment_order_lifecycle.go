@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	paymentprovider "github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
@@ -27,7 +29,8 @@ const (
 	checkPaidResultAlreadyPaid = "already_paid"
 	checkPaidResultCancelled   = "cancelled"
 
-	pendingWxpayReconcileLimit = 20
+	pendingWxpayReconcileLimit    = 20
+	pendingCloudcatReconcileLimit = 20
 )
 
 type checkPaidOptions struct {
@@ -104,6 +107,9 @@ func (s *PaymentService) CancelOrder(ctx context.Context, orderID, userID int64)
 	if o.UserID != userID {
 		return "", infraerrors.Forbidden("FORBIDDEN", "no permission for this order")
 	}
+	if isCloudcatOrder(o) {
+		return "", infraerrors.BadRequest("CLOUDCAT_CANCEL_UNSUPPORTED", "this payment order cannot be cancelled; it can be reopened while pending")
+	}
 	if o.Status != OrderStatusPending {
 		return "", infraerrors.BadRequest("INVALID_STATUS", "order cannot be cancelled in current status")
 	}
@@ -115,10 +121,41 @@ func (s *PaymentService) AdminCancelOrder(ctx context.Context, orderID int64) (s
 	if err != nil {
 		return "", infraerrors.NotFound("NOT_FOUND", "order not found")
 	}
+	if isCloudcatOrder(o) {
+		return "", infraerrors.BadRequest("CLOUDCAT_CANCEL_UNSUPPORTED", "cloudcat payment orders cannot be cancelled upstream")
+	}
 	if o.Status != OrderStatusPending {
 		return "", infraerrors.BadRequest("INVALID_STATUS", "order cannot be cancelled in current status")
 	}
 	return s.cancelCore(ctx, o, OrderStatusCancelled, "admin", "admin cancelled order")
+}
+
+// ResumeCloudcatOrder returns the original hosted checkout URL only to the
+// owning user while the upstream-backed order is still payable.
+func (s *PaymentService) ResumeCloudcatOrder(ctx context.Context, orderID, userID int64) (*dbent.PaymentOrder, error) {
+	o, err := s.entClient.PaymentOrder.Get(ctx, orderID)
+	if err != nil {
+		return nil, infraerrors.NotFound("NOT_FOUND", "order not found")
+	}
+	if o.UserID != userID {
+		return nil, infraerrors.Forbidden("FORBIDDEN", "no permission for this order")
+	}
+	if !isCloudcatOrder(o) {
+		return nil, infraerrors.BadRequest("RESUME_UNSUPPORTED", "this payment order cannot be reopened")
+	}
+	if o.Status != OrderStatusPending {
+		return nil, infraerrors.BadRequest("INVALID_STATUS", "only pending payment orders can be reopened")
+	}
+	if !o.ExpiresAt.After(time.Now()) {
+		return nil, infraerrors.BadRequest("ORDER_EXPIRED", "payment order has expired")
+	}
+	if o.PayURL == nil || strings.TrimSpace(*o.PayURL) == "" {
+		return nil, infraerrors.Conflict("PAYMENT_URL_UNAVAILABLE", "payment URL is unavailable")
+	}
+	if err := paymentprovider.ValidateCloudcatPaymentURL(*o.PayURL); err != nil {
+		return nil, infraerrors.Conflict("PAYMENT_URL_INVALID", "payment URL is invalid")
+	}
+	return o, nil
 }
 
 func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, fs, op, ad string) (string, error) {
@@ -192,11 +229,21 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 			}
 			notificationTradeNo = upstreamTradeNo
 		}
+		if strings.EqualFold(strings.TrimSpace(prov.ProviderKey()), payment.TypeCloudcat) {
+			if err := s.handleCloudcatPaidQuery(ctx, o, resp); err != nil {
+				slog.Error("cloudcat fulfillment failed during reconciliation", "orderID", o.ID, "error", err)
+			}
+			return checkPaidResultAlreadyPaid
+		}
 		if err := s.HandlePaymentNotification(ctx, &payment.PaymentNotification{TradeNo: notificationTradeNo, OrderID: o.OutTradeNo, Amount: resp.Amount, Status: payment.ProviderStatusSuccess, Metadata: resp.Metadata}, prov.ProviderKey()); err != nil {
 			slog.Error("fulfillment failed during checkPaid", "orderID", o.ID, "error", err)
 			// Still return already_paid — order was paid, fulfillment can be retried
 		}
 		return checkPaidResultAlreadyPaid
+	}
+	if resp.Status == payment.ProviderStatusFailed && strings.EqualFold(strings.TrimSpace(prov.ProviderKey()), payment.TypeCloudcat) {
+		s.markCloudcatPaymentFailed(ctx, o)
+		return ""
 	}
 	if !opts.cancelIfUnpaid {
 		return ""
@@ -289,8 +336,9 @@ func (s *PaymentService) VerifyOrderByOutTradeNo(ctx context.Context, outTradeNo
 	if o.UserID != userID {
 		return nil, infraerrors.Forbidden("FORBIDDEN", "no permission for this order")
 	}
-	// Only verify orders that are still pending or recently expired
-	if o.Status == OrderStatusPending || o.Status == OrderStatusExpired {
+	// Cloudcat PAID means the upstream payment succeeded but card delivery may
+	// still be in progress, so authenticated polling must keep reconciling it.
+	if o.Status == OrderStatusPending || o.Status == OrderStatusExpired || (o.Status == OrderStatusPaid && isCloudcatOrder(o)) {
 		result := s.reconcilePaid(ctx, o)
 		if result == checkPaidResultAlreadyPaid {
 			// Reload order to get updated status
@@ -301,6 +349,119 @@ func (s *PaymentService) VerifyOrderByOutTradeNo(ctx context.Context, outTradeNo
 		}
 	}
 	return o, nil
+}
+
+func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.PaymentOrder, resp *payment.QueryOrderResponse) error {
+	if o == nil || resp == nil {
+		return fmt.Errorf("cloudcat paid query is missing order data")
+	}
+	if o.OrderType != payment.OrderTypeBalance {
+		return fmt.Errorf("cloudcat order %d is not a balance recharge", o.ID)
+	}
+	if !isValidProviderAmount(resp.Amount) || math.Abs(resp.Amount-o.PayAmount) > paymentAmountToleranceForCurrency(PaymentOrderCurrency(o)) {
+		s.writeAuditLog(ctx, o.ID, "PAYMENT_AMOUNT_MISMATCH", payment.TypeCloudcat, map[string]any{
+			"expected": o.PayAmount, "paid": resp.Amount, "tradeNo": resp.TradeNo,
+		})
+		return fmt.Errorf("cloudcat paid amount does not match order %d", o.ID)
+	}
+	if err := validateProviderSnapshotMetadata(o, payment.TypeCloudcat, resp.Metadata); err != nil {
+		s.writeAuditLog(ctx, o.ID, "PAYMENT_PROVIDER_METADATA_MISMATCH", payment.TypeCloudcat, map[string]any{
+			"detail": err.Error(), "tradeNo": resp.TradeNo,
+		})
+		return err
+	}
+
+	now := time.Now()
+	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	tradeNo := firstNonEmpty(strings.TrimSpace(resp.TradeNo), strings.TrimSpace(o.PaymentTradeNo))
+	updated, err := s.entClient.PaymentOrder.Update().Where(
+		paymentorder.IDEQ(o.ID),
+		paymentorder.Or(
+			paymentorder.StatusEQ(OrderStatusPending),
+			paymentorder.StatusEQ(OrderStatusCancelled),
+			paymentorder.And(paymentorder.StatusEQ(OrderStatusExpired), paymentorder.UpdatedAtGTE(grace)),
+		),
+	).SetStatus(OrderStatusPaid).
+		SetPayAmount(resp.Amount).
+		SetPaymentTradeNo(tradeNo).
+		SetPaidAt(now).
+		ClearFailedAt().
+		ClearFailedReason().
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("mark cloudcat order paid: %w", err)
+	}
+	if updated > 0 {
+		s.writeAuditLog(ctx, o.ID, "ORDER_PAID", payment.TypeCloudcat, map[string]any{
+			"tradeNo": tradeNo, "paidAmount": resp.Amount,
+		})
+	}
+
+	current, err := s.entClient.PaymentOrder.Get(ctx, o.ID)
+	if err != nil {
+		return fmt.Errorf("reload cloudcat paid order: %w", err)
+	}
+	code := strings.TrimSpace(resp.Metadata[payment.MetadataCloudcatRechargeCode])
+	if code == "" {
+		if !s.hasAuditLog(ctx, o.ID, "CLOUDCAT_PAID_AWAITING_CDK") {
+			s.writeAuditLog(ctx, o.ID, "CLOUDCAT_PAID_AWAITING_CDK", payment.TypeCloudcat, map[string]any{
+				"tradeNo": tradeNo,
+			})
+		}
+		return nil
+	}
+	if len(code) > 64 {
+		return fmt.Errorf("cloudcat delivered redeem code exceeds 64 characters")
+	}
+	duplicate, err := s.entClient.PaymentOrder.Query().Where(
+		paymentorder.RechargeCodeEQ(code),
+		paymentorder.IDNEQ(o.ID),
+	).Exist(ctx)
+	if err != nil {
+		return fmt.Errorf("check cloudcat redeem code ownership: %w", err)
+	}
+	if duplicate {
+		return fmt.Errorf("cloudcat delivered redeem code is already attached to another payment order")
+	}
+	if current.Status == OrderStatusCompleted {
+		if current.RechargeCode == code {
+			return nil
+		}
+		return fmt.Errorf("completed cloudcat order has a different redeem code")
+	}
+	if current.Status != OrderStatusPaid {
+		return fmt.Errorf("cloudcat order cannot attach a redeem code in status %s", current.Status)
+	}
+	if _, err := s.entClient.PaymentOrder.Update().Where(
+		paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusPaid),
+	).SetRechargeCode(code).Save(ctx); err != nil {
+		return fmt.Errorf("attach cloudcat redeem code: %w", err)
+	}
+	return s.ExecuteCloudcatBalanceFulfillment(ctx, o.ID)
+}
+
+func isCloudcatOrder(o *dbent.PaymentOrder) bool {
+	return o != nil && o.ProviderKey != nil && strings.EqualFold(strings.TrimSpace(*o.ProviderKey), payment.TypeCloudcat)
+}
+
+func (s *PaymentService) markCloudcatPaymentFailed(ctx context.Context, o *dbent.PaymentOrder) {
+	if o == nil || o.Status != OrderStatusPending {
+		return
+	}
+	now := time.Now()
+	updated, err := s.entClient.PaymentOrder.Update().Where(
+		paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusPending),
+	).SetStatus(OrderStatusFailed).
+		SetFailedAt(now).
+		SetFailedReason("upstream payment failed").
+		Save(ctx)
+	if err != nil {
+		slog.Warn("mark cloudcat payment failed", "orderID", o.ID, "error", err)
+		return
+	}
+	if updated > 0 {
+		s.writeAuditLog(ctx, o.ID, "PAYMENT_FAILED", payment.TypeCloudcat, map[string]any{"reason": "upstream payment failed"})
+	}
 }
 
 // ReconcilePendingWxpayOrders actively checks recent pending WeChat orders so
@@ -332,6 +493,30 @@ func (s *PaymentService) ReconcilePendingWxpayOrders(ctx context.Context) (int, 
 		}
 	}
 	return recovered, nil
+}
+
+// ReconcileCloudcatOrders checks both unpaid orders and paid orders waiting for
+// card delivery. Active checkout pages also trigger this through VerifyOrder.
+func (s *PaymentService) ReconcileCloudcatOrders(ctx context.Context) (int, error) {
+	orders, err := s.entClient.PaymentOrder.Query().
+		Where(
+			paymentorder.ProviderKeyEQ(payment.TypeCloudcat),
+			paymentorder.StatusIn(OrderStatusPending, OrderStatusPaid),
+		).
+		Order(dbent.Asc(paymentorder.FieldCreatedAt)).
+		Limit(pendingCloudcatReconcileLimit).
+		All(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("query cloudcat orders for reconciliation: %w", err)
+	}
+
+	reconciled := 0
+	for _, order := range orders {
+		if s.reconcilePaid(ctx, order) == checkPaidResultAlreadyPaid {
+			reconciled++
+		}
+	}
+	return reconciled, nil
 }
 
 // VerifyOrderPublic returns the currently persisted public order state without

@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -23,6 +25,92 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	_ "modernc.org/sqlite"
 )
+
+func TestResumeOrderReturnsHostedCheckoutToOwner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := sql.Open("sqlite", "file:payment_handler_cloudcat_resume?mode=memory&cache=shared&_fk=1")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec("PRAGMA foreign_keys = ON")
+	require.NoError(t, err)
+
+	drv := entsql.OpenDB(dialect.SQLite, db)
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
+	t.Cleanup(func() { _ = client.Close() })
+
+	user, err := client.User.Create().
+		SetEmail("resume-owner@example.com").
+		SetPasswordHash("hash").
+		SetUsername("resume-owner").
+		Save(context.Background())
+	require.NoError(t, err)
+
+	payURL := "https://catfk.com/pay/order-42"
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(5).
+		SetPayAmount(5).
+		SetFeeRate(0).
+		SetRechargeCode("").
+		SetOutTradeNo("cloudcat-resume-order").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("").
+		SetOrderType(payment.OrderTypeBalance).
+		SetProviderKey(payment.TypeCloudcat).
+		SetPayURL(payURL).
+		SetStatus(service.OrderStatusPending).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("app.example.com").
+		Save(context.Background())
+	require.NoError(t, err)
+
+	paymentSvc := service.NewPaymentService(client, payment.NewRegistry(), nil, nil, nil, nil, nil, nil, nil)
+	h := NewPaymentHandler(paymentSvc, nil)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.FormatInt(order.ID, 10)}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/payment/orders/1/resume", nil)
+	ctx.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: user.ID})
+
+	h.ResumeOrder(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			OrderID   int64  `json:"order_id"`
+			PayURL    string `json:"pay_url"`
+			Resumable bool   `json:"resumable"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, order.ID, resp.Data.OrderID)
+	require.Equal(t, payURL, resp.Data.PayURL)
+	require.True(t, resp.Data.Resumable)
+}
+
+func TestSanitizePaymentOrderMarksCloudcatResumableWithoutPayURL(t *testing.T) {
+	providerKey := string(payment.TypeCloudcat)
+	payURL := "https://catfk.com/pay/order-42"
+	result := sanitizePaymentOrderForResponse(&dbent.PaymentOrder{
+		ID:          42,
+		ProviderKey: &providerKey,
+		PayURL:      &payURL,
+		Status:      service.OrderStatusPending,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+
+	require.NotNil(t, result)
+	require.True(t, result.Resumable)
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "pay_url")
+}
 
 func TestApplyWeChatPaymentResumeClaims(t *testing.T) {
 	t.Parallel()

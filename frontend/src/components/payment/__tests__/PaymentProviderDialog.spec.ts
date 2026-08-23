@@ -65,12 +65,14 @@ function mountDialog(options: { editing?: ProviderInstance | null } = {}) {
         { value: 'wxpay', label: 'WeChat Pay' },
         { value: 'stripe', label: 'Stripe' },
         { value: 'airwallex', label: 'Airwallex' },
+        { value: 'cloudcat', label: 'Cloudcat' },
       ],
       enabledKeyOptions: [
         { value: 'easypay', label: 'EasyPay' },
         { value: 'alipay', label: 'Alipay' },
         { value: 'wxpay', label: 'WeChat Pay' },
         { value: 'airwallex', label: 'Airwallex' },
+        { value: 'cloudcat', label: 'Cloudcat' },
       ],
       allPaymentTypes: [
         { value: 'alipay', label: 'Alipay' },
@@ -245,5 +247,42 @@ describe('PaymentProviderDialog payment guide', () => {
     await wrapper.find('form').trigger('submit.prevent')
 
     expect(wrapper.emitted('save')).toBeUndefined()
+  })
+
+  it('loads and serializes Cloudcat product mappings with refunds disabled', async () => {
+    const provider = providerFactory({
+      provider_key: 'cloudcat',
+      name: 'Cloudcat Alipay',
+      config: {
+        channelId: '1',
+        products: '[{"amount":"5","itemUrl":"https://catfk.com/item/ee9c69"}]',
+      },
+      supported_types: ['alipay'],
+      refund_enabled: true,
+      allow_user_refund: true,
+    })
+    const wrapper = mountDialog({ editing: provider })
+
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+
+    expect(wrapper.findAll('[data-test="cloudcat-product-row"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('admin.settings.payment.refundEnabled')
+    await wrapper.find('[data-test="cloudcat-product-row"] input[type="number"]').setValue('1')
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as {
+      config: Record<string, string>
+      supported_types: string[]
+      refund_enabled: boolean
+      allow_user_refund: boolean
+    }
+    expect(payload.config).toEqual({
+      channelId: '1',
+      products: '[{"amount":"1.00","itemUrl":"https://catfk.com/item/ee9c69"}]',
+    })
+    expect(payload.supported_types).toEqual(['alipay'])
+    expect(payload.refund_enabled).toBe(false)
+    expect(payload.allow_user_refund).toBe(false)
   })
 })

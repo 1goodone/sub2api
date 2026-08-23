@@ -3,13 +3,14 @@
     <!-- Quick Amount Buttons -->
     <div>
       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-        {{ t('payment.quickAmounts') }}
+        {{ t(selectionOnly ? 'payment.amountLabel' : 'payment.quickAmounts') }}
       </label>
       <div class="grid grid-cols-3 gap-2">
         <button
           v-for="amt in filteredAmounts"
           :key="amt"
           type="button"
+          :aria-pressed="modelValue === amt"
           :class="[
             'rounded-lg border-2 px-4 py-3 text-center font-medium transition-colors',
             modelValue === amt
@@ -24,7 +25,7 @@
     </div>
 
     <!-- Custom Amount Input -->
-    <div>
+    <div v-if="!selectionOnly">
       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
         {{ t('payment.customAmount') }}
       </label>
@@ -54,10 +55,12 @@ const props = withDefaults(defineProps<{
   modelValue: number | null
   min?: number
   max?: number
+  selectionOnly?: boolean
 }>(), {
   amounts: () => [10, 20, 50, 100, 200, 500, 1000, 2000, 5000],
   min: 0,
   max: 0,
+  selectionOnly: false,
 })
 
 const emit = defineEmits<{
@@ -104,6 +107,10 @@ function handleInput(e: Event) {
 }
 
 watch(() => props.modelValue, (v) => {
+  if (v === null) {
+    customText.value = ''
+    return
+  }
   if (v !== null && String(v) !== customText.value) {
     customText.value = String(v)
   }

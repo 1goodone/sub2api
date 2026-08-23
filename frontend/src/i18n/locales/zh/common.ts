@@ -158,6 +158,9 @@ export default {
   // Navigation
   nav: {
     dashboard: '仪表盘',
+      computeCottage: '算力小屋',
+      rewardDraw: '咩咩召唤机',
+    computeCottageConfig: '小屋配置',
     announcements: '公告',
     apiKeys: 'API 密钥',
     batchImage: '批量生图',
@@ -179,7 +182,9 @@ export default {
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
+    accountHealthMap: '账号活性地图',
     promoCodes: '优惠码',
+    backup: '数据库备份',
     settings: '系统设置',
     myAccount: '我的账户',
     lightMode: '浅色模式',
@@ -230,6 +235,8 @@ export default {
     emailPlaceholder: '请输入邮箱',
     passwordLabel: '密码',
     passwordPlaceholder: '请输入密码',
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
     createPasswordPlaceholder: '创建一个安全的密码',
     passwordHint: '至少 6 个字符',
     emailRequired: '请输入邮箱',

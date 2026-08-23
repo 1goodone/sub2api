@@ -6,6 +6,9 @@ import {
   isBuiltInWxpayMethod,
   parseEasyPayCustomMethods,
   serializeEasyPayCustomMethods,
+  parseCloudcatProducts,
+  serializeCloudcatProducts,
+  validateCloudcatProducts,
 } from '@/components/payment/providerConfig'
 
 function findField(providerKey: string, key: string) {
@@ -91,5 +94,25 @@ describe('built-in payment method helpers', () => {
     expect(isBuiltInWxpayMethod('wxpay')).toBe(true)
     expect(isBuiltInWxpayMethod('wxpay_direct')).toBe(true)
     expect(isBuiltInWxpayMethod('card_wxpay')).toBe(false)
+  })
+})
+
+describe('Cloudcat product mapping', () => {
+  it('parses, validates, and serializes amount-to-product rows', () => {
+    const rows = parseCloudcatProducts('[{"amount":"5","itemUrl":"https://catfk.com/item/ee9c69"}]')
+
+    expect(rows).toEqual([{ amount: '5', itemUrl: 'https://catfk.com/item/ee9c69' }])
+    expect(validateCloudcatProducts(rows)).toBeNull()
+    expect(serializeCloudcatProducts(rows)).toBe('[{"amount":"5.00","itemUrl":"https://catfk.com/item/ee9c69"}]')
+  })
+
+  it('rejects duplicate amounts and untrusted product URLs', () => {
+    expect(validateCloudcatProducts([
+      { amount: '5', itemUrl: 'https://catfk.com/item/first' },
+      { amount: '5.00', itemUrl: 'https://catfk.com/item/second' },
+    ])).toBe('duplicate')
+    expect(validateCloudcatProducts([
+      { amount: '5', itemUrl: 'https://example.com/item/ee9c69' },
+    ])).toBe('url')
   })
 })

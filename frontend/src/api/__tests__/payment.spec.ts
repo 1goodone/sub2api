@@ -37,4 +37,10 @@ describe('payment api', () => {
       resume_token: 'resume-token-123',
     })
   })
+
+  it('reopens a resumable user order through the authenticated endpoint', async () => {
+    await paymentAPI.resumeOrder(42)
+
+    expect(post).toHaveBeenCalledWith('/payment/orders/42/resume')
+  })
 })

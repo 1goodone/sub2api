@@ -8161,6 +8161,32 @@
                     </a>
                   </p>
                 </div>
+                <div class="rounded-lg border border-gray-100 p-3 dark:border-dark-700">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="min-w-0">
+                      <label class="input-label mb-0">{{
+                        t("admin.settings.paymentVisibleMethods.methodLabel", {
+                          title: t("payment.methods.alipay"),
+                        })
+                      }}</label>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.paymentVisibleMethods.methodHint") }}
+                      </p>
+                    </div>
+                    <Toggle v-model="form.payment_visible_method_alipay_enabled" />
+                  </div>
+                  <div class="mt-3">
+                    <label class="input-label">{{ t("admin.settings.paymentVisibleMethods.sourceLabel") }}</label>
+                    <Select
+                      v-model="form.payment_visible_method_alipay_source"
+                      :options="alipayVisibleSourceOptions"
+                      :disabled="!form.payment_visible_method_alipay_enabled"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.paymentVisibleMethods.sourceHint") }}
+                    </p>
+                  </div>
+                </div>
                 <!-- Row 5: Help image + text -->
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
@@ -8720,6 +8746,8 @@ import {
   appendAuthSourceDefaultsToUpdateRequest,
   buildAuthSourceDefaultsState,
   normalizeAccountSchedulingThresholdsMap,
+  getPaymentVisibleMethodSourceOptions,
+  normalizePaymentVisibleMethodSource,
   normalizePlatformQuotasMap,
   sanitizeAccountSchedulingThresholdsMap,
   sanitizePlatformQuotasMap,
@@ -9468,6 +9496,8 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_upstream_cost: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
+  payment_visible_method_alipay_source: string;
+  payment_visible_method_alipay_enabled: boolean;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
@@ -9544,6 +9574,8 @@ const form = reactive<SettingsForm>({
   payment_cancel_rate_limit_window_mode: "rolling",
   payment_alipay_force_qrcode: false,
   payment_alipay_mobile_precreate_deep_link: false,
+  payment_visible_method_alipay_source: "",
+  payment_visible_method_alipay_enabled: false,
   table_default_page_size: tablePageSizeDefault,
   table_page_size_options: [10, 20, 50, 100],
   custom_menu_items: [] as Array<{
@@ -10721,6 +10753,10 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.payment_visible_method_alipay_source = normalizePaymentVisibleMethodSource(
+      "alipay",
+      settings.payment_visible_method_alipay_source,
+    );
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11099,6 +11135,20 @@ async function saveSettings() {
     form.claude_oauth_system_prompt_blocks =
       claudeOAuthSystemPromptBlocksJSON;
 
+    const alipayVisibleSource = normalizePaymentVisibleMethodSource(
+      "alipay",
+      form.payment_visible_method_alipay_source,
+    );
+    if (form.payment_visible_method_alipay_enabled && !alipayVisibleSource) {
+      appStore.showError(
+        t("admin.settings.paymentVisibleMethods.sourceRequiredError", {
+          title: t("payment.methods.alipay"),
+        }),
+      );
+      return;
+    }
+    form.payment_visible_method_alipay_source = alipayVisibleSource;
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -11352,6 +11402,10 @@ async function saveSettings() {
       payment_alipay_force_qrcode: form.payment_alipay_force_qrcode,
       payment_alipay_mobile_precreate_deep_link:
         form.payment_alipay_mobile_precreate_deep_link,
+      payment_visible_method_alipay_source:
+        form.payment_visible_method_alipay_source,
+      payment_visible_method_alipay_enabled:
+        form.payment_visible_method_alipay_enabled,
       openai_low_upstream_rate_priority_enabled:
         form.openai_low_upstream_rate_priority_enabled,
       openai_oauth_scheduling_rate_multiplier:
@@ -12128,12 +12182,20 @@ async function saveBetaPolicySettings() {
 
 // ==================== Provider Management ====================
 
+const alipayVisibleSourceOptions = computed(() =>
+  getPaymentVisibleMethodSourceOptions("alipay").map((option) => ({
+    value: option.value,
+    label: localText(option.labelZh, option.labelEn),
+  })),
+);
+
 const allPaymentTypes = computed(() => [
   { value: "easypay", label: t("payment.methods.easypay") },
   { value: "alipay", label: t("payment.methods.alipay") },
   { value: "wxpay", label: t("payment.methods.wxpay") },
   { value: "stripe", label: t("payment.methods.stripe") },
   { value: "airwallex", label: t("payment.methods.airwallex") },
+  { value: "cloudcat", label: t("admin.settings.payment.providerCloudcat") },
 ]);
 
 function isPaymentTypeEnabled(type: string): boolean {
@@ -12191,6 +12253,7 @@ const providerKeyOptions = computed(() => [
   { value: "wxpay", label: t("admin.settings.payment.providerWxpay") },
   { value: "stripe", label: t("admin.settings.payment.providerStripe") },
   { value: "airwallex", label: t("admin.settings.payment.providerAirwallex") },
+  { value: "cloudcat", label: t("admin.settings.payment.providerCloudcat") },
 ]);
 
 const enabledProviderKeyOptions = computed(() => {

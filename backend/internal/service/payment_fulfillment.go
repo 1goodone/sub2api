@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,8 @@ import (
 var ErrOrderNotFound = errors.New("payment order not found")
 
 const paymentFulfillmentLeaseDuration = 5 * time.Minute
+
+const cloudcatCDKClaimedAuditAction = "CLOUDCAT_CDK_CLAIMED"
 
 type paymentFulfillmentLease struct {
 	version time.Time
@@ -218,6 +221,9 @@ func (s *PaymentService) executeFulfillment(ctx context.Context, oid int64) erro
 	if err != nil {
 		return fmt.Errorf("get order: %w", err)
 	}
+	if isCloudcatOrder(o) {
+		return s.ExecuteCloudcatBalanceFulfillment(ctx, oid)
+	}
 	if o.OrderType == payment.OrderTypeSubscription {
 		return s.ExecuteSubscriptionFulfillment(ctx, oid)
 	}
@@ -228,6 +234,9 @@ func (s *PaymentService) ExecuteBalanceFulfillment(ctx context.Context, oid int6
 	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
 	if err != nil {
 		return infraerrors.NotFound("NOT_FOUND", "order not found")
+	}
+	if isCloudcatOrder(o) {
+		return s.ExecuteCloudcatBalanceFulfillment(ctx, oid)
 	}
 	if o.Status == OrderStatusCompleted {
 		return nil
@@ -250,6 +259,183 @@ func (s *PaymentService) ExecuteBalanceFulfillment(ctx context.Context, oid int6
 		return err
 	}
 	return nil
+}
+
+// ExecuteCloudcatBalanceFulfillment redeems only the existing card delivered
+// by CatFK. It must never create a replacement code for a paid upstream order.
+func (s *PaymentService) ExecuteCloudcatBalanceFulfillment(ctx context.Context, oid int64) error {
+	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
+	if err != nil {
+		return infraerrors.NotFound("NOT_FOUND", "order not found")
+	}
+	if !isCloudcatOrder(o) {
+		return infraerrors.BadRequest("INVALID_PROVIDER", "order is not a cloudcat order")
+	}
+	if o.Status == OrderStatusCompleted {
+		return nil
+	}
+	if o.OrderType != payment.OrderTypeBalance {
+		return infraerrors.BadRequest("CLOUDCAT_BALANCE_ONLY", "cloudcat only supports balance recharge orders")
+	}
+	if psIsRefundStatus(o.Status) {
+		return infraerrors.BadRequest("INVALID_STATUS", "refund-related order cannot fulfill")
+	}
+	if o.Status != OrderStatusPaid && o.Status != OrderStatusRecharging {
+		return infraerrors.BadRequest("INVALID_STATUS", "cloudcat order cannot fulfill in status "+o.Status)
+	}
+	if strings.TrimSpace(o.RechargeCode) == "" {
+		return infraerrors.Conflict("CLOUDCAT_CDK_PENDING", "cloudcat card delivery is still pending")
+	}
+
+	lease, err := s.acquirePaymentFulfillmentLease(ctx, o)
+	if err != nil {
+		return err
+	}
+	if lease == nil {
+		return nil
+	}
+	if err := s.doCloudcatBalance(ctx, o, lease); err != nil {
+		s.releaseCloudcatFulfillmentLease(ctx, o.ID, lease, err)
+		return err
+	}
+	return nil
+}
+
+func (s *PaymentService) doCloudcatBalance(ctx context.Context, o *dbent.PaymentOrder, lease *paymentFulfillmentLease) error {
+	if s.redeemService == nil {
+		return errors.New("cloudcat redeem service is unavailable")
+	}
+	duplicate, err := s.entClient.PaymentOrder.Query().Where(
+		paymentorder.RechargeCodeEQ(o.RechargeCode),
+		paymentorder.IDNEQ(o.ID),
+	).Exist(ctx)
+	if err != nil {
+		return fmt.Errorf("check cloudcat card ownership: %w", err)
+	}
+	if duplicate {
+		return errors.New("cloudcat card is attached to another payment order")
+	}
+
+	code, err := s.redeemService.GetByCode(ctx, o.RechargeCode)
+	if err != nil {
+		if errors.Is(err, ErrRedeemCodeNotFound) {
+			return errors.New("cloudcat card does not exist in the local redeem inventory")
+		}
+		return fmt.Errorf("load cloudcat card: %w", err)
+	}
+	if code.Type != RedeemTypeBalance {
+		return errors.New("cloudcat card is not a balance redeem code")
+	}
+	if math.Abs(code.Value-o.Amount) > amountToleranceCNY {
+		return errors.New("cloudcat card value does not match the payment order amount")
+	}
+	if code.IsExpired() {
+		return errors.New("cloudcat card is expired")
+	}
+	if code.Status != StatusUnused && code.Status != StatusUsed {
+		return errors.New("cloudcat card is not usable")
+	}
+
+	fingerprint := cloudcatCodeFingerprint(o.RechargeCode)
+	claimed, err := s.cloudcatCDKClaimMatches(ctx, o.ID, fingerprint)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		if code.Status == StatusUsed {
+			return errors.New("cloudcat card is already used without payment-order audit evidence")
+		}
+		if err := s.claimCloudcatCDK(ctx, o, fingerprint); err != nil {
+			return err
+		}
+	}
+
+	if code.Status == StatusUsed {
+		if code.UsedBy == nil || *code.UsedBy != o.UserID {
+			return errors.New("cloudcat card was used by a different user")
+		}
+	} else if _, err := s.redeemService.Redeem(ContextSkipRedeemAffiliate(ctx), o.UserID, o.RechargeCode); err != nil {
+		return fmt.Errorf("redeem cloudcat balance: %w", err)
+	}
+	if err := s.applyAffiliateRebateForOrder(ctx, o); err != nil {
+		return err
+	}
+	return s.markCompleted(ctx, o, lease, "RECHARGE_SUCCESS")
+}
+
+func cloudcatCodeFingerprint(code string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(code)))
+	return fmt.Sprintf("%x", digest[:8])
+}
+
+func (s *PaymentService) cloudcatCDKClaimMatches(ctx context.Context, orderID int64, fingerprint string) (bool, error) {
+	logEntry, err := s.entClient.PaymentAuditLog.Query().Where(
+		paymentauditlog.OrderIDEQ(strconv.FormatInt(orderID, 10)),
+		paymentauditlog.ActionEQ(cloudcatCDKClaimedAuditAction),
+	).First(ctx)
+	if dbent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load cloudcat card audit evidence: %w", err)
+	}
+	var detail struct {
+		CodeFingerprint string `json:"codeFingerprint"`
+	}
+	if err := json.Unmarshal([]byte(logEntry.Detail), &detail); err != nil {
+		return false, errors.New("cloudcat card audit evidence is invalid")
+	}
+	if !strings.EqualFold(strings.TrimSpace(detail.CodeFingerprint), fingerprint) {
+		return false, errors.New("cloudcat card audit evidence does not match this order")
+	}
+	return true, nil
+}
+
+func (s *PaymentService) claimCloudcatCDK(ctx context.Context, o *dbent.PaymentOrder, fingerprint string) error {
+	detail, err := json.Marshal(map[string]any{
+		"codeFingerprint": fingerprint,
+		"creditedAmount":  o.Amount,
+		"userID":          o.UserID,
+	})
+	if err != nil {
+		return fmt.Errorf("encode cloudcat card audit evidence: %w", err)
+	}
+	_, err = s.entClient.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(o.ID, 10)).
+		SetAction(cloudcatCDKClaimedAuditAction).
+		SetDetail(string(detail)).
+		SetOperator(payment.TypeCloudcat).
+		Save(ctx)
+	if err == nil {
+		return nil
+	}
+	matched, lookupErr := s.cloudcatCDKClaimMatches(ctx, o.ID, fingerprint)
+	if lookupErr == nil && matched {
+		return nil
+	}
+	return fmt.Errorf("persist cloudcat card audit evidence: %w", err)
+}
+
+func (s *PaymentService) releaseCloudcatFulfillmentLease(ctx context.Context, orderID int64, lease *paymentFulfillmentLease, cause error) {
+	if lease == nil {
+		return
+	}
+	reason := psErrMsg(cause)
+	updated, err := s.entClient.PaymentOrder.Update().Where(
+		paymentorder.IDEQ(orderID),
+		paymentorder.StatusEQ(OrderStatusRecharging),
+		paymentorder.UpdatedAtEQ(lease.version),
+	).SetStatus(OrderStatusPaid).
+		ClearFailedAt().
+		SetFailedReason(reason).
+		Save(ctx)
+	if err != nil {
+		slog.Error("release cloudcat fulfillment lease", "orderID", orderID, "error", err)
+		return
+	}
+	if updated > 0 {
+		s.writeAuditLog(ctx, orderID, "CLOUDCAT_FULFILLMENT_PENDING", payment.TypeCloudcat, map[string]any{"reason": reason})
+	}
 }
 
 func (s *PaymentService) acquirePaymentFulfillmentLease(ctx context.Context, o *dbent.PaymentOrder) (*paymentFulfillmentLease, error) {
@@ -377,11 +563,16 @@ func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrde
 		return infraerrors.Conflict("CONFLICT", "fulfillment lease was lost before completion")
 	}
 	if !s.hasAuditLog(ctx, o.ID, auditAction) {
-		s.writeAuditLog(ctx, o.ID, auditAction, "system", map[string]any{
-			"rechargeCode":   o.RechargeCode,
+		detail := map[string]any{
 			"creditedAmount": o.Amount,
 			"payAmount":      o.PayAmount,
-		})
+		}
+		if isCloudcatOrder(o) {
+			detail["codeFingerprint"] = cloudcatCodeFingerprint(o.RechargeCode)
+		} else {
+			detail["rechargeCode"] = o.RechargeCode
+		}
+		s.writeAuditLog(ctx, o.ID, auditAction, "system", detail)
 		s.dispatchPaymentFulfillmentNotification(o, auditAction)
 	}
 	return nil

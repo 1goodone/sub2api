@@ -27,6 +27,13 @@ export interface EasyPayCustomMethod {
   displayName: string
 }
 
+export interface CloudcatProductMapping {
+  amount: string | number
+  itemUrl: string
+}
+
+export type CloudcatProductValidationError = 'required' | 'amount' | 'duplicate' | 'url'
+
 /** Callback URL paths for a provider. */
 export interface CallbackPaths {
   notifyUrl?: string
@@ -42,6 +49,7 @@ export const PROVIDER_SUPPORTED_TYPES: Record<string, string[]> = {
   wxpay: ['wxpay'],
   stripe: ['card', 'alipay', 'wxpay', 'link'],
   airwallex: ['airwallex'],
+  cloudcat: ['alipay'],
 }
 
 /** Available payment modes for EasyPay providers. */
@@ -103,6 +111,16 @@ export function getPaymentPopupFeatures(): string {
   return `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
 }
 
+export function isolatePaymentPopup(popup: Window | null): Window | null {
+  if (!popup || popup.closed) return popup
+  try {
+    popup.opener = null
+  } catch {
+    // A reused cross-origin named window may not expose its opener property.
+  }
+  return popup
+}
+
 /** Webhook paths for each provider (relative to origin). */
 export const WEBHOOK_PATHS: Record<string, string> = {
   easypay: '/api/v1/payment/webhook/easypay',
@@ -161,6 +179,9 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: 'currency', label: '', sensitive: false, defaultValue: 'CNY', hintKey: 'admin.settings.payment.field_paymentCurrencyHint', options: PAYMENT_CURRENCY_OPTIONS },
     { key: 'accountId', label: '', sensitive: false, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_accountIdHint' },
   ],
+  cloudcat: [
+    { key: 'channelId', label: '', sensitive: false },
+  ],
 }
 
 // --- Helpers ---
@@ -211,6 +232,54 @@ export function serializeEasyPayCustomMethods(methods: EasyPayCustomMethod[]): s
     }))
     .filter(method => method.type && method.upstreamType)
   return clean.length ? JSON.stringify(clean) : ''
+}
+
+export function parseCloudcatProducts(raw: string | undefined): CloudcatProductMapping[] {
+  if (!raw?.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(item => ({
+      amount: String(item?.amount || '').trim(),
+      itemUrl: String(item?.itemUrl || '').trim(),
+    })).filter(item => item.amount || item.itemUrl)
+  } catch {
+    return []
+  }
+}
+
+export function validateCloudcatProducts(products: CloudcatProductMapping[]): CloudcatProductValidationError | null {
+  const rows = products.filter(item => String(item.amount).trim() || item.itemUrl.trim())
+  if (!rows.length) return 'required'
+
+  const amounts = new Set<number>()
+  for (const item of rows) {
+    const rawAmount = String(item.amount).trim()
+    if (!/^\d+(?:\.\d{1,2})?$/.test(rawAmount) || Number(rawAmount) <= 0) return 'amount'
+    const amountMinor = Math.round(Number(rawAmount) * 100)
+    if (amounts.has(amountMinor)) return 'duplicate'
+    amounts.add(amountMinor)
+
+    try {
+      const url = new URL(item.itemUrl.trim())
+      const parts = url.pathname.split('/').filter(Boolean)
+      if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'catfk.com'
+        || url.username || url.password || url.search || url.hash
+        || parts.length !== 2 || parts[0] !== 'item' || !parts[1]) return 'url'
+    } catch {
+      return 'url'
+    }
+  }
+  return null
+}
+
+export function serializeCloudcatProducts(products: CloudcatProductMapping[]): string {
+  return JSON.stringify(products
+    .filter(item => String(item.amount).trim() || item.itemUrl.trim())
+    .map(item => ({
+      amount: Number(String(item.amount).trim()).toFixed(2),
+      itemUrl: item.itemUrl.trim(),
+    })))
 }
 
 /** Extract base URL from a full callback URL by removing the known path suffix. */

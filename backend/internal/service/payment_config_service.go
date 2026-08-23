@@ -121,13 +121,15 @@ type UpdatePaymentConfigRequest struct {
 
 // MethodLimits holds per-payment-type limits.
 type MethodLimits struct {
-	PaymentType string  `json:"payment_type"`
-	DisplayName string  `json:"display_name,omitempty"`
-	Currency    string  `json:"currency"`
-	FeeRate     float64 `json:"fee_rate"`
-	DailyLimit  float64 `json:"daily_limit"`
-	SingleMin   float64 `json:"single_min"`
-	SingleMax   float64 `json:"single_max"`
+	PaymentType         string    `json:"payment_type"`
+	DisplayName         string    `json:"display_name,omitempty"`
+	Currency            string    `json:"currency"`
+	FeeRate             float64   `json:"fee_rate"`
+	DailyLimit          float64   `json:"daily_limit"`
+	SingleMin           float64   `json:"single_min"`
+	SingleMax           float64   `json:"single_max"`
+	AmountOptions       []float64 `json:"amount_options,omitempty"`
+	AmountSelectionOnly bool      `json:"amount_selection_only,omitempty"`
 }
 
 // MethodLimitsResponse is the full response for the user-facing /limits API.
@@ -532,6 +534,10 @@ func buildVisibleMethodSourceAvailability(instances []*dbent.PaymentProviderInst
 				case payment.TypeWxpay:
 					available[VisibleMethodSourceEasyPayWechat] = true
 				}
+			}
+		case payment.TypeCloudcat:
+			if inst.SupportedTypes == "" || payment.InstanceSupportsType(inst.SupportedTypes, payment.TypeAlipay) {
+				available[VisibleMethodSourceCloudcatAlipay] = true
 			}
 		}
 	}

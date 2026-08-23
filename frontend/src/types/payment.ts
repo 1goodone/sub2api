@@ -49,6 +49,8 @@ export interface MethodLimit {
   daily_remaining: number
   single_min: number
   single_max: number
+  amount_options?: number[]
+  amount_selection_only?: boolean
   fee_rate: number
   available: boolean
 }
@@ -104,6 +106,7 @@ export interface PaymentOrder {
   refund_request_reason?: string
   plan_id?: number
   provider_instance_id?: string
+  resumable?: boolean
 }
 
 // ==================== Plans & Channels ====================
@@ -216,10 +219,24 @@ export interface CreateOrderResult {
   out_trade_no?: string
   payment_mode?: string
   resume_token?: string
+  resumable?: boolean
   alipay_mobile_precreate_deep_link?: boolean
   oauth?: WechatOAuthInfo
   jsapi?: WechatJSAPIPayload
   jsapi_payload?: WechatJSAPIPayload
+}
+
+export interface ResumeOrderResult {
+  order_id: number
+  out_trade_no: string
+  status: OrderStatus
+  pay_url: string
+  expires_at: string
+  payment_type: string
+  order_type: OrderType
+  amount: number
+  pay_amount: number
+  resumable: boolean
 }
 
 export type CurrencyAmounts = Record<string, number>

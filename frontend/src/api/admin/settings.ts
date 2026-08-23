@@ -123,6 +123,7 @@ export type PaymentVisibleMethodSource =
   | ""
   | "official_alipay"
   | "easypay_alipay"
+  | "cloudcat_alipay"
   | "official_wxpay"
   | "easypay_wxpay";
 export type WeChatConnectMode = "open" | "mp" | "mobile";
@@ -166,6 +167,11 @@ const PAYMENT_VISIBLE_METHOD_SOURCE_OPTIONS: Record<
       labelZh: "易支付支付宝",
       labelEn: "EasyPay Alipay",
     },
+    {
+      value: "cloudcat_alipay",
+      labelZh: "云猫支付宝",
+      labelEn: "Cloudcat Alipay",
+    },
   ],
   wxpay: [
     { value: "", labelZh: "未配置", labelEn: "Not configured" },
@@ -192,6 +198,8 @@ const PAYMENT_VISIBLE_METHOD_SOURCE_ALIASES: Record<
     official: "official_alipay",
     easypay_alipay: "easypay_alipay",
     easypay: "easypay_alipay",
+    cloudcat_alipay: "cloudcat_alipay",
+    cloudcat: "cloudcat_alipay",
   },
   wxpay: {
     official_wxpay: "official_wxpay",

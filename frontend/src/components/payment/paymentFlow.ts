@@ -48,6 +48,7 @@ export interface PaymentRecoverySnapshot {
   orderType: OrderType | ''
   paymentMode: string
   resumeToken: string
+  resumable: boolean
   alipayMobilePrecreateDeepLink?: boolean
   createdAt: number
 }
@@ -168,12 +169,14 @@ export function decidePaymentLaunch(
     orderType: context.orderType,
     paymentMode: (result.payment_mode || '').trim(),
     resumeToken: result.resume_token || '',
+    resumable: result.resumable === true,
     alipayMobilePrecreateDeepLink: result.alipay_mobile_precreate_deep_link === true,
   }, context.now)
+  const baseRecovery = baseState.resumable ? { ...baseState, payUrl: '' } : baseState
 
   if (visibleMethod === 'airwallex' && baseState.clientSecret && baseState.intentId) {
     if (!context.airwallexRouteUrl) {
-      return { kind: 'unhandled', paymentState: baseState, recovery: baseState }
+      return { kind: 'unhandled', paymentState: baseState, recovery: baseRecovery }
     }
     const paymentState = { ...baseState, payUrl: context.airwallexRouteUrl || '' }
     return { kind: 'airwallex_route', paymentState, recovery: paymentState }
@@ -197,12 +200,12 @@ export function decidePaymentLaunch(
   }
 
   if (result.result_type === 'oauth_required' && result.oauth?.authorize_url) {
-    return { kind: 'wechat_oauth', paymentState: baseState, recovery: baseState, oauth: result.oauth }
+    return { kind: 'wechat_oauth', paymentState: baseState, recovery: baseRecovery, oauth: result.oauth }
   }
 
   const jsapiPayload = result.jsapi ?? result.jsapi_payload
   if (result.result_type === 'jsapi_ready' && jsapiPayload) {
-    return { kind: 'wechat_jsapi', paymentState: baseState, recovery: baseState, jsapi: jsapiPayload }
+    return { kind: 'wechat_jsapi', paymentState: baseState, recovery: baseRecovery, jsapi: jsapiPayload }
   }
 
   if (
@@ -211,7 +214,7 @@ export function decidePaymentLaunch(
     && baseState.alipayMobilePrecreateDeepLink
     && baseState.qrCode
   ) {
-    return { kind: 'alipay_deep_link', paymentState: baseState, recovery: baseState }
+    return { kind: 'alipay_deep_link', paymentState: baseState, recovery: baseRecovery }
   }
 
   const normalizedPaymentMode = baseState.paymentMode.trim().toLowerCase()
@@ -228,22 +231,22 @@ export function decidePaymentLaunch(
     || (!prefersRedirect && !!baseState.qrCode)
 
   if (visibleMethod === 'wxpay' && context.isWechatBrowser && baseState.payUrl && !baseState.qrCode) {
-    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseState }
+    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseRecovery }
   }
 
   if (prefersRedirect && baseState.payUrl) {
-    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseState }
+    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseRecovery }
   }
 
   if (prefersQr && baseState.qrCode) {
-    return { kind: 'qr_waiting', paymentState: baseState, recovery: baseState }
+    return { kind: 'qr_waiting', paymentState: baseState, recovery: baseRecovery }
   }
 
   if (baseState.payUrl) {
-    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseState }
+    return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseRecovery }
   }
 
-  return { kind: 'unhandled', paymentState: baseState, recovery: baseState }
+  return { kind: 'unhandled', paymentState: baseState, recovery: baseRecovery }
 }
 
 export function createPaymentRecoverySnapshot(
@@ -295,6 +298,7 @@ export function readPaymentRecoverySnapshot(
       || typeof parsed.payAmount !== 'number'
       || typeof parsed.paymentMode !== 'string'
       || typeof parsed.resumeToken !== 'string'
+      || (parsed.resumable != null && typeof parsed.resumable !== 'boolean')
       || (parsed.alipayMobilePrecreateDeepLink != null && typeof parsed.alipayMobilePrecreateDeepLink !== 'boolean')
       || typeof parsed.createdAt !== 'number'
     ) {
@@ -327,6 +331,7 @@ export function readPaymentRecoverySnapshot(
       orderType: parsed.orderType === 'subscription' ? 'subscription' : 'balance',
       paymentMode: parsed.paymentMode,
       resumeToken: parsed.resumeToken,
+      resumable: parsed.resumable === true,
       alipayMobilePrecreateDeepLink: parsed.alipayMobilePrecreateDeepLink === true,
       createdAt: parsed.createdAt,
     }

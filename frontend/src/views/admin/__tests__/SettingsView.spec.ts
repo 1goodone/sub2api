@@ -194,6 +194,7 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.paymentVisibleMethods.sourceLabel": "支付来源",
     "admin.settings.paymentVisibleMethods.sourceHint": "启用后必须明确选择一个来源；未配置状态不会对外展示该支付方式。",
     "admin.settings.paymentVisibleMethods.sourceRequiredError": "{title} 已启用，请先选择支付来源。",
+    "payment.methods.alipay": "支付宝",
     "admin.settings.payment.configGuide": "查看支付配置说明",
     "admin.settings.payment.findProvider": "查看支持的支付方式",
     "admin.settings.openaiExperimentalScheduler.title": "OpenAI 实验调度策略",
@@ -773,14 +774,15 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(showSuccess).toHaveBeenCalled();
   });
 
-  it("does not render legacy visible payment method controls", async () => {
+  it("renders the Alipay visible method controls only", async () => {
     const wrapper = mountView();
 
     await flushPromises();
     await openPaymentTab(wrapper);
 
-    expect(wrapper.text()).not.toContain("可见方式");
-    expect(wrapper.text()).not.toContain("支付来源");
+    expect(wrapper.text()).toContain("支付宝 可见方式");
+    expect(wrapper.text()).toContain("支付来源");
+    expect(wrapper.text()).not.toContain("微信支付 可见方式");
   });
 
   it("shows valid passkey RP configuration and persists the sign-in toggle", async () => {
@@ -1058,7 +1060,7 @@ describe("admin SettingsView payment visible method controls", () => {
     }
   });
 
-  it("does not submit legacy visible payment method settings", async () => {
+  it("submits the normalized Alipay visible source", async () => {
     const wrapper = mountView();
 
     await flushPromises();
@@ -1068,9 +1070,11 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledTimes(1);
     const payload = updateSettings.mock.calls[0]?.[0];
-    expect(payload).not.toHaveProperty("payment_visible_method_alipay_source");
+    expect(payload).toMatchObject({
+      payment_visible_method_alipay_source: "official_alipay",
+      payment_visible_method_alipay_enabled: true,
+    });
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_source");
-    expect(payload).not.toHaveProperty("payment_visible_method_alipay_enabled");
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_enabled");
   });
 

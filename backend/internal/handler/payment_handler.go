@@ -399,6 +399,50 @@ func (h *PaymentHandler) CancelOrder(c *gin.Context) {
 	response.Success(c, gin.H{"message": msg})
 }
 
+type ResumePaymentOrderResult struct {
+	OrderID     int64     `json:"order_id"`
+	OutTradeNo  string    `json:"out_trade_no"`
+	Status      string    `json:"status"`
+	PayURL      string    `json:"pay_url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	PaymentType string    `json:"payment_type"`
+	OrderType   string    `json:"order_type"`
+	Amount      float64   `json:"amount"`
+	PayAmount   float64   `json:"pay_amount"`
+	Resumable   bool      `json:"resumable"`
+}
+
+// ResumeOrder reopens the original hosted checkout for a pending Cloudcat order.
+// POST /api/v1/payment/orders/:id/resume
+func (h *PaymentHandler) ResumeOrder(c *gin.Context) {
+	subject, ok := requireAuth(c)
+	if !ok {
+		return
+	}
+	orderID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid order ID")
+		return
+	}
+	order, err := h.paymentService.ResumeCloudcatOrder(c.Request.Context(), orderID, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, ResumePaymentOrderResult{
+		OrderID:     order.ID,
+		OutTradeNo:  order.OutTradeNo,
+		Status:      order.Status,
+		PayURL:      strings.TrimSpace(*order.PayURL),
+		ExpiresAt:   order.ExpiresAt,
+		PaymentType: order.PaymentType,
+		OrderType:   order.OrderType,
+		Amount:      order.Amount,
+		PayAmount:   order.PayAmount,
+		Resumable:   true,
+	})
+}
+
 // RefundRequestBody is the request body for requesting a refund.
 type RefundRequestBody struct {
 	Reason string `json:"reason"`
@@ -641,6 +685,7 @@ type PaymentOrderResult struct {
 	RefundRequestReason *string    `json:"refund_request_reason,omitempty"`
 	PlanID              *int64     `json:"plan_id,omitempty"`
 	ProviderInstanceID  *string    `json:"provider_instance_id,omitempty"`
+	Resumable           bool       `json:"resumable"`
 }
 
 func sanitizePaymentOrdersForResponse(orders []*dbent.PaymentOrder) []PaymentOrderResult {
@@ -679,7 +724,18 @@ func sanitizePaymentOrderForResponse(order *dbent.PaymentOrder) *PaymentOrderRes
 		RefundRequestReason: order.RefundRequestReason,
 		PlanID:              order.PlanID,
 		ProviderInstanceID:  order.ProviderInstanceID,
+		Resumable:           isPaymentOrderResumable(order),
 	}
+}
+
+func isPaymentOrderResumable(order *dbent.PaymentOrder) bool {
+	return order != nil &&
+		order.ProviderKey != nil &&
+		strings.EqualFold(strings.TrimSpace(*order.ProviderKey), payment.TypeCloudcat) &&
+		order.Status == service.OrderStatusPending &&
+		order.ExpiresAt.After(time.Now()) &&
+		order.PayURL != nil &&
+		strings.TrimSpace(*order.PayURL) != ""
 }
 
 func isWeChatBrowser(c *gin.Context) bool {

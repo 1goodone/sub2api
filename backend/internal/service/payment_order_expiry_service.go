@@ -106,6 +106,15 @@ func (s *PaymentOrderExpiryService) runOnce() {
 		slog.Info("[PaymentOrderExpiry] reconciled paid wxpay orders", "count", recovered)
 	}
 
+	cloudcatCtx, cloudcatCancel := context.WithTimeout(context.Background(), expiryCheckTimeout)
+	cloudcatReconciled, err := s.paymentSvc.ReconcileCloudcatOrders(cloudcatCtx)
+	cloudcatCancel()
+	if err != nil {
+		slog.Warn("[PaymentOrderExpiry] failed to reconcile cloudcat orders", "error", err)
+	} else if cloudcatReconciled > 0 {
+		slog.Info("[PaymentOrderExpiry] reconciled cloudcat orders", "count", cloudcatReconciled)
+	}
+
 	expireCtx, cancel := context.WithTimeout(context.Background(), expiryCheckTimeout)
 	defer cancel()
 	expired, err := s.paymentSvc.ExpireTimedOutOrders(expireCtx)

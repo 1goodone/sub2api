@@ -18,7 +18,17 @@
       <OrderTable :orders="orders" :loading="loading">
         <template #actions="{ row }">
           <div class="flex items-center gap-2">
-            <button v-if="row.status === 'PENDING'" @click="handleCancel(row.id)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
+            <button
+              v-if="row.status === 'PENDING' && row.resumable"
+              data-test="resume-order"
+              :disabled="resumingOrderId === row.id"
+              class="inline-flex min-h-11 items-center gap-1 rounded-md px-3 py-2 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-300 dark:hover:bg-primary-900/20"
+              @click="handleResume(row)"
+            >
+              <Icon name="externalLink" size="sm" />
+              <span>{{ resumingOrderId === row.id ? t('common.processing') : t('payment.qr.continuePayment') }}</span>
+            </button>
+            <button v-if="row.status === 'PENDING' && !row.resumable" @click="handleCancel(row.id)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
               <Icon name="x" size="sm" />
               <span>{{ t('payment.orders.cancel') }}</span>
             </button>
@@ -87,6 +97,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import { getPaymentPopupFeatures, isolatePaymentPopup } from '@/components/payment/providerConfig'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -101,6 +112,7 @@ const appStore = useAppStore()
 
 const loading = ref(false)
 const actionLoading = ref(false)
+const resumingOrderId = ref<number | null>(null)
 const orders = ref<PaymentOrder[]>([])
 const refundEligibleProviders = ref<Set<string>>(new Set())
 const currentFilter = ref('')
@@ -138,6 +150,28 @@ function handlePageChange(page: number) { pagination.page = page; fetchOrders() 
 function handlePageSizeChange(size: number) { pagination.page_size = size; pagination.page = 1; fetchOrders() }
 
 function handleCancel(orderId: number) { cancelTargetId.value = orderId }
+
+async function handleResume(order: PaymentOrder) {
+  if (!order.resumable || order.status !== 'PENDING' || resumingOrderId.value) return
+  const popup = isolatePaymentPopup(window.open('', 'paymentPopup', getPaymentPopupFeatures()))
+  if (!popup || popup.closed) {
+    appStore.showError(t('payment.qr.popupBlocked'))
+    return
+  }
+
+  resumingOrderId.value = order.id
+  try {
+    const response = await paymentAPI.resumeOrder(order.id)
+    const payURL = String(response.data.pay_url || '').trim()
+    if (!payURL) throw new Error(t('payment.qr.resumeFailed'))
+    popup.location.href = payURL
+  } catch (err: unknown) {
+    if (!popup.closed) popup.close()
+    appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('payment.qr.resumeFailed')))
+  } finally {
+    resumingOrderId.value = null
+  }
+}
 
 async function confirmCancel() {
   if (!cancelTargetId.value) return

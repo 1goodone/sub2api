@@ -11,7 +11,8 @@ import type {
   CheckoutInfoResponse,
   CreateOrderRequest,
   CreateOrderResult,
-  PaymentOrder
+  PaymentOrder,
+  ResumeOrderResult,
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
@@ -47,6 +48,11 @@ export const paymentAPI = {
   /** Create a new payment order */
   createOrder(data: CreateOrderRequest) {
     return apiClient.post<CreateOrderResult>('/payment/orders', data)
+  },
+
+  /** Reopen the hosted checkout for a resumable pending order */
+  resumeOrder(id: number) {
+    return apiClient.post<ResumeOrderResult>(`/payment/orders/${id}/resume`)
   },
 
   /** Get current user's orders */

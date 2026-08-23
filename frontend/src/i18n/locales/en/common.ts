@@ -158,6 +158,9 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
+      computeCottage: 'Compute Cottage',
+      rewardDraw: 'Meemie Draw',
+    computeCottageConfig: 'Cottage Config',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
@@ -179,7 +182,9 @@ export default {
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
+    accountHealthMap: 'Account Activity Map',
     promoCodes: 'Promo Codes',
+    backup: 'Database Backup',
     settings: 'Settings',
     myAccount: 'My Account',
     lightMode: 'Light Mode',
@@ -230,6 +235,8 @@ export default {
     emailPlaceholder: 'Enter your email',
     passwordLabel: 'Password',
     passwordPlaceholder: 'Enter your password',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
     createPasswordPlaceholder: 'Create a strong password',
     passwordHint: 'At least 6 characters',
     emailRequired: 'Email is required',

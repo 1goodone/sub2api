@@ -72,6 +72,7 @@ func generateRandomString(n int) string {
 
 type CreateOrderRequest struct {
 	UserID          int64
+	PayerEmail      string
 	Amount          float64
 	PaymentType     string
 	OpenID          string
@@ -109,6 +110,7 @@ type CreateOrderResponse struct {
 	ExpiresAt                     time.Time                       `json:"expires_at"`
 	PaymentMode                   string                          `json:"payment_mode,omitempty"`
 	ResumeToken                   string                          `json:"resume_token,omitempty"`
+	Resumable                     bool                            `json:"resumable,omitempty"`
 	AlipayMobilePrecreateDeepLink bool                            `json:"alipay_mobile_precreate_deep_link,omitempty"`
 }
 

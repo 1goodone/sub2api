@@ -25,6 +25,8 @@
             :order-type="paymentState.orderType"
             :currency="paymentState.currency || selectedCurrency"
             :out-trade-no="paymentState.outTradeNo"
+            :resumable="paymentState.resumable"
+            :payment-window="paymentWindow"
             :mobile-alipay-deep-link="paymentState.alipayMobilePrecreateDeepLink"
             @done="onPaymentDone"
             @success="onPaymentSuccess"
@@ -48,9 +50,10 @@
             <div class="card p-6">
               <AmountInput
                 v-model="amount"
-                :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
+                :amounts="quickAmounts"
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
+                :selection-only="amountSelectionOnly"
               />
               <p v-if="amountError" class="mt-2 text-xs text-amber-600 dark:text-amber-300">{{ amountError }}</p>
             </div>
@@ -256,7 +259,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, shallowRef, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -271,7 +274,7 @@ import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderTy
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
-import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { METHOD_ORDER, getPaymentPopupFeatures, isolatePaymentPopup, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   buildCreateOrderPayload,
@@ -364,6 +367,7 @@ function emptyPaymentState(): PaymentRecoverySnapshot {
     orderType: '',
     paymentMode: '',
     resumeToken: '',
+    resumable: false,
     alipayMobilePrecreateDeepLink: false,
     createdAt: 0,
   }
@@ -405,6 +409,26 @@ async function invokeWechatJsapiPayment(payload: Record<string, unknown>): Promi
 }
 
 const paymentState = ref<PaymentRecoverySnapshot>(emptyPaymentState())
+const paymentWindow = shallowRef<Window | null>(null)
+
+function closePaymentWindow(target: Window | null) {
+  if (target && !target.closed) target.close()
+  if (paymentWindow.value === target) paymentWindow.value = null
+}
+
+function navigatePaymentWindow(url: string, target: Window | null = paymentWindow.value, fallbackToCurrent = true): boolean {
+  const popup = isolatePaymentPopup(target && !target.closed
+    ? target
+    : window.open(url, 'paymentPopup', getPaymentPopupFeatures()))
+  if (!popup || popup.closed) {
+    paymentWindow.value = null
+    if (fallbackToCurrent) window.location.href = url
+    return false
+  }
+  if (popup === target) popup.location.href = url
+  paymentWindow.value = popup
+  return true
+}
 
 function persistRecoverySnapshot(snapshot: PaymentRecoverySnapshot) {
   if (typeof window === 'undefined' || !snapshot.orderId) return
@@ -419,6 +443,7 @@ function removeRecoverySnapshot() {
 function resetPayment() {
   paymentPhase.value = 'select'
   paymentState.value = emptyPaymentState()
+  paymentWindow.value = null
   removeRecoverySnapshot()
 }
 
@@ -538,6 +563,7 @@ function amountFitsMethod(amt: number, methodType: string): boolean {
   if (amt <= 0) return true
   const ml = visibleMethods.value[methodType]
   if (!ml) return false
+  if (ml.amount_selection_only && !(ml.amount_options || []).some(option => Math.abs(option - amt) < 0.000001)) return false
   if (ml.single_min > 0 && amt < ml.single_min) return false
   if (ml.single_max > 0 && amt > ml.single_max) return false
   return true
@@ -556,9 +582,15 @@ const globalMaxAmount = computed(() => {
   if (limits.some(limit => limit.single_max <= 0)) return 0
   return Math.max(...limits.map(limit => limit.single_max))
 })
-
 // Selected method's limits (for validation and error messages)
 const selectedLimit = computed(() => visibleMethods.value[selectedMethod.value])
+const amountSelectionOnly = computed(() => selectedLimit.value?.amount_selection_only === true)
+const quickAmounts = computed(() => {
+  if (amountSelectionOnly.value) return selectedLimit.value?.amount_options || []
+  return globalMinAmount.value > 0 && globalMinAmount.value === globalMaxAmount.value
+    ? [globalMinAmount.value]
+    : [10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+})
 const selectedCurrency = computed(() => normalizePaymentCurrency(selectedLimit.value?.currency))
 const localeCode = computed(() => {
   const raw = i18n.locale as unknown
@@ -695,6 +727,13 @@ const canSubmitSubscription = computed(() =>
 )
 
 // Auto-switch to first available method when current selection can't handle the amount
+watch(selectedMethod, (method, previousMethod) => {
+  if (!previousMethod || validAmount.value <= 0) return
+  if (visibleMethods.value[method]?.amount_selection_only && !amountFitsMethod(validAmount.value, method)) {
+    amount.value = null
+  }
+})
+
 watch(() => [validAmount.value, selectedMethod.value] as const, ([amt, method]) => {
   if (amt <= 0 || amountFitsMethod(amt, method)) return
   const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
@@ -769,6 +808,12 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
   errorMessage.value = ''
   errorHintMessage.value = ''
   const requestType = normalizeVisibleMethod(options.paymentType || selectedMethod.value) || options.paymentType || selectedMethod.value
+  const preopenedWindow = typeof window !== 'undefined'
+    && !isMobileDevice()
+    && normalizeVisibleMethod(requestType) === 'alipay'
+    ? isolatePaymentPopup(window.open('', 'paymentPopup', getPaymentPopupFeatures()))
+    : null
+  if (preopenedWindow && !preopenedWindow.closed) paymentWindow.value = preopenedWindow
   try {
     const payload = buildCreateOrderPayload({
       amount: orderAmount,
@@ -789,12 +834,6 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
 
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
-    const openWindow = (url: string) => {
-      const win = window.open(url, 'paymentPopup', getPaymentPopupFeatures())
-      if (!win || win.closed) {
-        window.location.href = url
-      }
-    }
     const visibleMethod = normalizeVisibleMethod(requestType) || requestType
     // When user clicks the dedicated Stripe button, leave method blank so the
     // landing page renders Stripe's full Payment Element (card/link/alipay/wxpay).
@@ -835,6 +874,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     })
 
     if (decision.kind === 'wechat_oauth' && decision.oauth?.authorize_url) {
+      closePaymentWindow(preopenedWindow)
       window.location.href = buildWechatOAuthAuthorizeUrl(decision.oauth.authorize_url, {
         paymentType: visibleMethod,
         orderType,
@@ -845,6 +885,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
 
     if (decision.kind === 'unhandled') {
+      closePaymentWindow(preopenedWindow)
       applyScenarioError({ reason: 'UNHANDLED_PAYMENT_SCENARIO' }, visibleMethod)
       return
     }
@@ -854,7 +895,14 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     persistRecoverySnapshot(decision.recovery)
 
     if (decision.kind === 'stripe_popup') {
-      openWindow(decision.paymentState.payUrl)
+      const opened = navigatePaymentWindow(
+        decision.paymentState.payUrl,
+        preopenedWindow,
+        !decision.paymentState.resumable,
+      )
+      if (!opened && decision.paymentState.resumable) {
+        appStore.showError(t('payment.qr.popupBlocked'))
+      }
       return
     }
     if (decision.kind === 'stripe_route') {
@@ -909,12 +957,23 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
     if (decision.kind === 'redirect_waiting' && decision.paymentState.payUrl) {
       if (isMobileDevice()) {
+        closePaymentWindow(preopenedWindow)
         window.location.href = decision.paymentState.payUrl
         return
       }
-      openWindow(decision.paymentState.payUrl)
+      const opened = navigatePaymentWindow(
+        decision.paymentState.payUrl,
+        preopenedWindow,
+        !decision.paymentState.resumable,
+      )
+      if (!opened && decision.paymentState.resumable) {
+        appStore.showError(t('payment.qr.popupBlocked'))
+      }
+      return
     }
+    closePaymentWindow(preopenedWindow)
   } catch (err: unknown) {
+    closePaymentWindow(preopenedWindow)
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined
