@@ -196,6 +196,7 @@ describe('PaymentStatusPanel', () => {
       props: {
         orderId: 42,
         qrCode: 'https://qr.alipay.com/cloudcat-initial',
+        payUrl: 'https://catfk.com/shopApi/Pay/payment?trade_no=CAT-1',
         expiresAt: '2099-01-01T12:30:00Z',
         paymentType: 'alipay',
         orderType: 'balance',
@@ -214,6 +215,7 @@ describe('PaymentStatusPanel', () => {
       expect.objectContaining({ width: 220 }),
     )
     expect(openSpy).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('payment.qr.openPayWindow')
     wrapper.unmount()
   })
 
@@ -239,7 +241,7 @@ describe('PaymentStatusPanel', () => {
     await wrapper.get('[data-test="close-order"]').trigger('click')
     await flushPromises()
 
-    expect(confirmSpy).toHaveBeenCalledWith('payment.confirmCloudcatClose')
+    expect(confirmSpy).toHaveBeenCalledWith('payment.confirmCancel')
     expect(cancelOrder).toHaveBeenCalledWith(42)
     expect(wrapper.emitted('settled')).toEqual([['cancelled']])
     expect(wrapper.text()).toContain('payment.qr.cancelled')
@@ -295,7 +297,7 @@ describe('PaymentStatusPanel', () => {
     expect(wrapper.text()).not.toContain('payment.qr.expiredDesc')
   })
 
-  it('shows reopen button in QR mode when payUrl is also available', async () => {
+  it('does not show a reopen button in QR mode when payUrl is also available', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({ closed: false } as Window)
 
     const wrapper = mount(PaymentStatusPanel, {
@@ -315,15 +317,10 @@ describe('PaymentStatusPanel', () => {
     })
 
     await flushPromises()
-    expect(wrapper.text()).toContain('payment.qr.openPayWindow')
+    expect(wrapper.text()).not.toContain('payment.qr.openPayWindow')
+    expect(openSpy).not.toHaveBeenCalled()
 
-    await wrapper.get('button.btn.btn-secondary.text-sm').trigger('click')
-    expect(openSpy).toHaveBeenCalledWith(
-      'https://pay.example.com/session/42',
-      'paymentPopup',
-      expect.any(String),
-    )
-
+    wrapper.unmount()
     openSpy.mockRestore()
   })
 

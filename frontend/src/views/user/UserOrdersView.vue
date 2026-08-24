@@ -54,7 +54,7 @@
     <!-- Cancel Confirm Dialog -->
     <BaseDialog :show="!!cancelTarget" :title="t('payment.orders.cancel')" width="narrow" @close="cancelTarget = null">
       <p class="text-sm text-gray-600 dark:text-gray-300">
-        {{ cancelTarget?.resumable ? t('payment.confirmCloudcatClose') : t('payment.confirmCancel') }}
+        {{ t('payment.confirmCancel') }}
       </p>
       <template #footer>
         <div class="flex justify-end gap-3">

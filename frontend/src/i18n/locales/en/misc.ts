@@ -393,7 +393,6 @@ export default {
     notAvailable: 'Top-up is currently unavailable',
     confirmSubscription: 'Confirm Subscription',
     confirmCancel: 'Are you sure you want to close this order?',
-    confirmCloudcatClose: 'Closing this order only closes it on this site. The Cloudcat payment order will remain open, and payments made there will not be refunded automatically. Continue?',
     amountTooLow: 'Minimum amount is {min}',
     amountTooHigh: 'Maximum amount is {max}',
     amountNoMethod: 'No payment method available for this amount',

@@ -476,6 +476,64 @@ describe('PaymentView payment recovery', () => {
     expect(submit?.attributes('disabled')).toBeDefined()
   })
 
+  it('does not open a payment window when desktop Cloudcat renders a local QR code', async () => {
+    isMobileDevice.mockReturnValue(false)
+    const cloudcatMethod: MethodLimit = {
+      daily_limit: 0,
+      daily_used: 0,
+      daily_remaining: 0,
+      single_min: 5,
+      single_max: 5,
+      amount_options: [5],
+      amount_selection_only: true,
+      fee_rate: 0,
+      available: true,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: { alipay: cloudcatMethod },
+      global_min: 5,
+      global_max: 5,
+    }))
+    createOrder.mockResolvedValue({
+      order_id: 900,
+      amount: 5,
+      pay_amount: 5,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'alipay',
+      out_trade_no: 'sub2_cloudcat_900',
+      qr_code: 'https://qr.alipay.com/cloudcat-900',
+      pay_url: 'https://catfk.com/shopApi/Pay/payment?trade_no=CAT-900',
+      payment_mode: 'popup',
+      resumable: true,
+    })
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'AmountInput' }).vm.$emit('update:modelValue', 5)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(submit).toBeDefined()
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(createOrder).toHaveBeenCalledOnce()
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toContain('https://qr.alipay.com/cloudcat-900')
+    wrapper.unmount()
+  })
+
   it('restores a custom EasyPay method as the selected payment method', async () => {
     getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
       methods: {

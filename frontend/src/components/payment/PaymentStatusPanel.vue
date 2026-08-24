@@ -211,9 +211,6 @@
             </div>
           </div>
           <p v-if="scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">{{ scanHint }}</p>
-          <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
-            {{ t('payment.qr.openPayWindow') }}
-          </button>
         </div>
       </div>
       <div class="card p-4 text-center">
@@ -587,7 +584,7 @@ function startCountdown(seconds: number) {
 
 async function handleCancel() {
   if (!props.orderId || cancelling.value) return
-  if (props.resumable && !window.confirm(t('payment.confirmCloudcatClose'))) return
+  if (props.resumable && !window.confirm(t('payment.confirmCancel'))) return
   cancelling.value = true
   try {
     const result = await paymentAPI.cancelOrder(props.orderId)

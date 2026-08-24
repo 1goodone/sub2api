@@ -814,9 +814,12 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
   errorMessage.value = ''
   errorHintMessage.value = ''
   const requestType = normalizeVisibleMethod(options.paymentType || selectedMethod.value) || options.paymentType || selectedMethod.value
+  // Fixed product amounts identify Cloudcat, whose QR code is rendered on this page.
+  const usesLocalQRCode = visibleMethods.value[requestType]?.amount_selection_only === true
   const preopenedWindow = typeof window !== 'undefined'
     && !isMobileDevice()
     && normalizeVisibleMethod(requestType) === 'alipay'
+    && !usesLocalQRCode
     ? isolatePaymentPopup(window.open('', 'paymentPopup', getPaymentPopupFeatures()))
     : null
   if (preopenedWindow && !preopenedWindow.closed) paymentWindow.value = preopenedWindow
