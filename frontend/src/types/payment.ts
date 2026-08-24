@@ -271,3 +271,21 @@ export interface DashboardStats {
   payment_methods: PaymentMethodStats[]
   top_users: Record<string, TopUserPaymentStats[]>
 }
+
+export interface CloudcatMerchantOverview {
+  connected: boolean
+  needs_login: boolean
+  today_order_count: number
+  today_order_amount: number
+  withdrawable_amount: number
+  frozen_amount: number
+  currency: string
+  last_synced_at?: string
+}
+
+export interface CloudcatMerchantLoginRequest {
+  username: string
+  password: string
+  safecode?: string
+  email_code?: string
+}

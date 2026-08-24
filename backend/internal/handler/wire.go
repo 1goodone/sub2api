@@ -9,6 +9,18 @@ import (
 	"github.com/google/wire"
 )
 
+// ProvideAdminPaymentHandler attaches the server-side cloudcat merchant service
+// without changing the constructor used by existing handler tests.
+func ProvideAdminPaymentHandler(
+	paymentService *service.PaymentService,
+	configService *service.PaymentConfigService,
+	cloudcatMerchantService *service.CloudcatMerchantService,
+) *admin.PaymentHandler {
+	h := admin.NewPaymentHandler(paymentService, configService)
+	h.SetCloudcatMerchantService(cloudcatMerchantService)
+	return h
+}
+
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
 	dashboardHandler *admin.DashboardHandler,
@@ -273,7 +285,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,
 	admin.NewContentModerationHandler,
-	admin.NewPaymentHandler,
+	ProvideAdminPaymentHandler,
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,

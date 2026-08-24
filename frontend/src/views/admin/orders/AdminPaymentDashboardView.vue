@@ -24,6 +24,8 @@
         </div>
       </div>
 
+      <CloudcatMerchantCard />
+
       <!-- Dashboard Content -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -82,6 +84,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OrderStatsCards from '@/components/admin/payment/OrderStatsCards.vue'
 import DailyRevenueChart from '@/components/admin/payment/DailyRevenueChart.vue'
+import CloudcatMerchantCard from '@/components/admin/payment/CloudcatMerchantCard.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()

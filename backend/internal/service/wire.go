@@ -905,6 +905,7 @@ var ProviderSet = wire.NewSet(
 	NewAffiliateService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
+	ProvideCloudcatMerchantService,
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
@@ -941,6 +942,10 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 	svc := NewPaymentService(entClient, registry, loadBalancer, redeemService, subscriptionSvc, configService, userRepo, groupRepo, affiliateService)
 	svc.SetNotificationEmailService(notificationEmailService)
 	return svc
+}
+
+func ProvideCloudcatMerchantService(redisClient *redis.Client, encryptor SecretEncryptor) *CloudcatMerchantService {
+	return NewCloudcatMerchantService(redisClient, encryptor)
 }
 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.

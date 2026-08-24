@@ -9,7 +9,9 @@ import type {
   PaymentOrder,
   PaymentChannel,
   SubscriptionPlan,
-  ProviderInstance
+  ProviderInstance,
+  CloudcatMerchantOverview,
+  CloudcatMerchantLoginRequest
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
@@ -81,6 +83,24 @@ export const adminPaymentAPI = {
     return apiClient.get<DashboardStats>('/admin/payment/dashboard', {
       params: days ? { days } : undefined
     })
+  },
+
+  // ==================== Cloudcat Merchant ====================
+
+  getCloudcatOverview() {
+    return apiClient.get<CloudcatMerchantOverview>('/admin/payment/cloudcat/overview')
+  },
+
+  loginCloudcat(data: CloudcatMerchantLoginRequest) {
+    return apiClient.post<CloudcatMerchantOverview>('/admin/payment/cloudcat/login', data)
+  },
+
+  refreshCloudcat() {
+    return apiClient.post<CloudcatMerchantOverview>('/admin/payment/cloudcat/refresh')
+  },
+
+  logoutCloudcat() {
+    return apiClient.post('/admin/payment/cloudcat/logout')
   },
 
   // ==================== Orders ====================

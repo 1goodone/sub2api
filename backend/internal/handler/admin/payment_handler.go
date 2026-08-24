@@ -6,6 +6,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -13,8 +14,9 @@ import (
 
 // PaymentHandler handles admin payment management.
 type PaymentHandler struct {
-	paymentService *service.PaymentService
-	configService  *service.PaymentConfigService
+	paymentService          *service.PaymentService
+	configService           *service.PaymentConfigService
+	cloudcatMerchantService *service.CloudcatMerchantService
 }
 
 // NewPaymentHandler creates a new admin PaymentHandler.
@@ -22,6 +24,14 @@ func NewPaymentHandler(paymentService *service.PaymentService, configService *se
 	return &PaymentHandler{
 		paymentService: paymentService,
 		configService:  configService,
+	}
+}
+
+// SetCloudcatMerchantService attaches the server-side cloudcat merchant session service.
+// Keeping this as a setter preserves the existing constructor used by focused handler tests.
+func (h *PaymentHandler) SetCloudcatMerchantService(svc *service.CloudcatMerchantService) {
+	if h != nil {
+		h.cloudcatMerchantService = svc
 	}
 }
 
@@ -42,6 +52,90 @@ func (h *PaymentHandler) GetDashboard(c *gin.Context) {
 		return
 	}
 	response.Success(c, stats)
+}
+
+// GetCloudcatOverview returns the current server-side cloudcat merchant snapshot.
+// GET /api/v1/admin/payment/cloudcat/overview
+func (h *PaymentHandler) GetCloudcatOverview(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "管理员未认证")
+		return
+	}
+	if h.cloudcatMerchantService == nil {
+		response.ErrorFrom(c, service.ErrCloudcatMerchantUnavailable)
+		return
+	}
+	overview, err := h.cloudcatMerchantService.GetOverview(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
+// LoginCloudcat authenticates with CatFK from the server and stores only an encrypted session.
+// POST /api/v1/admin/payment/cloudcat/login
+func (h *PaymentHandler) LoginCloudcat(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "管理员未认证")
+		return
+	}
+	if h.cloudcatMerchantService == nil {
+		response.ErrorFrom(c, service.ErrCloudcatMerchantUnavailable)
+		return
+	}
+	var req service.CloudcatMerchantLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求参数无效")
+		return
+	}
+	overview, err := h.cloudcatMerchantService.Login(c.Request.Context(), subject.UserID, req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
+// RefreshCloudcat refreshes the merchant dashboard through the server-side session.
+// POST /api/v1/admin/payment/cloudcat/refresh
+func (h *PaymentHandler) RefreshCloudcat(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "管理员未认证")
+		return
+	}
+	if h.cloudcatMerchantService == nil {
+		response.ErrorFrom(c, service.ErrCloudcatMerchantUnavailable)
+		return
+	}
+	overview, err := h.cloudcatMerchantService.Refresh(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
+// LogoutCloudcat removes the current administrator's cloudcat session.
+// POST /api/v1/admin/payment/cloudcat/logout
+func (h *PaymentHandler) LogoutCloudcat(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "管理员未认证")
+		return
+	}
+	if h.cloudcatMerchantService == nil {
+		response.ErrorFrom(c, service.ErrCloudcatMerchantUnavailable)
+		return
+	}
+	if err := h.cloudcatMerchantService.Logout(c.Request.Context(), subject.UserID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "已退出云猫商户中心"})
 }
 
 // --- Orders ---

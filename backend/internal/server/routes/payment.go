@@ -78,6 +78,15 @@ func RegisterPaymentRoutes(
 		// Dashboard
 		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)
 
+		// Cloudcat merchant dashboard (server-side session)
+		cloudcat := adminGroup.Group("/cloudcat")
+		{
+			cloudcat.GET("/overview", adminPaymentHandler.GetCloudcatOverview)
+			cloudcat.POST("/login", adminPaymentHandler.LoginCloudcat)
+			cloudcat.POST("/refresh", adminPaymentHandler.RefreshCloudcat)
+			cloudcat.POST("/logout", adminPaymentHandler.LogoutCloudcat)
+		}
+
 		// Config
 		adminGroup.GET("/config", adminPaymentHandler.GetConfig)
 		adminGroup.PUT("/config", adminPaymentHandler.UpdateConfig)
