@@ -85,14 +85,18 @@ func (s *OpenAIGatewayService) processCodexQuotaOverdraftUsageSnapshot(
 		defer cancel()
 		if s.codexQuotaOverdraft == nil || !inspectOverdraft {
 			if persistSnapshot {
-				_ = s.accountRepo.UpdateExtra(updateCtx, accountID, updates)
+				if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
+					notifyOpenAIAutoReset(accountID)
+				}
 			}
 			return
 		}
 		account, err := s.accountRepo.GetByID(updateCtx, accountID)
 		if err != nil || account == nil {
 			if persistSnapshot {
-				_ = s.accountRepo.UpdateExtra(updateCtx, accountID, updates)
+				if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
+					notifyOpenAIAutoReset(accountID)
+				}
 			}
 			return
 		}
@@ -105,6 +109,7 @@ func (s *OpenAIGatewayService) processCodexQuotaOverdraftUsageSnapshot(
 			if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err != nil {
 				return
 			}
+			notifyOpenAIAutoReset(accountID)
 		}
 		if !CodexQuotaOverdraftEnabledForAccount(account) {
 			return
