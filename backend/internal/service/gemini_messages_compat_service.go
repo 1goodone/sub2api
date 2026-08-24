@@ -51,10 +51,15 @@ type GeminiMessagesCompatService struct {
 	schedulerSnapshot         *SchedulerSnapshotService
 	tokenProvider             *GeminiTokenProvider
 	rateLimitService          *RateLimitService
+	billingCacheService       *BillingCacheService
 	httpUpstream              HTTPUpstream
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+}
+
+func (s *GeminiMessagesCompatService) SetBillingCacheService(billing *BillingCacheService) {
+	s.billingCacheService = billing
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -485,6 +490,32 @@ func (s *GeminiMessagesCompatService) validateUpstreamBaseURL(raw string) (strin
 
 // HasAntigravityAccounts 检查是否有可用的 antigravity 账户
 func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context, groupID *int64) (bool, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			found, err := s.HasAntigravityAccounts(candidateCtx, &candidateID)
+			if err != nil {
+				return false, err
+			}
+			if found {
+				if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+					lastErr = err
+					if shouldTryNextMixedGroupAfterBillingError(err) {
+						continue
+					}
+					return false, err
+				}
+				state.ApplyGroup(candidateID)
+				return true, nil
+			}
+		}
+		if lastErr != nil {
+			return false, lastErr
+		}
+		return false, nil
+	}
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformAntigravity, false)
 	if err != nil {
 		return false, err
@@ -501,12 +532,41 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 // 3) OAuth accounts explicitly marked as ai_studio
 // 4) Any remaining Gemini accounts (fallback)
 func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			account, err := s.SelectAccountForAIStudioEndpoints(candidateCtx, &candidateID)
+			if err != nil {
+				lastErr = err
+				if shouldTryNextMixedGroupAfterSelectionError(err) {
+					continue
+				}
+				return nil, err
+			}
+			if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+				lastErr = err
+				if shouldTryNextMixedGroupAfterBillingError(err) {
+					continue
+				}
+				return nil, err
+			}
+			state.ApplyGroup(candidateID)
+			return account, nil
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, ErrNoAvailableAccounts
+	}
+
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 	if len(accounts) == 0 {
-		return nil, errors.New("no available Gemini accounts")
+		return nil, fmt.Errorf("%w: no available Gemini accounts", ErrNoAvailableAccounts)
 	}
 
 	rank := func(a *Account) int {
@@ -575,7 +635,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 	}
 
 	if selected == nil {
-		return nil, errors.New("no available Gemini accounts")
+		return nil, fmt.Errorf("%w: no available Gemini accounts", ErrNoAvailableAccounts)
 	}
 	return s.hydrateSelectedAccount(ctx, selected)
 }

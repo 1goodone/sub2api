@@ -4,16 +4,19 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version     int                      `json:"version"`
-	APIKeyID    int64                    `json:"api_key_id"`
-	UserID      int64                    `json:"user_id"`
-	GroupID     *int64                   `json:"group_id,omitempty"`
-	Name        string                   `json:"name"`
-	Status      string                   `json:"status"`
-	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist []string                 `json:"ip_blacklist,omitempty"`
-	User        APIKeyAuthUserSnapshot   `json:"user"`
-	Group       *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	Version       int                       `json:"version"`
+	APIKeyID      int64                     `json:"api_key_id"`
+	UserID        int64                     `json:"user_id"`
+	GroupID       *int64                    `json:"group_id,omitempty"`
+	MixedMode     bool                      `json:"mixed_mode_enabled"`
+	MixedGroupIDs []int64                   `json:"mixed_group_ids,omitempty"`
+	Name          string                    `json:"name"`
+	Status        string                    `json:"status"`
+	IPWhitelist   []string                  `json:"ip_whitelist,omitempty"`
+	IPBlacklist   []string                  `json:"ip_blacklist,omitempty"`
+	User          APIKeyAuthUserSnapshot    `json:"user"`
+	Group         *APIKeyAuthGroupSnapshot  `json:"group,omitempty"`
+	MixedGroups   []APIKeyAuthGroupSnapshot `json:"mixed_groups,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)
@@ -73,6 +76,8 @@ type APIKeyAuthGroupSnapshot struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k,omitempty"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k,omitempty"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k,omitempty"`
+	BatchImageDiscountMultiplier    float64                       `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        float64                       `json:"batch_image_hold_multiplier"`
 	VideoRateIndependent            bool                          `json:"video_rate_independent"`
 	VideoRateMultiplier             float64                       `json:"video_rate_multiplier"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p,omitempty"`

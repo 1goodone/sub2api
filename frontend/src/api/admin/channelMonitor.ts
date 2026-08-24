@@ -73,6 +73,7 @@ export interface ChannelMonitor {
   primary_model: string
   extra_models: string[]
   group_name: string
+  group_id: number | null
   enabled: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
@@ -141,6 +142,8 @@ export interface CreateParams {
   primary_model: string
   extra_models?: string[]
   group_name?: string
+  /** Optional V1 health signal target. Must use the same platform as provider. */
+  group_id?: number | null
   enabled?: boolean
   interval_seconds: number
   jitter_seconds?: number
@@ -163,6 +166,8 @@ export interface CheckResult {
   ping_latency_ms: number | null
   message: string
   checked_at: string
+  status_code?: number | null
+  failure_kind?: string
   /** 配额模式（quota / quota_probe 主模型行）附带的配额快照 */
   quota?: MonitorQuotaSnapshot | null
 }
@@ -179,6 +184,8 @@ export interface HistoryItem {
   ping_latency_ms: number | null
   message: string
   checked_at: string
+  status_code?: number | null
+  failure_kind?: string
   /** 配额快照（配额模式行；探活行为空） */
   quota?: MonitorQuotaSnapshot | null
 }

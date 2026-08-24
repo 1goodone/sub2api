@@ -99,6 +99,26 @@ func (_c *APIKeyCreate) SetNillableGroupID(v *int64) *APIKeyCreate {
 	return _c
 }
 
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (_c *APIKeyCreate) SetMixedModeEnabled(v bool) *APIKeyCreate {
+	_c.mutation.SetMixedModeEnabled(v)
+	return _c
+}
+
+// SetNillableMixedModeEnabled sets the "mixed_mode_enabled" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableMixedModeEnabled(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetMixedModeEnabled(*v)
+	}
+	return _c
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (_c *APIKeyCreate) SetMixedGroupIds(v []int64) *APIKeyCreate {
+	_c.mutation.SetMixedGroupIds(v)
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *APIKeyCreate) SetStatus(v string) *APIKeyCreate {
 	_c.mutation.SetStatus(v)
@@ -383,6 +403,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.MixedModeEnabled(); !ok {
+		v := apikey.DefaultMixedModeEnabled
+		_c.mutation.SetMixedModeEnabled(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -448,6 +472,9 @@ func (_c *APIKeyCreate) check() error {
 		if err := apikey.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.MixedModeEnabled(); !ok {
+		return &ValidationError{Name: "mixed_mode_enabled", err: errors.New(`ent: missing required field "APIKey.mixed_mode_enabled"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "APIKey.status"`)}
@@ -530,6 +557,14 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.MixedModeEnabled(); ok {
+		_spec.SetField(apikey.FieldMixedModeEnabled, field.TypeBool, value)
+		_node.MixedModeEnabled = value
+	}
+	if value, ok := _c.mutation.MixedGroupIds(); ok {
+		_spec.SetField(apikey.FieldMixedGroupIds, field.TypeJSON, value)
+		_node.MixedGroupIds = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -778,6 +813,36 @@ func (u *APIKeyUpsert) UpdateGroupID() *APIKeyUpsert {
 // ClearGroupID clears the value of the "group_id" field.
 func (u *APIKeyUpsert) ClearGroupID() *APIKeyUpsert {
 	u.SetNull(apikey.FieldGroupID)
+	return u
+}
+
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (u *APIKeyUpsert) SetMixedModeEnabled(v bool) *APIKeyUpsert {
+	u.Set(apikey.FieldMixedModeEnabled, v)
+	return u
+}
+
+// UpdateMixedModeEnabled sets the "mixed_mode_enabled" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateMixedModeEnabled() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldMixedModeEnabled)
+	return u
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (u *APIKeyUpsert) SetMixedGroupIds(v []int64) *APIKeyUpsert {
+	u.Set(apikey.FieldMixedGroupIds, v)
+	return u
+}
+
+// UpdateMixedGroupIds sets the "mixed_group_ids" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateMixedGroupIds() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldMixedGroupIds)
+	return u
+}
+
+// ClearMixedGroupIds clears the value of the "mixed_group_ids" field.
+func (u *APIKeyUpsert) ClearMixedGroupIds() *APIKeyUpsert {
+	u.SetNull(apikey.FieldMixedGroupIds)
 	return u
 }
 
@@ -1203,6 +1268,41 @@ func (u *APIKeyUpsertOne) UpdateGroupID() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearGroupID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (u *APIKeyUpsertOne) SetMixedModeEnabled(v bool) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMixedModeEnabled(v)
+	})
+}
+
+// UpdateMixedModeEnabled sets the "mixed_mode_enabled" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateMixedModeEnabled() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMixedModeEnabled()
+	})
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (u *APIKeyUpsertOne) SetMixedGroupIds(v []int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMixedGroupIds(v)
+	})
+}
+
+// UpdateMixedGroupIds sets the "mixed_group_ids" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateMixedGroupIds() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMixedGroupIds()
+	})
+}
+
+// ClearMixedGroupIds clears the value of the "mixed_group_ids" field.
+func (u *APIKeyUpsertOne) ClearMixedGroupIds() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearMixedGroupIds()
 	})
 }
 
@@ -1841,6 +1941,41 @@ func (u *APIKeyUpsertBulk) UpdateGroupID() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearGroupID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (u *APIKeyUpsertBulk) SetMixedModeEnabled(v bool) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMixedModeEnabled(v)
+	})
+}
+
+// UpdateMixedModeEnabled sets the "mixed_mode_enabled" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateMixedModeEnabled() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMixedModeEnabled()
+	})
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (u *APIKeyUpsertBulk) SetMixedGroupIds(v []int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMixedGroupIds(v)
+	})
+}
+
+// UpdateMixedGroupIds sets the "mixed_group_ids" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateMixedGroupIds() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMixedGroupIds()
+	})
+}
+
+// ClearMixedGroupIds clears the value of the "mixed_group_ids" field.
+func (u *APIKeyUpsertBulk) ClearMixedGroupIds() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearMixedGroupIds()
 	})
 }
 

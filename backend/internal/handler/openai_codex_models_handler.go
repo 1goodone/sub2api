@@ -45,7 +45,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	var lastUpstreamErr error
 	ifNoneMatch := c.GetHeader("If-None-Match")
 	upstreamIfNoneMatch := ifNoneMatch
-	filterDisabled := len(apiKey.Group.DisabledModels) > 0
+	filterDisabled := apiKey.MixedMode || len(apiKey.Group.DisabledModels) > 0
 	if filterDisabled {
 		upstreamIfNoneMatch = ""
 	}
@@ -63,6 +63,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
 			return
 		}
+		_, _ = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, nil)
 		// 让 ops 错误日志携带实际选中的上游账号，便于定位失效账号（#4544）。
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 

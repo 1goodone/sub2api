@@ -24,6 +24,11 @@ var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
 var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
 
+type monitorTransportError struct{ err error }
+
+func (e *monitorTransportError) Error() string { return e.err.Error() }
+func (e *monitorTransportError) Unwrap() error { return e.err }
+
 // newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
 func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
@@ -71,9 +76,18 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
+	if statusCode > 0 {
+		res.StatusCode = &statusCode
+	}
 
 	if err != nil {
 		res.Status = MonitorStatusError
+		var transportErr *monitorTransportError
+		if errors.As(err, &transportErr) {
+			res.FailureKind = "transport"
+		} else {
+			res.FailureKind = "config"
+		}
 		res.Message = truncateMessage(sanitizeErrorMessage(err.Error()))
 		return res
 	}
@@ -81,6 +95,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		// 错误路径：用 rawBody 而非 respText（gjson textPath 抽取在错误响应里通常为空，
 		// 会丢掉真正的上游错误信息，例如 `{"error":{"message":"No available accounts ..."}}`）。
 		res.Status = MonitorStatusError
+		res.FailureKind = monitorHTTPFailureKind(statusCode)
 		bodySnippet := truncateForErrorBody(rawBody)
 		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("upstream HTTP %d: %s", statusCode, bodySnippet)))
 		return res
@@ -92,6 +107,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	if mode == MonitorBodyOverrideModeReplace {
 		if strings.TrimSpace(respText) == "" {
 			res.Status = MonitorStatusFailed
+			res.FailureKind = "response_invalid"
 			res.Message = truncateMessage("replace-mode: upstream returned 2xx with empty text")
 			return res
 		}
@@ -100,11 +116,25 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	if !validateChallenge(respText, challenge.Expected) {
 		res.Status = MonitorStatusFailed
+		res.FailureKind = "response_invalid"
 		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("challenge mismatch (expected %s, got %q)", challenge.Expected, respText)))
 		return res
 	}
 
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
+}
+
+func monitorHTTPFailureKind(statusCode int) string {
+	switch {
+	case statusCode >= 500:
+		return "upstream_5xx"
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		return "auth"
+	case statusCode == http.StatusTooManyRequests:
+		return "rate_limit"
+	default:
+		return "upstream_4xx"
+	}
 }
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
@@ -540,13 +570,13 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("do request: %w", err)
+		return nil, 0, &monitorTransportError{err: fmt.Errorf("do request: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
+		return nil, resp.StatusCode, &monitorTransportError{err: fmt.Errorf("read body: %w", err)}
 	}
 	return respBody, resp.StatusCode, nil
 }

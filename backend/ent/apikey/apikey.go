@@ -29,6 +29,10 @@ const (
 	FieldName = "name"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
+	// FieldMixedModeEnabled holds the string denoting the mixed_mode_enabled field in the database.
+	FieldMixedModeEnabled = "mixed_mode_enabled"
+	// FieldMixedGroupIds holds the string denoting the mixed_group_ids field in the database.
+	FieldMixedGroupIds = "mixed_group_ids"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
@@ -102,6 +106,8 @@ var Columns = []string{
 	FieldKey,
 	FieldName,
 	FieldGroupID,
+	FieldMixedModeEnabled,
+	FieldMixedGroupIds,
 	FieldStatus,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
@@ -148,6 +154,8 @@ var (
 	KeyValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultMixedModeEnabled holds the default value on creation for the "mixed_mode_enabled" field.
+	DefaultMixedModeEnabled bool
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -211,6 +219,11 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupID orders the results by the group_id field.
 func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByMixedModeEnabled orders the results by the mixed_mode_enabled field.
+func ByMixedModeEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMixedModeEnabled, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

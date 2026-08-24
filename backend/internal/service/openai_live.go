@@ -176,6 +176,14 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		}
 
 		account := selection.Account
+		if selection.GroupID != nil {
+			groupID := *selection.GroupID
+			identity.GroupID = &groupID
+		}
+		if subscription := CurrentAPIKeyRoutingSubscription(ctx, nil); subscription != nil {
+			subscriptionID := subscription.ID
+			identity.SubscriptionID = &subscriptionID
+		}
 		leaseID := generateRequestID()
 		acquired, acquireErr := liveCache.AcquireLiveLease(
 			ctx,
@@ -476,10 +484,17 @@ func (s *OpenAIGatewayService) GetLiveCallForIdentity(
 	if err != nil {
 		return nil, err
 	}
+	groupAllowed := record.GroupID == liveGroupID(identity.GroupID)
+	for _, groupID := range identity.AllowedGroupIDs {
+		if record.GroupID == groupID {
+			groupAllowed = true
+			break
+		}
+	}
 	if record.CallID != callID ||
 		record.APIKeyID != identity.APIKeyID ||
 		record.UserID != identity.UserID ||
-		record.GroupID != liveGroupID(identity.GroupID) {
+		!groupAllowed {
 		return nil, ErrLiveIdentityMismatch
 	}
 	if record.Controller == LiveControllerClosed {

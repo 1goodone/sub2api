@@ -44,6 +44,12 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("group_id").
 			Optional().
 			Nillable(),
+		field.Bool("mixed_mode_enabled").
+			Default(false).
+			Comment("Whether this API key can route across multiple groups"),
+		field.JSON("mixed_group_ids", []int64{}).
+			Optional().
+			Comment("Candidate group IDs for automatic routing"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
@@ -138,6 +144,7 @@ func (APIKey) Indexes() []ent.Index {
 		// key 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("user_id"),
 		index.Fields("group_id"),
+		index.Fields("mixed_mode_enabled"),
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 		index.Fields("last_used_at"),

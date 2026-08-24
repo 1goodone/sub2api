@@ -56,6 +56,8 @@ type APIKey struct {
 	Key         string     `json:"key"`
 	Name        string     `json:"name"`
 	GroupID     *int64     `json:"group_id"`
+	MixedMode   bool       `json:"mixed_mode_enabled"`
+	MixedGroups []int64    `json:"mixed_group_ids"`
 	Status      string     `json:"status"`
 	IPWhitelist []string   `json:"ip_whitelist"`
 	IPBlacklist []string   `json:"ip_blacklist"`

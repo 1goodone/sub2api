@@ -162,6 +162,9 @@ var (
 	ErrChannelMonitorProviderIncompatible = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_PROVIDER_INCOMPATIBLE", "monitor provider must match the linked account platform",
 	)
+	ErrChannelMonitorGroupIncompatible = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_GROUP_INCOMPATIBLE", "monitor provider must match the linked routing group platform",
+	)
 	ErrChannelMonitorAccountNotSupportable = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_ACCOUNT_NOT_SUPPORTABLE", "linked account cannot serve as a quota data source (cn coding plan must be kimi/zhipu, cn payg must be kimi/deepseek, openai requires an oauth account, anthropic requires oauth or setup-token)",
 	)

@@ -103,6 +103,14 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
+	if !restrictMixedKeyRouting(c, apiKey, func(group *service.Group) bool {
+		return !group.ClaudeCodeOnly
+	}) {
+		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
+			"All configured groups are restricted to Claude Code clients (/v1/messages only)")
+		return
+	}
+
 	// Claude Code only restriction
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
 		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
@@ -136,7 +144,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// 2. Re-check billing
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.cc.billing_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -204,6 +212,15 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		account := selection.Account
+		_, subscription, channelMapping = refreshMixedKeyRouting(
+			c,
+			c.Request.Context(),
+			apiKey,
+			subscription,
+			h.gatewayService,
+			reqModel,
+			channelMapping,
+		)
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 4. Acquire account concurrency slot

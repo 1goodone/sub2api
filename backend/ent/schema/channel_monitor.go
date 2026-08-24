@@ -75,6 +75,10 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Optional().
 			Default("").
 			MaxLen(100),
+		field.Int64("group_id").
+			Optional().
+			Nillable().
+			Comment("Linked routing group; managed by SQL foreign key"),
 		field.Bool("enabled").
 			Default(true),
 		field.Int("interval_seconds").
@@ -131,6 +135,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("provider"),
 		index.Fields("provider", "api_mode"),
 		index.Fields("group_name"),
+		index.Fields("group_id"),
 		index.Fields("template_id"),
 		index.Fields("account_id"),
 	}

@@ -51,6 +51,22 @@
         </div>
       </div>
 
+      <div>
+        <label class="input-label">{{ t('admin.channelMonitor.form.routingGroup') }}</label>
+        <div data-testid="monitor-routing-group">
+          <Select
+            v-model="routingGroupSelectValue"
+            :options="routingGroupOptions"
+            :placeholder="t('admin.channelMonitor.form.routingGroupPlaceholder')"
+            :loading="routingGroupsLoading"
+            searchable
+          />
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.form.routingGroupHint') }}
+        </p>
+      </div>
+
       <!-- 配额模式数据源：关联账号（复用账号侧用量/余额服务） -->
       <div v-if="usesQuotaMode">
         <label class="input-label">
@@ -250,7 +266,7 @@ import type {
   UpdateParams,
 } from '@/api/admin/channelMonitor'
 import type { ChannelMonitorTemplate } from '@/api/admin/channelMonitorTemplate'
-import type { ApiKey } from '@/types'
+import type { AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select from '@/components/common/Select.vue'
@@ -320,6 +336,7 @@ interface MonitorForm {
   api_mode: APIMode
   check_mode: CheckMode
   account_id: number | null
+  group_id: number | null
   endpoint: string
   api_key: string
   primary_model: string
@@ -341,6 +358,7 @@ const form = reactive<MonitorForm>({
   api_mode: API_MODE_CHAT_COMPLETIONS,
   check_mode: CHECK_MODE_PROBE,
   account_id: null,
+  group_id: null,
   endpoint: '',
   api_key: '',
   primary_model: '',
@@ -358,6 +376,48 @@ const form = reactive<MonitorForm>({
 // quota / quota_probe 需要关联账号；probe / quota_probe 需要探活字段。
 const usesQuotaMode = computed(() => form.check_mode !== CHECK_MODE_PROBE)
 const usesProbePart = computed(() => form.check_mode !== CHECK_MODE_QUOTA)
+
+const routingGroups = ref<AdminGroup[]>([])
+const routingGroupsLoading = ref(false)
+let routingGroupsLoadSeq = 0
+
+const routingGroupOptions = computed(() => [
+  { value: '', label: t('admin.channelMonitor.form.routingGroupNone') },
+  ...routingGroups.value
+    .filter((group) => group.platform === form.provider)
+    .map((group) => ({
+      value: String(group.id),
+      label: group.status === 'active'
+        ? group.name
+        : `${group.name} (${t('common.inactive')})`,
+    })),
+])
+
+const routingGroupSelectValue = computed<string>({
+  get: () => (form.group_id == null ? '' : String(form.group_id)),
+  set: (raw) => {
+    const id = Number(raw)
+    form.group_id = raw === '' || !Number.isFinite(id) ? null : id
+  },
+})
+
+async function loadRoutingGroups() {
+  const seq = ++routingGroupsLoadSeq
+  routingGroupsLoading.value = true
+  try {
+    const groups = await adminAPI.groups.getAllIncludingInactive()
+    if (seq === routingGroupsLoadSeq) routingGroups.value = groups
+  } catch (err: unknown) {
+    if (seq === routingGroupsLoadSeq) routingGroups.value = []
+    console.warn('load routing groups failed', err)
+  } finally {
+    if (seq === routingGroupsLoadSeq) routingGroupsLoading.value = false
+  }
+}
+
+watch(() => props.show, (show) => {
+  if (show) void loadRoutingGroups()
+}, { immediate: true })
 
 // jitter 上限与后端校验一致：interval - jitter 不得低于最小检测间隔 15 秒。
 const maxJitterSeconds = computed<number>(() => Math.max(0, (form.interval_seconds || 0) - 15))
@@ -667,6 +727,7 @@ function selectProvider(provider: Provider) {
   const clearPrevDefaultEndpoint =
     !!PROVIDER_DEFAULT_ENDPOINTS[previousProvider] && form.endpoint === PROVIDER_DEFAULT_ENDPOINTS[previousProvider]
   form.provider = provider
+  form.group_id = null
   // 关联账号与平台绑定：切换 provider 时显式清空（这是唯一主动清空的入口）。
   form.account_id = null
   pinnedAccount.value = null
@@ -722,6 +783,7 @@ function resetForm() {
   form.api_mode = API_MODE_CHAT_COMPLETIONS
   form.check_mode = CHECK_MODE_PROBE
   form.account_id = null
+  form.group_id = null
   pinnedAccount.value = null
   accountHydrationFailed.value = false
   form.endpoint = ''
@@ -746,6 +808,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.api_mode = normalizeAPIMode(m.api_mode)
   form.check_mode = m.check_mode || CHECK_MODE_PROBE
   form.account_id = m.account_id ?? null
+  form.group_id = m.group_id ?? null
   form.endpoint = m.endpoint
   form.api_key = ''
   form.primary_model = m.primary_model
@@ -814,6 +877,7 @@ function buildPayload(): CreateParams {
     api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     check_mode: form.check_mode,
     account_id: usesQuotaMode.value ? form.account_id : null,
+    group_id: form.group_id,
     endpoint: usesProbePart.value ? form.endpoint.trim() : '',
     api_key: usesProbePart.value ? form.api_key.trim() : '',
     primary_model: usesProbePart.value ? form.primary_model.trim() : 'quota',
@@ -860,6 +924,7 @@ async function handleSubmit() {
       // account_id 同理：probe 模式不带账号，update 发 0 显式解绑存量关联
       // （后端 0=清空、null=不动）。仅 update——create 发 0 会落 &0 触发 FK 违约。
       if (!usesQuotaMode.value) req.account_id = 0
+      if (form.group_id == null) req.group_id = 0
       await adminAPI.channelMonitor.update(target.id, req)
       appStore.showSuccess(t('admin.channelMonitor.updateSuccess'))
     } else {

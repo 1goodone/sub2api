@@ -338,6 +338,16 @@ func TestGetLiveCallForIdentityRejectsMismatchedCaller(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, record.AccountID, loaded.AccountID)
+
+	otherGroupID := int64(55)
+	loaded, err = service.GetLiveCallForIdentity(context.Background(), record.CallID, LiveCallIdentity{
+		APIKeyID:        record.APIKeyID,
+		UserID:          record.UserID,
+		GroupID:         &otherGroupID,
+		AllowedGroupIDs: []int64{otherGroupID, groupID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, record.AccountID, loaded.AccountID)
 }
 
 func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {

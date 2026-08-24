@@ -84,6 +84,34 @@ func (_c *ChannelMonitorHistoryCreate) SetNillableMessage(v *string) *ChannelMon
 	return _c
 }
 
+// SetStatusCode sets the "status_code" field.
+func (_c *ChannelMonitorHistoryCreate) SetStatusCode(v int) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetStatusCode(v)
+	return _c
+}
+
+// SetNillableStatusCode sets the "status_code" field if the given value is not nil.
+func (_c *ChannelMonitorHistoryCreate) SetNillableStatusCode(v *int) *ChannelMonitorHistoryCreate {
+	if v != nil {
+		_c.SetStatusCode(*v)
+	}
+	return _c
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (_c *ChannelMonitorHistoryCreate) SetFailureKind(v string) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetFailureKind(v)
+	return _c
+}
+
+// SetNillableFailureKind sets the "failure_kind" field if the given value is not nil.
+func (_c *ChannelMonitorHistoryCreate) SetNillableFailureKind(v *string) *ChannelMonitorHistoryCreate {
+	if v != nil {
+		_c.SetFailureKind(*v)
+	}
+	return _c
+}
+
 // SetQuota sets the "quota" field.
 func (_c *ChannelMonitorHistoryCreate) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryCreate {
 	_c.mutation.SetQuota(v)
@@ -148,6 +176,10 @@ func (_c *ChannelMonitorHistoryCreate) defaults() {
 		v := channelmonitorhistory.DefaultMessage
 		_c.mutation.SetMessage(v)
 	}
+	if _, ok := _c.mutation.FailureKind(); !ok {
+		v := channelmonitorhistory.DefaultFailureKind
+		_c.mutation.SetFailureKind(v)
+	}
 	if _, ok := _c.mutation.CheckedAt(); !ok {
 		v := channelmonitorhistory.DefaultCheckedAt()
 		_c.mutation.SetCheckedAt(v)
@@ -178,6 +210,11 @@ func (_c *ChannelMonitorHistoryCreate) check() error {
 	if v, ok := _c.mutation.Message(); ok {
 		if err := channelmonitorhistory.MessageValidator(v); err != nil {
 			return &ValidationError{Name: "message", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.message": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.FailureKind(); ok {
+		if err := channelmonitorhistory.FailureKindValidator(v); err != nil {
+			return &ValidationError{Name: "failure_kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.failure_kind": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.CheckedAt(); !ok {
@@ -232,6 +269,14 @@ func (_c *ChannelMonitorHistoryCreate) createSpec() (*ChannelMonitorHistory, *sq
 	if value, ok := _c.mutation.Message(); ok {
 		_spec.SetField(channelmonitorhistory.FieldMessage, field.TypeString, value)
 		_node.Message = value
+	}
+	if value, ok := _c.mutation.StatusCode(); ok {
+		_spec.SetField(channelmonitorhistory.FieldStatusCode, field.TypeInt, value)
+		_node.StatusCode = &value
+	}
+	if value, ok := _c.mutation.FailureKind(); ok {
+		_spec.SetField(channelmonitorhistory.FieldFailureKind, field.TypeString, value)
+		_node.FailureKind = value
 	}
 	if value, ok := _c.mutation.Quota(); ok {
 		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
@@ -409,6 +454,48 @@ func (u *ChannelMonitorHistoryUpsert) UpdateMessage() *ChannelMonitorHistoryUpse
 // ClearMessage clears the value of the "message" field.
 func (u *ChannelMonitorHistoryUpsert) ClearMessage() *ChannelMonitorHistoryUpsert {
 	u.SetNull(channelmonitorhistory.FieldMessage)
+	return u
+}
+
+// SetStatusCode sets the "status_code" field.
+func (u *ChannelMonitorHistoryUpsert) SetStatusCode(v int) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldStatusCode, v)
+	return u
+}
+
+// UpdateStatusCode sets the "status_code" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateStatusCode() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldStatusCode)
+	return u
+}
+
+// AddStatusCode adds v to the "status_code" field.
+func (u *ChannelMonitorHistoryUpsert) AddStatusCode(v int) *ChannelMonitorHistoryUpsert {
+	u.Add(channelmonitorhistory.FieldStatusCode, v)
+	return u
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (u *ChannelMonitorHistoryUpsert) ClearStatusCode() *ChannelMonitorHistoryUpsert {
+	u.SetNull(channelmonitorhistory.FieldStatusCode)
+	return u
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsert) SetFailureKind(v string) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldFailureKind, v)
+	return u
+}
+
+// UpdateFailureKind sets the "failure_kind" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateFailureKind() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldFailureKind)
+	return u
+}
+
+// ClearFailureKind clears the value of the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsert) ClearFailureKind() *ChannelMonitorHistoryUpsert {
+	u.SetNull(channelmonitorhistory.FieldFailureKind)
 	return u
 }
 
@@ -598,6 +685,55 @@ func (u *ChannelMonitorHistoryUpsertOne) UpdateMessage() *ChannelMonitorHistoryU
 func (u *ChannelMonitorHistoryUpsertOne) ClearMessage() *ChannelMonitorHistoryUpsertOne {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearMessage()
+	})
+}
+
+// SetStatusCode sets the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetStatusCode(v int) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetStatusCode(v)
+	})
+}
+
+// AddStatusCode adds v to the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertOne) AddStatusCode(v int) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddStatusCode(v)
+	})
+}
+
+// UpdateStatusCode sets the "status_code" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateStatusCode() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateStatusCode()
+	})
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertOne) ClearStatusCode() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearStatusCode()
+	})
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetFailureKind(v string) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetFailureKind(v)
+	})
+}
+
+// UpdateFailureKind sets the "failure_kind" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateFailureKind() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateFailureKind()
+	})
+}
+
+// ClearFailureKind clears the value of the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsertOne) ClearFailureKind() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearFailureKind()
 	})
 }
 
@@ -956,6 +1092,55 @@ func (u *ChannelMonitorHistoryUpsertBulk) UpdateMessage() *ChannelMonitorHistory
 func (u *ChannelMonitorHistoryUpsertBulk) ClearMessage() *ChannelMonitorHistoryUpsertBulk {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearMessage()
+	})
+}
+
+// SetStatusCode sets the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetStatusCode(v int) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetStatusCode(v)
+	})
+}
+
+// AddStatusCode adds v to the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertBulk) AddStatusCode(v int) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddStatusCode(v)
+	})
+}
+
+// UpdateStatusCode sets the "status_code" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateStatusCode() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateStatusCode()
+	})
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (u *ChannelMonitorHistoryUpsertBulk) ClearStatusCode() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearStatusCode()
+	})
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetFailureKind(v string) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetFailureKind(v)
+	})
+}
+
+// UpdateFailureKind sets the "failure_kind" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateFailureKind() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateFailureKind()
+	})
+}
+
+// ClearFailureKind clears the value of the "failure_kind" field.
+func (u *ChannelMonitorHistoryUpsertBulk) ClearFailureKind() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearFailureKind()
 	})
 }
 

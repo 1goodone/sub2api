@@ -138,8 +138,12 @@
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
-                :title="t('keys.clickToChangeGroup')"
+                :disabled="row.mixed_mode_enabled"
+                class="-mx-2 -my-1 flex items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200"
+                :class="row.mixed_mode_enabled
+                  ? 'cursor-not-allowed opacity-75'
+                  : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700'"
+                :title="row.mixed_mode_enabled ? t('keys.autoRoutingEditHint') : t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
                   v-if="row.group"
@@ -156,8 +160,12 @@
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
+                <span v-if="row.mixed_mode_enabled" class="text-xs font-medium text-primary-600 dark:text-primary-400">
+                  {{ t('keys.autoRoutingGroupCount', { count: row.mixed_group_ids?.length || 0 }) }}
+                </span>
+                <span v-else class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
                 <svg
+                  v-if="!row.mixed_mode_enabled"
                   class="h-3.5 w-3.5 text-gray-400 opacity-60 transition-opacity group-hover/dropdown:opacity-100"
                   fill="none"
                   stroke="currentColor"
@@ -505,6 +513,62 @@
               />
             </template>
           </Select>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <label class="input-label mb-0">{{ t('keys.autoRouting') }}</label>
+              <p class="input-hint mt-1">{{ t('keys.autoRoutingHint') }}</p>
+            </div>
+            <Toggle
+              :model-value="formData.mixed_mode_enabled"
+              :aria-label="t('keys.autoRouting')"
+              @update:model-value="setMixedMode"
+            />
+          </div>
+
+          <div v-if="formData.mixed_mode_enabled" class="space-y-2" data-testid="mixed-group-selector">
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <span>{{ t('keys.autoRoutingGroups') }}</span>
+              <span class="tabular-nums">
+                {{ t('keys.autoRoutingSelectedCount', { count: formData.mixed_group_ids.length }) }}
+              </span>
+            </div>
+            <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+              <label
+                v-for="option in mixedGroupOptions"
+                :key="option.value"
+                class="flex min-h-11 items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 transition-colors dark:border-dark-700"
+                :class="formData.mixed_group_ids.includes(option.value)
+                  ? 'bg-primary-50/70 dark:bg-primary-500/10'
+                  : 'hover:bg-gray-50 dark:hover:bg-dark-800'"
+              >
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  :checked="formData.mixed_group_ids.includes(option.value)"
+                  :disabled="option.value === formData.group_id || (formData.mixed_group_ids.length >= 8 && !formData.mixed_group_ids.includes(option.value))"
+                  @change="toggleMixedGroup(option.value)"
+                />
+                <GroupBadge
+                  :name="option.label"
+                  :platform="option.platform"
+                  :subscription-type="option.subscriptionType"
+                  :rate-multiplier="option.rate"
+                  :user-rate-multiplier="option.userRate"
+                  :peak-rate-enabled="option.peakRateEnabled"
+                  :peak-start="option.peakStart"
+                  :peak-end="option.peakEnd"
+                  :peak-rate-multiplier="option.peakRateMultiplier"
+                />
+                <span v-if="option.value === formData.group_id" class="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('keys.autoRoutingPrimary') }}
+                </span>
+              </label>
+            </div>
+            <p v-if="mixedGroupError" class="text-sm text-red-500" role="alert">{{ mixedGroupError }}</p>
+          </div>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1117,7 +1181,7 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -1131,6 +1195,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
 	import Pagination from '@/components/common/Pagination.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
+	import Toggle from '@/components/common/Toggle.vue'
 	import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
 	import Select from '@/components/common/Select.vue'
@@ -1330,6 +1395,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
+  mixed_mode_enabled: false,
+  mixed_group_ids: [] as number[],
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1423,6 +1490,53 @@ const groupOptions = computed(() =>
     platform: group.platform
   }))
 )
+
+const mixedGroupOptions = computed(() => {
+  const primary = groupOptions.value.find((option) => option.value === formData.value.group_id)
+  if (!primary) return []
+  return [primary, ...groupOptions.value.filter((option) =>
+    option.value !== primary.value && option.platform === primary.platform
+  )]
+})
+
+const syncMixedGroupsWithPrimary = () => {
+  const primaryID = formData.value.group_id
+  const primary = groups.value.find((group) => group.id === primaryID)
+  if (!formData.value.mixed_mode_enabled || primaryID === null || !primary) {
+    formData.value.mixed_group_ids = []
+    return
+  }
+  const allowed = new Set(
+    groups.value.filter((group) => group.platform === primary.platform).map((group) => group.id)
+  )
+  formData.value.mixed_group_ids = [
+    primaryID,
+    ...formData.value.mixed_group_ids.filter((id) => id !== primaryID && allowed.has(id))
+  ].slice(0, 8)
+}
+
+const setMixedMode = (enabled: boolean) => {
+  formData.value.mixed_mode_enabled = enabled
+  syncMixedGroupsWithPrimary()
+}
+
+const toggleMixedGroup = (groupID: number) => {
+  if (groupID === formData.value.group_id) return
+  const ids = formData.value.mixed_group_ids
+  if (ids.includes(groupID)) {
+    formData.value.mixed_group_ids = ids.filter((id) => id !== groupID)
+  } else if (ids.length < 8) {
+    formData.value.mixed_group_ids = [...ids, groupID]
+  }
+}
+
+const mixedGroupError = computed(() => {
+  if (!formData.value.mixed_mode_enabled) return ''
+  const count = formData.value.mixed_group_ids.length
+  return count >= 2 && count <= 8 ? '' : t('keys.autoRoutingGroupRange')
+})
+
+watch(() => formData.value.group_id, syncMixedGroupsWithPrimary)
 
 // Group dropdown search
 const groupSearchQuery = ref('')
@@ -1564,6 +1678,8 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
+    mixed_mode_enabled: !!key.mixed_mode_enabled,
+    mixed_group_ids: [...(key.mixed_group_ids || [])],
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1597,6 +1713,7 @@ const toggleKeyStatus = async (key: ApiKey) => {
 }
 
 const openGroupSelector = (key: ApiKey) => {
+  if (key.mixed_mode_enabled) return
   if (groupSelectorKeyId.value === key.id) {
     groupSelectorKeyId.value = null
     dropdownPosition.value = null
@@ -1631,6 +1748,7 @@ const openGroupSelector = (key: ApiKey) => {
 }
 
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
+  if (key.mixed_mode_enabled) return
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
   if (key.group_id === newGroupId) return
@@ -1665,6 +1783,11 @@ const handleSubmit = async () => {
   // Validate group_id is required
   if (formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
+    return
+  }
+  syncMixedGroupsWithPrimary()
+  if (mixedGroupError.value) {
+    appStore.showError(mixedGroupError.value)
     return
   }
 
@@ -1721,6 +1844,8 @@ const handleSubmit = async () => {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
         group_id: formData.value.group_id,
+        mixed_mode_enabled: formData.value.mixed_mode_enabled,
+        mixed_group_ids: formData.value.mixed_group_ids,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -1744,7 +1869,11 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        {
+          mixed_mode_enabled: formData.value.mixed_mode_enabled,
+          mixed_group_ids: formData.value.mixed_group_ids
+        }
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1790,6 +1919,8 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
+    mixed_mode_enabled: false,
+    mixed_group_ids: [],
     status: 'active',
     use_custom_key: false,
     custom_key: '',

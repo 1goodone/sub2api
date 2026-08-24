@@ -73,7 +73,7 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_input_tokens.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -130,6 +130,21 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	}
 
 	account := selection.Account
+	_, subscription, channelMapping = refreshMixedKeyRouting(
+		c,
+		c.Request.Context(),
+		apiKey,
+		subscription,
+		h.gatewayService,
+		reqModel,
+		channelMapping,
+	)
+	routingModel = reqModel
+	forwardBody = body
+	if channelMapping.Mapped {
+		routingModel = channelMapping.MappedModel
+		forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
+	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	if selection.Acquired && selection.ReleaseFunc != nil {
 		defer selection.ReleaseFunc()
@@ -213,6 +228,13 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
+	if !restrictMixedKeyRouting(c, apiKey, func(group *service.Group) bool {
+		return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.Platform == service.PlatformComposite || group.AllowMessagesDispatch
+	}) {
+		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
+			"No configured group allows /v1/messages dispatch")
+		return
+	}
 	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
 		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group does not allow /v1/messages dispatch")
@@ -264,6 +286,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	}
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+	c.Request = c.Request.WithContext(service.WithMixedGroupMessagesDispatchModel(c.Request.Context(), reqModel))
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", parsedReq.Stream))
 
 	setOpsRequestContext(c, reqModel, false)
@@ -273,7 +296,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_count_tokens.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -327,6 +350,16 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	}
 
 	account := selection.Account
+	_, subscription, channelMapping = refreshMixedKeyRouting(
+		c,
+		c.Request.Context(),
+		apiKey,
+		subscription,
+		h.gatewayService,
+		reqModel,
+		channelMapping,
+	)
+	preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	if selection.Acquired && selection.ReleaseFunc != nil {
 		defer selection.ReleaseFunc()

@@ -66,10 +66,6 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "Images API is not supported for this platform")
 		return
 	}
-	if !service.GroupAllowsImageGeneration(apiKey.Group) {
-		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
-		return
-	}
 	if h == nil || h.tasks == nil || h.execute == nil {
 		imageTaskError(c, service.ErrImageTaskUnavailable)
 		return
@@ -99,6 +95,10 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 	if !apiKeyAllowsModel(c, apiKey, model) {
 		imageTaskJSONError(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
+		return
+	}
+	if !restrictMixedKeyRouting(c, apiKey, service.GroupAllowsImageGeneration) || !service.GroupAllowsImageGeneration(apiKey.Group) {
+		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
 	if !h.checkSecurityAuditBeforeSubmit(c, apiKey, platform, body) {

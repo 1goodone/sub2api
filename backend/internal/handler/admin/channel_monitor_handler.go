@@ -47,6 +47,7 @@ type channelMonitorCreateRequest struct {
 	PrimaryModel     string            `json:"primary_model" binding:"max=200"`
 	ExtraModels      []string          `json:"extra_models"`
 	GroupName        string            `json:"group_name" binding:"max=100"`
+	GroupID          *int64            `json:"group_id"`
 	Enabled          *bool             `json:"enabled"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`
 	JitterSeconds    int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
@@ -71,6 +72,7 @@ type channelMonitorUpdateRequest struct {
 	PrimaryModel     *string            `json:"primary_model" binding:"omitempty,max=200"`
 	ExtraModels      *[]string          `json:"extra_models"`
 	GroupName        *string            `json:"group_name" binding:"omitempty,max=100"`
+	GroupID          *int64             `json:"group_id"`
 	Enabled          *bool              `json:"enabled"`
 	IntervalSeconds  *int               `json:"interval_seconds" binding:"omitempty,min=15,max=3600"`
 	JitterSeconds    *int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
@@ -96,6 +98,7 @@ type channelMonitorResponse struct {
 	PrimaryModel        string                               `json:"primary_model"`
 	ExtraModels         []string                             `json:"extra_models"`
 	GroupName           string                               `json:"group_name"`
+	GroupID             *int64                               `json:"group_id"`
 	Enabled             bool                                 `json:"enabled"`
 	IntervalSeconds     int                                  `json:"interval_seconds"`
 	JitterSeconds       int                                  `json:"jitter_seconds"`
@@ -127,6 +130,8 @@ type channelMonitorCheckResultResponse struct {
 	PingLatencyMs *int                         `json:"ping_latency_ms"`
 	Message       string                       `json:"message"`
 	CheckedAt     string                       `json:"checked_at"`
+	StatusCode    *int                         `json:"status_code,omitempty"`
+	FailureKind   string                       `json:"failure_kind,omitempty"`
 	Quota         *domain.MonitorQuotaSnapshot `json:"quota,omitempty"`
 }
 
@@ -138,6 +143,8 @@ type channelMonitorHistoryItemResponse struct {
 	PingLatencyMs *int                         `json:"ping_latency_ms"`
 	Message       string                       `json:"message"`
 	CheckedAt     string                       `json:"checked_at"`
+	StatusCode    *int                         `json:"status_code,omitempty"`
+	FailureKind   string                       `json:"failure_kind,omitempty"`
 	Quota         *domain.MonitorQuotaSnapshot `json:"quota,omitempty"`
 }
 
@@ -172,6 +179,7 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		PrimaryModel:        m.PrimaryModel,
 		ExtraModels:         extras,
 		GroupName:           m.GroupName,
+		GroupID:             m.GroupID,
 		Enabled:             m.Enabled,
 		IntervalSeconds:     m.IntervalSeconds,
 		JitterSeconds:       m.JitterSeconds,
@@ -202,6 +210,8 @@ func checkResultToResponse(r *service.CheckResult) channelMonitorCheckResultResp
 		PingLatencyMs: r.PingLatencyMs,
 		Message:       r.Message,
 		CheckedAt:     r.CheckedAt.UTC().Format(time.RFC3339),
+		StatusCode:    r.StatusCode,
+		FailureKind:   r.FailureKind,
 		Quota:         r.Quota,
 	}
 }
@@ -215,6 +225,8 @@ func historyEntryToResponse(e *service.ChannelMonitorHistoryEntry) channelMonito
 		PingLatencyMs: e.PingLatencyMs,
 		Message:       e.Message,
 		CheckedAt:     e.CheckedAt.UTC().Format(time.RFC3339),
+		StatusCode:    e.StatusCode,
+		FailureKind:   e.FailureKind,
 		Quota:         e.Quota,
 	}
 }
@@ -344,6 +356,7 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
+		GroupID:          req.GroupID,
 		Enabled:          enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
@@ -440,6 +453,7 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
+		GroupID:          req.GroupID,
 		Enabled:          req.Enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,

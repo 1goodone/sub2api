@@ -120,6 +120,38 @@ func (_u *APIKeyUpdate) ClearGroupID() *APIKeyUpdate {
 	return _u
 }
 
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (_u *APIKeyUpdate) SetMixedModeEnabled(v bool) *APIKeyUpdate {
+	_u.mutation.SetMixedModeEnabled(v)
+	return _u
+}
+
+// SetNillableMixedModeEnabled sets the "mixed_mode_enabled" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableMixedModeEnabled(v *bool) *APIKeyUpdate {
+	if v != nil {
+		_u.SetMixedModeEnabled(*v)
+	}
+	return _u
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (_u *APIKeyUpdate) SetMixedGroupIds(v []int64) *APIKeyUpdate {
+	_u.mutation.SetMixedGroupIds(v)
+	return _u
+}
+
+// AppendMixedGroupIds appends value to the "mixed_group_ids" field.
+func (_u *APIKeyUpdate) AppendMixedGroupIds(v []int64) *APIKeyUpdate {
+	_u.mutation.AppendMixedGroupIds(v)
+	return _u
+}
+
+// ClearMixedGroupIds clears the value of the "mixed_group_ids" field.
+func (_u *APIKeyUpdate) ClearMixedGroupIds() *APIKeyUpdate {
+	_u.mutation.ClearMixedGroupIds()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *APIKeyUpdate) SetStatus(v string) *APIKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -593,6 +625,20 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.MixedModeEnabled(); ok {
+		_spec.SetField(apikey.FieldMixedModeEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MixedGroupIds(); ok {
+		_spec.SetField(apikey.FieldMixedGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMixedGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, apikey.FieldMixedGroupIds, value)
+		})
+	}
+	if _u.mutation.MixedGroupIdsCleared() {
+		_spec.ClearField(apikey.FieldMixedGroupIds, field.TypeJSON)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 	}
@@ -904,6 +950,38 @@ func (_u *APIKeyUpdateOne) SetNillableGroupID(v *int64) *APIKeyUpdateOne {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdateOne) ClearGroupID() *APIKeyUpdateOne {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetMixedModeEnabled sets the "mixed_mode_enabled" field.
+func (_u *APIKeyUpdateOne) SetMixedModeEnabled(v bool) *APIKeyUpdateOne {
+	_u.mutation.SetMixedModeEnabled(v)
+	return _u
+}
+
+// SetNillableMixedModeEnabled sets the "mixed_mode_enabled" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableMixedModeEnabled(v *bool) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetMixedModeEnabled(*v)
+	}
+	return _u
+}
+
+// SetMixedGroupIds sets the "mixed_group_ids" field.
+func (_u *APIKeyUpdateOne) SetMixedGroupIds(v []int64) *APIKeyUpdateOne {
+	_u.mutation.SetMixedGroupIds(v)
+	return _u
+}
+
+// AppendMixedGroupIds appends value to the "mixed_group_ids" field.
+func (_u *APIKeyUpdateOne) AppendMixedGroupIds(v []int64) *APIKeyUpdateOne {
+	_u.mutation.AppendMixedGroupIds(v)
+	return _u
+}
+
+// ClearMixedGroupIds clears the value of the "mixed_group_ids" field.
+func (_u *APIKeyUpdateOne) ClearMixedGroupIds() *APIKeyUpdateOne {
+	_u.mutation.ClearMixedGroupIds()
 	return _u
 }
 
@@ -1409,6 +1487,20 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.MixedModeEnabled(); ok {
+		_spec.SetField(apikey.FieldMixedModeEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MixedGroupIds(); ok {
+		_spec.SetField(apikey.FieldMixedGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMixedGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, apikey.FieldMixedGroupIds, value)
+		})
+	}
+	if _u.mutation.MixedGroupIdsCleared() {
+		_spec.ClearField(apikey.FieldMixedGroupIds, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)

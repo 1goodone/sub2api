@@ -80,6 +80,16 @@ func Message(v string) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldMessage, v))
 }
 
+// StatusCode applies equality check predicate on the "status_code" field. It's identical to StatusCodeEQ.
+func StatusCode(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldStatusCode, v))
+}
+
+// FailureKind applies equality check predicate on the "failure_kind" field. It's identical to FailureKindEQ.
+func FailureKind(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldFailureKind, v))
+}
+
 // CheckedAt applies equality check predicate on the "checked_at" field. It's identical to CheckedAtEQ.
 func CheckedAt(v time.Time) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldCheckedAt, v))
@@ -363,6 +373,131 @@ func MessageEqualFold(v string) predicate.ChannelMonitorHistory {
 // MessageContainsFold applies the ContainsFold predicate on the "message" field.
 func MessageContainsFold(v string) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldContainsFold(FieldMessage, v))
+}
+
+// StatusCodeEQ applies the EQ predicate on the "status_code" field.
+func StatusCodeEQ(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldStatusCode, v))
+}
+
+// StatusCodeNEQ applies the NEQ predicate on the "status_code" field.
+func StatusCodeNEQ(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNEQ(FieldStatusCode, v))
+}
+
+// StatusCodeIn applies the In predicate on the "status_code" field.
+func StatusCodeIn(vs ...int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIn(FieldStatusCode, vs...))
+}
+
+// StatusCodeNotIn applies the NotIn predicate on the "status_code" field.
+func StatusCodeNotIn(vs ...int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotIn(FieldStatusCode, vs...))
+}
+
+// StatusCodeGT applies the GT predicate on the "status_code" field.
+func StatusCodeGT(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGT(FieldStatusCode, v))
+}
+
+// StatusCodeGTE applies the GTE predicate on the "status_code" field.
+func StatusCodeGTE(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGTE(FieldStatusCode, v))
+}
+
+// StatusCodeLT applies the LT predicate on the "status_code" field.
+func StatusCodeLT(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLT(FieldStatusCode, v))
+}
+
+// StatusCodeLTE applies the LTE predicate on the "status_code" field.
+func StatusCodeLTE(v int) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLTE(FieldStatusCode, v))
+}
+
+// StatusCodeIsNil applies the IsNil predicate on the "status_code" field.
+func StatusCodeIsNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIsNull(FieldStatusCode))
+}
+
+// StatusCodeNotNil applies the NotNil predicate on the "status_code" field.
+func StatusCodeNotNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotNull(FieldStatusCode))
+}
+
+// FailureKindEQ applies the EQ predicate on the "failure_kind" field.
+func FailureKindEQ(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldFailureKind, v))
+}
+
+// FailureKindNEQ applies the NEQ predicate on the "failure_kind" field.
+func FailureKindNEQ(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNEQ(FieldFailureKind, v))
+}
+
+// FailureKindIn applies the In predicate on the "failure_kind" field.
+func FailureKindIn(vs ...string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIn(FieldFailureKind, vs...))
+}
+
+// FailureKindNotIn applies the NotIn predicate on the "failure_kind" field.
+func FailureKindNotIn(vs ...string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotIn(FieldFailureKind, vs...))
+}
+
+// FailureKindGT applies the GT predicate on the "failure_kind" field.
+func FailureKindGT(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGT(FieldFailureKind, v))
+}
+
+// FailureKindGTE applies the GTE predicate on the "failure_kind" field.
+func FailureKindGTE(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGTE(FieldFailureKind, v))
+}
+
+// FailureKindLT applies the LT predicate on the "failure_kind" field.
+func FailureKindLT(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLT(FieldFailureKind, v))
+}
+
+// FailureKindLTE applies the LTE predicate on the "failure_kind" field.
+func FailureKindLTE(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLTE(FieldFailureKind, v))
+}
+
+// FailureKindContains applies the Contains predicate on the "failure_kind" field.
+func FailureKindContains(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldContains(FieldFailureKind, v))
+}
+
+// FailureKindHasPrefix applies the HasPrefix predicate on the "failure_kind" field.
+func FailureKindHasPrefix(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldHasPrefix(FieldFailureKind, v))
+}
+
+// FailureKindHasSuffix applies the HasSuffix predicate on the "failure_kind" field.
+func FailureKindHasSuffix(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldHasSuffix(FieldFailureKind, v))
+}
+
+// FailureKindIsNil applies the IsNil predicate on the "failure_kind" field.
+func FailureKindIsNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIsNull(FieldFailureKind))
+}
+
+// FailureKindNotNil applies the NotNil predicate on the "failure_kind" field.
+func FailureKindNotNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotNull(FieldFailureKind))
+}
+
+// FailureKindEqualFold applies the EqualFold predicate on the "failure_kind" field.
+func FailureKindEqualFold(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEqualFold(FieldFailureKind, v))
+}
+
+// FailureKindContainsFold applies the ContainsFold predicate on the "failure_kind" field.
+func FailureKindContainsFold(v string) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldContainsFold(FieldFailureKind, v))
 }
 
 // QuotaIsNil applies the IsNil predicate on the "quota" field.

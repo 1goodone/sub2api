@@ -68,13 +68,30 @@ type channelMonitorRuntimeReader interface {
 	GetChannelMonitorRuntime(ctx context.Context) ChannelMonitorRuntime
 }
 
+type channelRoutingHealthRepository interface {
+	UnavailableGroupIDs(ctx context.Context, groupIDs []int64) (map[int64]bool, error)
+}
+
+const (
+	channelRoutingHealthCacheTTL     = 5 * time.Second
+	channelRoutingHealthQueryTimeout = 2 * time.Second
+)
+
+type channelRoutingHealthCacheEntry struct {
+	unavailable bool
+	expiresAt   time.Time
+}
+
 // ChannelMonitorService 渠道监控管理服务。
 type ChannelMonitorService struct {
 	repo      ChannelMonitorRepository
 	encryptor SecretEncryptor
+	groupRepo GroupRepository
 	// settings is optional; when nil, RunCheck fails closed for active probes
 	// (mode defaults to v2 / retired) so tests without settings never hit upstream.
-	settings channelMonitorRuntimeReader
+	settings           channelMonitorRuntimeReader
+	routingHealthMu    sync.Mutex
+	routingHealthCache map[int64]channelRoutingHealthCacheEntry
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
@@ -106,11 +123,78 @@ func (s *ChannelMonitorService) SetRuntimeReader(r channelMonitorRuntimeReader) 
 	s.settings = r
 }
 
+func (s *ChannelMonitorService) SetGroupRepository(repo GroupRepository) {
+	s.groupRepo = repo
+}
+
 func (s *ChannelMonitorService) probeRuntime(ctx context.Context) ChannelMonitorRuntime {
 	if s == nil || s.settings == nil {
 		return ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV2}
 	}
 	return s.settings.GetChannelMonitorRuntime(ctx)
+}
+
+// UnavailableGroupIDs exposes only fresh V1 probe failures to API key routing.
+// Missing repository support is fail-open for alternate/test implementations.
+func (s *ChannelMonitorService) UnavailableGroupIDs(ctx context.Context, groupIDs []int64) (map[int64]bool, error) {
+	if s == nil || len(groupIDs) == 0 {
+		return map[int64]bool{}, nil
+	}
+	if !s.probeRuntime(ctx).ActiveProbesAllowed() {
+		return map[int64]bool{}, nil
+	}
+	repo, ok := s.repo.(channelRoutingHealthRepository)
+	if !ok {
+		return map[int64]bool{}, nil
+	}
+
+	now := time.Now()
+	s.routingHealthMu.Lock()
+	defer s.routingHealthMu.Unlock()
+	if s.routingHealthCache == nil {
+		s.routingHealthCache = make(map[int64]channelRoutingHealthCacheEntry)
+	}
+	out := make(map[int64]bool)
+	missing := make([]int64, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		entry, cached := s.routingHealthCache[groupID]
+		if cached && now.Before(entry.expiresAt) {
+			if entry.unavailable {
+				out[groupID] = true
+			}
+			continue
+		}
+		missing = append(missing, groupID)
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, channelRoutingHealthQueryTimeout)
+	unavailable, err := repo.UnavailableGroupIDs(queryCtx, missing)
+	cancel()
+	expiresAt := now.Add(channelRoutingHealthCacheTTL)
+	if err != nil {
+		for _, groupID := range missing {
+			s.routingHealthCache[groupID] = channelRoutingHealthCacheEntry{expiresAt: expiresAt}
+		}
+		return nil, err
+	}
+	for _, groupID := range missing {
+		blocked := unavailable[groupID]
+		s.routingHealthCache[groupID] = channelRoutingHealthCacheEntry{
+			unavailable: blocked,
+			expiresAt:   expiresAt,
+		}
+		if blocked {
+			out[groupID] = true
+		}
+	}
+	return out, nil
 }
 
 // ---------- CRUD ----------
@@ -158,6 +242,9 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if err := s.validateLinkedAccount(ctx, p.Provider, p.AccountID); err != nil {
 		return nil, err
 	}
+	if err := s.validateRoutingGroup(ctx, p.Provider, p.GroupID); err != nil {
+		return nil, err
+	}
 	checkMode := defaultCheckMode(p.CheckMode)
 	encrypted, err := s.encryptor.Encrypt(p.APIKey)
 	if err != nil {
@@ -172,6 +259,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
 		ExtraModels:      normalizeModels(p.ExtraModels),
 		GroupName:        strings.TrimSpace(p.GroupName),
+		GroupID:          cloneInt64Pointer(p.GroupID),
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
 		JitterSeconds:    p.JitterSeconds,
@@ -239,6 +327,7 @@ func (s *ChannelMonitorService) Duplicate(
 		PrimaryModel:         source.PrimaryModel,
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
+		GroupID:              cloneInt64Pointer(source.GroupID),
 		Enabled:              false,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
@@ -426,6 +515,23 @@ func (s *ChannelMonitorService) validateLinkedAccount(ctx context.Context, provi
 	return monitorAccountQuotaCapability(account)
 }
 
+func (s *ChannelMonitorService) validateRoutingGroup(ctx context.Context, provider string, groupID *int64) error {
+	if groupID == nil || *groupID <= 0 {
+		return nil
+	}
+	if s.groupRepo == nil {
+		return ErrChannelMonitorGroupIncompatible
+	}
+	group, err := s.groupRepo.GetByID(ctx, *groupID)
+	if err != nil {
+		return fmt.Errorf("get routing group: %w", err)
+	}
+	if group.Platform != provider {
+		return ErrChannelMonitorGroupIncompatible
+	}
+	return nil
+}
+
 // Update 更新监控。APIKey 字段：nil 或空字符串 = 不修改；非空 = 加密后覆盖。
 func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelMonitorUpdateParams) (*ChannelMonitor, error) {
 	existing, err := s.repo.GetByID(ctx, id)
@@ -445,6 +551,11 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	}
 	if p.Provider != nil || p.CheckMode != nil || p.AccountID != nil {
 		if err := s.revalidateLinkedAccount(ctx, existing); err != nil {
+			return nil, err
+		}
+	}
+	if p.Provider != nil || p.GroupID != nil {
+		if err := s.validateRoutingGroup(ctx, existing.Provider, existing.GroupID); err != nil {
 			return nil, err
 		}
 	}
@@ -680,6 +791,8 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 			PingLatencyMs: r.PingLatencyMs,
 			Message:       r.Message,
 			CheckedAt:     r.CheckedAt,
+			StatusCode:    r.StatusCode,
+			FailureKind:   r.FailureKind,
 			Quota:         r.Quota,
 		})
 	}
@@ -942,6 +1055,14 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	}
 	if p.GroupName != nil {
 		existing.GroupName = strings.TrimSpace(*p.GroupName)
+	}
+	if p.GroupID != nil {
+		if *p.GroupID > 0 {
+			id := *p.GroupID
+			existing.GroupID = &id
+		} else {
+			existing.GroupID = nil
+		}
 	}
 	if p.Enabled != nil {
 		existing.Enabled = *p.Enabled

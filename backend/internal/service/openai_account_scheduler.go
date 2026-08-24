@@ -2144,6 +2144,59 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	useUpstreamTokenCost bool,
 	platformOverride ...string,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastDecision OpenAIAccountScheduleDecision
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateModel := mixedGroupCandidateRequestedModel(ctx, state, candidateID, requestedModel)
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			selection, decision, err := s.SelectAccountWithSchedulerForCapability(
+				candidateCtx,
+				&candidateID,
+				previousResponseID,
+				sessionHash,
+				candidateModel,
+				excludedIDs,
+				requiredTransport,
+				requiredCapability,
+				requireCompact,
+				previousResponseCanMove,
+				useUpstreamTokenCost,
+				platformOverride...,
+			)
+			lastDecision = decision
+			if err != nil {
+				if shouldTryNextMixedGroupAfterSelectionError(err) {
+					lastErr = err
+					continue
+				}
+				return nil, decision, err
+			}
+			if selection == nil || selection.Account == nil {
+				lastErr = ErrNoAvailableAccounts
+				continue
+			}
+			if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				lastErr = err
+				if shouldTryNextMixedGroupAfterBillingError(err) {
+					continue
+				}
+				return nil, decision, err
+			}
+			state.ApplyGroup(candidateID)
+			selection.GroupID = &candidateID
+			return selection, decision, nil
+		}
+		if lastErr != nil {
+			return nil, lastDecision, lastErr
+		}
+		return nil, lastDecision, ErrNoAvailableAccounts
+	}
+
 	platform := PlatformOpenAI
 	if len(platformOverride) > 0 {
 		platform = platformOverride[0]
@@ -2159,6 +2212,52 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastDecision OpenAIAccountScheduleDecision
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			selection, decision, err := s.SelectAccountWithSchedulerForImages(
+				candidateCtx,
+				&candidateID,
+				sessionHash,
+				requestedModel,
+				excludedIDs,
+				requiredCapability,
+			)
+			lastDecision = decision
+			if err != nil {
+				if shouldTryNextMixedGroupAfterSelectionError(err) {
+					lastErr = err
+					continue
+				}
+				return nil, decision, err
+			}
+			if selection == nil || selection.Account == nil {
+				lastErr = ErrNoAvailableAccounts
+				continue
+			}
+			if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				lastErr = err
+				if shouldTryNextMixedGroupAfterBillingError(err) {
+					continue
+				}
+				return nil, decision, err
+			}
+			state.ApplyGroup(candidateID)
+			selection.GroupID = &candidateID
+			return selection, decision, nil
+		}
+		if lastErr != nil {
+			return nil, lastDecision, lastErr
+		}
+		return nil, lastDecision, ErrNoAvailableAccounts
+	}
+
 	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil

@@ -48,6 +48,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetPrimaryModel(m.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
+		SetNillableGroupID(m.GroupID).
 		SetEnabled(m.Enabled).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
@@ -126,6 +127,11 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetExtraHeaders(channelMonitorHeadersForPersistence(m)).
 		SetBodyOverrideMode(defaultBodyModeRepo(m.BodyOverrideMode)).
 		SetCheckMode(defaultCheckModeRepo(m.CheckMode))
+	if m.GroupID != nil {
+		updater = updater.SetGroupID(*m.GroupID)
+	} else {
+		updater = updater.ClearGroupID()
+	}
 	if m.TemplateID != nil {
 		updater = updater.SetTemplateID(*m.TemplateID)
 	} else {
@@ -242,7 +248,11 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 			SetModel(row.Model).
 			SetStatus(channelmonitorhistory.Status(row.Status)).
 			SetMessage(row.Message).
+			SetFailureKind(row.FailureKind).
 			SetCheckedAt(row.CheckedAt)
+		if row.StatusCode != nil {
+			c = c.SetStatusCode(*row.StatusCode)
+		}
 		if row.LatencyMs != nil {
 			c = c.SetLatencyMs(*row.LatencyMs)
 		}
@@ -291,11 +301,72 @@ func (r *channelMonitorRepository) ListHistory(ctx context.Context, monitorID in
 			PingLatencyMs: row.PingLatencyMs,
 			Message:       row.Message,
 			CheckedAt:     row.CheckedAt,
+			StatusCode:    row.StatusCode,
+			FailureKind:   row.FailureKind,
 			Quota:         row.Quota,
 		}
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// UnavailableGroupIDs returns only groups with two consecutive fresh explicit
+// V1 probe failures and no latest success in any monitor/model. All missing or
+// stale data is intentionally fail-open.
+func (r *channelMonitorRepository) UnavailableGroupIDs(ctx context.Context, groupIDs []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool)
+	if len(groupIDs) == 0 || r.db == nil {
+		return out, nil
+	}
+	const q = `
+		WITH ranked AS (
+			SELECT
+				m.group_id,
+				h.monitor_id,
+				h.model,
+				h.status,
+				h.failure_kind,
+				ROW_NUMBER() OVER (
+					PARTITION BY h.monitor_id, h.model
+					ORDER BY h.checked_at DESC, h.id DESC
+				) AS rn
+			FROM channel_monitors m
+			JOIN channel_monitor_histories h ON h.monitor_id = m.id
+			WHERE m.group_id = ANY($1)
+			  AND m.enabled = TRUE
+			  AND m.check_mode IN ('probe', 'quota_probe')
+			  AND h.checked_at >= NOW() - make_interval(secs => GREATEST(m.interval_seconds * 3, 300))
+		), signals AS (
+			SELECT
+				group_id,
+				monitor_id,
+				model,
+				BOOL_OR(rn = 1 AND status IN ('operational', 'degraded')) AS latest_success,
+				COUNT(*) FILTER (
+					WHERE rn <= 2 AND failure_kind IN ('transport', 'upstream_5xx', 'response_invalid')
+				) = 2 AS consecutive_failure
+			FROM ranked
+			WHERE rn <= 2
+			GROUP BY group_id, monitor_id, model
+		)
+		SELECT group_id
+		FROM signals
+		GROUP BY group_id
+		HAVING NOT BOOL_OR(latest_success) AND BOOL_OR(consecutive_failure)
+	`
+	rows, err := r.db.QueryContext(ctx, q, pq.Array(groupIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query channel routing health: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var groupID int64
+		if err := rows.Scan(&groupID); err != nil {
+			return nil, fmt.Errorf("scan channel routing health: %w", err)
+		}
+		out[groupID] = true
+	}
+	return out, rows.Err()
 }
 
 // ---------- 用户视图聚合（原生 SQL） ----------
@@ -779,6 +850,7 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		PrimaryModel:         row.PrimaryModel,
 		ExtraModels:          extras,
 		GroupName:            row.GroupName,
+		GroupID:              row.GroupID,
 		Enabled:              row.Enabled,
 		IntervalSeconds:      row.IntervalSeconds,
 		JitterSeconds:        row.JitterSeconds,

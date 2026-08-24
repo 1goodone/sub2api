@@ -146,6 +146,53 @@ func (_u *ChannelMonitorHistoryUpdate) ClearMessage() *ChannelMonitorHistoryUpda
 	return _u
 }
 
+// SetStatusCode sets the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdate) SetStatusCode(v int) *ChannelMonitorHistoryUpdate {
+	_u.mutation.ResetStatusCode()
+	_u.mutation.SetStatusCode(v)
+	return _u
+}
+
+// SetNillableStatusCode sets the "status_code" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdate) SetNillableStatusCode(v *int) *ChannelMonitorHistoryUpdate {
+	if v != nil {
+		_u.SetStatusCode(*v)
+	}
+	return _u
+}
+
+// AddStatusCode adds value to the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdate) AddStatusCode(v int) *ChannelMonitorHistoryUpdate {
+	_u.mutation.AddStatusCode(v)
+	return _u
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdate) ClearStatusCode() *ChannelMonitorHistoryUpdate {
+	_u.mutation.ClearStatusCode()
+	return _u
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (_u *ChannelMonitorHistoryUpdate) SetFailureKind(v string) *ChannelMonitorHistoryUpdate {
+	_u.mutation.SetFailureKind(v)
+	return _u
+}
+
+// SetNillableFailureKind sets the "failure_kind" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdate) SetNillableFailureKind(v *string) *ChannelMonitorHistoryUpdate {
+	if v != nil {
+		_u.SetFailureKind(*v)
+	}
+	return _u
+}
+
+// ClearFailureKind clears the value of the "failure_kind" field.
+func (_u *ChannelMonitorHistoryUpdate) ClearFailureKind() *ChannelMonitorHistoryUpdate {
+	_u.mutation.ClearFailureKind()
+	return _u
+}
+
 // SetQuota sets the "quota" field.
 func (_u *ChannelMonitorHistoryUpdate) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpdate {
 	_u.mutation.SetQuota(v)
@@ -232,6 +279,11 @@ func (_u *ChannelMonitorHistoryUpdate) check() error {
 			return &ValidationError{Name: "message", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.message": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FailureKind(); ok {
+		if err := channelmonitorhistory.FailureKindValidator(v); err != nil {
+			return &ValidationError{Name: "failure_kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.failure_kind": %w`, err)}
+		}
+	}
 	if _u.mutation.MonitorCleared() && len(_u.mutation.MonitorIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ChannelMonitorHistory.monitor"`)
 	}
@@ -279,6 +331,21 @@ func (_u *ChannelMonitorHistoryUpdate) sqlSave(ctx context.Context) (_node int, 
 	}
 	if _u.mutation.MessageCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldMessage, field.TypeString)
+	}
+	if value, ok := _u.mutation.StatusCode(); ok {
+		_spec.SetField(channelmonitorhistory.FieldStatusCode, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedStatusCode(); ok {
+		_spec.AddField(channelmonitorhistory.FieldStatusCode, field.TypeInt, value)
+	}
+	if _u.mutation.StatusCodeCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldStatusCode, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FailureKind(); ok {
+		_spec.SetField(channelmonitorhistory.FieldFailureKind, field.TypeString, value)
+	}
+	if _u.mutation.FailureKindCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldFailureKind, field.TypeString)
 	}
 	if value, ok := _u.mutation.Quota(); ok {
 		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
@@ -454,6 +521,53 @@ func (_u *ChannelMonitorHistoryUpdateOne) ClearMessage() *ChannelMonitorHistoryU
 	return _u
 }
 
+// SetStatusCode sets the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetStatusCode(v int) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ResetStatusCode()
+	_u.mutation.SetStatusCode(v)
+	return _u
+}
+
+// SetNillableStatusCode sets the "status_code" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdateOne) SetNillableStatusCode(v *int) *ChannelMonitorHistoryUpdateOne {
+	if v != nil {
+		_u.SetStatusCode(*v)
+	}
+	return _u
+}
+
+// AddStatusCode adds value to the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdateOne) AddStatusCode(v int) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.AddStatusCode(v)
+	return _u
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (_u *ChannelMonitorHistoryUpdateOne) ClearStatusCode() *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ClearStatusCode()
+	return _u
+}
+
+// SetFailureKind sets the "failure_kind" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetFailureKind(v string) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.SetFailureKind(v)
+	return _u
+}
+
+// SetNillableFailureKind sets the "failure_kind" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdateOne) SetNillableFailureKind(v *string) *ChannelMonitorHistoryUpdateOne {
+	if v != nil {
+		_u.SetFailureKind(*v)
+	}
+	return _u
+}
+
+// ClearFailureKind clears the value of the "failure_kind" field.
+func (_u *ChannelMonitorHistoryUpdateOne) ClearFailureKind() *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ClearFailureKind()
+	return _u
+}
+
 // SetQuota sets the "quota" field.
 func (_u *ChannelMonitorHistoryUpdateOne) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpdateOne {
 	_u.mutation.SetQuota(v)
@@ -553,6 +667,11 @@ func (_u *ChannelMonitorHistoryUpdateOne) check() error {
 			return &ValidationError{Name: "message", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.message": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FailureKind(); ok {
+		if err := channelmonitorhistory.FailureKindValidator(v); err != nil {
+			return &ValidationError{Name: "failure_kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.failure_kind": %w`, err)}
+		}
+	}
 	if _u.mutation.MonitorCleared() && len(_u.mutation.MonitorIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ChannelMonitorHistory.monitor"`)
 	}
@@ -617,6 +736,21 @@ func (_u *ChannelMonitorHistoryUpdateOne) sqlSave(ctx context.Context) (_node *C
 	}
 	if _u.mutation.MessageCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldMessage, field.TypeString)
+	}
+	if value, ok := _u.mutation.StatusCode(); ok {
+		_spec.SetField(channelmonitorhistory.FieldStatusCode, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedStatusCode(); ok {
+		_spec.AddField(channelmonitorhistory.FieldStatusCode, field.TypeInt, value)
+	}
+	if _u.mutation.StatusCodeCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldStatusCode, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FailureKind(); ok {
+		_spec.SetField(channelmonitorhistory.FieldFailureKind, field.TypeString, value)
+	}
+	if _u.mutation.FailureKindCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldFailureKind, field.TypeString)
 	}
 	if value, ok := _u.mutation.Quota(); ok {
 		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)

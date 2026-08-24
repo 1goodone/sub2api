@@ -34,6 +34,14 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live is not supported for this platform")
 		return
 	}
+	if !restrictMixedKeyRouting(c, apiKey, func(group *service.Group) bool {
+		return group != nil &&
+			(group.Platform == service.PlatformOpenAI || group.Platform == service.PlatformComposite) &&
+			group.AllowLive
+	}) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for any automatic routing group")
+		return
+	}
 	if !liveEnabledForAPIKey(apiKey) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for this group")
 		return
@@ -88,8 +96,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Billing service unavailable")
 		return
 	}
-	if err := h.billingCacheService.CheckBillingEligibility(
+	if err := checkInitialBillingEligibility(
 		c.Request.Context(),
+		h.billingCacheService,
 		apiKey.User,
 		apiKey,
 		apiKey.Group,
@@ -125,6 +134,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.writeLiveCreateError(c, err)
 		return
 	}
+	_, subscription = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
 	c.Data(http.StatusOK, "application/sdp", created.SDP)
 }
@@ -177,6 +187,7 @@ func liveCallIdentity(
 		APIKeyID:        apiKey.ID,
 		UserID:          userID,
 		GroupID:         apiKey.GroupID,
+		AllowedGroupIDs: append([]int64(nil), apiKey.MixedGroupIDs...),
 		SubscriptionID:  subscriptionID,
 		UserAgent:       c.GetHeader("User-Agent"),
 		IPAddress:       ip.GetClientIP(c),
@@ -216,15 +227,19 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	if !restrictMixedKeyRouting(c, apiKey, func(group *service.Group) bool {
+		return group != nil &&
+			(group.Platform == service.PlatformOpenAI || group.Platform == service.PlatformComposite) &&
+			group.AllowLive
+	}) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for any automatic routing group")
+		return
+	}
 	if !liveEnabledForAPIKey(apiKey) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for this group")
 		return
 	}
-	identity := service.LiveCallIdentity{
-		APIKeyID: apiKey.ID,
-		UserID:   subject.UserID,
-		GroupID:  apiKey.GroupID,
-	}
+	identity := liveCallIdentity(c, apiKey, subject.UserID, nil)
 	record, err := h.gatewayService.GetLiveCallForIdentity(c.Request.Context(), c.Param("call_id"), identity)
 	if err != nil {
 		if errors.Is(err, service.ErrLiveIdentityMismatch) {

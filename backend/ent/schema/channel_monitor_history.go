@@ -45,6 +45,13 @@ func (ChannelMonitorHistory) Fields() []ent.Field {
 			Optional().
 			Default("").
 			MaxLen(500),
+		field.Int("status_code").
+			Optional().
+			Nillable(),
+		field.String("failure_kind").
+			Optional().
+			Default("").
+			MaxLen(32),
 		// quota: 配额模式（check_mode = quota / quota_probe）检测时附带的
 		// 归一化配额快照（domain.MonitorQuotaSnapshot，JSONB）；探活模式为 NULL。
 		field.JSON("quota", &domain.MonitorQuotaSnapshot{}).

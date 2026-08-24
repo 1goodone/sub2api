@@ -9,12 +9,14 @@ const {
   listTemplates,
   accountsList,
   accountsGetById,
+  groupsGetAll,
   monitorCreate,
   monitorUpdate,
 } = vi.hoisted(() => ({
   listTemplates: vi.fn(),
   accountsList: vi.fn(),
   accountsGetById: vi.fn(),
+  groupsGetAll: vi.fn(),
   monitorCreate: vi.fn(),
   monitorUpdate: vi.fn(),
 }))
@@ -42,6 +44,9 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       list: (...args: unknown[]) => accountsList(...args),
       getById: (...args: unknown[]) => accountsGetById(...args),
+    },
+    groups: {
+      getAllIncludingInactive: (...args: unknown[]) => groupsGetAll(...args),
     },
   },
 }))
@@ -86,6 +91,7 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     primary_model: 'gpt-4o-mini',
     extra_models: [],
     group_name: '',
+    group_id: null,
     enabled: true,
     interval_seconds: 60,
     jitter_seconds: 0,
@@ -166,6 +172,7 @@ describe('MonitorFormDialog linked account selector', () => {
     listTemplates.mockReset().mockResolvedValue({ items: [] })
     accountsList.mockReset().mockResolvedValue({ items: [] })
     accountsGetById.mockReset()
+    groupsGetAll.mockReset().mockResolvedValue([])
     monitorCreate.mockReset().mockResolvedValue({})
     monitorUpdate.mockReset().mockResolvedValue({})
   })
@@ -186,6 +193,28 @@ describe('MonitorFormDialog linked account selector', () => {
       { platform: 'anthropic' },
       { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('links a same-platform V1 routing group in the create payload', async () => {
+    groupsGetAll.mockResolvedValue([
+      { id: 11, name: 'Anthropic primary', platform: 'anthropic', status: 'active' },
+      { id: 22, name: 'OpenAI primary', platform: 'openai', status: 'active' },
+    ])
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="monitor-routing-group"] button').trigger('click')
+    await nextTick()
+    const dropdown = document.body.querySelector<HTMLElement>('.select-dropdown-portal')
+    expect(dropdown).not.toBeNull()
+    clickOption(dropdown!, 'Anthropic primary')
+
+    await wrapper.findAll('input[type="text"]')[0].setValue('routing monitor')
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('claude-sonnet-4-5')
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+
+    expect(monitorCreate).toHaveBeenCalledWith(expect.objectContaining({ group_id: 11 }))
   })
 
   it('debounced typing hits server-side search and aborts the previous request', async () => {

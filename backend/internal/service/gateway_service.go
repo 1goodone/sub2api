@@ -572,6 +572,7 @@ type AccountWaitPlan struct {
 
 type AccountSelectionResult struct {
 	Account     *Account
+	GroupID     *int64
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed

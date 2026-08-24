@@ -32,6 +32,39 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			account, err := s.SelectAccountForModelWithExclusions(candidateCtx, &candidateID, sessionHash, requestedModel, excludedIDs)
+			if err != nil {
+				if shouldTryNextMixedGroupAfterSelectionError(err) {
+					lastErr = err
+					continue
+				}
+				return nil, err
+			}
+			if account == nil {
+				lastErr = ErrNoAvailableAccounts
+				continue
+			}
+			if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+				lastErr = err
+				if shouldTryNextMixedGroupAfterBillingError(err) {
+					continue
+				}
+				return nil, err
+			}
+			state.ApplyGroup(candidateID)
+			return account, nil
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, ErrNoAvailableAccounts
+	}
+
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -98,6 +131,51 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
+		var lastErr error
+		for _, candidateGroupID := range groupIDs {
+			candidateID := candidateGroupID
+			candidateCtx := withoutMixedGroupSelection(withMixedGroupCandidateContext(ctx, state, candidateID))
+			selection, err := s.SelectAccountWithLoadAwareness(
+				candidateCtx,
+				&candidateID,
+				sessionHash,
+				requestedModel,
+				excludedIDs,
+				metadataUserID,
+				sub2apiUserID,
+			)
+			if err != nil {
+				if shouldTryNextMixedGroupAfterSelectionError(err) {
+					lastErr = err
+					continue
+				}
+				return nil, err
+			}
+			if selection == nil || selection.Account == nil {
+				lastErr = ErrNoAvailableAccounts
+				continue
+			}
+			if err := checkMixedGroupSelectionBilling(ctx, state, candidateID, s.billingCacheService); err != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				lastErr = err
+				if shouldTryNextMixedGroupAfterBillingError(err) {
+					continue
+				}
+				return nil, err
+			}
+			state.ApplyGroup(candidateID)
+			selection.GroupID = &candidateID
+			return selection, nil
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, ErrNoAvailableAccounts
+	}
+
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {

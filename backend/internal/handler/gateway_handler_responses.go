@@ -93,6 +93,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+	if !restrictMixedKeyRouting(c, apiKey, func(group *service.Group) bool {
+		return !group.ClaudeCodeOnly
+	}) {
+		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
+			"All configured groups are restricted to Claude Code clients (/v1/messages only)")
+		return
+	}
 	requestCtx := c.Request.Context()
 	// 定价上下文无条件装配：/v1/responses 是 token 计费端点，声明生图工具的
 	// 混合请求同样按 token 计费（外加图片部分），其 token 利润保护不因请求体
@@ -145,7 +152,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 2. Re-check billing
-	if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+	if err := checkInitialBillingEligibility(requestCtx, h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
 		reqLog.Info("gateway.responses.billing_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -206,6 +213,15 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 		}
 		account := selection.Account
+		requestCtx, subscription, channelMapping = refreshMixedKeyRouting(
+			c,
+			requestCtx,
+			apiKey,
+			subscription,
+			h.gatewayService,
+			reqModel,
+			channelMapping,
+		)
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 4. Acquire account concurrency slot

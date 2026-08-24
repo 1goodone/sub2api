@@ -41,6 +41,7 @@ type ChannelMonitor struct {
 	PrimaryModel    string
 	ExtraModels     []string
 	GroupName       string
+	GroupID         *int64
 	Enabled         bool
 	IntervalSeconds int
 	JitterSeconds   int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
@@ -90,6 +91,7 @@ type ChannelMonitorCreateParams struct {
 	PrimaryModel     string
 	ExtraModels      []string
 	GroupName        string
+	GroupID          *int64
 	Enabled          bool
 	IntervalSeconds  int
 	JitterSeconds    int
@@ -114,6 +116,7 @@ type ChannelMonitorUpdateParams struct {
 	PrimaryModel    *string
 	ExtraModels     *[]string
 	GroupName       *string
+	GroupID         *int64 // 0 clears the routing group binding
 	Enabled         *bool
 	IntervalSeconds *int
 	JitterSeconds   *int
@@ -140,6 +143,8 @@ type CheckResult struct {
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
+	StatusCode    *int
+	FailureKind   string
 	// Quota 配额模式附带快照（quota 模式唯一数据；quota_probe 挂在主模型行）。
 	Quota *domain.MonitorQuotaSnapshot
 }
@@ -206,6 +211,8 @@ type ChannelMonitorHistoryRow struct {
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
+	StatusCode    *int
+	FailureKind   string
 	Quota         *domain.MonitorQuotaSnapshot
 }
 
@@ -218,6 +225,8 @@ type ChannelMonitorHistoryEntry struct {
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
+	StatusCode    *int
+	FailureKind   string
 	Quota         *domain.MonitorQuotaSnapshot
 }
 

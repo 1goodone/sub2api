@@ -79,7 +79,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
@@ -140,7 +140,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	// First attempt + up to 3 failover accounts (max 4 total).
 	for attempt := 0; attempt < 4; attempt++ {
 		selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(
-			c.Request.Context(), groupID, "", searchModel, failedAccounts, "", 0,
+			c.Request.Context(), apiKey.GroupID, "", searchModel, failedAccounts, "", 0,
 		)
 		if selectErr != nil {
 			if attempt == 0 {
@@ -162,6 +162,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 			}
 			break
 		}
+		_, subscription = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
 
 		release, acquireOK, acquireErr := h.acquireWebSearchAccountSlot(c, selected)
 		if !acquireOK {

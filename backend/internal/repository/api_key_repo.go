@@ -13,6 +13,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -49,6 +50,8 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetName(key.Name).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
+		SetMixedModeEnabled(key.MixedMode).
+		SetMixedGroupIds(key.MixedGroupIDs).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -87,6 +90,9 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		return nil, err
 	}
 	out := apiKeyEntityToService(m)
+	if err := r.loadMixedGroups(ctx, out); err != nil {
+		return nil, err
+	}
 	if err := r.hydrateAPIKeyGroupFocus(ctx, out); err != nil {
 		return nil, err
 	}
@@ -128,7 +134,14 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.loadMixedGroups(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := r.hydrateAPIKeyGroupFocus(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*service.APIKey, error) {
@@ -138,6 +151,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
+			apikey.FieldMixedModeEnabled,
+			apikey.FieldMixedGroupIds,
 			apikey.FieldName,
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
@@ -191,6 +206,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldImagePrice1k,
 				group.FieldImagePrice2k,
 				group.FieldImagePrice4k,
+				group.FieldBatchImageDiscountMultiplier,
+				group.FieldBatchImageHoldMultiplier,
 				group.FieldVideoRateIndependent,
 				group.FieldVideoRateMultiplier,
 				group.FieldVideoPrice480p,
@@ -242,30 +259,79 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		return nil, err
 	}
 	out := apiKeyEntityToService(m)
+	if err := r.loadMixedGroups(ctx, out); err != nil {
+		return nil, err
+	}
 	if err := r.hydrateAPIKeyGroupFocus(ctx, out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
+func (r *apiKeyRepository) loadMixedGroups(ctx context.Context, key *service.APIKey) error {
+	if key == nil || !key.MixedMode || len(key.MixedGroupIDs) == 0 {
+		return nil
+	}
+	rows, err := r.client.Group.Query().
+		Where(group.IDIn(key.MixedGroupIDs...), group.DeletedAtIsNil()).
+		All(ctx)
+	if err != nil {
+		return fmt.Errorf("load mixed api key groups: %w", err)
+	}
+	byID := make(map[int64]*service.Group, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = groupEntityToService(row)
+	}
+	key.MixedGroups = make([]*service.Group, 0, len(key.MixedGroupIDs))
+	for _, id := range key.MixedGroupIDs {
+		if candidate := byID[id]; candidate != nil {
+			key.MixedGroups = append(key.MixedGroups, candidate)
+		}
+	}
+	return nil
+}
+
 func (r *apiKeyRepository) hydrateAPIKeyGroupFocus(ctx context.Context, apiKey *service.APIKey) error {
-	if apiKey == nil || apiKey.Group == nil || r.sql == nil {
+	if apiKey == nil || r.sql == nil {
 		return nil
 	}
-	if apiKey.Group.FocusAccountID == nil || *apiKey.Group.FocusAccountID <= 0 {
-		apiKey.Group.FocusAccountIDs = nil
+	groups := make([]*service.Group, 0, len(apiKey.MixedGroups)+1)
+	if apiKey.Group != nil {
+		groups = append(groups, apiKey.Group)
+	}
+	groups = append(groups, apiKey.MixedGroups...)
+	groupIDs := make([]int64, 0, len(groups))
+	seen := make(map[int64]struct{}, len(groups))
+	for _, group := range groups {
+		if group == nil || group.FocusAccountID == nil || *group.FocusAccountID <= 0 {
+			if group != nil {
+				group.FocusAccountIDs = nil
+			}
+			continue
+		}
+		if _, ok := seen[group.ID]; !ok {
+			seen[group.ID] = struct{}{}
+			groupIDs = append(groupIDs, group.ID)
+		}
+	}
+	if len(groupIDs) == 0 {
 		return nil
 	}
-	focusByGroup, err := loadGroupFocusAccountIDs(ctx, r.sql, []int64{apiKey.Group.ID})
+	focusByGroup, err := loadGroupFocusAccountIDs(ctx, r.sql, groupIDs)
 	if err != nil {
 		return err
 	}
-	apiKey.Group.FocusAccountIDs = append([]int64(nil), focusByGroup[apiKey.Group.ID]...)
-	if len(apiKey.Group.FocusAccountIDs) == 0 {
-		apiKey.Group.FocusAccountID = nil
-	} else {
-		legacyID := apiKey.Group.FocusAccountIDs[0]
-		apiKey.Group.FocusAccountID = &legacyID
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		group.FocusAccountIDs = append([]int64(nil), focusByGroup[group.ID]...)
+		if len(group.FocusAccountIDs) == 0 {
+			group.FocusAccountID = nil
+			continue
+		}
+		legacyID := group.FocusAccountIDs[0]
+		group.FocusAccountID = &legacyID
 	}
 	return nil
 }
@@ -333,6 +399,11 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 		} else {
 			builder.ClearGroupID()
 		}
+	}
+	if fields.MixedConfig {
+		builder.
+			SetMixedModeEnabled(key.MixedMode).
+			SetMixedGroupIds(key.MixedGroupIDs)
 	}
 
 	// Expiration time
@@ -756,7 +827,7 @@ func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, user
 
 // CountByGroupID 获取分组的 API Key 数量
 func (r *apiKeyRepository) CountByGroupID(ctx context.Context, groupID int64) (int64, error) {
-	count, err := r.activeQuery().Where(apikey.GroupIDEQ(groupID)).Count(ctx)
+	count, err := r.activeQuery().Where(apiKeyReferencesGroup(groupID)).Count(ctx)
 	return int64(count), err
 }
 
@@ -773,13 +844,25 @@ func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) (
 
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
 	keys, err := r.activeQuery().
-		Where(apikey.GroupIDEQ(groupID)).
+		Where(apiKeyReferencesGroup(groupID)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return keys, nil
+}
+
+func apiKeyReferencesGroup(groupID int64) predicate.APIKey {
+	return apikey.Or(
+		apikey.GroupIDEQ(groupID),
+		func(selector *entsql.Selector) {
+			selector.Where(entsql.ExprP(
+				"mixed_group_ids @> to_jsonb(ARRAY[?]::bigint[])",
+				groupID,
+			))
+		},
+	)
 }
 
 // IncrementQuotaUsed 使用 Ent 原子递增 quota_used 字段并返回新值
@@ -906,12 +989,14 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Key:           m.Key,
 		Name:          m.Name,
 		Status:        m.Status,
+		GroupID:       m.GroupID,
+		MixedMode:     m.MixedModeEnabled,
+		MixedGroupIDs: append([]int64(nil), m.MixedGroupIds...),
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,
 		LastUsedAt:    m.LastUsedAt,
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
-		GroupID:       m.GroupID,
 		Quota:         m.Quota,
 		QuotaUsed:     m.QuotaUsed,
 		ExpiresAt:     m.ExpiresAt,

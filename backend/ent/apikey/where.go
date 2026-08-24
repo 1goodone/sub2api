@@ -90,6 +90,11 @@ func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
 }
 
+// MixedModeEnabled applies equality check predicate on the "mixed_mode_enabled" field. It's identical to MixedModeEnabledEQ.
+func MixedModeEnabled(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldMixedModeEnabled, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
@@ -468,6 +473,26 @@ func GroupIDIsNil() predicate.APIKey {
 // GroupIDNotNil applies the NotNil predicate on the "group_id" field.
 func GroupIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldGroupID))
+}
+
+// MixedModeEnabledEQ applies the EQ predicate on the "mixed_mode_enabled" field.
+func MixedModeEnabledEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldMixedModeEnabled, v))
+}
+
+// MixedModeEnabledNEQ applies the NEQ predicate on the "mixed_mode_enabled" field.
+func MixedModeEnabledNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldMixedModeEnabled, v))
+}
+
+// MixedGroupIdsIsNil applies the IsNil predicate on the "mixed_group_ids" field.
+func MixedGroupIdsIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldMixedGroupIds))
+}
+
+// MixedGroupIdsNotNil applies the NotNil predicate on the "mixed_group_ids" field.
+func MixedGroupIdsNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldMixedGroupIds))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

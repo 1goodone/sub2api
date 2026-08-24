@@ -27,6 +27,10 @@ const (
 	FieldPingLatencyMs = "ping_latency_ms"
 	// FieldMessage holds the string denoting the message field in the database.
 	FieldMessage = "message"
+	// FieldStatusCode holds the string denoting the status_code field in the database.
+	FieldStatusCode = "status_code"
+	// FieldFailureKind holds the string denoting the failure_kind field in the database.
+	FieldFailureKind = "failure_kind"
 	// FieldQuota holds the string denoting the quota field in the database.
 	FieldQuota = "quota"
 	// FieldCheckedAt holds the string denoting the checked_at field in the database.
@@ -53,6 +57,8 @@ var Columns = []string{
 	FieldLatencyMs,
 	FieldPingLatencyMs,
 	FieldMessage,
+	FieldStatusCode,
+	FieldFailureKind,
 	FieldQuota,
 	FieldCheckedAt,
 }
@@ -74,6 +80,10 @@ var (
 	DefaultMessage string
 	// MessageValidator is a validator for the "message" field. It is called by the builders before save.
 	MessageValidator func(string) error
+	// DefaultFailureKind holds the default value on creation for the "failure_kind" field.
+	DefaultFailureKind string
+	// FailureKindValidator is a validator for the "failure_kind" field. It is called by the builders before save.
+	FailureKindValidator func(string) error
 	// DefaultCheckedAt holds the default value on creation for the "checked_at" field.
 	DefaultCheckedAt func() time.Time
 )
@@ -139,6 +149,16 @@ func ByPingLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 // ByMessage orders the results by the message field.
 func ByMessage(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMessage, opts...).ToFunc()
+}
+
+// ByStatusCode orders the results by the status_code field.
+func ByStatusCode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStatusCode, opts...).ToFunc()
+}
+
+// ByFailureKind orders the results by the failure_kind field.
+func ByFailureKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFailureKind, opts...).ToFunc()
 }
 
 // ByCheckedAt orders the results by the checked_at field.

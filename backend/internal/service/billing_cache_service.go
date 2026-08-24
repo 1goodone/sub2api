@@ -733,6 +733,33 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	return s.checkBillingEligibility(ctx, user, apiKey, group, subscription, platform, true)
+}
+
+// CheckMixedGroupBillingEligibility checks one selected routing candidate.
+// User RPM is counted only once per client request; candidate group RPM is
+// counted for every group actually attempted.
+func (s *BillingCacheService) CheckMixedGroupBillingEligibility(
+	ctx context.Context,
+	user *User,
+	apiKey *APIKey,
+	group *Group,
+	subscription *UserSubscription,
+	platform string,
+	countUserRPM bool,
+) error {
+	return s.checkBillingEligibility(ctx, user, apiKey, group, subscription, platform, countUserRPM)
+}
+
+func (s *BillingCacheService) checkBillingEligibility(
+	ctx context.Context,
+	user *User,
+	apiKey *APIKey,
+	group *Group,
+	subscription *UserSubscription,
+	platform string,
+	countUserRPM bool,
+) error {
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
@@ -769,7 +796,7 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	}
 
 	// RPM 限流：级联回落（Override → Group → User），放在最后以避免为注定失败的请求增加计数。
-	if err := s.checkRPM(ctx, user, group); err != nil {
+	if err := s.checkRPMWithUser(ctx, user, group, countUserRPM); err != nil {
 		return err
 	}
 
@@ -786,6 +813,10 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 // 与旧版"级联互斥"设计不同，新版确保 user.rpm_limit 作为全局天花板不会被 group 或 override 覆盖。
 // Redis 故障一律 fail-open（打 warning，不阻塞业务）。
 func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
+	return s.checkRPMWithUser(ctx, user, group, true)
+}
+
+func (s *BillingCacheService) checkRPMWithUser(ctx context.Context, user *User, group *Group, countUserRPM bool) error {
 	if s == nil || s.userRPMCache == nil || user == nil {
 		return nil
 	}
@@ -842,7 +873,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 	}
 
 	// ── 第二层：用户级全局硬上限（始终生效） ──
-	if user.RPMLimit > 0 {
+	if countUserRPM && user.RPMLimit > 0 {
 		count, err := s.userRPMCache.IncrementUserRPM(ctx, user.ID)
 		if err != nil {
 			logger.LegacyPrintf(
