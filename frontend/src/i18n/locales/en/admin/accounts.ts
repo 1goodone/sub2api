@@ -463,10 +463,28 @@ export default {
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
+        testConnections: 'Test Connections',
         probeUpstreamBilling: 'Probe Upstream Rate',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
+      },
+      batchTest: {
+        title: 'Batch Connection Test',
+        progress: 'Test progress',
+        successCount: '{count} passed',
+        failedCount: '{count} failed',
+        accountFallback: 'Account #{id}',
+        start: 'Start tests',
+        stop: 'Stop tests',
+        retry: 'Run again',
+        status: {
+          pending: 'Pending',
+          running: 'Testing',
+          success: 'Passed',
+          failed: 'Failed',
+          cancelled: 'Stopped'
+        }
       },
       bulkEdit: {
         title: 'Bulk Edit Accounts',

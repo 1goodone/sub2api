@@ -550,10 +550,28 @@ export default {
         disableScheduling: '批量停止调度',
         resetStatus: '批量重置状态',
         refreshToken: '批量刷新令牌',
+        testConnections: '批量测试连接',
         probeUpstreamBilling: '探测上游倍率',
         resetStatusSuccess: '已成功重置 {count} 个账号状态',
         refreshTokenSuccess: '已成功刷新 {count} 个账号令牌',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
+      },
+      batchTest: {
+        title: '批量测试连接',
+        progress: '测试进度',
+        successCount: '成功 {count}',
+        failedCount: '失败 {count}',
+        accountFallback: '账号 #{id}',
+        start: '开始测试',
+        stop: '停止测试',
+        retry: '重新测试',
+        status: {
+          pending: '等待中',
+          running: '测试中',
+          success: '成功',
+          failed: '失败',
+          cancelled: '已停止'
+        }
       },
       bulkEdit: {
         title: '批量编辑账号',

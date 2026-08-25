@@ -372,9 +372,8 @@ import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
-import { buildApiUrl } from '@/api/client'
-import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
+import type { AccountTestEvent } from '@/api/admin/accounts'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -877,55 +876,10 @@ const startTest = async () => {
       }
     }
 
-    // Use the configured API base; EventSource does not support POST.
-    const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
-
-    // Use fetch with streaming for SSE since EventSource doesn't support POST
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        'Content-Type': 'application/json',
-        [ADMIN_UI_REQUEST_HEADER]: '1'
-      },
-      body: JSON.stringify(requestBody),
-      signal: abortController.signal
+    await adminAPI.accounts.testAccount(props.account.id, requestBody, {
+      signal: abortController.signal,
+      onEvent: handleEvent
     })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error(t('admin.accounts.grok.noResponseBody'))
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim()
-          if (jsonStr) {
-            try {
-              const event = JSON.parse(jsonStr)
-              handleEvent(event)
-            } catch (e) {
-              console.error('Failed to parse SSE event:', e)
-            }
-          }
-        }
-      }
-    }
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       status.value = 'idle'
@@ -938,17 +892,7 @@ const startTest = async () => {
   }
 }
 
-const handleEvent = (event: {
-  type: string
-  text?: string
-  model?: string
-  success?: boolean
-  error?: string
-  image_url?: string
-  audio_url?: string
-  video_url?: string
-  mime_type?: string
-}) => {
+const handleEvent = (event: AccountTestEvent) => {
   switch (event.type) {
     case 'test_start':
       addLine(t('admin.accounts.connectedToApi'), 'text-green-400')

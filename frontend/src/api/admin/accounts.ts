@@ -3,7 +3,8 @@
  * Handles AI platform account management for administrators
  */
 
-import { apiClient } from '../client'
+import { apiClient, buildApiUrl } from '../client'
+import { ADMIN_UI_REQUEST_HEADER } from '../adminUIRequest'
 import type {
   Account,
   CreateAccountRequest,
@@ -227,22 +228,96 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
   return update(id, { status })
 }
 
-/**
- * Test account connectivity
- * @param id - Account ID
- * @returns Test result
- */
-export async function testAccount(id: number): Promise<{
+export interface AccountTestRequest {
+  model_id?: string
+  prompt?: string
+  mode?: string
+  image_data_url?: string
+  audio_data_url?: string
+}
+
+export interface AccountTestEvent {
+  type: string
+  text?: string
+  model?: string
+  success?: boolean
+  error?: string
+  image_url?: string
+  audio_url?: string
+  video_url?: string
+  mime_type?: string
+}
+
+export interface AccountTestResult {
   success: boolean
-  message: string
-  latency_ms?: number
-}> {
-  const { data } = await apiClient.post<{
-    success: boolean
-    message: string
-    latency_ms?: number
-  }>(`/admin/accounts/${id}/test`)
-  return data
+  model?: string
+  error?: string
+}
+
+/** Stream one account connectivity test and return its terminal result. */
+export async function testAccount(
+  id: number,
+  request: AccountTestRequest = {},
+  options: { signal?: AbortSignal; onEvent?: (event: AccountTestEvent) => void } = {}
+): Promise<AccountTestResult> {
+  const token = localStorage.getItem('auth_token')
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    [ADMIN_UI_REQUEST_HEADER]: '1'
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const response = await fetch(buildApiUrl(`/admin/accounts/${id}/test`), {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(request),
+    signal: options.signal
+  })
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('Account test response body is unavailable')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let model: string | undefined
+  let result: AccountTestResult | undefined
+
+  const consumeLine = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const raw = line.slice(5).trim()
+    if (!raw) return
+
+    let event: AccountTestEvent
+    try {
+      event = JSON.parse(raw) as AccountTestEvent
+    } catch {
+      return
+    }
+    if (event.model) model = event.model
+    if (event.type === 'test_complete') {
+      result = { success: event.success === true, model, error: event.error }
+    } else if (event.type === 'error') {
+      result = { success: false, model, error: event.error }
+    }
+    options.onEvent?.(event)
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() || ''
+    for (const line of lines) consumeLine(line)
+  }
+  buffer += decoder.decode()
+  if (buffer) consumeLine(buffer)
+
+  if (!result) throw new Error('Account test stream ended before completion')
+  return result
 }
 
 /**

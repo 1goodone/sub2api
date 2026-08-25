@@ -2,15 +2,17 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
 
-const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
+const { getAvailableModels, testAccount, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
+  testAccount: vi.fn(),
   copyToClipboard: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      getAvailableModels
+      getAvailableModels,
+      testAccount
     }
   }
 }))
@@ -41,26 +43,6 @@ vi.mock('vue-i18n', async () => {
     })
   }
 })
-
-function createStreamResponse(lines: string[]) {
-  const encoder = new TextEncoder()
-  const chunks = lines.map((line) => encoder.encode(line))
-  let index = 0
-
-  return {
-    ok: true,
-    body: {
-      getReader: () => ({
-        read: vi.fn().mockImplementation(async () => {
-          if (index < chunks.length) {
-            return { done: false, value: chunks[index++] }
-          }
-          return { done: true, value: undefined }
-        })
-      })
-    }
-  } as Response
-}
 
 function mountModal(account: Record<string, unknown> = {
   id: 42,
@@ -96,6 +78,15 @@ describe('AccountTestModal', () => {
       { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
+    testAccount.mockReset()
+    testAccount.mockImplementation(async (_id, request, options) => {
+      options.onEvent({ type: 'test_start', model: request.model_id })
+      if (String(request.model_id).includes('image')) {
+        options.onEvent({ type: 'image', image_url: 'data:image/png;base64,QUJD', mime_type: 'image/png' })
+      }
+      options.onEvent({ type: 'test_complete', success: true })
+      return { success: true, model: request.model_id }
+    })
     copyToClipboard.mockReset()
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
@@ -106,13 +97,6 @@ describe('AccountTestModal', () => {
       },
       configurable: true
     })
-    global.fetch = vi.fn().mockResolvedValue(
-      createStreamResponse([
-        'data: {"type":"test_start","model":"gemini-2.5-flash-image"}\n',
-        'data: {"type":"image","image_url":"data:image/png;base64,QUJD","mime_type":"image/png"}\n',
-        'data: {"type":"test_complete","success":true}\n'
-      ])
-    ) as any
   })
 
   afterEach(() => {
@@ -136,9 +120,8 @@ describe('AccountTestModal', () => {
     await flushPromises()
     await flushPromises()
 
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    const [, request] = (global.fetch as any).mock.calls[0]
-    expect(JSON.parse(request.body)).toEqual({
+    expect(testAccount).toHaveBeenCalledTimes(1)
+    expect(testAccount.mock.calls[0][1]).toEqual({
       model_id: 'gemini-3.1-flash-image',
       prompt: 'draw a tiny orange cat astronaut'
     })
@@ -153,14 +136,6 @@ describe('AccountTestModal', () => {
       { id: 'grok-4.3', display_name: 'Grok 4.3' },
       { id: 'grok-build-0.1', display_name: 'Grok Build 0.1' }
     ])
-    global.fetch = vi.fn().mockResolvedValue(
-      createStreamResponse([
-        'data: {"type":"test_start","model":"grok-4.3"}\n',
-        'data: {"type":"content","text":"ok"}\n',
-        'data: {"type":"test_complete","success":true}\n'
-      ])
-    ) as any
-
     const wrapper = mountModal({
       id: 13,
       name: 'Grok Account',
@@ -178,9 +153,8 @@ describe('AccountTestModal', () => {
     await startButton!.trigger('click')
     await flushPromises()
 
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    const [, request] = (global.fetch as any).mock.calls[0]
-    expect(JSON.parse(request.body)).toEqual({
+    expect(testAccount).toHaveBeenCalledTimes(1)
+    expect(testAccount.mock.calls[0][1]).toEqual({
       model_id: 'grok-4.3',
       prompt: '',
       mode: 'text'
@@ -191,12 +165,6 @@ describe('AccountTestModal', () => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.4', display_name: 'GPT-5.4' }
     ])
-    global.fetch = vi.fn().mockResolvedValue(
-      createStreamResponse([
-        'data: {"type":"test_complete","success":true}\n'
-      ])
-    ) as any
-
     const wrapper = mountModal({
       id: 42,
       name: 'OpenAI OAuth',
@@ -212,9 +180,8 @@ describe('AccountTestModal', () => {
     await (wrapper.vm as any).startTest()
     await flushPromises()
 
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    const [, request] = (global.fetch as any).mock.calls[0]
-    expect(JSON.parse(request.body)).toMatchObject({
+    expect(testAccount).toHaveBeenCalledTimes(1)
+    expect(testAccount.mock.calls[0][1]).toMatchObject({
       model_id: 'gpt-5.4',
       prompt: '',
       mode: 'compact'
