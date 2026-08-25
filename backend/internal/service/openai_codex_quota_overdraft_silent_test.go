@@ -115,7 +115,7 @@ func TestCodexQuotaOverdraftSilentConvertedStreamDropsFailedPartialAttempt(t *te
 	c, recorder := newCodexQuotaOverdraftSilentTestContext(t, ctx)
 	silent := svc.StartCodexQuotaOverdraftSilentResponse(c, account, true)
 	require.NotNil(t, silent)
-	defer silent.Close()
+	defer func() { require.NoError(t, silent.Close()) }()
 
 	failed := strings.Join([]string{
 		"event: response.created",
@@ -169,7 +169,7 @@ func TestCodexQuotaOverdraftSilentPassthroughDropsFailedPartialAttempt(t *testin
 	c, recorder := newCodexQuotaOverdraftSilentTestContext(t, ctx)
 	silent := svc.StartCodexQuotaOverdraftSilentResponse(c, account, true)
 	require.NotNil(t, silent)
-	defer silent.Close()
+	defer func() { require.NoError(t, silent.Close()) }()
 
 	failed := strings.Join([]string{
 		`data: {"type":"response.created","response":{"id":"resp_failed"}}`,

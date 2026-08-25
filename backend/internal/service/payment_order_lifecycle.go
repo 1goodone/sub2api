@@ -211,10 +211,6 @@ func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, 
 	return checkPaidResultCancelled, nil
 }
 
-func (s *PaymentService) checkPaid(ctx context.Context, o *dbent.PaymentOrder) string {
-	return s.checkPaidWithOptions(ctx, o, checkPaidOptions{cancelIfUnpaid: true})
-}
-
 func (s *PaymentService) reconcilePaid(ctx context.Context, o *dbent.PaymentOrder) string {
 	return s.checkPaidWithOptions(ctx, o, checkPaidOptions{})
 }

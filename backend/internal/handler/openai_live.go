@@ -134,7 +134,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.writeLiveCreateError(c, err)
 		return
 	}
-	_, subscription = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
+	_, _ = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
 	c.Data(http.StatusOK, "application/sdp", created.SDP)
 }

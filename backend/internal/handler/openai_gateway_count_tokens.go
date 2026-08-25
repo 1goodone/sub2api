@@ -85,10 +85,8 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	routingModel := reqModel
-	forwardBody := body
 	if channelMapping.Mapped {
 		routingModel = channelMapping.MappedModel
-		forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
 	}
 
 	// Token counting is not billed, so it must not be excluded by the profit gate.
@@ -123,7 +121,7 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		return
 	}
 
-	_, subscription, channelMapping = refreshMixedKeyRouting(
+	_, _, channelMapping = refreshMixedKeyRouting(
 		c,
 		c.Request.Context(),
 		apiKey,
@@ -132,11 +130,9 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		reqModel,
 		channelMapping,
 	)
-	routingModel = reqModel
-	forwardBody = body
+	forwardBody := body
 	if channelMapping.Mapped {
-		routingModel = channelMapping.MappedModel
-		forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
+		forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
@@ -332,7 +328,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
-	_, subscription, channelMapping = refreshMixedKeyRouting(
+	_, _, channelMapping = refreshMixedKeyRouting(
 		c,
 		c.Request.Context(),
 		apiKey,

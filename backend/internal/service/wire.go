@@ -1007,8 +1007,8 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 	return svc
 }
 
-func ProvideCloudcatMerchantService(redisClient *redis.Client, encryptor SecretEncryptor) *CloudcatMerchantService {
-	return NewCloudcatMerchantService(redisClient, encryptor)
+func ProvideCloudcatMerchantService(sessions CloudcatMerchantSessionStore, encryptor SecretEncryptor) *CloudcatMerchantService {
+	return NewCloudcatMerchantService(sessions, encryptor)
 }
 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.

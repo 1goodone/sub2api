@@ -10,9 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 )
 
 type cloudcatMerchantTestEncryptor struct{}
@@ -26,9 +23,34 @@ func (cloudcatMerchantTestEncryptor) Decrypt(value string) (string, error) {
 	return string(raw), err
 }
 
+type cloudcatMerchantTestSessionStore struct {
+	values map[int64]string
+	ttls   map[int64]time.Duration
+}
+
+func newCloudcatMerchantTestSessionStore() *cloudcatMerchantTestSessionStore {
+	return &cloudcatMerchantTestSessionStore{values: make(map[int64]string), ttls: make(map[int64]time.Duration)}
+}
+
+func (s *cloudcatMerchantTestSessionStore) Load(_ context.Context, adminID int64) (string, bool, error) {
+	value, ok := s.values[adminID]
+	return value, ok, nil
+}
+
+func (s *cloudcatMerchantTestSessionStore) Save(_ context.Context, adminID int64, value string, ttl time.Duration) error {
+	s.values[adminID] = value
+	s.ttls[adminID] = ttl
+	return nil
+}
+
+func (s *cloudcatMerchantTestSessionStore) Delete(_ context.Context, adminID int64) error {
+	delete(s.values, adminID)
+	delete(s.ttls, adminID)
+	return nil
+}
+
 func TestCloudcatMerchantLoginStoresEncryptedSessionAndReadsOverview(t *testing.T) {
-	redisServer := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	store := newCloudcatMerchantTestSessionStore()
 	var checkTokenCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -60,7 +82,7 @@ func TestCloudcatMerchantLoginStoresEncryptedSessionAndReadsOverview(t *testing.
 	}))
 	defer server.Close()
 
-	svc := newCloudcatMerchantServiceWithBaseURL(rdb, cloudcatMerchantTestEncryptor{}, server.URL)
+	svc := newCloudcatMerchantServiceWithBaseURL(store, cloudcatMerchantTestEncryptor{}, server.URL)
 	svc.sessionTTL = 2 * time.Hour
 	overview, err := svc.Login(context.Background(), 42, CloudcatMerchantLoginRequest{
 		Username: "merchant@example.com",
@@ -75,9 +97,9 @@ func TestCloudcatMerchantLoginStoresEncryptedSessionAndReadsOverview(t *testing.
 	if checkTokenCalls.Load() != 1 {
 		t.Fatalf("checkToken calls = %d, want 1", checkTokenCalls.Load())
 	}
-	raw, err := rdb.Get(context.Background(), svc.sessionKey(42)).Result()
-	if err != nil {
-		t.Fatalf("read Redis session: %v", err)
+	raw, ok := store.values[42]
+	if !ok {
+		t.Fatal("stored session is missing")
 	}
 	if strings.Contains(raw, "merchant-token") || strings.Contains(raw, "session-cookie") {
 		t.Fatalf("Redis session contains plaintext credentials: %q", raw)
@@ -90,15 +112,13 @@ func TestCloudcatMerchantLoginStoresEncryptedSessionAndReadsOverview(t *testing.
 	if read.TodayOrderCount != 3 || read.WithdrawableAmount != 100.25 {
 		t.Fatalf("unexpected refreshed overview: %+v", read)
 	}
-	if ttl := redisServer.TTL(svc.sessionKey(42)); ttl <= 0 || ttl > 2*time.Hour {
+	if ttl := store.ttls[42]; ttl <= 0 || ttl > 2*time.Hour {
 		t.Fatalf("session TTL = %v", ttl)
 	}
 }
 
 func TestCloudcatMerchantOverviewWithoutSessionNeedsLogin(t *testing.T) {
-	redisServer := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
-	svc := newCloudcatMerchantServiceWithBaseURL(rdb, cloudcatMerchantTestEncryptor{}, "https://catfk.com")
+	svc := newCloudcatMerchantServiceWithBaseURL(newCloudcatMerchantTestSessionStore(), cloudcatMerchantTestEncryptor{}, "https://catfk.com")
 	overview, err := svc.GetOverview(context.Background(), 7)
 	if err != nil {
 		t.Fatalf("GetOverview returned error: %v", err)
@@ -109,8 +129,7 @@ func TestCloudcatMerchantOverviewWithoutSessionNeedsLogin(t *testing.T) {
 }
 
 func TestCloudcatMerchantInvalidTokenClearsSession(t *testing.T) {
-	redisServer := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	store := newCloudcatMerchantTestSessionStore()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/merchantApi/user/checkToken" {
@@ -120,7 +139,7 @@ func TestCloudcatMerchantInvalidTokenClearsSession(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
-	svc := newCloudcatMerchantServiceWithBaseURL(rdb, cloudcatMerchantTestEncryptor{}, server.URL)
+	svc := newCloudcatMerchantServiceWithBaseURL(store, cloudcatMerchantTestEncryptor{}, server.URL)
 	if err := svc.saveSession(context.Background(), 9, &cloudcatMerchantSession{MerchantToken: "stale-token"}); err != nil {
 		t.Fatalf("saveSession returned error: %v", err)
 	}
@@ -131,8 +150,8 @@ func TestCloudcatMerchantInvalidTokenClearsSession(t *testing.T) {
 	if overview == nil || !overview.NeedsLogin {
 		t.Fatalf("unexpected overview: %+v", overview)
 	}
-	if exists, err := rdb.Exists(context.Background(), svc.sessionKey(9)).Result(); err != nil || exists != 0 {
-		t.Fatalf("stale session remains: exists=%d err=%v", exists, err)
+	if _, exists := store.values[9]; exists {
+		t.Fatal("stale session remains")
 	}
 }
 
@@ -147,9 +166,7 @@ func TestCloudcatMerchantRejectsRedirects(t *testing.T) {
 		http.Redirect(w, r, target.URL, http.StatusFound)
 	}))
 	defer source.Close()
-	redisServer := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
-	svc := newCloudcatMerchantServiceWithBaseURL(rdb, cloudcatMerchantTestEncryptor{}, source.URL)
+	svc := newCloudcatMerchantServiceWithBaseURL(newCloudcatMerchantTestSessionStore(), cloudcatMerchantTestEncryptor{}, source.URL)
 	if _, err := svc.Login(context.Background(), 1, CloudcatMerchantLoginRequest{Username: "u", Password: "p"}); err == nil {
 		t.Fatal("Login should reject redirect")
 	}

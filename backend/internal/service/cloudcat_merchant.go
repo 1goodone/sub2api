@@ -15,7 +15,6 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -53,27 +52,33 @@ type CloudcatMerchantOverview struct {
 	LastSyncedAt       *time.Time `json:"last_synced_at,omitempty"`
 }
 
-type CloudcatMerchantService struct {
-	redisClient *redis.Client
-	encryptor   SecretEncryptor
-	baseURL     string
-	httpClient  *http.Client
-	now         func() time.Time
-	sessionTTL  time.Duration
+type CloudcatMerchantSessionStore interface {
+	Load(ctx context.Context, adminID int64) (string, bool, error)
+	Save(ctx context.Context, adminID int64, value string, ttl time.Duration) error
+	Delete(ctx context.Context, adminID int64) error
 }
 
-func NewCloudcatMerchantService(redisClient *redis.Client, encryptor SecretEncryptor) *CloudcatMerchantService {
-	return newCloudcatMerchantServiceWithBaseURL(redisClient, encryptor, cloudcatMerchantAPIBaseURL)
+type CloudcatMerchantService struct {
+	sessions   CloudcatMerchantSessionStore
+	encryptor  SecretEncryptor
+	baseURL    string
+	httpClient *http.Client
+	now        func() time.Time
+	sessionTTL time.Duration
+}
+
+func NewCloudcatMerchantService(sessions CloudcatMerchantSessionStore, encryptor SecretEncryptor) *CloudcatMerchantService {
+	return newCloudcatMerchantServiceWithBaseURL(sessions, encryptor, cloudcatMerchantAPIBaseURL)
 }
 
 // CloudcatMerchantService keeps a server-side CatFK merchant session and reads
 // the official dashboard and wallet endpoints. The production base URL is fixed
 // to CatFK; the unexported constructor variant exists only for package tests.
-func newCloudcatMerchantServiceWithBaseURL(redisClient *redis.Client, encryptor SecretEncryptor, baseURL string) *CloudcatMerchantService {
+func newCloudcatMerchantServiceWithBaseURL(sessions CloudcatMerchantSessionStore, encryptor SecretEncryptor, baseURL string) *CloudcatMerchantService {
 	return &CloudcatMerchantService{
-		redisClient: redisClient,
-		encryptor:   encryptor,
-		baseURL:     strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		sessions:  sessions,
+		encryptor: encryptor,
+		baseURL:   strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		httpClient: &http.Client{
 			Timeout: cloudcatMerchantHTTPTimeout,
 			// Merchant credentials must never be forwarded to an arbitrary redirect target.
@@ -130,12 +135,8 @@ type cloudcatMerchantWalletData struct {
 	Response *cloudcatMerchantWalletData `json:"response"`
 }
 
-func (s *CloudcatMerchantService) sessionKey(adminID int64) string {
-	return "cloudcat:merchant:session:" + strconv.FormatInt(adminID, 10)
-}
-
 func (s *CloudcatMerchantService) ready() error {
-	if s == nil || s.redisClient == nil || s.encryptor == nil || strings.TrimSpace(s.baseURL) == "" {
+	if s == nil || s.sessions == nil || s.encryptor == nil || strings.TrimSpace(s.baseURL) == "" {
 		return ErrCloudcatMerchantUnavailable
 	}
 	return nil
@@ -530,21 +531,21 @@ func mergeCookies(session *cloudcatMerchantSession, cookies []*http.Cookie) {
 }
 
 func (s *CloudcatMerchantService) loadSession(ctx context.Context, adminID int64) (*cloudcatMerchantSession, bool, error) {
-	raw, err := s.redisClient.Get(ctx, s.sessionKey(adminID)).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return nil, false, nil
-	}
+	raw, found, err := s.sessions.Load(ctx, adminID)
 	if err != nil {
 		return nil, false, fmt.Errorf("load cloudcat merchant session: %w", err)
 	}
-	plaintext, err := s.encryptor.Decrypt(string(raw))
+	if !found {
+		return nil, false, nil
+	}
+	plaintext, err := s.encryptor.Decrypt(raw)
 	if err != nil {
-		_ = s.redisClient.Del(ctx, s.sessionKey(adminID)).Err()
+		_ = s.sessions.Delete(ctx, adminID)
 		return nil, false, nil
 	}
 	var session cloudcatMerchantSession
 	if err := json.Unmarshal([]byte(plaintext), &session); err != nil || strings.TrimSpace(session.MerchantToken) == "" {
-		_ = s.redisClient.Del(ctx, s.sessionKey(adminID)).Err()
+		_ = s.sessions.Delete(ctx, adminID)
 		return nil, false, nil
 	}
 	return &session, true, nil
@@ -562,14 +563,14 @@ func (s *CloudcatMerchantService) saveSession(ctx context.Context, adminID int64
 	if err != nil {
 		return fmt.Errorf("encrypt cloudcat merchant session: %w", err)
 	}
-	if err := s.redisClient.Set(ctx, s.sessionKey(adminID), ciphertext, s.sessionTTL).Err(); err != nil {
+	if err := s.sessions.Save(ctx, adminID, ciphertext, s.sessionTTL); err != nil {
 		return fmt.Errorf("save cloudcat merchant session: %w", err)
 	}
 	return nil
 }
 
 func (s *CloudcatMerchantService) deleteSession(ctx context.Context, adminID int64) error {
-	if err := s.redisClient.Del(ctx, s.sessionKey(adminID)).Err(); err != nil {
+	if err := s.sessions.Delete(ctx, adminID); err != nil {
 		return fmt.Errorf("delete cloudcat merchant session: %w", err)
 	}
 	return nil

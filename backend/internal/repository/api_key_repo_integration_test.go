@@ -269,14 +269,30 @@ func (s *APIKeyRepoSuite) TestListByGroupID() {
 	s.Require().NotNil(keys[0].User)
 }
 
-func (s *APIKeyRepoSuite) TestCountByGroupID() {
+func (s *APIKeyRepoSuite) TestCountAndListKeysByGroupIDIncludesMixedReferences() {
 	user := s.mustCreateUser("countgroup@test.com")
 	group := s.mustCreateGroup("g-count")
-	s.mustCreateApiKey(user.ID, "sk-gc-1", "K1", &group.ID)
+	direct := s.mustCreateApiKey(user.ID, "sk-gc-1", "K1", &group.ID)
+	primary := s.mustCreateGroup("g-count-primary")
+	primaryID := primary.ID
+	mixed := &service.APIKey{
+		UserID:        user.ID,
+		Key:           "sk-gc-mixed",
+		Name:          "Mixed",
+		GroupID:       &primaryID,
+		MixedMode:     true,
+		MixedGroupIDs: []int64{primary.ID, group.ID},
+		Status:        service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, mixed), "create mixed api key")
 
 	count, err := s.repo.CountByGroupID(s.ctx, group.ID)
 	s.Require().NoError(err, "CountByGroupID")
-	s.Require().Equal(int64(1), count)
+	s.Require().Equal(int64(2), count)
+
+	keys, err := s.repo.ListKeysByGroupID(s.ctx, group.ID)
+	s.Require().NoError(err, "ListKeysByGroupID")
+	s.Require().ElementsMatch([]string{direct.Key, mixed.Key}, keys)
 }
 
 // --- ExistsByKey ---

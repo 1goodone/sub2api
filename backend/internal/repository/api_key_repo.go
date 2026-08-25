@@ -23,6 +23,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqljson"
 )
 
 type apiKeyRepository struct {
@@ -857,10 +858,7 @@ func apiKeyReferencesGroup(groupID int64) predicate.APIKey {
 	return apikey.Or(
 		apikey.GroupIDEQ(groupID),
 		func(selector *entsql.Selector) {
-			selector.Where(entsql.ExprP(
-				"mixed_group_ids @> to_jsonb(ARRAY[?]::bigint[])",
-				groupID,
-			))
+			selector.Where(sqljson.ValueContains(apikey.FieldMixedGroupIds, groupID))
 		},
 	)
 }

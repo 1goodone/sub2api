@@ -2126,7 +2126,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
-	_, subscription = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
+	_, _ = syncCurrentAPIKeyRouting(c, c.Request.Context(), apiKey, subscription)
 	parsedReq.GroupID = apiKey.GroupID
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 
