@@ -117,6 +117,22 @@ func ProvideOpenAIOAuthService(
 	return svc
 }
 
+// ProvideOpenAIOAuthReauthService wires the durable mailbox/task flow while
+// keeping the pure HTTP protocol runner in a separately run worker process.
+func ProvideOpenAIOAuthReauthService(
+	repo OpenAIOAuthReauthRepository,
+	adminService AdminService,
+	accountRepo AccountRepository,
+	openaiOAuthService *OpenAIOAuthService,
+	secretEncryptor SecretEncryptor,
+	cfg *config.Config,
+	tokenCacheInvalidator TokenCacheInvalidator,
+	runtimeBlocker AccountRuntimeBlocker,
+) *OpenAIOAuthReauthService {
+	credentialUpdater, _ := accountRepo.(OpenAIOAuthReauthCredentialUpdater)
+	return NewOpenAIOAuthReauthService(repo, adminService, credentialUpdater, openaiOAuthService, secretEncryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured, tokenCacheInvalidator, runtimeBlocker)
+}
+
 // ProvideTokenRefreshService creates and starts TokenRefreshService
 func ProvideTokenRefreshService(
 	accountRepo AccountRepository,
@@ -882,6 +898,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
+	ProvideOpenAIOAuthReauthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	NewGeminiOAuthService,

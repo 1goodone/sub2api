@@ -354,6 +354,59 @@ export async function applyOAuthCredentials(
   return data
 }
 
+export interface OpenAIOAuthReauthConfig {
+  account_id: number
+  login_email: string
+  otp_url_masked?: string
+  configured: boolean
+  updated_at?: string
+}
+
+export type OpenAIOAuthReauthTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'callback_processing'
+  | 'succeeded'
+  | 'failed'
+
+export interface OpenAIOAuthReauthTask {
+  id: number
+  account_id: number
+  status: OpenAIOAuthReauthTaskStatus | string
+  stage: string
+  error?: string
+  attempt: number
+  created_at: string
+  updated_at: string
+  finished_at?: string
+}
+
+export interface OpenAIOAuthReauthStatus {
+  config?: OpenAIOAuthReauthConfig
+  task?: OpenAIOAuthReauthTask
+}
+
+export async function getOpenAIOAuthReauthStatus(id: number): Promise<OpenAIOAuthReauthStatus> {
+  const { data } = await apiClient.get<OpenAIOAuthReauthStatus>(`/admin/accounts/${id}/openai-reauth`)
+  return data
+}
+
+export async function saveOpenAIOAuthReauthConfig(
+  id: number,
+  payload: { login_email: string; otp_url: string }
+): Promise<OpenAIOAuthReauthConfig> {
+  const { data } = await apiClient.put<OpenAIOAuthReauthConfig>(
+    `/admin/accounts/${id}/openai-reauth/email`,
+    payload
+  )
+  return data
+}
+
+export async function startOpenAIOAuthReauth(id: number): Promise<OpenAIOAuthReauthTask> {
+  const { data } = await apiClient.post<OpenAIOAuthReauthTask>(`/admin/accounts/${id}/openai-reauth`)
+  return data
+}
+
 /**
  * Get account usage statistics
  * @param id - Account ID
@@ -1079,6 +1132,9 @@ export const accountsAPI = {
   testAccount,
   refreshCredentials,
   applyOAuthCredentials,
+  getOpenAIOAuthReauthStatus,
+  saveOpenAIOAuthReauthConfig,
+  startOpenAIOAuthReauth,
   getStats,
   clearError,
   getUsage,

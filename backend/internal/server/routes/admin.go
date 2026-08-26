@@ -23,6 +23,12 @@ func RegisterAdminRoutes(
 	// 插件 UI 使用短时能力 URL，仅提供经过安装校验的静态资源。
 	v1.GET("/plugin-ui/:token/*path", h.Admin.Plugin.ServeUIAsset)
 
+	// 纯协议 worker 不使用管理员 JWT。它必须提供独立的高熵
+	// OPENAI_REAUTH_WORKER_TOKEN，handler 还会校验任务归属。
+	if h != nil && h.Admin != nil && h.Admin.OpenAIOAuthReauth != nil {
+		registerOpenAIOAuthReauthWorkerRoutes(v1, h)
+	}
+
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
 	// 面板全局按用户限流（默认管理员豁免，可在系统设置中关闭豁免）
@@ -364,6 +370,11 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/ollama-cloud-usage/settings", h.Admin.Account.GetOllamaCloudUsageSettings)
 		accounts.PUT("/ollama-cloud-usage/settings", h.Admin.Account.UpdateOllamaCloudUsageSettings)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
+		if h.Admin.OpenAIOAuthReauth != nil {
+			accounts.GET("/:id/openai-reauth", h.Admin.OpenAIOAuthReauth.GetStatus)
+			accounts.PUT("/:id/openai-reauth/email", h.Admin.OpenAIOAuthReauth.SaveConfig)
+			accounts.POST("/:id/openai-reauth", h.Admin.OpenAIOAuthReauth.CreateTask)
+		}
 		accounts.POST("", h.Admin.Account.Create)
 		accounts.POST("/:id/duplicate", h.Admin.Account.Duplicate)
 		accounts.POST("/check-mixed-channel", h.Admin.Account.CheckMixedChannel)
@@ -425,6 +436,16 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
+	}
+}
+
+func registerOpenAIOAuthReauthWorkerRoutes(v1 *gin.RouterGroup, h *handler.Handlers) {
+	worker := v1.Group("/internal/openai-reauth")
+	{
+		worker.POST("/claim", h.Admin.OpenAIOAuthReauth.Claim)
+		worker.POST("/:task_id/progress", h.Admin.OpenAIOAuthReauth.Progress)
+		worker.POST("/:task_id/callback", h.Admin.OpenAIOAuthReauth.Callback)
+		worker.POST("/:task_id/fail", h.Admin.OpenAIOAuthReauth.Fail)
 	}
 }
 

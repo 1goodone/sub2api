@@ -13,7 +13,7 @@
         <div class="flex items-center gap-3">
           <div
             :class="[
-              'flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br',
               isOpenAILike
                 ? 'from-green-500 to-green-600'
                 : isGemini
@@ -27,8 +27,8 @@
           >
             <Icon name="sparkles" size="md" class="text-white" />
           </div>
-          <div>
-            <span class="block font-semibold text-gray-900 dark:text-white">{{
+          <div class="min-w-0">
+            <span class="block break-all font-semibold text-gray-900 dark:text-white">{{
               account.name
             }}</span>
             <span class="text-sm text-gray-500 dark:text-gray-400">
@@ -47,6 +47,146 @@
           </div>
         </div>
       </div>
+
+      <section
+        v-if="isOpenAI"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.openai.reauth.title') }}
+            </h3>
+            <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+              {{ t('admin.accounts.openai.reauth.subtitle') }}
+            </p>
+          </div>
+          <Icon name="mail" size="md" class="shrink-0 text-gray-500 dark:text-gray-400" />
+        </div>
+
+        <div
+          v-if="openaiReauthLoading"
+          class="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+          role="status"
+        >
+          <Icon name="refresh" size="sm" class="animate-spin motion-reduce:animate-none" />
+          <span>{{ t('admin.accounts.openai.reauth.loading') }}</span>
+        </div>
+
+        <form
+          v-else-if="showOpenAIReauthConfigForm"
+          class="mt-3 space-y-3"
+          @submit.prevent="saveOpenAIReauthConfig"
+        >
+          <label class="block">
+            <span class="input-label">{{ t('admin.accounts.openai.reauth.loginEmail') }}</span>
+            <input
+              v-model.trim="openaiReauthForm.login_email"
+              type="email"
+              autocomplete="email"
+              required
+              :disabled="openaiReauthSaving"
+              class="input mt-1 w-full"
+              :placeholder="t('admin.accounts.openai.reauth.loginEmailPlaceholder')"
+            />
+          </label>
+          <label class="block">
+            <span class="input-label">{{ t('admin.accounts.openai.reauth.otpUrl') }}</span>
+            <input
+              v-model.trim="openaiReauthForm.otp_url"
+              type="url"
+              autocomplete="off"
+              autocapitalize="none"
+              :spellcheck="false"
+              required
+              :disabled="openaiReauthSaving"
+              class="input mt-1 w-full"
+              :placeholder="t('admin.accounts.openai.reauth.otpUrlPlaceholder')"
+            />
+          </label>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="openaiReauthSaving"
+              @click="showOpenAIReauthConfigForm = false"
+            >
+              {{ t('common.cancel') }}
+            </button>
+            <button type="submit" class="btn btn-primary" :disabled="openaiReauthSaving">
+              <Icon name="check" size="sm" />
+              {{ openaiReauthSaving ? t('common.saving') : t('common.save') }}
+            </button>
+          </div>
+        </form>
+
+        <div v-else class="mt-3 space-y-3">
+          <div v-if="openaiReauthStatus?.config" class="space-y-1 text-sm text-gray-700 dark:text-gray-300">
+            <div class="flex items-center gap-2">
+              <Icon name="mail" size="sm" class="text-gray-500" />
+              <span class="break-all">{{ openaiReauthStatus.config.login_email }}</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <Icon name="link" size="sm" class="mt-0.5 shrink-0 text-gray-500" />
+              <span class="break-all text-xs text-gray-500 dark:text-gray-400">{{ openaiReauthStatus.config.otp_url_masked }}</span>
+            </div>
+          </div>
+          <p v-else class="text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.accounts.openai.reauth.notConfigured') }}
+          </p>
+
+          <div
+            v-if="openaiReauthStatus?.task"
+            class="flex items-start gap-2 border-l-2 border-gray-200 py-1 pl-3 text-sm dark:border-dark-600"
+            role="status"
+            aria-live="polite"
+          >
+            <Icon
+              :name="openaiReauthStatus.task.status === 'succeeded' ? 'checkCircle' : openaiReauthStatus.task.status === 'failed' ? 'exclamationCircle' : 'refresh'"
+              size="sm"
+              :class="openaiReauthStatus.task.status === 'succeeded' ? 'text-emerald-600' : openaiReauthStatus.task.status === 'failed' ? 'text-red-600' : 'animate-spin text-blue-600 motion-reduce:animate-none'"
+            />
+            <span class="min-w-0 break-words text-gray-700 dark:text-gray-300">
+              {{ openaiReauthTaskLabel(openaiReauthStatus.task) }}
+            </span>
+          </div>
+          <p v-if="openaiReauthStatus?.task?.status === 'failed' && openaiReauthStatus.task.error" class="break-words text-xs text-red-600 dark:text-red-400">
+            {{ openaiReauthStatus.task.error }}
+          </p>
+
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="openaiReauthSaving || openaiReauthTaskActive"
+              @click="openOpenAIReauthConfigForm"
+            >
+              <Icon :name="openaiReauthStatus?.config ? 'edit' : 'link'" size="sm" />
+              {{ openaiReauthStatus?.config ? t('admin.accounts.openai.reauth.editConfig') : t('admin.accounts.openai.reauth.addConfig') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="!openaiReauthStatus?.config || openaiReauthTaskActive || openaiReauthStarting"
+              @click="startOpenAIReauth"
+            >
+              <Icon
+                :name="openaiReauthStarting ? 'refresh' : 'login'"
+                size="sm"
+                :class="{ 'animate-spin motion-reduce:animate-none': openaiReauthStarting }"
+              />
+              {{ openaiReauthStarting ? t('admin.accounts.openai.reauth.starting') : t('admin.accounts.openai.reauth.start') }}
+            </button>
+          </div>
+        </div>
+        <p
+          v-if="openaiReauthError"
+          class="mt-3 text-sm text-red-600 dark:text-red-400"
+          role="alert"
+        >
+          {{ openaiReauthError }}
+        </p>
+      </section>
 
       <!-- Add Method Selection (Claude only) -->
       <fieldset v-if="isAnthropic" class="border-0 p-0">
@@ -190,10 +330,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import type {
+  OpenAIOAuthReauthStatus,
+  OpenAIOAuthReauthTask
+} from '@/api/admin/accounts'
 import {
   useAccountOAuth,
   type AddMethod,
@@ -246,6 +390,16 @@ const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 // State
 const addMethod = ref<AddMethod>('oauth')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
+const showOpenAIReauthConfigForm = ref(false)
+const openaiReauthForm = ref({ login_email: '', otp_url: '' })
+const openaiReauthStatus = ref<OpenAIOAuthReauthStatus | null>(null)
+const openaiReauthLoading = ref(false)
+const openaiReauthSaving = ref(false)
+const openaiReauthStarting = ref(false)
+const openaiReauthError = ref('')
+let openaiReauthPollTimer: ReturnType<typeof setInterval> | null = null
+let openaiReauthRequestAccountID: number | null = null
+let openaiReauthStartedTaskID: number | null = null
 
 // Computed - check platform
 const isOpenAI = computed(() => props.account?.platform === 'openai')
@@ -254,6 +408,10 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
+const openaiReauthTaskActive = computed(() => {
+  const status = openaiReauthStatus.value?.task?.status
+  return status === 'queued' || status === 'running' || status === 'callback_processing'
+})
 
 /**
  * Grok reauth default tab (password auth is hidden):
@@ -323,11 +481,144 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && sessionId && !loading
 })
 
+const openAIReauthErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === 'object') {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
+}
+
+const stopOpenAIReauthPolling = () => {
+  if (openaiReauthPollTimer !== null) {
+    clearInterval(openaiReauthPollTimer)
+    openaiReauthPollTimer = null
+  }
+}
+
+const startOpenAIReauthPolling = () => {
+  if (openaiReauthPollTimer !== null || !props.show || !openaiReauthTaskActive.value) return
+  openaiReauthPollTimer = setInterval(() => {
+    void loadOpenAIReauthStatus(false)
+  }, 2000)
+}
+
+const handleOpenAIReauthCompletion = async (task: OpenAIOAuthReauthTask) => {
+  if (task.id !== openaiReauthStartedTaskID || task.status !== 'succeeded' || !props.account) return
+  openaiReauthStartedTaskID = null
+  appStore.showSuccess(t('admin.accounts.openai.reauth.completed'))
+  try {
+    emit('reauthorized', await adminAPI.accounts.getById(props.account.id))
+  } catch {
+    // The credential update is already durable; the normal account refresh can retry later.
+  }
+}
+
+const loadOpenAIReauthStatus = async (showLoading = true) => {
+  const accountID = props.account?.id
+  if (!props.show || !isOpenAI.value || !accountID || openaiReauthRequestAccountID === accountID) return
+  openaiReauthRequestAccountID = accountID
+  if (showLoading) openaiReauthLoading.value = true
+  try {
+    const status = await adminAPI.accounts.getOpenAIOAuthReauthStatus(accountID)
+    if (!props.show || props.account?.id !== accountID) return
+    openaiReauthStatus.value = status
+    openaiReauthError.value = ''
+    if (status.config && !openaiReauthForm.value.login_email) {
+      openaiReauthForm.value.login_email = status.config.login_email
+    }
+    if (status.task && openaiReauthTaskActive.value && openaiReauthStartedTaskID === null) {
+      openaiReauthStartedTaskID = status.task.id
+    }
+    if (status.task) await handleOpenAIReauthCompletion(status.task)
+    if (openaiReauthTaskActive.value) startOpenAIReauthPolling()
+    else stopOpenAIReauthPolling()
+  } catch (error: unknown) {
+    if (props.show && props.account?.id === accountID) {
+      openaiReauthError.value = openAIReauthErrorMessage(
+        error,
+        t('admin.accounts.openai.reauth.loadFailed')
+      )
+    }
+  } finally {
+    if (openaiReauthRequestAccountID === accountID) openaiReauthRequestAccountID = null
+    if (showLoading && props.account?.id === accountID) openaiReauthLoading.value = false
+  }
+}
+
+const resetOpenAIReauthState = () => {
+  stopOpenAIReauthPolling()
+  showOpenAIReauthConfigForm.value = false
+  openaiReauthForm.value = { login_email: '', otp_url: '' }
+  openaiReauthStatus.value = null
+  openaiReauthLoading.value = false
+  openaiReauthSaving.value = false
+  openaiReauthStarting.value = false
+  openaiReauthError.value = ''
+  openaiReauthStartedTaskID = null
+}
+
+const openOpenAIReauthConfigForm = () => {
+  openaiReauthForm.value = {
+    login_email: openaiReauthStatus.value?.config?.login_email || '',
+    otp_url: ''
+  }
+  openaiReauthError.value = ''
+  showOpenAIReauthConfigForm.value = true
+}
+
+const saveOpenAIReauthConfig = async () => {
+  if (!props.account || openaiReauthSaving.value) return
+  openaiReauthSaving.value = true
+  openaiReauthError.value = ''
+  try {
+    const config = await adminAPI.accounts.saveOpenAIOAuthReauthConfig(
+      props.account.id,
+      openaiReauthForm.value
+    )
+    openaiReauthStatus.value = { ...(openaiReauthStatus.value || {}), config }
+    openaiReauthForm.value = { login_email: config.login_email, otp_url: '' }
+    showOpenAIReauthConfigForm.value = false
+    appStore.showSuccess(t('admin.accounts.openai.reauth.saved'))
+  } catch (error: unknown) {
+    openaiReauthError.value = openAIReauthErrorMessage(
+      error,
+      t('admin.accounts.openai.reauth.saveFailed')
+    )
+  } finally {
+    openaiReauthSaving.value = false
+  }
+}
+
+const startOpenAIReauth = async () => {
+  if (!props.account || openaiReauthStarting.value || openaiReauthTaskActive.value) return
+  openaiReauthStarting.value = true
+  openaiReauthError.value = ''
+  try {
+    const task = await adminAPI.accounts.startOpenAIOAuthReauth(props.account.id)
+    openaiReauthStatus.value = { ...(openaiReauthStatus.value || {}), task }
+    openaiReauthStartedTaskID = task.id
+    appStore.showSuccess(t('admin.accounts.openai.reauth.started'))
+    startOpenAIReauthPolling()
+  } catch (error: unknown) {
+    openaiReauthError.value = openAIReauthErrorMessage(
+      error,
+      t('admin.accounts.openai.reauth.startFailed')
+    )
+  } finally {
+    openaiReauthStarting.value = false
+  }
+}
+
+const openaiReauthTaskLabel = (task: OpenAIOAuthReauthTask) =>
+  t(`admin.accounts.openai.reauth.stages.${task.stage}`)
+
 // Watchers
 watch(
-  () => props.show,
-  (newVal) => {
-    if (newVal && props.account) {
+  [() => props.show, () => props.account?.id],
+  ([newShow]) => {
+    if (newShow && props.account) {
+      resetOpenAIReauthState()
       // Initialize addMethod based on current account type (Claude only)
       if (
         isAnthropic.value &&
@@ -344,6 +635,7 @@ watch(
               ? 'ai_studio'
               : 'code_assist'
       }
+      if (isOpenAI.value) void loadOpenAIReauthStatus()
     } else {
       resetState()
     }
@@ -352,6 +644,7 @@ watch(
 
 // Methods
 const resetState = () => {
+  resetOpenAIReauthState()
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
   claudeOAuth.resetState()
@@ -361,6 +654,8 @@ const resetState = () => {
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
+
+onBeforeUnmount(stopOpenAIReauthPolling)
 
 const handleClose = () => {
   emit('close')

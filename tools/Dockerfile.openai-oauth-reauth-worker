@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir curl_cffi==0.16.0
+
+WORKDIR /app
+COPY tools/openai_oauth_reauth_worker.py /app/openai_oauth_reauth_worker.py
+
+# Build with: docker build --build-context turb=/path/to/turb ...
+COPY --from=turb config /opt/turb/config
+COPY --from=turb core/__init__.py /opt/turb/core/__init__.py
+COPY --from=turb core/codex_oauth.py /opt/turb/core/codex_oauth.py
+COPY --from=turb core/humanize.py /opt/turb/core/humanize.py
+COPY --from=turb core/openai_auth.py /opt/turb/core/openai_auth.py
+COPY --from=turb core/sentinel.py /opt/turb/core/sentinel.py
+COPY --from=turb core/sentinel_runner.py /opt/turb/core/sentinel_runner.py
+COPY --from=turb core/session.py /opt/turb/core/session.py
+COPY --from=turb core/sms_provider.py /opt/turb/core/sms_provider.py
+COPY --from=turb sentinel /opt/turb/sentinel
+COPY --from=turb LICENSE /opt/turb/LICENSE
+
+RUN useradd --create-home --uid 10001 worker \
+    && chown -R worker:worker /app /opt/turb
+
+USER worker
+ENV CODEX_PROTOCOL_ROOT=/opt/turb \
+    NODE_EXECUTABLE=node \
+    PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "/app/openai_oauth_reauth_worker.py"]
