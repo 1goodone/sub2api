@@ -10,13 +10,16 @@ from types import SimpleNamespace
 
 from tools.openai_oauth_reauth_worker import (
     OTPURLProvider,
+    ProtocolHTTPError,
     WorkerConfig,
     WorkerError,
     _auth_session_flow,
+    _checked_bootstrap_authorize,
     _email_submission_state,
     _has_passwordless_intent,
     _start_passwordless_login,
     _is_local_codex_callback,
+    _safe_openai_endpoint,
     process_claim,
     _wait_for_otp,
     extract_otp,
@@ -39,6 +42,87 @@ class OTPHandler(BaseHTTPRequestHandler):
 
 
 class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
+    def test_bootstrap_reports_safe_endpoint_instead_of_circuit_cooldown(self):
+        self.assertEqual(
+            _safe_openai_endpoint("https://example.com/secret?state=secret"),
+            "[redacted endpoint]",
+        )
+
+        class Response:
+            status_code = 403
+            url = "https://auth.openai.com/log-in?state=secret&code=secret"
+
+        class Session:
+            def get(self, *_args, **_kwargs):
+                return Response()
+
+        session = Session()
+
+        def bootstrap(active_session, _state, auth_url=None):
+            active_session.get(auth_url)
+
+        with self.assertRaisesRegex(
+            ProtocolHTTPError,
+            r"OpenAI OAuth bootstrap returned HTTP 403 at auth\.openai\.com/log-in$",
+        ):
+            _checked_bootstrap_authorize(
+                session,
+                bootstrap,
+                "state-1",
+                auth_url="https://auth.openai.com/oauth/authorize?state=secret",
+            )
+
+    def test_process_claim_retries_bootstrap_403_with_a_fresh_session(self):
+        events = []
+        sessions = []
+
+        class FakeSession:
+            def __init__(self):
+                self.number = len(sessions) + 1
+                self.session = SimpleNamespace(close=lambda: events.append(("close", self.number)))
+                sessions.append(self)
+
+        class FakeProtocol:
+            class AccountUnusableError(Exception):
+                pass
+
+            ProtocolSession = lambda **_kwargs: FakeSession()
+
+            @staticmethod
+            def bootstrap_authorize(session, _state, auth_url=None):
+                events.append(("bootstrap", session.number))
+                if session.number == 1:
+                    raise ProtocolHTTPError("OpenAI OAuth bootstrap", 403, auth_url)
+
+            submit_email = staticmethod(lambda session, _email: events.append(("email", session.number)))
+            resend_email_otp = staticmethod(lambda _session: None)
+            submit_email_otp = staticmethod(lambda _session, _code: None)
+            select_workspace_and_get_callback = staticmethod(
+                lambda _session, _state: "http://localhost:1455/auth/callback?code=callback-code&state=state-1"
+            )
+            extract_code = staticmethod(lambda _callback, _state: "callback-code")
+
+        class FakeAPI:
+            progress = staticmethod(lambda _task_id, _stage: None)
+            callback = staticmethod(lambda _task_id, _callback: {"status": "succeeded"})
+
+        claim = {
+            "task_id": 7,
+            "account_id": 42,
+            "login_email": "mail@example.com",
+            "otp_url": "http://127.0.0.1:12345/code",
+            "auth_url": "https://auth.openai.com/authorize?state=state-1",
+        }
+        with (
+            patch("tools.openai_oauth_reauth_worker.time.sleep"),
+            patch("tools.openai_oauth_reauth_worker._wait_for_otp", return_value="482931"),
+        ):
+            process_claim(FakeAPI(), FakeProtocol, claim)
+
+        self.assertEqual([event for event in events if event[0] == "bootstrap"], [("bootstrap", 1), ("bootstrap", 2)])
+        self.assertEqual([event for event in events if event[0] == "email"], [("email", 2)])
+        self.assertEqual([event for event in events if event[0] == "close"], [("close", 1), ("close", 2)])
+
     def test_auth_session_flow_exposes_only_safe_state(self):
         payload = {
             "email": "mail@example.com",

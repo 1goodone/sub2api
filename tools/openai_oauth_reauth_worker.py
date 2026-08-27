@@ -54,12 +54,62 @@ class WorkerError(RuntimeError):
     pass
 
 
+class ProtocolHTTPError(WorkerError):
+    def __init__(self, stage: str, status_code: int, url: str):
+        self.status_code = status_code
+        self.endpoint = _safe_openai_endpoint(url)
+        super().__init__(f"{stage} returned HTTP {status_code} at {self.endpoint}")
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
 NO_REDIRECT_OPENER = build_opener(_NoRedirect)
+
+
+def _safe_openai_endpoint(url: str) -> str:
+    try:
+        parsed = urlparse(str(url or ""))
+    except ValueError:
+        return "[redacted endpoint]"
+    if (
+        parsed.scheme != "https"
+        or (parsed.hostname or "").lower() not in {"auth.openai.com", "sentinel.openai.com", "chatgpt.com"}
+        or parsed.port not in (None, 443)
+        or parsed.username
+        or parsed.password
+    ):
+        return "[redacted endpoint]"
+    return f"{parsed.hostname.lower()}{(parsed.path or '/')[:160]}"
+
+
+def _checked_bootstrap_authorize(
+    session: Any,
+    bootstrap: Callable[..., Any],
+    state: str,
+    *,
+    auth_url: str,
+) -> None:
+    original_get = session.get
+
+    def checked_get(url: str, *args: Any, **kwargs: Any) -> Any:
+        response = original_get(url, *args, **kwargs)
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        if status_code >= 400:
+            raise ProtocolHTTPError(
+                "OpenAI OAuth bootstrap",
+                status_code,
+                str(getattr(response, "url", "") or url),
+            )
+        return response
+
+    session.get = checked_get
+    try:
+        bootstrap(session, state, auth_url=auth_url)
+    finally:
+        session.get = original_get
 
 
 class _PasswordlessIntentParser(HTMLParser):
@@ -448,7 +498,12 @@ def load_protocol(root: Path) -> SimpleNamespace:
     return SimpleNamespace(
         ProtocolSession=ProtocolSession,
         AccountUnusableError=AccountUnusableError,
-        bootstrap_authorize=_bootstrap_authorize,
+        bootstrap_authorize=lambda session, state, auth_url=None: _checked_bootstrap_authorize(
+            session,
+            _bootstrap_authorize,
+            state,
+            auth_url=str(auth_url or ""),
+        ),
         submit_email=submit_email,
         start_passwordless_login=_start_passwordless_login,
         resend_email_otp=send_email_otp,
@@ -612,12 +667,26 @@ def process_claim(api: WorkerAPI, protocol: SimpleNamespace, claim: dict[str, An
         _best_effort_progress(api, task_id, "protocol_connecting")
         # An empty proxy explicitly means direct connection.  Do not let the
         # Turb project silently choose a local proxy pool for this worker.
-        session = protocol.ProtocolSession(
-            proxy=proxy_url or "",
-            detect_exit_geo=bool(proxy_url),
-            use_exit_geo_cache=False,
-        )
-        protocol.bootstrap_authorize(session, state, auth_url=auth_url)
+        for bootstrap_attempt in (1, 2):
+            session = protocol.ProtocolSession(
+                proxy=proxy_url or "",
+                detect_exit_geo=bool(proxy_url),
+                use_exit_geo_cache=False,
+            )
+            try:
+                protocol.bootstrap_authorize(session, state, auth_url=auth_url)
+                break
+            except ProtocolHTTPError as exc:
+                _close_protocol_session(session)
+                session = None
+                if exc.status_code != 403 or bootstrap_attempt == 2:
+                    raise
+                LOGGER.warning(
+                    "task=%s OAuth bootstrap received HTTP 403 at %s; retrying once with a fresh protocol session",
+                    task_id,
+                    exc.endpoint,
+                )
+                time.sleep(1.0)
         otp_after_ts = time.time()
         submission = protocol.submit_email(session, email)
         page_type, continue_path = _email_submission_state(submission)
