@@ -890,6 +890,12 @@ func (r *accountRepository) ApplyOpenAIOAuthReauth(
 	if err != nil {
 		return false, err
 	}
+	var subscriptionExpiresAt *time.Time
+	if raw, ok := credentials["subscription_expires_at"].(string); ok {
+		if parsed, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(raw)); parseErr == nil {
+			subscriptionExpiresAt = &parsed
+		}
+	}
 	result, err := r.sql.ExecContext(ctx, `
 		WITH locked_task AS (
 		SELECT task.id, task.account_id
@@ -906,6 +912,7 @@ func (r *accountRepository) ApplyOpenAIOAuthReauth(
 				WHEN $2::jsonb = '{}'::jsonb THEN a.extra
 				ELSE COALESCE(a.extra, '{}'::jsonb) || $2::jsonb
 			END,
+			expires_at = COALESCE($14::timestamptz, a.expires_at),
 			status = $5,
 			error_message = '',
 			schedulable = TRUE,
@@ -943,7 +950,8 @@ func (r *accountRepository) ApplyOpenAIOAuthReauth(
 		service.StatusActive, service.PlatformOpenAI, service.AccountTypeOAuth,
 		service.SchedulerOutboxEventAccountChanged, taskID, workerID,
 		service.OpenAIOAuthReauthStatusCallbackProcessing,
-		service.OpenAIOAuthReauthStatusSucceeded, service.OpenAIOAuthReauthStageSucceeded)
+		service.OpenAIOAuthReauthStatusSucceeded, service.OpenAIOAuthReauthStageSucceeded,
+		subscriptionExpiresAt)
 	if err != nil {
 		return false, err
 	}
