@@ -127,7 +127,7 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
         self.assertEqual(calls[1][2]["content-type"], "application/json")
         self.assertFalse(calls[1][3])
 
-    def test_process_claim_uses_codex_protocol_flow(self):
+    def test_process_claim_uses_codex_protocol_flow_without_chatgpt_preflight(self):
         events = []
 
         class FakeSession:
@@ -142,7 +142,7 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
 
             @staticmethod
             def network_preflight(_session):
-                events.append("preflight")
+                raise AssertionError("ChatGPT preflight must not run for OAuth re-login")
 
             @staticmethod
             def bootstrap_authorize(_session, state, auth_url=None):
@@ -189,7 +189,6 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
             process_claim(FakeAPI(), FakeProtocol, claim)
 
         names = [item[0] if isinstance(item, tuple) else item for item in events]
-        self.assertLess(names.index("preflight"), names.index("bootstrap"))
         self.assertLess(names.index("bootstrap"), names.index("email"))
         self.assertLess(names.index("email"), names.index("otp"))
         self.assertLess(names.index("otp"), names.index("workspace"))
@@ -365,6 +364,12 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
         self.assertNotIn("user@example.com", safe)
         self.assertNotIn("hidden", safe)
         self.assertNotIn("eyJ", safe)
+
+    def test_sanitizes_provider_html_errors(self):
+        safe = sanitize_error(
+            "chatgpt-login status=403, body=<html><style>body{color:red}</style><body>Access denied</body></html>"
+        )
+        self.assertEqual(safe, "chatgpt-login status=403, body= Access denied")
 
     def test_wait_for_otp_skips_a_code_that_already_failed(self):
         codes = iter(("123456", "654321"))

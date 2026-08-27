@@ -421,7 +421,7 @@ def load_protocol(root: Path) -> SimpleNamespace:
         build_sentinel_header,
         request_sentinel_token,
     )
-    from core.openai_auth import AccountUnusableError, network_preflight, send_email_otp
+    from core.openai_auth import AccountUnusableError, send_email_otp
     # Turb keeps this class name for historical reasons; it is a curl_cffi
     # HTTP session and never launches a browser.
     from core.session import BrowserSession as ProtocolSession
@@ -448,7 +448,6 @@ def load_protocol(root: Path) -> SimpleNamespace:
     return SimpleNamespace(
         ProtocolSession=ProtocolSession,
         AccountUnusableError=AccountUnusableError,
-        network_preflight=network_preflight,
         bootstrap_authorize=_bootstrap_authorize,
         submit_email=submit_email,
         start_passwordless_login=_start_passwordless_login,
@@ -474,6 +473,8 @@ def sanitize_error(value: str) -> str:
     text = JWT_RE.sub("[redacted token]", text)
     text = BEARER_RE.sub("Bearer [redacted]", text)
     text = CODE_RE.sub("[redacted OTP]", text)
+    text = re.sub(r"(?is)<(?:style|script)[^>]*>.*?</(?:style|script)>", " ", text)
+    text = html.unescape(re.sub(r"(?s)<[^>]+>", " ", text))
     text = re.sub(r"\s+", " ", text).strip()
     return (text or "automatic re-login failed")[:500]
 
@@ -616,7 +617,6 @@ def process_claim(api: WorkerAPI, protocol: SimpleNamespace, claim: dict[str, An
             detect_exit_geo=bool(proxy_url),
             use_exit_geo_cache=False,
         )
-        protocol.network_preflight(session)
         protocol.bootstrap_authorize(session, state, auth_url=auth_url)
         otp_after_ts = time.time()
         submission = protocol.submit_email(session, email)
