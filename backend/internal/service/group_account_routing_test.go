@@ -419,6 +419,46 @@ func TestOpenAIFocusPoolEscapesBusyStickyAccount(t *testing.T) {
 	}
 }
 
+func TestOpenAIFocusPoolSkipsUnavailableAccountUntilRecovery(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(48)
+	firstFocusID := int64(481)
+	secondFocusID := int64(482)
+	group := routingTestGroup(groupID)
+	group.FocusAccountIDs = []int64{firstFocusID, secondFocusID}
+	accounts := []Account{
+		routingTestAccount(firstFocusID, groupID, AccountTypeOAuth, 0),
+		routingTestAccount(secondFocusID, groupID, AccountTypeOAuth, 100),
+	}
+	svc := routingTestOpenAIService(accounts, &schedulerTestGatewayCache{}, schedulerTestConcurrencyCache{})
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	blockedUntil := time.Now().Add(time.Minute)
+	accounts[0].RateLimitResetAt = &blockedUntil
+	svc.BlockAccountScheduling(&accounts[0], blockedUntil, "429")
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, secondFocusID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+
+	accounts[0].RateLimitResetAt = nil
+	svc.ClearAccountSchedulingBlock(firstFocusID)
+	selection, _, err = svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, firstFocusID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestGatewayFocusPoolEscapesBusyStickyAccount(t *testing.T) {
 	groupID := int64(47)
 	firstFocusID := int64(471)

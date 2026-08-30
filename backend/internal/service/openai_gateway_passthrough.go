@@ -1563,6 +1563,23 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	message string,
 	headers http.Header,
 ) (int, bool) {
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	return s.handleOpenAIStreamTerminalAccountSideEffectsWithContext(ctx, account, payload, message, headers)
+}
+
+func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffectsWithContext(
+	ctx context.Context,
+	account *Account,
+	payload []byte,
+	message string,
+	headers http.Header,
+) (int, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
 	case http.StatusForbidden:
@@ -1571,10 +1588,6 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 		}
 		fallthrough
 	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-		ctx := context.Background()
-		if c != nil && c.Request != nil {
-			ctx = c.Request.Context()
-		}
 		accountHeaders := headers
 		if statusCode == http.StatusTooManyRequests {
 			// The enclosing HTTP response succeeded. Its quota snapshot describes

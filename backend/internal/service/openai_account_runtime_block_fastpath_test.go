@@ -6,16 +6,20 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
 type oauth429RateLimitRepo struct {
 	mockAccountRepoForGemini
 	setRateLimitedCalls  int
+	setErrorCalls        int
 	lastRateLimitedUntil time.Time
 }
 
@@ -23,6 +27,15 @@ func (r *oauth429RateLimitRepo) SetRateLimited(_ context.Context, _ int64, until
 	r.setRateLimitedCalls++
 	r.lastRateLimitedUntil = until
 	return nil
+}
+
+func (r *oauth429RateLimitRepo) SetError(_ context.Context, _ int64, _ string) error {
+	r.setErrorCalls++
+	return nil
+}
+
+func (r *oauth429RateLimitRepo) ClaimCodexQuotaOverdraftProbe(context.Context, int64, *CodexQuotaOverdraftProbeState) (bool, error) {
+	return false, nil
 }
 
 func TestOpenAI429FastPath_KeepsOAuthAccountSchedulableDuringRetryWindow(t *testing.T) {
@@ -92,6 +105,245 @@ func TestOpenAI429FastPath_RetriesOAuthWhenNoQuotaSignalExists(t *testing.T) {
 
 	require.True(t, svc.ShouldRetryOpenAIOAuth429(account, headers, []byte(`{"error":{"type":"rate_limit_error","message":"try again"}}`)))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestOpenAI429FastPath_FocusOAuthStopsSameAccountRetryAndPersistsCooldown(t *testing.T) {
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{ID: 425, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	group := &Group{
+		ID:              7,
+		Platform:        PlatformOpenAI,
+		Status:          StatusActive,
+		Hydrated:        true,
+		FocusAccountIDs: []int64{account.ID},
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}}
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+		ctx,
+		nil,
+		account,
+		resp,
+		[]byte(`{"error":{"type":"rate_limit_error","message":"try again"}}`),
+		"try again",
+		"gpt-5.4",
+	)
+
+	require.NotNil(t, failoverErr)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.SameAccountRetryDeadline.IsZero())
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+	require.Greater(t, repo.lastRateLimitedUntil, time.Now())
+	_, retryWindowCreated := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
+	require.False(t, retryWindowCreated)
+}
+
+func TestOpenAI429FastPath_FocusPoolModePersistsCooldownInsteadOfRetrying(t *testing.T) {
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{
+		ID:       426,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode": true,
+		},
+	}
+	group := &Group{
+		ID:             8,
+		Platform:       PlatformOpenAI,
+		Status:         StatusActive,
+		Hydrated:       true,
+		FocusAccountID: &account.ID,
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}}
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+		ctx,
+		nil,
+		account,
+		resp,
+		[]byte(`{"error":{"type":"rate_limit_error","message":"rate limited"}}`),
+		"rate limited",
+		"gpt-5.4",
+	)
+
+	require.NotNil(t, failoverErr)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestOpenAI429FastPath_FocusPoolModePersistsAuthFailures(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		statusCode int
+		body       []byte
+	}{
+		{name: "unauthorized", statusCode: http.StatusUnauthorized, body: []byte(`{"error":{"message":"invalid api key"}}`)},
+		{name: "forbidden", statusCode: http.StatusForbidden, body: []byte(`{"error":{"message":"account access forbidden"}}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &oauth429RateLimitRepo{}
+			rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+			rateLimits.SetAccountRuntimeBlocker(svc)
+			account := &Account{
+				ID:       428,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"pool_mode": true,
+				},
+			}
+			group := &Group{
+				ID:              10,
+				Platform:        PlatformOpenAI,
+				Status:          StatusActive,
+				Hydrated:        true,
+				FocusAccountIDs: []int64{account.ID},
+			}
+			ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+			resp := &http.Response{StatusCode: test.statusCode, Header: http.Header{}}
+
+			failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+				ctx,
+				nil,
+				account,
+				resp,
+				test.body,
+				extractUpstreamErrorMessage(test.body),
+				"gpt-5.4",
+			)
+
+			require.NotNil(t, failoverErr)
+			require.False(t, failoverErr.RetryableOnSameAccount)
+			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			require.Equal(t, 1, repo.setErrorCalls)
+		})
+	}
+}
+
+func TestOpenAI429FastPath_FocusQuotaOverdraftStillPersistsCooldown(t *testing.T) {
+	previous := CodexQuotaOverdraftEnabled()
+	SetCodexQuotaOverdraftEnabled(true)
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(previous) })
+
+	cfg := &config.Config{Gateway: config.GatewayConfig{CodexQuotaOverdraftEnabled: true}}
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, cfg, nil, nil)
+	svc := &OpenAIGatewayService{cfg: cfg, rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	svc.codexQuotaOverdraft = NewCodexQuotaOverdraftCoordinator(repo, &queuedHTTPUpstream{}, nil, nil, cfg, nil, svc, rateLimits)
+	account := &Account{
+		ID:       429,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			CodexQuotaOverdraftEnabledExtraKey: true,
+		},
+	}
+	group := &Group{
+		ID:             11,
+		Platform:       PlatformOpenAI,
+		Status:         StatusActive,
+		Hydrated:       true,
+		FocusAccountID: &account.ID,
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"usage limit has been reached"}}`)
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}}
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(ctx, nil, account, resp, body, "usage limit has been reached", "gpt-5.4")
+
+	require.NotNil(t, failoverErr)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestOpenAI429FastPath_BlockedAccountCannotRegainSameAccountCapacityRetry(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 430, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	svc.BlockAccountScheduling(account, time.Time{}, "auth_error")
+	body := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+
+	failoverErr := svc.newOpenAIAccountFailoverError(
+		account,
+		http.StatusServiceUnavailable,
+		nil,
+		body,
+		"Our servers are currently overloaded. Please try again later.",
+		false,
+		false,
+	)
+
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+}
+
+func TestOpenAI429FastPath_FocusStreamPreservesRoutingContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{ID: 431, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	group := &Group{
+		ID:              12,
+		Platform:        PlatformOpenAI,
+		Status:          StatusActive,
+		Hydrated:        true,
+		FocusAccountIDs: []int64{account.ID},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(
+		context.WithValue(context.Background(), ctxkey.Group, group),
+	)
+	payload := []byte(`{"type":"response.failed","response":{"error":{"type":"rate_limit_error","message":"try again"}}}`)
+
+	statusCode, disabled := svc.handleOpenAIStreamTerminalAccountSideEffects(c, account, payload, "try again", nil)
+
+	require.Equal(t, http.StatusTooManyRequests, statusCode)
+	require.False(t, disabled)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestOpenAI429FastPath_FocusWebSocketPreservesRoutingContext(t *testing.T) {
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{ID: 427, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	group := &Group{
+		ID:              9,
+		Platform:        PlatformOpenAI,
+		Status:          StatusActive,
+		Hydrated:        true,
+		FocusAccountIDs: []int64{account.ID},
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	payload := []byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`)
+
+	applied := svc.handleOpenAIWSFailureAccountSideEffects(ctx, account, "gpt-5.4", nil, payload)
+	failoverErr := svc.newOpenAIWSRateLimitFailoverError(account, nil, payload, "slow down")
+
+	require.True(t, applied)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+	require.Greater(t, repo.lastRateLimitedUntil, time.Now())
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.SameAccountRetryDeadline.IsZero())
 }
 
 func TestOpenAIStream429IgnoresSuccessfulQuotaSnapshotHeaders(t *testing.T) {
