@@ -68,6 +68,11 @@ type UpdateAPIKeyRequest struct {
 	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
 }
 
+// UpdateAPIKeyGroupRequest is the only API key mutation accepted from desktop sessions.
+type UpdateAPIKeyGroupRequest struct {
+	GroupID int64 `json:"group_id" binding:"required,gt=0"`
+}
+
 func validAPIKeyLimit(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
 
 func validateAPIKeyCreateRequest(req CreateAPIKeyRequest) error {
@@ -298,6 +303,40 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		return
 	}
 
+	response.Success(c, dto.APIKeyFromService(key))
+}
+
+// UpdateGroup handles changing an API key's group from a restricted desktop session.
+// PUT /api/v1/desktop/keys/:id/group
+func (h *APIKeyHandler) UpdateGroup(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || keyID <= 0 {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	var req UpdateAPIKeyGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: group_id must be a positive integer")
+		return
+	}
+
+	if _, err := h.apiKeyService.Update(c.Request.Context(), keyID, subject.UserID, service.UpdateAPIKeyRequest{GroupID: &req.GroupID}); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, dto.APIKeyFromService(key))
 }
 

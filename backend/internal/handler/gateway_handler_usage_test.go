@@ -49,3 +49,41 @@ func TestUsageUnrestrictedIncludesWeeklyWindowStart(t *testing.T) {
 	require.NotNil(t, response.Subscription.WeeklyWindowStart)
 	require.True(t, weeklyWindowStart.Equal(*response.Subscription.WeeklyWindowStart))
 }
+
+func TestUsageSummarySkipsDetailedQueryParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/usage?summary=1&days=invalid", nil)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:        1,
+		Status:    service.StatusAPIKeyActive,
+		Quota:     10,
+		QuotaUsed: 7,
+	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 2})
+
+	(&GatewayHandler{}).Usage(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, float64(3), response["remaining"])
+	require.NotContains(t, response, "usage")
+	require.NotContains(t, response, "daily_usage")
+	require.NotContains(t, response, "model_stats")
+}
+
+func TestUsageDetailedStillRejectsInvalidDays(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/usage?days=invalid", nil)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 1, Status: service.StatusAPIKeyActive})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 2})
+
+	(&GatewayHandler{}).Usage(c)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+}

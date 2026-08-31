@@ -544,6 +544,21 @@ export default {
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
     closeDetail: '关闭',
+    summary: {
+      operational: '所有渠道运行正常',
+      degraded: '部分渠道存在波动',
+      counts: '{operational} 个正常 · {degraded} 个降级 · {failed} 个异常'
+    },
+    actions: {
+      expand: '展开渠道详情',
+      viewModels: '查看模型详情'
+    },
+    details: {
+      checkCounts: '最近探测统计',
+      timeline: '探测详情（从左到右时间由远及近）',
+      lastIncident: '最近异常',
+      noIncident: '最近探测中没有异常'
+    },
     windowTab: {
       '7d': '7 天',
       '15d': '15 天',
@@ -556,6 +571,9 @@ export default {
     },
     columns: {
       name: '名称',
+      status: '状态',
+      availability: '可用率',
+      recentChecks: '最近 60 次探测',
       provider: '供应商',
       groupName: '分组',
       primaryModel: '主模型',

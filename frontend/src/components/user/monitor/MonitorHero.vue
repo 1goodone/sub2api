@@ -1,6 +1,20 @@
 <template>
   <section class="py-3 md:py-4">
-    <div class="flex items-center justify-end gap-3 flex-wrap">
+    <div class="mb-4">
+      <h1 class="text-2xl font-semibold text-gray-950 dark:text-white">{{ t('channelStatus.title') }}</h1>
+      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('channelStatus.description') }}</p>
+    </div>
+    <div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-sm dark:border-dark-700 dark:bg-dark-800 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div class="flex min-w-0 items-center gap-3">
+        <span class="grid h-11 w-11 shrink-0 place-items-center rounded-full border" :class="summaryIconClass">
+          <Icon :name="overallStatus === 'operational' ? 'checkCircle' : 'bolt'" size="lg" />
+        </span>
+        <div class="min-w-0">
+          <p class="font-semibold text-gray-900 dark:text-gray-100">{{ summaryTitle }}</p>
+          <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">{{ summaryDetail }}</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 sm:justify-end">
       <div
         role="tablist"
         class="inline-flex p-0.5 rounded-xl bg-gray-100 dark:bg-dark-800 border border-gray-200/60 dark:border-dark-700/60 text-xs"
@@ -21,17 +35,6 @@
         </button>
       </div>
 
-      <span
-        class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wider uppercase"
-        :class="overallChipClass"
-      >
-        <span
-          class="w-1.5 h-1.5 rounded-full mr-1.5"
-          :class="overallDotClass"
-        ></span>
-        {{ overallLabel }}
-      </span>
-
       <button
         type="button"
         class="h-8 w-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-dark-700 transition-colors disabled:opacity-50"
@@ -51,6 +54,7 @@
         @update:enabled="autoRefresh.setEnabled"
         @update:interval="autoRefresh.setInterval"
       />
+      </div>
     </div>
   </section>
 </template>
@@ -58,6 +62,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { UserMonitorView } from '@/api/channelMonitor'
 import Icon from '@/components/icons/Icon.vue'
 import AutoRefreshButton from '@/components/common/AutoRefreshButton.vue'
 export type MonitorWindow = '7d' | '15d' | '30d'
@@ -65,6 +70,7 @@ export type OverallStatus = 'operational' | 'degraded'
 
 const props = defineProps<{
   overallStatus: OverallStatus
+  items: UserMonitorView[]
   intervalSeconds: number
   window: MonitorWindow
   loading: boolean
@@ -91,26 +97,16 @@ const windowOptions = computed<{ value: MonitorWindow; label: string }[]>(() => 
   { value: '30d', label: t('channelStatus.windowTab.30d') },
 ])
 
-const overallLabel = computed(() => t(`channelStatus.overall.${props.overallStatus}`))
+const counts = computed(() => ({
+  operational: props.items.filter(item => item.primary_status === 'operational').length,
+  degraded: props.items.filter(item => item.primary_status === 'degraded').length,
+  failed: props.items.filter(item => item.primary_status === 'failed' || item.primary_status === 'error').length,
+}))
 
-const overallChipClass = computed(() => {
-  switch (props.overallStatus) {
-    case 'operational':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-    case 'degraded':
-    default:
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
-  }
-})
-
-const overallDotClass = computed(() => {
-  switch (props.overallStatus) {
-    case 'operational':
-      return 'bg-emerald-500 animate-pulse'
-    case 'degraded':
-    default:
-      return 'bg-amber-500 animate-pulse'
-  }
-})
+const summaryTitle = computed(() => t(`channelStatus.summary.${props.overallStatus}`))
+const summaryDetail = computed(() => t('channelStatus.summary.counts', counts.value))
+const summaryIconClass = computed(() => props.overallStatus === 'operational'
+  ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+  : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300')
 
 </script>

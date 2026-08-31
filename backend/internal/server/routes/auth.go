@@ -24,6 +24,7 @@ func RegisterAuthRoutes(
 ) {
 	// 创建速率限制器
 	rateLimiter := middleware.NewRateLimiter(redisClient)
+	desktopAuth := handler.NewDesktopAuthHandler(redisClient, h.Auth)
 
 	// 公开接口
 	auth := v1.Group("/auth")
@@ -41,6 +42,12 @@ func RegisterAuthRoutes(
 		auth.POST("/login/2fa", rateLimiter.LimitWithOptions("auth-login-2fa", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Auth.Login2FA)
+		auth.POST("/desktop/start", rateLimiter.LimitWithOptions("auth-desktop-start", 10, time.Minute, middleware.RateLimitOptions{
+			FailureMode: middleware.RateLimitFailClose,
+		}), desktopAuth.Start)
+		auth.POST("/desktop/token", rateLimiter.LimitWithOptions("auth-desktop-token", 60, time.Minute, middleware.RateLimitOptions{
+			FailureMode: middleware.RateLimitFailClose,
+		}), desktopAuth.Exchange)
 		auth.POST("/passkey/login/begin", rateLimiter.LimitWithOptions("passkey-login-begin", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Passkey.BeginLogin)
@@ -255,8 +262,37 @@ func RegisterAuthRoutes(
 	authenticated.Use(panelRateLimiter.Global())
 	{
 		authenticated.GET("/auth/me", h.Auth.GetCurrentUser)
+		authenticated.POST("/auth/desktop/approve", desktopAuth.Approve)
 		// 撤销所有会话（需要认证）
 		authenticated.POST("/auth/revoke-all-sessions", h.Auth.RevokeAllSessions)
 		authenticated.POST("/auth/oauth/bind-token", h.Auth.PrepareOAuthBindAccessTokenCookie)
+	}
+
+	// Desktop device tokens are restricted to this personal surface. The only write
+	// operation changes the group of a user-owned key through a dedicated handler.
+	desktop := v1.Group("/desktop")
+	desktop.Use(desktopAuth.Authenticate())
+	desktop.Use(servermiddleware.BackendModeUserGuard(settingService))
+	if panelRateLimiter != nil {
+		desktop.Use(panelRateLimiter.Global())
+	}
+	desktop.Use(gin.HandlerFunc(auditLog))
+	{
+		desktop.GET("/profile", h.User.GetProfile)
+		desktop.GET("/keys", h.APIKey.List)
+		desktop.GET("/keys/:id", h.APIKey.GetByID)
+		desktop.PUT("/keys/:id/group", h.APIKey.UpdateGroup)
+		desktop.GET("/groups/available", h.APIKey.GetAvailableGroups)
+		desktop.GET("/subscriptions/summary", h.Subscription.GetSummary)
+		desktop.GET("/channel-monitors", h.ChannelMonitor.List)
+		desktop.DELETE("/session", desktopAuth.Revoke)
+
+		usage := desktop.Group("/usage")
+		if panelRateLimiter != nil {
+			usage.Use(panelRateLimiter.Heavy())
+		}
+		usage.GET("/stats", h.Usage.Stats)
+		usage.GET("/dashboard/stats", h.Usage.DashboardStats)
+		usage.GET("/dashboard/snapshot-v2", h.Usage.DashboardSnapshotV2)
 	}
 }

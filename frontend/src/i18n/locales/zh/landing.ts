@@ -12,6 +12,7 @@ export default {
     switchToDark: '切换到深色模式',
     dashboard: '控制台',
     login: '登录',
+    desktopDownload: '下载桌面端',
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张
@@ -111,6 +112,34 @@ export default {
     },
     footer: {
       allRightsReserved: '保留所有权利。'
+    }
+  },
+
+  // Desktop companion download page
+  desktop: {
+    title: '小羊咩咩桌面端',
+    subtitle: '把余额提醒和站点配置带到桌面上。支持 Windows 与 macOS。',
+    description: '小羊咩咩会常驻桌面，在余额低于阈值时提醒你，并可协助完成站点连接、分组选择和应用配置。',
+    latestRelease: '下载最新版本',
+    releaseNote: '选择你的系统后会直接下载安装包；浏览器会要求你确认并手动启动安装。',
+    windows: 'Windows',
+    windowsDetail: 'Windows 10/11 · x64',
+    windowsArch: 'x64',
+    macArm: 'macOS Apple Silicon',
+    macArmDetail: 'M 系列芯片',
+    macArmArch: 'arm64',
+    macIntel: 'macOS Intel',
+    macIntelDetail: 'Intel 芯片',
+    macIntelArch: 'x64',
+    features: {
+      balance: '余额提醒',
+      balanceDetail: '默认低于 ¥5 时提醒，可自定义阈值。',
+      setup: '自动配置',
+      setupDetail: '连接站点、选择分组并验证模型可用性。',
+      secure: '本机安全存储',
+      secureDetail: 'API Key 写入系统凭据库，不保存账号密码。',
+      update: '自动更新',
+      updateDetail: '后台检查签名版本，确认后安装并重启。'
     }
   },
 

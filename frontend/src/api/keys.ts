@@ -97,7 +97,10 @@ export async function create(
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
   }
 
-  const { data } = await apiClient.post<ApiKey>('/keys', payload)
+  const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const { data } = await apiClient.post<ApiKey>('/keys', payload, {
+    headers: { 'Idempotency-Key': `api-key-create-${requestID}` }
+  })
   return data
 }
 

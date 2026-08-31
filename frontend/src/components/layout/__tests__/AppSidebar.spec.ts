@@ -42,6 +42,12 @@ describe('AppSidebar scroll position persistence', () => {
   })
 })
 
+describe('AppSidebar desktop download navigation', () => {
+  it('keeps the desktop page in user and simple-admin menus', () => {
+    expect(componentSource.match(/path: '\/desktop', label: t\('nav\.desktop'\), icon: DownloadIcon/g)).toHaveLength(2)
+  })
+})
+
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)

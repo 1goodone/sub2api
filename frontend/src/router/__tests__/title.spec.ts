@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { resolveDocumentTitle, resolveRouteDocumentTitle } from '@/router/title'
 
 describe('resolveDocumentTitle', () => {
@@ -21,6 +21,16 @@ describe('resolveDocumentTitle', () => {
 
     expect(before).toBe('Admin Dashboard - Alpha')
     expect(after).toBe('Admin Dashboard - Beta')
+  })
+
+  it('语言包尚未载入时静默回退到静态标题', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    expect(resolveDocumentTitle('Desktop Download', 'Sub2API', 'desktop.missingTitle')).toBe(
+      'Desktop Download - Sub2API',
+    )
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
 

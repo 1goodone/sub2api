@@ -1599,23 +1599,28 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// 解析可选的日期范围参数（用于 model_stats 查询）
-	startTime, endTime := h.parseUsageDateRange(c)
-	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
-	if !ok {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid days, allowed range is 1-90")
-		return
-	}
+	var usageData gin.H
+	var dailyUsage, modelStats any
+	if c.Query("summary") == "1" {
+		c.Header("Cache-Control", "no-store")
+	} else {
+		// 解析可选的日期范围参数（用于 model_stats 查询）
+		startTime, endTime := h.parseUsageDateRange(c)
+		days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
+		if !ok {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid days, allowed range is 1-90")
+			return
+		}
 
-	// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
-	usageData := h.buildUsageData(ctx, apiKey.ID)
-	dailyUsage := h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
+		// Best-effort: 获取详细用量统计，失败不影响基础响应。
+		usageData = h.buildUsageData(ctx, apiKey.ID)
+		dailyUsage = h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
 
-	// Best-effort: 获取模型统计
-	var modelStats any
-	if h.usageService != nil {
-		if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
-			modelStats = stats
+		// Best-effort: 获取模型统计
+		if h.usageService != nil {
+			if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
+				modelStats = stats
+			}
 		}
 	}
 

@@ -132,6 +132,15 @@ func TestInjectSiteFavicon(t *testing.T) {
 		assert.Contains(t, string(injectSiteFavicon(html, []byte(`{"site_logo":"data:image/png;base64,abc"}`))), `data:image/png;base64,abc`)
 	})
 
+	t.Run("skips_oversized_data_image_urls", func(t *testing.T) {
+		html := []byte(`<link rel="icon" href="/logo.png" />`)
+		largeLogo := "data:image/png;base64," + strings.Repeat("A", maxInlineFaviconDataURLLength)
+
+		result := injectSiteFavicon(html, []byte(`{"site_logo":"` + largeLogo + `"}`))
+
+		assert.Equal(t, string(html), string(result))
+	})
+
 	t.Run("rejects_unsafe_logo_urls", func(t *testing.T) {
 		html := []byte(`<link rel="icon" href="/logo.png" />`)
 

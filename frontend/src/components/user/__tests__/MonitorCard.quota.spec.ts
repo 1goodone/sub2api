@@ -44,6 +44,7 @@ function mountCard(item: UserMonitorView) {
       window: '7d',
       availabilityValue: 100,
       countdownSeconds: 0,
+      expanded: true,
     },
     global: {
       stubs: {
@@ -99,5 +100,29 @@ describe('MonitorCard quota snapshot visibility', () => {
     const wrapper = mountCard(makeItem({ primary_model: 'claude-sonnet-4-5' }))
     expect(wrapper.text()).toContain('claude-sonnet-4-5')
     expect(wrapper.text()).not.toContain('monitorCommon.checkMode.quota')
+  })
+
+  it('reports timeline counts and the latest abnormal point in the expanded panel', () => {
+    const wrapper = mountCard(makeItem({
+      primary_status: 'degraded',
+      timeline: [
+        { status: 'operational', latency_ms: 300, ping_latency_ms: 30, checked_at: new Date().toISOString() },
+        { status: 'failed', latency_ms: null, ping_latency_ms: 40, checked_at: new Date(Date.now() - 60_000).toISOString() },
+        { status: 'degraded', latency_ms: 800, ping_latency_ms: 35, checked_at: new Date(Date.now() - 120_000).toISOString() },
+      ],
+    }))
+
+    expect(wrapper.get('[data-testid="monitor-expanded-panel"]').text()).toContain('1 monitorCommon.status.operational')
+    expect(wrapper.get('[data-testid="monitor-expanded-panel"]').text()).toContain('1 monitorCommon.status.degraded')
+    expect(wrapper.get('[data-testid="monitor-expanded-panel"]').text()).toContain('1 monitorCommon.status.failed')
+    expect(wrapper.get('[data-testid="monitor-expanded-panel"]').text()).toContain('channelStatus.details.lastIncident')
+  })
+
+  it('uses failed status semantics for availability instead of percentage hue', () => {
+    const wrapper = mountCard(makeItem({ primary_status: 'failed', availability_7d: 99.9 }))
+    const availability = wrapper.findAll('span').find(node => node.text() === '100.00%')
+
+    expect(availability?.classes()).toContain('text-red-600')
+    expect(wrapper.get('button[aria-controls="monitor-panel-1"]').attributes('aria-expanded')).toBe('true')
   })
 })

@@ -2,12 +2,12 @@
   <div>
     <div
       v-if="loading && items.length === 0"
-      class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
     >
       <div
         v-for="i in 6"
         :key="i"
-        class="p-5 rounded-2xl min-h-[280px] bg-white/70 dark:bg-dark-800/60 border border-gray-200/80 dark:border-dark-700/70 animate-pulse"
+        class="h-[74px] border-b border-gray-100 px-5 py-4 last:border-b-0 dark:border-dark-700/70 animate-pulse"
       >
         <div class="flex items-start gap-3">
           <div class="w-9 h-9 rounded-xl bg-gray-200 dark:bg-dark-700"></div>
@@ -17,11 +17,6 @@
           </div>
           <div class="h-6 w-16 rounded-full bg-gray-200 dark:bg-dark-700"></div>
         </div>
-        <div class="mt-5 grid grid-cols-2 gap-2">
-          <div class="h-16 rounded-xl bg-gray-100 dark:bg-dark-900/40"></div>
-          <div class="h-16 rounded-xl bg-gray-100 dark:bg-dark-900/40"></div>
-        </div>
-        <div class="mt-6 h-5 w-full rounded bg-gray-100 dark:bg-dark-900/40"></div>
       </div>
     </div>
 
@@ -33,8 +28,15 @@
 
     <div
       v-else
-      class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
     >
+      <div class="hidden h-11 grid-cols-[minmax(230px,1.35fr)_110px_120px_minmax(280px,2fr)_44px] items-center gap-4 border-b border-gray-200 bg-gray-50/70 px-5 text-xs font-semibold text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-gray-400 lg:grid">
+        <span>{{ t('channelStatus.columns.name') }}</span>
+        <span>{{ t('channelStatus.columns.status') }}</span>
+        <span>{{ t('channelStatus.columns.availability') }}</span>
+        <span>{{ t('channelStatus.columns.recentChecks') }}</span>
+        <span class="sr-only">{{ t('channelStatus.actions.expand') }}</span>
+      </div>
       <MonitorCard
         v-for="item in items"
         :key="item.id"
@@ -42,7 +44,9 @@
         :window="window"
         :availability-value="resolveAvailability(item)"
         :countdown-seconds="countdownSeconds"
-        @click="emit('cardClick', item)"
+        :expanded="expandedId === item.id"
+        @toggle="emit('toggle', item.id)"
+        @open-detail="emit('openDetail', item)"
       />
     </div>
   </div>
@@ -60,10 +64,12 @@ const props = defineProps<{
   countdownSeconds: number
   loading: boolean
   detailCache: Record<number, UserMonitorDetail>
+  expandedId: number | null
 }>()
 
 const emit = defineEmits<{
-  (e: 'cardClick', item: UserMonitorView): void
+  (e: 'toggle', id: number): void
+  (e: 'openDetail', item: UserMonitorView): void
 }>()
 
 const { t } = useI18n()

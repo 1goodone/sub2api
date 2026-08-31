@@ -50,13 +50,14 @@ async function bootstrap() {
   }
   updateFavicon(appStore.siteLogo)
 
-  await initI18n()
-
-  app.use(router)
   app.use(i18n)
+  app.use(router)
 
-  // 等待路由器完成初始导航后再挂载，避免竞态条件导致的空白渲染
-  await router.isReady()
+  // 语言包和首个路由组件可以并行下载，避免跨网络环境下串行等待。
+  const i18nReady = initI18n()
+  const routerReady = router.isReady()
+  await Promise.all([i18nReady, routerReady])
+
   app.mount('#app')
 }
 

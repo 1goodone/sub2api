@@ -22,6 +22,8 @@ ARG NPM_CONFIG_REGISTRY=
 # it on the native host arch instead of under QEMU emulation for the target.
 FROM --platform=${BUILDPLATFORM} ${NODE_IMAGE} AS frontend-builder
 ARG NPM_CONFIG_REGISTRY
+ARG VITE_ENABLE_KEY_PACKAGES=true
+ENV VITE_ENABLE_KEY_PACKAGES=${VITE_ENABLE_KEY_PACKAGES}
 
 WORKDIR /app/frontend
 

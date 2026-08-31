@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"os"
+	"strings"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -82,6 +85,23 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		if keyPackagesEnabled() {
+			packages := authenticated.Group("/key-packages")
+			{
+				packages.GET("/plans", h.APIKeyPackage.ListPlans)
+				packages.GET("/available-keys", h.APIKeyPackage.ListAllAvailableKeys)
+				packages.GET("", h.APIKeyPackage.List)
+				packages.POST("", h.APIKeyPackage.Create)
+				packages.PUT("/:id", h.APIKeyPackage.Update)
+				packages.DELETE("/:id", h.APIKeyPackage.Delete)
+				packages.GET("/:id/keys", h.APIKeyPackage.ListKeys)
+				packages.GET("/:id/available-keys", h.APIKeyPackage.ListAvailableKeys)
+				packages.POST("/:id/keys", h.APIKeyPackage.BindKey)
+				packages.POST("/:id/keys/:keyId/upgrade", h.APIKeyPackage.UpgradeKey)
+				packages.DELETE("/:id/keys/:keyId", h.APIKeyPackage.UnbindKey)
+			}
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{
@@ -155,4 +175,10 @@ func RegisterUserRoutes(
 			monitorV2.GET("/users", h.ChannelMonitorV2.Users)
 		}
 	}
+}
+
+// keyPackagesEnabled keeps the package data model available for existing keys
+// while allowing a deployment to withhold the management API surface.
+func keyPackagesEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv("ENABLE_KEY_PACKAGES")), "false")
 }

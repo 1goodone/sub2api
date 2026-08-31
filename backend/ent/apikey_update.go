@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeypackage"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -69,6 +70,26 @@ func (_u *APIKeyUpdate) SetNillableUserID(v *int64) *APIKeyUpdate {
 	if v != nil {
 		_u.SetUserID(*v)
 	}
+	return _u
+}
+
+// SetPackageID sets the "package_id" field.
+func (_u *APIKeyUpdate) SetPackageID(v int64) *APIKeyUpdate {
+	_u.mutation.SetPackageID(v)
+	return _u
+}
+
+// SetNillablePackageID sets the "package_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillablePackageID(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetPackageID(*v)
+	}
+	return _u
+}
+
+// ClearPackageID clears the value of the "package_id" field.
+func (_u *APIKeyUpdate) ClearPackageID() *APIKeyUpdate {
+	_u.mutation.ClearPackageID()
 	return _u
 }
 
@@ -480,6 +501,11 @@ func (_u *APIKeyUpdate) SetGroup(v *Group) *APIKeyUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetPackage sets the "package" edge to the APIKeyPackage entity.
+func (_u *APIKeyUpdate) SetPackage(v *APIKeyPackage) *APIKeyUpdate {
+	return _u.SetPackageID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdate) AddUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -509,6 +535,12 @@ func (_u *APIKeyUpdate) ClearUser() *APIKeyUpdate {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *APIKeyUpdate) ClearGroup() *APIKeyUpdate {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearPackage clears the "package" edge to the APIKeyPackage entity.
+func (_u *APIKeyUpdate) ClearPackage() *APIKeyUpdate {
+	_u.mutation.ClearPackage()
 	return _u
 }
 
@@ -800,6 +832,35 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.PackageCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.PackageTable,
+			Columns: []string{apikey.PackageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeypackage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.PackageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.PackageTable,
+			Columns: []string{apikey.PackageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeypackage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.UsageLogsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -902,6 +963,26 @@ func (_u *APIKeyUpdateOne) SetNillableUserID(v *int64) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetUserID(*v)
 	}
+	return _u
+}
+
+// SetPackageID sets the "package_id" field.
+func (_u *APIKeyUpdateOne) SetPackageID(v int64) *APIKeyUpdateOne {
+	_u.mutation.SetPackageID(v)
+	return _u
+}
+
+// SetNillablePackageID sets the "package_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillablePackageID(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetPackageID(*v)
+	}
+	return _u
+}
+
+// ClearPackageID clears the value of the "package_id" field.
+func (_u *APIKeyUpdateOne) ClearPackageID() *APIKeyUpdateOne {
+	_u.mutation.ClearPackageID()
 	return _u
 }
 
@@ -1313,6 +1394,11 @@ func (_u *APIKeyUpdateOne) SetGroup(v *Group) *APIKeyUpdateOne {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetPackage sets the "package" edge to the APIKeyPackage entity.
+func (_u *APIKeyUpdateOne) SetPackage(v *APIKeyPackage) *APIKeyUpdateOne {
+	return _u.SetPackageID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdateOne) AddUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1342,6 +1428,12 @@ func (_u *APIKeyUpdateOne) ClearUser() *APIKeyUpdateOne {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *APIKeyUpdateOne) ClearGroup() *APIKeyUpdateOne {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearPackage clears the "package" edge to the APIKeyPackage entity.
+func (_u *APIKeyUpdateOne) ClearPackage() *APIKeyUpdateOne {
+	_u.mutation.ClearPackage()
 	return _u
 }
 
@@ -1656,6 +1748,35 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.PackageCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.PackageTable,
+			Columns: []string{apikey.PackageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeypackage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.PackageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.PackageTable,
+			Columns: []string{apikey.PackageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeypackage.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

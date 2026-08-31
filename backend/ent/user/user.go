@@ -67,6 +67,8 @@ const (
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
+	// EdgeAPIKeyPackages holds the string denoting the api_key_packages edge name in mutations.
+	EdgeAPIKeyPackages = "api_key_packages"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
 	EdgeRedeemCodes = "redeem_codes"
 	// EdgeSubscriptions holds the string denoting the subscriptions edge name in mutations.
@@ -102,6 +104,13 @@ const (
 	APIKeysInverseTable = "api_keys"
 	// APIKeysColumn is the table column denoting the api_keys relation/edge.
 	APIKeysColumn = "user_id"
+	// APIKeyPackagesTable is the table that holds the api_key_packages relation/edge.
+	APIKeyPackagesTable = "api_key_packages"
+	// APIKeyPackagesInverseTable is the table name for the APIKeyPackage entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeypackage" package.
+	APIKeyPackagesInverseTable = "api_key_packages"
+	// APIKeyPackagesColumn is the table column denoting the api_key_packages relation/edge.
+	APIKeyPackagesColumn = "user_id"
 	// RedeemCodesTable is the table that holds the redeem_codes relation/edge.
 	RedeemCodesTable = "redeem_codes"
 	// RedeemCodesInverseTable is the table name for the RedeemCode entity.
@@ -444,6 +453,20 @@ func ByAPIKeys(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByAPIKeyPackagesCount orders the results by api_key_packages count.
+func ByAPIKeyPackagesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAPIKeyPackagesStep(), opts...)
+	}
+}
+
+// ByAPIKeyPackages orders the results by api_key_packages terms.
+func ByAPIKeyPackages(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAPIKeyPackagesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByRedeemCodesCount orders the results by redeem_codes count.
 func ByRedeemCodesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -630,6 +653,13 @@ func newAPIKeysStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(APIKeysInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, APIKeysTable, APIKeysColumn),
+	)
+}
+func newAPIKeyPackagesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(APIKeyPackagesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, APIKeyPackagesTable, APIKeyPackagesColumn),
 	)
 }
 func newRedeemCodesStep() *sqlgraph.Step {

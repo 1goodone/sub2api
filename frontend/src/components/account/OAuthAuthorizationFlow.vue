@@ -6,7 +6,7 @@
       <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500">
         <Icon name="link" size="md" class="text-white" />
       </div>
-      <div class="flex-1">
+      <div class="min-w-0 flex-1">
         <h4 class="mb-3 font-semibold text-blue-900 dark:text-blue-200">{{ oauthTitle }}</h4>
 
         <!-- Auth Method Selection -->
@@ -671,7 +671,7 @@
               >
                 1
               </div>
-              <div class="flex-1">
+              <div class="min-w-0 flex-1">
                 <p class="mb-2 font-medium text-blue-900 dark:text-blue-200">
                   {{ oauthStep1GenerateUrl }}
                 </p>
@@ -790,7 +790,7 @@
               >
                 2
               </div>
-              <div class="flex-1">
+              <div class="min-w-0 flex-1">
                 <p class="mb-2 font-medium text-blue-900 dark:text-blue-200">
                   {{ oauthStep2OpenUrl }}
                 </p>
@@ -831,12 +831,12 @@
               >
                 3
               </div>
-              <div class="flex-1">
+              <div class="min-w-0 flex-1">
                 <p class="mb-2 font-medium text-blue-900 dark:text-blue-200">
                   {{ oauthStep3EnterCode }}
                 </p>
                 <p
-                  class="mb-3 text-sm text-blue-700 dark:text-blue-300"
+                  class="mb-3 break-all text-sm text-blue-700 dark:text-blue-300"
                   v-text="oauthAuthCodeDesc"
                 ></p>
                 <div>

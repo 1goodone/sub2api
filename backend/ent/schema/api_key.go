@@ -34,6 +34,9 @@ func (APIKey) Mixin() []ent.Mixin {
 func (APIKey) Fields() []ent.Field {
 	return []ent.Field{
 		field.Int64("user_id"),
+		field.Int64("package_id").
+			Optional().
+			Nillable(),
 		field.String("key").
 			MaxLen(128).
 			NotEmpty().
@@ -135,6 +138,10 @@ func (APIKey) Edges() []ent.Edge {
 			Ref("api_keys").
 			Field("group_id").
 			Unique(),
+		edge.From("package", APIKeyPackage.Type).
+			Ref("api_keys").
+			Field("package_id").
+			Unique(),
 		edge.To("usage_logs", UsageLog.Type),
 	}
 }
@@ -143,6 +150,7 @@ func (APIKey) Indexes() []ent.Index {
 	return []ent.Index{
 		// key 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("user_id"),
+		index.Fields("package_id"),
 		index.Fields("group_id"),
 		index.Fields("mixed_mode_enabled"),
 		index.Fields("status"),

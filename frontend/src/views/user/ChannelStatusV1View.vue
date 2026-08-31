@@ -2,6 +2,7 @@
   <AppLayout>
     <MonitorHero
       :overall-status="overallStatus"
+      :items="items"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
       :window="currentWindow"
       :loading="loading"
@@ -11,12 +12,14 @@
     />
 
     <MonitorCardGrid
-      :items="items"
+      :items="sortedItems"
       :window="currentWindow"
       :countdown-seconds="countdown"
       :loading="loading"
       :detail-cache="detailCache"
-      @card-click="openDetail"
+      :expanded-id="expandedId"
+      @toggle="toggleExpanded"
+      @open-detail="openDetail"
     />
 
     <MonitorDetailDialog
@@ -59,6 +62,7 @@ const currentWindow = ref<MonitorWindow>('7d')
 const detailCache = reactive<Record<number, UserMonitorDetail>>({})
 const showDetail = ref(false)
 const detailTarget = ref<UserMonitorView | null>(null)
+const expandedId = ref<number | null>(null)
 
 let abortController: AbortController | null = null
 
@@ -84,6 +88,23 @@ const overallStatus = computed<OverallStatus>(() => {
 const detailTitle = computed(() => {
   return detailTarget.value?.name || t('channelStatus.detailTitle')
 })
+
+const STATUS_PRIORITY: Record<string, number> = {
+  failed: 0,
+  error: 0,
+  degraded: 1,
+  operational: 2,
+}
+
+const sortedItems = computed(() =>
+  items.value
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) =>
+      (STATUS_PRIORITY[a.item.primary_status] ?? 3) -
+        (STATUS_PRIORITY[b.item.primary_status] ?? 3) || a.index - b.index,
+    )
+    .map(({ item }) => item),
+)
 
 // ── Loaders ──
 async function reload(silent = false) {
@@ -140,6 +161,10 @@ async function handleWindowChange(value: MonitorWindow) {
 function openDetail(row: UserMonitorView) {
   detailTarget.value = row
   showDetail.value = true
+}
+
+function toggleExpanded(id: number) {
+  expandedId.value = expandedId.value === id ? null : id
 }
 
 function closeDetail() {

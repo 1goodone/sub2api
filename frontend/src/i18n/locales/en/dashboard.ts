@@ -539,6 +539,21 @@ export default {
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
     closeDetail: 'Close',
+    summary: {
+      operational: 'All channels operational',
+      degraded: 'Some channels are unstable',
+      counts: '{operational} operational · {degraded} degraded · {failed} failed'
+    },
+    actions: {
+      expand: 'Expand channel details',
+      viewModels: 'View model details'
+    },
+    details: {
+      checkCounts: 'Recent check summary',
+      timeline: 'Check history (oldest to newest)',
+      lastIncident: 'Latest incident',
+      noIncident: 'No incidents in recent checks'
+    },
     windowTab: {
       '7d': '7 days',
       '15d': '15 days',
@@ -551,6 +566,9 @@ export default {
     },
     columns: {
       name: 'Name',
+      status: 'Status',
+      availability: 'Availability',
+      recentChecks: 'Recent 60 checks',
       provider: 'Provider',
       groupName: 'Group',
       primaryModel: 'Primary Model',

@@ -713,6 +713,7 @@ export interface CompositeRouteDecision {
 export interface ApiKey {
   id: number
   user_id: number
+  package_id: number | null
   key: string
   name: string
   group_id: number | null
@@ -774,6 +775,44 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+}
+
+export type ApiKeyPackageCycle = 'week' | 'month'
+export type ApiKeyPackagePlanId = 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'pro_30x'
+
+export interface ApiKeyPackagePlan {
+  id: ApiKeyPackagePlanId
+  name: string
+  cycle: 'month'
+  amount_usd: number
+  limit_5h_enabled: true
+  limit_7d_enabled: true
+}
+
+export interface ApiKeyPackage {
+  id: number
+  user_id: number
+  plan_id: ApiKeyPackagePlanId | ''
+  name: string
+  cycle: ApiKeyPackageCycle
+  amount_usd: number
+  limit_5h_enabled: boolean
+  limit_7d_enabled: boolean
+  key_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SaveApiKeyPackageRequest {
+  plan_id: ApiKeyPackagePlanId
+}
+
+export interface BindPackageApiKeyRequest {
+  key_id: number
+}
+
+export interface UpgradePackageApiKeyRequest {
+  plan_id: ApiKeyPackagePlanId
 }
 
 export interface CreateGroupRequest {

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeypackage"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -70,6 +71,20 @@ func (_c *APIKeyCreate) SetNillableDeletedAt(v *time.Time) *APIKeyCreate {
 // SetUserID sets the "user_id" field.
 func (_c *APIKeyCreate) SetUserID(v int64) *APIKeyCreate {
 	_c.mutation.SetUserID(v)
+	return _c
+}
+
+// SetPackageID sets the "package_id" field.
+func (_c *APIKeyCreate) SetPackageID(v int64) *APIKeyCreate {
+	_c.mutation.SetPackageID(v)
+	return _c
+}
+
+// SetNillablePackageID sets the "package_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillablePackageID(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetPackageID(*v)
+	}
 	return _c
 }
 
@@ -335,6 +350,11 @@ func (_c *APIKeyCreate) SetUser(v *User) *APIKeyCreate {
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *APIKeyCreate) SetGroup(v *Group) *APIKeyCreate {
 	return _c.SetGroupID(v.ID)
+}
+
+// SetPackage sets the "package" edge to the APIKeyPackage entity.
+func (_c *APIKeyCreate) SetPackage(v *APIKeyPackage) *APIKeyCreate {
+	return _c.SetPackageID(v.ID)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -664,6 +684,23 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_node.GroupID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.PackageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.PackageTable,
+			Columns: []string{apikey.PackageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeypackage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.PackageID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -771,6 +808,24 @@ func (u *APIKeyUpsert) SetUserID(v int64) *APIKeyUpsert {
 // UpdateUserID sets the "user_id" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateUserID() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldUserID)
+	return u
+}
+
+// SetPackageID sets the "package_id" field.
+func (u *APIKeyUpsert) SetPackageID(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldPackageID, v)
+	return u
+}
+
+// UpdatePackageID sets the "package_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdatePackageID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldPackageID)
+	return u
+}
+
+// ClearPackageID clears the value of the "package_id" field.
+func (u *APIKeyUpsert) ClearPackageID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldPackageID)
 	return u
 }
 
@@ -1219,6 +1274,27 @@ func (u *APIKeyUpsertOne) SetUserID(v int64) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateUserID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateUserID()
+	})
+}
+
+// SetPackageID sets the "package_id" field.
+func (u *APIKeyUpsertOne) SetPackageID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPackageID(v)
+	})
+}
+
+// UpdatePackageID sets the "package_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdatePackageID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePackageID()
+	})
+}
+
+// ClearPackageID clears the value of the "package_id" field.
+func (u *APIKeyUpsertOne) ClearPackageID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearPackageID()
 	})
 }
 
@@ -1892,6 +1968,27 @@ func (u *APIKeyUpsertBulk) SetUserID(v int64) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateUserID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateUserID()
+	})
+}
+
+// SetPackageID sets the "package_id" field.
+func (u *APIKeyUpsertBulk) SetPackageID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPackageID(v)
+	})
+}
+
+// UpdatePackageID sets the "package_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdatePackageID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePackageID()
+	})
+}
+
+// ClearPackageID clears the value of the "package_id" field.
+func (u *APIKeyUpsertBulk) ClearPackageID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearPackageID()
 	})
 }
 

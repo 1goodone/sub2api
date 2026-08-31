@@ -49,6 +49,14 @@
             <Icon name="grid" size="md" />
             <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
           </router-link>
+          <router-link
+            to="/desktop"
+            class="flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('home.desktopDownload')"
+          >
+            <Icon name="download" size="md" />
+            <span class="hidden sm:inline">{{ t('home.desktopDownload') }}</span>
+          </router-link>
           <button
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
@@ -129,6 +137,14 @@
           >
             <Icon name="grid" size="md" />
             <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
+          </router-link>
+          <router-link
+            to="/desktop"
+            class="inline-flex items-center gap-1.5 rounded-lg p-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('home.desktopDownload')"
+          >
+            <Icon name="download" size="md" />
+            <span class="hidden sm:inline">{{ t('home.desktopDownload') }}</span>
           </router-link>
           <button
             type="button"
@@ -332,6 +348,7 @@
         <p>&copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}</p>
         <div class="flex items-center gap-4">
           <a v-if="docUrl" :href="docUrl" target="_blank" rel="noopener noreferrer" class="hover:text-slate-700 dark:hover:text-white">{{ t('home.docs') }}</a>
+          <router-link to="/desktop" class="hover:text-slate-700 dark:hover:text-white">{{ t('home.desktopDownload') }}</router-link>
           <a :href="githubUrl" target="_blank" rel="noopener noreferrer" class="hover:text-slate-700 dark:hover:text-white">GitHub</a>
         </div>
       </div>

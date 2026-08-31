@@ -97,7 +97,7 @@ var (
 		return 1
 	`)
 
-	// updateRateLimitUsageScript atomically increments all three rate limit usage counters
+	// updateRateLimitUsageScript atomically increments all rate limit usage counters
 	// with window expiration checking. If a window has expired, its usage is reset to cost
 	// (instead of accumulated) and the window timestamp is updated, matching the DB-side
 	// IncrementRateLimitUsage semantics.

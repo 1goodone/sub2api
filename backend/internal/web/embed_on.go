@@ -24,6 +24,9 @@ import (
 const (
 	// NonceHTMLPlaceholder is the placeholder for nonce in HTML script tags
 	NonceHTMLPlaceholder = "__CSP_NONCE_VALUE__"
+	// Keep large data URLs out of the HTML favicon. The same value is already
+	// present in window.__APP_CONFIG__ and is applied by the frontend at startup.
+	maxInlineFaviconDataURLLength = 4096
 )
 
 //go:embed all:dist
@@ -228,6 +231,9 @@ func injectSiteFavicon(html, settingsJSON []byte) []byte {
 
 	logoURL := safeImageURL(cfg.SiteLogo)
 	if logoURL == "" {
+		return html
+	}
+	if strings.HasPrefix(strings.ToLower(logoURL), "data:image/") && len(logoURL) > maxInlineFaviconDataURLLength {
 		return html
 	}
 

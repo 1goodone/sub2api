@@ -14,6 +14,21 @@ import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 
+const keyPackagesEnabled = import.meta.env.VITE_ENABLE_KEY_PACKAGES !== 'false'
+
+const keyPackagesRoute: RouteRecordRaw = {
+  path: '/packages',
+  name: 'KeyPackages',
+  component: () => import('@/views/user/KeyPackagesView.vue'),
+  meta: {
+    requiresAuth: true,
+    requiresAdmin: false,
+    title: 'Key Packages',
+    titleKey: 'keyPackages.title',
+    descriptionKey: 'keyPackages.description'
+  }
+}
+
 /**
  * Route definitions with lazy loading
  */
@@ -167,6 +182,26 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/desktop',
+    name: 'DesktopDownload',
+    component: () => import('@/views/DesktopDownloadView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: '桌面端下载',
+      titleKey: 'desktop.title'
+    }
+  },
+  {
+    path: '/desktop-connect',
+    name: 'DesktopConnect',
+    component: () => import('@/views/DesktopConnectView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: '授权小羊咩咩'
+    }
+  },
+  {
     path: '/legal/:documentId',
     name: 'LegalDocument',
     component: () => import('@/views/public/LegalDocumentView.vue'),
@@ -215,6 +250,7 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'keys.description'
     }
   },
+  ...(keyPackagesEnabled ? [keyPackagesRoute] : []),
   {
     path: '/batch-image',
     name: 'BatchImageGuide',
@@ -731,10 +767,13 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
+    }
+    if (to.hash) {
+      return { el: to.hash, top: 24 }
     }
     // Scroll to top for new routes
     return { top: 0 }
@@ -750,7 +789,7 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/desktop', '/payment/result', '/payment/airwallex', '/legal']
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
   '/auth/linuxdo/callback',

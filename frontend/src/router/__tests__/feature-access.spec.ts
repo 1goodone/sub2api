@@ -6,8 +6,15 @@ type NavigationGuard = (
   next: ReturnType<typeof vi.fn>
 ) => Promise<void>
 
+type ScrollBehavior = (
+  to: { hash?: string },
+  from: Record<string, unknown>,
+  savedPosition?: { left: number; top: number }
+) => unknown
+
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
+  scrollBehavior: null as ScrollBehavior | null,
 }))
 
 const authStore = vi.hoisted(() => ({
@@ -32,13 +39,16 @@ const appStore = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   createWebHistory: vi.fn(() => ({})),
-  createRouter: vi.fn(() => ({
-    beforeEach: vi.fn((guard: NavigationGuard) => {
-      routerHarness.guard = guard
-    }),
-    afterEach: vi.fn(),
-    onError: vi.fn(),
-  })),
+  createRouter: vi.fn((options: { scrollBehavior?: ScrollBehavior }) => {
+    routerHarness.scrollBehavior = options.scrollBehavior ?? null
+    return {
+      beforeEach: vi.fn((guard: NavigationGuard) => {
+        routerHarness.guard = guard
+      }),
+      afterEach: vi.fn(),
+      onError: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -173,5 +183,14 @@ describe('feature route guard', () => {
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith(target)
+  })
+})
+
+describe('router scroll behavior', () => {
+  it('scrolls hash navigation to the requested section', () => {
+    expect(routerHarness.scrollBehavior?.({ hash: '#desktop-downloads' }, {})).toEqual({
+      el: '#desktop-downloads',
+      top: 24,
+    })
   })
 })

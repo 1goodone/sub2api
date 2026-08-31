@@ -12,6 +12,7 @@ export default {
     switchToDark: 'Switch to Dark Mode',
     dashboard: 'Dashboard',
     login: 'Login',
+    desktopDownload: 'Desktop app',
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
@@ -111,6 +112,34 @@ export default {
     },
     footer: {
       allRightsReserved: 'All rights reserved.'
+    }
+  },
+
+  // Desktop companion download page
+  desktop: {
+    title: 'Xiaoyang Desktop',
+    subtitle: 'Bring balance alerts and setup tools to your desktop on Windows and macOS.',
+    description: 'Xiaoyang stays nearby, alerts you when balance is low, and helps connect a site, choose a group, and verify your app configuration.',
+    latestRelease: 'Download latest',
+    releaseNote: 'Choose your platform to download the installer directly. Your browser will ask you to confirm and start the installer manually.',
+    windows: 'Windows',
+    windowsDetail: 'Windows 10/11 · x64',
+    windowsArch: 'x64',
+    macArm: 'macOS Apple Silicon',
+    macArmDetail: 'Apple M-series chips',
+    macArmArch: 'arm64',
+    macIntel: 'macOS Intel',
+    macIntelDetail: 'Intel chips',
+    macIntelArch: 'x64',
+    features: {
+      balance: 'Balance alerts',
+      balanceDetail: 'Alerts below ¥5 by default, with a configurable threshold.',
+      setup: 'Guided setup',
+      setupDetail: 'Connect a site, choose a group, and verify model access.',
+      secure: 'Secure local storage',
+      secureDetail: 'API Keys stay in the system credential store; passwords are not saved.',
+      update: 'Automatic updates',
+      updateDetail: 'Checks signed releases in the background and installs after confirmation.'
     }
   },
 

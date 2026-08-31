@@ -22,8 +22,13 @@ func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {
 	RegisterAuthRoutes(
 		v1,
 		&handler.Handlers{
-			Auth:    &handler.AuthHandler{},
-			Setting: &handler.SettingHandler{},
+			Auth:           &handler.AuthHandler{},
+			User:           &handler.UserHandler{},
+			APIKey:         &handler.APIKeyHandler{},
+			Usage:          &handler.UsageHandler{},
+			Subscription:   &handler.SubscriptionHandler{},
+			ChannelMonitor: &handler.ChannelMonitorUserHandler{},
+			Setting:        &handler.SettingHandler{},
 		},
 		servermiddleware.JWTAuthMiddleware(func(c *gin.Context) {
 			c.Next()
@@ -37,6 +42,31 @@ func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {
 	)
 
 	return router
+}
+
+func TestDesktopRoutesExposeOnlyRestrictedPersonalSurface(t *testing.T) {
+	router := newAuthRoutesTestRouter(nil)
+	actual := make([]string, 0)
+	for _, route := range router.Routes() {
+		if strings.Contains(route.Path, "/api/v1/desktop/") {
+			actual = append(actual, route.Method+" "+route.Path)
+		}
+	}
+
+	expected := []string{
+		"GET /api/v1/desktop/profile",
+		"GET /api/v1/desktop/keys",
+		"GET /api/v1/desktop/keys/:id",
+		"PUT /api/v1/desktop/keys/:id/group",
+		"GET /api/v1/desktop/groups/available",
+		"GET /api/v1/desktop/usage/stats",
+		"GET /api/v1/desktop/usage/dashboard/stats",
+		"GET /api/v1/desktop/usage/dashboard/snapshot-v2",
+		"GET /api/v1/desktop/subscriptions/summary",
+		"GET /api/v1/desktop/channel-monitors",
+		"DELETE /api/v1/desktop/session",
+	}
+	require.ElementsMatch(t, expected, actual)
 }
 
 func TestAuthRoutesRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {
@@ -55,6 +85,8 @@ func TestAuthRoutesRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {
 		"/api/v1/auth/register",
 		"/api/v1/auth/login",
 		"/api/v1/auth/login/2fa",
+		"/api/v1/auth/desktop/start",
+		"/api/v1/auth/desktop/token",
 		"/api/v1/auth/send-verify-code",
 		"/api/v1/auth/oauth/pending/send-verify-code",
 	}

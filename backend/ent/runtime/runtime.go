@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeypackage"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	"github.com/Wei-Shaw/sub2api/ent/batchimageevent"
@@ -72,7 +73,7 @@ func init() {
 	// apikey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	apikey.UpdateDefaultUpdatedAt = apikeyDescUpdatedAt.UpdateDefault.(func() time.Time)
 	// apikeyDescKey is the schema descriptor for key field.
-	apikeyDescKey := apikeyFields[1].Descriptor()
+	apikeyDescKey := apikeyFields[2].Descriptor()
 	// apikey.KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	apikey.KeyValidator = func() func(string) error {
 		validators := apikeyDescKey.Validators
@@ -90,7 +91,7 @@ func init() {
 		}
 	}()
 	// apikeyDescName is the schema descriptor for name field.
-	apikeyDescName := apikeyFields[2].Descriptor()
+	apikeyDescName := apikeyFields[3].Descriptor()
 	// apikey.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	apikey.NameValidator = func() func(string) error {
 		validators := apikeyDescName.Validators
@@ -108,47 +109,106 @@ func init() {
 		}
 	}()
 	// apikeyDescMixedModeEnabled is the schema descriptor for mixed_mode_enabled field.
-	apikeyDescMixedModeEnabled := apikeyFields[4].Descriptor()
+	apikeyDescMixedModeEnabled := apikeyFields[5].Descriptor()
 	// apikey.DefaultMixedModeEnabled holds the default value on creation for the mixed_mode_enabled field.
 	apikey.DefaultMixedModeEnabled = apikeyDescMixedModeEnabled.Default.(bool)
 	// apikeyDescStatus is the schema descriptor for status field.
-	apikeyDescStatus := apikeyFields[6].Descriptor()
+	apikeyDescStatus := apikeyFields[7].Descriptor()
 	// apikey.DefaultStatus holds the default value on creation for the status field.
 	apikey.DefaultStatus = apikeyDescStatus.Default.(string)
 	// apikey.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	apikey.StatusValidator = apikeyDescStatus.Validators[0].(func(string) error)
 	// apikeyDescQuota is the schema descriptor for quota field.
-	apikeyDescQuota := apikeyFields[10].Descriptor()
+	apikeyDescQuota := apikeyFields[11].Descriptor()
 	// apikey.DefaultQuota holds the default value on creation for the quota field.
 	apikey.DefaultQuota = apikeyDescQuota.Default.(float64)
 	// apikeyDescQuotaUsed is the schema descriptor for quota_used field.
-	apikeyDescQuotaUsed := apikeyFields[11].Descriptor()
+	apikeyDescQuotaUsed := apikeyFields[12].Descriptor()
 	// apikey.DefaultQuotaUsed holds the default value on creation for the quota_used field.
 	apikey.DefaultQuotaUsed = apikeyDescQuotaUsed.Default.(float64)
 	// apikeyDescRateLimit5h is the schema descriptor for rate_limit_5h field.
-	apikeyDescRateLimit5h := apikeyFields[13].Descriptor()
+	apikeyDescRateLimit5h := apikeyFields[14].Descriptor()
 	// apikey.DefaultRateLimit5h holds the default value on creation for the rate_limit_5h field.
 	apikey.DefaultRateLimit5h = apikeyDescRateLimit5h.Default.(float64)
 	// apikeyDescRateLimit1d is the schema descriptor for rate_limit_1d field.
-	apikeyDescRateLimit1d := apikeyFields[14].Descriptor()
+	apikeyDescRateLimit1d := apikeyFields[15].Descriptor()
 	// apikey.DefaultRateLimit1d holds the default value on creation for the rate_limit_1d field.
 	apikey.DefaultRateLimit1d = apikeyDescRateLimit1d.Default.(float64)
 	// apikeyDescRateLimit7d is the schema descriptor for rate_limit_7d field.
-	apikeyDescRateLimit7d := apikeyFields[15].Descriptor()
+	apikeyDescRateLimit7d := apikeyFields[16].Descriptor()
 	// apikey.DefaultRateLimit7d holds the default value on creation for the rate_limit_7d field.
 	apikey.DefaultRateLimit7d = apikeyDescRateLimit7d.Default.(float64)
 	// apikeyDescUsage5h is the schema descriptor for usage_5h field.
-	apikeyDescUsage5h := apikeyFields[16].Descriptor()
+	apikeyDescUsage5h := apikeyFields[17].Descriptor()
 	// apikey.DefaultUsage5h holds the default value on creation for the usage_5h field.
 	apikey.DefaultUsage5h = apikeyDescUsage5h.Default.(float64)
 	// apikeyDescUsage1d is the schema descriptor for usage_1d field.
-	apikeyDescUsage1d := apikeyFields[17].Descriptor()
+	apikeyDescUsage1d := apikeyFields[18].Descriptor()
 	// apikey.DefaultUsage1d holds the default value on creation for the usage_1d field.
 	apikey.DefaultUsage1d = apikeyDescUsage1d.Default.(float64)
 	// apikeyDescUsage7d is the schema descriptor for usage_7d field.
-	apikeyDescUsage7d := apikeyFields[18].Descriptor()
+	apikeyDescUsage7d := apikeyFields[19].Descriptor()
 	// apikey.DefaultUsage7d holds the default value on creation for the usage_7d field.
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
+	apikeypackageMixin := schema.APIKeyPackage{}.Mixin()
+	apikeypackageMixinFields0 := apikeypackageMixin[0].Fields()
+	_ = apikeypackageMixinFields0
+	apikeypackageFields := schema.APIKeyPackage{}.Fields()
+	_ = apikeypackageFields
+	// apikeypackageDescCreatedAt is the schema descriptor for created_at field.
+	apikeypackageDescCreatedAt := apikeypackageMixinFields0[0].Descriptor()
+	// apikeypackage.DefaultCreatedAt holds the default value on creation for the created_at field.
+	apikeypackage.DefaultCreatedAt = apikeypackageDescCreatedAt.Default.(func() time.Time)
+	// apikeypackageDescUpdatedAt is the schema descriptor for updated_at field.
+	apikeypackageDescUpdatedAt := apikeypackageMixinFields0[1].Descriptor()
+	// apikeypackage.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	apikeypackage.DefaultUpdatedAt = apikeypackageDescUpdatedAt.Default.(func() time.Time)
+	// apikeypackage.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	apikeypackage.UpdateDefaultUpdatedAt = apikeypackageDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// apikeypackageDescName is the schema descriptor for name field.
+	apikeypackageDescName := apikeypackageFields[1].Descriptor()
+	// apikeypackage.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	apikeypackage.NameValidator = func() func(string) error {
+		validators := apikeypackageDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// apikeypackageDescCycle is the schema descriptor for cycle field.
+	apikeypackageDescCycle := apikeypackageFields[2].Descriptor()
+	// apikeypackage.CycleValidator is a validator for the "cycle" field. It is called by the builders before save.
+	apikeypackage.CycleValidator = func() func(string) error {
+		validators := apikeypackageDescCycle.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(cycle string) error {
+			for _, fn := range fns {
+				if err := fn(cycle); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// apikeypackageDescLimit5hEnabled is the schema descriptor for limit_5h_enabled field.
+	apikeypackageDescLimit5hEnabled := apikeypackageFields[4].Descriptor()
+	// apikeypackage.DefaultLimit5hEnabled holds the default value on creation for the limit_5h_enabled field.
+	apikeypackage.DefaultLimit5hEnabled = apikeypackageDescLimit5hEnabled.Default.(bool)
+	// apikeypackageDescLimit7dEnabled is the schema descriptor for limit_7d_enabled field.
+	apikeypackageDescLimit7dEnabled := apikeypackageFields[5].Descriptor()
+	// apikeypackage.DefaultLimit7dEnabled holds the default value on creation for the limit_7d_enabled field.
+	apikeypackage.DefaultLimit7dEnabled = apikeypackageDescLimit7dEnabled.Default.(bool)
 	accountMixin := schema.Account{}.Mixin()
 	accountMixinHooks1 := accountMixin[1].Hooks()
 	account.Hooks[0] = accountMixinHooks1[0]

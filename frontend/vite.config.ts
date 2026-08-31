@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
 
+const MAX_INLINE_FAVICON_DATA_URL_LENGTH = 4096
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -37,7 +39,9 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
   }
 
   const siteLogo = config.site_logo?.trim()
-  if (siteLogo && isSafeImageUrl(siteLogo)) {
+  const isSmallInlineLogo =
+    !/^data:image\//i.test(siteLogo) || siteLogo.length <= MAX_INLINE_FAVICON_DATA_URL_LENGTH
+  if (siteLogo && isSafeImageUrl(siteLogo) && isSmallInlineLogo) {
     brandedHtml = brandedHtml.replace(
       /<link\s+rel=["']icon["'][^>]*>/i,
       `<link rel="icon" href="${escapeHtml(siteLogo)}" />`,
@@ -114,6 +118,20 @@ export default defineConfig(({ mode }) => {
          */
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
+            // 仅在公告、文档或引导页面使用，避免污染登录页公共包。
+            if (id.includes('/marked/') || id.includes('/dompurify/')) {
+              return 'vendor-markdown'
+            }
+            if (id.includes('/driver.js/')) {
+              return 'vendor-onboarding'
+            }
+            if (id.includes('/qrcode/')) {
+              return 'vendor-qrcode'
+            }
+            if (id.includes('/@airwallex/')) {
+              return 'vendor-airwallex'
+            }
+
             // Vue 核心库
             if (
               id.includes('/vue/') ||

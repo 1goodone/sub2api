@@ -9,7 +9,7 @@ import type { CustomMenuItem } from '@/types'
 export function resolveDocumentTitle(routeTitle: unknown, siteName?: string, titleKey?: string): string {
   const normalizedSiteName = typeof siteName === 'string' && siteName.trim() ? siteName.trim() : 'Sub2API'
 
-  if (typeof titleKey === 'string' && titleKey.trim()) {
+  if (typeof titleKey === 'string' && titleKey.trim() && i18n.global.te(titleKey)) {
     const translated = i18n.global.t(titleKey)
     if (translated && translated !== titleKey) {
       return `${translated} - ${normalizedSiteName}`
