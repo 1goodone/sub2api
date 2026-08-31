@@ -887,6 +887,10 @@ func (s *BillingCacheService) checkRPMWithUser(ctx context.Context, user *User, 
 	return nil
 }
 
+func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
+	return s.checkRPMWithUser(ctx, user, group, true)
+}
+
 func (s *BillingCacheService) minimumBalanceReserve() float64 {
 	if s == nil || s.cfg == nil || s.cfg.Billing.MinimumBalanceReserve <= 0 {
 		return 0
