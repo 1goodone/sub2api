@@ -302,7 +302,7 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+func TestGatewayRoutesOpenAICanonicalVideosAreAllowed(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
@@ -310,24 +310,43 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{http.MethodPost, "/v1/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
-		{http.MethodPost, "/v1/videos", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
-		{http.MethodPost, "/videos", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
-		{http.MethodPost, "/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/v1/videos", `{"model":"video3.0","prompt":"waves"}`},
+		{http.MethodPost, "/videos", `{"model":"video3.0","prompt":"waves"}`},
+		{http.MethodGet, "/v1/videos/request-123", ""},
+		{http.MethodGet, "/videos/request-123", ""},
+		{http.MethodGet, "/v1/videos/request-123/content", ""},
+		{http.MethodGet, "/videos/request-123/content", ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
+	}
+}
+
+func TestGatewayRoutesOpenAIGrokOnlyVideoPathsRemainRejected(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/v1/videos/generations", `{"model":"video3.0","prompt":"waves"}`},
+		{http.MethodPost, "/videos/generations", `{"model":"video3.0","prompt":"waves"}`},
 		{http.MethodPost, "/v1/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
-		{http.MethodGet, "/v1/videos/request-123", ""},
-		{http.MethodGet, "/videos/request-123", ""},
 		{http.MethodGet, "/v1/videos/generations/request-123", ""},
 		{http.MethodGet, "/videos/generations/request-123", ""},
 		{http.MethodGet, "/v1/videos/edits/request-123", ""},
 		{http.MethodGet, "/videos/edits/request-123", ""},
 		{http.MethodGet, "/v1/videos/extensions/request-123", ""},
 		{http.MethodGet, "/videos/extensions/request-123", ""},
-		{http.MethodGet, "/v1/videos/request-123/content", ""},
-		{http.MethodGet, "/videos/request-123/content", ""},
 		{http.MethodGet, "/v1/videos/generations/request-123/content", ""},
 		{http.MethodGet, "/videos/generations/request-123/content", ""},
 		{http.MethodGet, "/v1/videos/edits/request-123/content", ""},

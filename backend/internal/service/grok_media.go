@@ -147,9 +147,15 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	info.Prompt = strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
 	info.Size = strings.TrimSpace(gjson.GetBytes(body, "size").String())
 	info.AspectRatio = strings.TrimSpace(gjson.GetBytes(body, "aspect_ratio").String())
-	assignGrokMediaResolution(strings.TrimSpace(gjson.GetBytes(body, "resolution").String()), info)
+	resolution := strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
+	if resolution == "" {
+		resolution = strings.TrimSpace(gjson.GetBytes(body, "resolution_name").String())
+	}
+	assignGrokMediaResolution(resolution, info)
 	if duration := gjson.GetBytes(body, "duration"); duration.Exists() && duration.Type == gjson.Number {
 		info.DurationSeconds = int(duration.Int())
+	} else if seconds := gjson.GetBytes(body, "seconds"); seconds.Exists() && seconds.Type == gjson.Number {
+		info.DurationSeconds = int(seconds.Int())
 	}
 	if n := gjson.GetBytes(body, "n"); n.Exists() && n.Type == gjson.Number {
 		info.N = int(n.Int())
@@ -262,9 +268,9 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 			info.Size = value
 		case "aspect_ratio":
 			info.AspectRatio = value
-		case "resolution":
+		case "resolution", "resolution_name":
 			assignGrokMediaResolution(value, info)
-		case "duration":
+		case "duration", "seconds":
 			if duration, err := strconv.Atoi(value); err == nil {
 				info.DurationSeconds = duration
 			}
@@ -1202,7 +1208,7 @@ func extractGrokMediaVideoRequestID(body []byte) string {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return ""
 	}
-	for _, path := range []string{"request_id", "id", "data.request_id", "data.id", "video.request_id", "video.id", "task_id", "data.task_id", "video.task_id"} {
+	for _, path := range []string{"request_id", "id", "task_id", "video_id", "data.request_id", "data.id", "data.task_id", "data.video_id", "video.request_id", "video.id", "video.task_id", "video.video_id"} {
 		if id := strings.TrimSpace(gjson.GetBytes(body, path).String()); id != "" {
 			return id
 		}
@@ -1382,6 +1388,14 @@ func writeGrokMediaContentResponse(c *gin.Context, resp *http.Response) error {
 }
 
 func rewriteGrokMediaVideoContentURLs(body []byte, requestID, proxyURL string) []byte {
+	return rewriteVideoContentURLs(body, requestID, proxyURL, true)
+}
+
+func rewriteOpenAIVideoContentURLs(body []byte, requestID, proxyURL string) []byte {
+	return rewriteVideoContentURLs(body, requestID, proxyURL, false)
+}
+
+func rewriteVideoContentURLs(body []byte, requestID, proxyURL string, rewriteKnownVideoURL bool) []byte {
 	if len(body) == 0 || strings.TrimSpace(requestID) == "" || strings.TrimSpace(proxyURL) == "" || !gjson.ValidBytes(body) {
 		return body
 	}
@@ -1392,7 +1406,10 @@ func rewriteGrokMediaVideoContentURLs(body []byte, requestID, proxyURL string) [
 	if err := decoder.Decode(&value); err != nil {
 		return body
 	}
-	changed := rewriteGrokMediaKnownVideoURL(&value, proxyURL)
+	changed := false
+	if rewriteKnownVideoURL {
+		changed = rewriteGrokMediaKnownVideoURL(&value, proxyURL)
+	}
 	if rewriteGrokMediaVideoContentURLValue(&value, requestID, proxyURL) {
 		changed = true
 	}
