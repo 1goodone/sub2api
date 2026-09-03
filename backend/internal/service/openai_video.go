@@ -13,9 +13,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
-const openAIVideosEndpoint = "/v1/videos"
+const (
+	openAIVideosEndpoint            = "/v1/videos"
+	openAIVideoOmitDurationExtraKey = "openai_video_omit_duration"
+)
 
 func buildOpenAIVideoURL(base string, endpoint GrokMediaEndpoint, requestID string) string {
 	videosURL := buildOpenAIEndpointURL(base, openAIVideosEndpoint)
@@ -81,6 +85,15 @@ func (s *OpenAIGatewayService) ForwardOpenAIVideo(
 		body, contentType, err = rewriteOpenAIImagesModel(body, contentType, upstreamModel)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite openai video model: %w", err)
+		}
+		if account.getExtraBool(openAIVideoOmitDurationExtraKey) && gjson.ValidBytes(body) {
+			body, err = sjson.DeleteBytes(body, "duration")
+			if err == nil {
+				body, err = sjson.DeleteBytes(body, "seconds")
+			}
+			if err != nil {
+				return nil, fmt.Errorf("strip openai video duration: %w", err)
+			}
 		}
 		SetOpsUpstreamModel(c, upstreamModel)
 	}
@@ -218,6 +231,7 @@ func (s *OpenAIGatewayService) buildOpenAIVideoRequest(
 	} else {
 		req.Header.Set("Accept", "application/json")
 	}
+	req.Header.Del("User-Agent")
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
 	}

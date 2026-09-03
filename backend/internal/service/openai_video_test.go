@@ -60,6 +60,30 @@ func TestBuildOpenAIVideoURLHandlesVersionedBaseURL(t *testing.T) {
 	require.Equal(t, "https://video-upstream.example/v1/videos/task%2Fone/content", buildOpenAIVideoURL("https://video-upstream.example/v1", GrokMediaEndpointVideoContent, "task/one"))
 }
 
+func TestBuildOpenAIVideoRequestDoesNotForwardClientUserAgent(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	c, _ := grokMediaContentTestContext(http.MethodPost, "https://api.example/v1/videos", nil)
+	c.Request.Header.Set("User-Agent", "Python-urllib/3.12")
+
+	req, err := svc.buildOpenAIVideoRequest(context.Background(), c, openAIVideoTestAccount(), GrokMediaEndpointVideosGenerations, "https://video-upstream.example/v1/videos", []byte(`{}`), "application/json", "upstream-key")
+
+	require.NoError(t, err)
+	require.Empty(t, req.Header.Get("User-Agent"))
+}
+
+func TestBuildOpenAIVideoRequestUsesAccountUserAgent(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := openAIVideoTestAccount()
+	account.Credentials["user_agent"] = "video-proxy/1.0"
+	c, _ := grokMediaContentTestContext(http.MethodPost, "https://api.example/v1/videos", nil)
+	c.Request.Header.Set("User-Agent", "Python-urllib/3.12")
+
+	req, err := svc.buildOpenAIVideoRequest(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "https://video-upstream.example/v1/videos", []byte(`{}`), "application/json", "upstream-key")
+
+	require.NoError(t, err)
+	require.Equal(t, "video-proxy/1.0", req.Header.Get("User-Agent"))
+}
+
 func TestForwardOpenAIVideoCreateAppliesChannelAndAccountModelMappings(t *testing.T) {
 	upstream := &grokMediaContentUpstreamStub{response: openAIVideoResponse(http.StatusOK, "application/json", `{"data":{"task_id":"task-1","status":"queued"}}`)}
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
@@ -84,6 +108,25 @@ func TestForwardOpenAIVideoCreateAppliesChannelAndAccountModelMappings(t *testin
 	require.Equal(t, "waves", gjson.GetBytes(forwarded, "prompt").String())
 	require.Equal(t, int64(6), gjson.GetBytes(forwarded, "seconds").Int())
 	require.Equal(t, "720p", gjson.GetBytes(forwarded, "resolution_name").String())
+}
+
+func TestForwardOpenAIVideoCreateOmitsConfiguredDurationFields(t *testing.T) {
+	upstream := &grokMediaContentUpstreamStub{response: openAIVideoResponse(http.StatusOK, "application/json", `{"data":{"task_id":"task-fixed","status":"queued"}}`)}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	c, _ := grokMediaContentTestContext(http.MethodPost, "https://api.example/v1/videos", nil)
+	account := openAIVideoTestAccount()
+	account.Extra = map[string]any{openAIVideoOmitDurationExtraKey: true}
+
+	result, err := svc.ForwardOpenAIVideo(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", []byte(`{"model":"video3.0","prompt":"waves","duration":30,"seconds":30,"resolution":"720p"}`), "application/json", "3.0")
+
+	require.NoError(t, err)
+	require.Equal(t, VideoBillingMaxDurationSeconds, result.VideoDurationSeconds)
+	forwarded, readErr := io.ReadAll(upstream.request.Body)
+	require.NoError(t, readErr)
+	require.False(t, gjson.GetBytes(forwarded, "duration").Exists())
+	require.False(t, gjson.GetBytes(forwarded, "seconds").Exists())
+	require.Equal(t, "upstream-video-3", gjson.GetBytes(forwarded, "model").String())
+	require.Equal(t, "720p", gjson.GetBytes(forwarded, "resolution").String())
 }
 
 func TestForwardOpenAIVideoCreateRewritesMultipartModelWithoutDroppingParts(t *testing.T) {

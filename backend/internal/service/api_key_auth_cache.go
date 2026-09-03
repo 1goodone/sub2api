@@ -108,6 +108,8 @@ type APIKeyAuthGroupSnapshot struct {
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
 	AllowLive                   bool                              `json:"allow_live"`
+	ForceOpenAIFast             bool                              `json:"force_openai_fast"`
+	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
 	FocusAccountIDs             []int64                           `json:"focus_account_ids,omitempty"`
 	AccountTypePreference       string                            `json:"account_type_preference,omitempty"`
@@ -120,7 +122,8 @@ type APIKeyAuthGroupSnapshot struct {
 	RPMLimit int `json:"rpm_limit"`
 
 	// MaxReasoningEffort OpenAI/Codex 请求的推理强度上限，空字符串表示不限制。
-	MaxReasoningEffort string `json:"max_reasoning_effort,omitempty"`
+	MaxReasoningEffort          string `json:"max_reasoning_effort,omitempty"`
+	MaxReasoningEffortOverLimit string `json:"max_reasoning_effort_over_limit,omitempty"`
 	// ReasoningEffortMappings rewrites explicit effort values before the ceiling.
 	ReasoningEffortMappings []ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 
