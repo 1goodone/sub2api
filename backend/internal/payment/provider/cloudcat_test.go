@@ -3,11 +3,15 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 )
@@ -181,9 +185,137 @@ func newCloudcatTestProvider(t *testing.T, responses map[string]string) (*Cloudc
 		}
 		return resp, err
 	})
+	provider.httpClient.Transport = provider.checkoutClient.Transport
 	return provider, requests, server.Close
 }
 
 type cloudcatTestRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f cloudcatTestRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestCloudcatCheckoutSeparatesCatFKAndAlipayTransports(t *testing.T) {
+	for _, redirect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("untrusted_redirect=%t", redirect), func(t *testing.T) {
+			catCalls, alipayCalls := 0, 0
+			p := &Cloudcat{
+				httpClient: &http.Client{Transport: cloudcatTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+					catCalls++
+					if r.URL.Host != "catfk.com" || r.Method != http.MethodGet {
+						t.Fatalf("unexpected CatFK request: %s %s", r.Method, r.URL)
+					}
+					if redirect {
+						return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": {"https://evil.example/pay"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+					}
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`<form action="https://openapi.alipay.com/gateway.do" method="POST"><input name="sign" value="signed"></form>`)), Request: r}, nil
+				})},
+				checkoutClient: &http.Client{Transport: cloudcatTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+					alipayCalls++
+					if r.URL.Host != "openapi.alipay.com" || r.Method != http.MethodPost {
+						t.Fatalf("unexpected Alipay request: %s %s", r.Method, r.URL)
+					}
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`<input id="J_qrCode" value="https://qr.alipay.com/checkout-test">`)), Request: r}, nil
+				})},
+			}
+			qrCode, err := p.ResolvePaymentQRCode(context.Background(), "https://catfk.com/pay/CAT-1")
+			if catCalls != 1 {
+				t.Fatalf("CatFK calls = %d, want 1", catCalls)
+			}
+			if redirect {
+				if err == nil || alipayCalls != 0 {
+					t.Fatalf("untrusted redirect: error=%v, Alipay calls=%d", err, alipayCalls)
+				}
+			} else if err != nil || qrCode != "https://qr.alipay.com/checkout-test" || alipayCalls != 1 {
+				t.Fatalf("checkout: QR=%q, error=%v, Alipay calls=%d", qrCode, err, alipayCalls)
+			}
+		})
+	}
+}
+
+func TestCloudcatRetriesOnlyTransientReadFailures(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		path           string
+		status         int
+		transportError bool
+		wantCalls      int
+		wantError      bool
+	}{
+		{"read EOF", "/shopApi/Shop/goodsInfo", 0, true, 3, false},
+		{"read unavailable", "/shopApi/Pay/query", 503, false, 3, false},
+		{"read rate limited", "/shopApi/Order/info", 429, false, 3, false},
+		{"read rejected", "/shopApi/Shop/goodsInfo", 400, false, 1, true},
+		{"create EOF is ambiguous", "/shopApi/Pay/order", 0, true, 1, true},
+		{"create unavailable is not replayed", "/shopApi/Pay/order", 503, false, 1, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			p := &Cloudcat{apiBase: cloudcatAPIBase, httpClient: &http.Client{Transport: cloudcatTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if calls < 3 && tt.transportError {
+					return nil, io.EOF
+				}
+				status := http.StatusOK
+				if calls < 3 {
+					status = tt.status
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(`{"code":1}`)), Header: make(http.Header), Request: r}, nil
+			})}}
+			var result cloudcatOrderData
+			err := p.post(context.Background(), tt.path, map[string]string{"trade_no": "CAT-1"}, &result)
+			if (err != nil) != tt.wantError || calls != tt.wantCalls {
+				t.Fatalf("calls=%d error=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestCloudcatReadRetryStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	p := &Cloudcat{apiBase: cloudcatAPIBase, httpClient: &http.Client{Transport: cloudcatTestRoundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		cancel()
+		return nil, context.Canceled
+	})}}
+	var result cloudcatOrderData
+	start := time.Now()
+	err := p.post(ctx, "/shopApi/Pay/query", nil, &result)
+	if !errors.Is(err, context.Canceled) || calls != 1 || time.Since(start) > time.Second {
+		t.Fatalf("calls=%d error=%v", calls, err)
+	}
+}
+
+func TestCloudcatDoesNotStartAnOrderWithAnExhaustedPreflightBudget(t *testing.T) {
+	p, requests, closeServer := newCloudcatTestProvider(t, map[string]string{
+		"/shopApi/Shop/goodsInfo":      `{"code":1,"data":{"goods_type":"card","price":5,"status":1,"stock":8,"user":{"token":"merchant-1"}}}`,
+		"/shopApi/Shop/getUserChannel": `{"code":1,"data":[{"id":1,"code":"AlipayPc","status":1}]}`,
+		"/shopApi/Shop/getGoodsPrice":  `{"code":1,"data":{"total_amount":5}}`,
+	})
+	defer closeServer()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := p.CreatePayment(ctx, payment.CreatePaymentRequest{Amount: "5.00", PayerEmail: "buyer@example.com"})
+	if err == nil || !strings.Contains(err.Error(), "preflight") {
+		t.Fatalf("error=%v", err)
+	}
+	if _, created := requests["/shopApi/Pay/order"]; created {
+		t.Fatal("order started without enough time to receive its trade number")
+	}
+}
+
+func TestCloudcatPaidQueryRejectsInvalidOrderDetails(t *testing.T) {
+	for _, info := range []string{
+		`{"code":0,"data":{"total_amount":5,"cards":["CDK-123"]}}`,
+		`{"code":1,"data":{"trade_no":"CAT-OTHER","total_amount":5,"cards":["CDK-123"]}}`,
+	} {
+		p, _, closeServer := newCloudcatTestProvider(t, map[string]string{
+			"/shopApi/Pay/query":  `{"code":1,"data":{"trade_no":"CAT-1","total_amount":5}}`,
+			"/shopApi/Order/info": info,
+		})
+		_, err := p.QueryOrder(context.Background(), "CAT-1")
+		closeServer()
+		if err == nil {
+			t.Fatal("invalid paid order details accepted")
+		}
+	}
+}

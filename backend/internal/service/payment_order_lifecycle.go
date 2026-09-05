@@ -31,6 +31,8 @@ const (
 
 	pendingWxpayReconcileLimit    = 20
 	pendingCloudcatReconcileLimit = 20
+	paymentVerificationCooldown   = 15 * time.Second
+	cloudcatRecoveryWindow        = 24 * time.Hour
 )
 
 type checkPaidOptions struct {
@@ -215,7 +217,63 @@ func (s *PaymentService) reconcilePaid(ctx context.Context, o *dbent.PaymentOrde
 	return s.checkPaidWithOptions(ctx, o, checkPaidOptions{})
 }
 
+type paymentVerificationResult struct {
+	order   *dbent.PaymentOrder
+	outcome string
+}
+
+// reconcilePaidWithCooldown merges same-order checks in this process and uses
+// Redis to suppress duplicate checks across instances. Cancellation and expiry
+// paths deliberately call reconcilePaid directly because they need a final
+// payment check before changing the local order state.
+func (s *PaymentService) reconcilePaidWithCooldown(ctx context.Context, o *dbent.PaymentOrder) (*dbent.PaymentOrder, string, error) {
+	if o == nil {
+		return nil, "", nil
+	}
+
+	key := strconv.FormatInt(o.ID, 10)
+	value, err, _ := s.verificationFlight.Do(key, func() (any, error) {
+		if s.verificationCooldown != nil {
+			acquired, gateErr := s.verificationCooldown.TryAcquire(ctx, o.ID, paymentVerificationCooldown)
+			if gateErr != nil {
+				slog.Warn("payment verification cooldown unavailable; continuing", "orderID", o.ID, "error", gateErr)
+			} else if !acquired {
+				current, reloadErr := s.entClient.PaymentOrder.Get(ctx, o.ID)
+				if reloadErr == nil {
+					return &paymentVerificationResult{order: current}, nil
+				}
+				return &paymentVerificationResult{order: o}, nil
+			}
+		}
+
+		outcome := s.reconcilePaid(ctx, o)
+		if outcome != checkPaidResultAlreadyPaid {
+			return &paymentVerificationResult{order: o, outcome: outcome}, nil
+		}
+		current, reloadErr := s.entClient.PaymentOrder.Get(ctx, o.ID)
+		if reloadErr != nil {
+			return nil, fmt.Errorf("reload order after verification: %w", reloadErr)
+		}
+		return &paymentVerificationResult{order: current, outcome: outcome}, nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	result, ok := value.(*paymentVerificationResult)
+	if !ok || result == nil || result.order == nil {
+		return nil, "", fmt.Errorf("invalid payment verification result")
+	}
+	return result.order, result.outcome, nil
+}
+
 func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.PaymentOrder, opts checkPaidOptions) string {
+	if isCloudcatOrder(o) && o.Status == OrderStatusRecharging {
+		if err := s.ExecuteCloudcatBalanceFulfillment(ctx, o.ID); err != nil {
+			slog.Warn("recover cloudcat fulfillment failed", "orderID", o.ID, "error", err)
+			return ""
+		}
+		return checkPaidResultAlreadyPaid
+	}
 	prov, err := s.getOrderProvider(ctx, o)
 	if err != nil {
 		return ""
@@ -365,16 +423,12 @@ func (s *PaymentService) VerifyOrderByOutTradeNo(ctx context.Context, outTradeNo
 	if o.UserID != userID {
 		return nil, infraerrors.Forbidden("FORBIDDEN", "no permission for this order")
 	}
-	// Cloudcat PAID means the upstream payment succeeded but card delivery may
-	// still be in progress, so authenticated polling must keep reconciling it.
-	if o.Status == OrderStatusPending || o.Status == OrderStatusExpired || (o.Status == OrderStatusPaid && isCloudcatOrder(o)) {
-		result := s.reconcilePaid(ctx, o)
-		if result == checkPaidResultAlreadyPaid {
-			// Reload order to get updated status
-			o, err = s.entClient.PaymentOrder.Get(ctx, o.ID)
-			if err != nil {
-				return nil, fmt.Errorf("reload order: %w", err)
-			}
+	// A paid upstream order may still be in fulfillment, so authenticated polling
+	// keeps reconciling it while the verification gate prevents duplicate checks.
+	if o.Status == OrderStatusPending || o.Status == OrderStatusExpired || (isCloudcatOrder(o) && (o.Status == OrderStatusPaid || o.Status == OrderStatusRecharging || o.Status == OrderStatusCancelled)) {
+		o, _, err = s.reconcilePaidWithCooldown(ctx, o)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return o, nil
@@ -383,15 +437,6 @@ func (s *PaymentService) VerifyOrderByOutTradeNo(ctx context.Context, outTradeNo
 func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.PaymentOrder, resp *payment.QueryOrderResponse) error {
 	if o == nil || resp == nil {
 		return fmt.Errorf("cloudcat paid query is missing order data")
-	}
-	if o.Status == OrderStatusCancelled {
-		if !s.hasAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE") {
-			s.writeAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE", payment.TypeCloudcat, map[string]any{
-				"tradeNo": resp.TradeNo,
-				"reason":  "local order was closed before the upstream payment was observed",
-			})
-		}
-		return fmt.Errorf("cloudcat order %d was closed locally", o.ID)
 	}
 	if o.OrderType != payment.OrderTypeBalance {
 		return fmt.Errorf("cloudcat order %d is not a balance recharge", o.ID)
@@ -410,13 +455,13 @@ func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.P
 	}
 
 	now := time.Now()
-	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	grace := now.Add(-cloudcatRecoveryWindow)
 	tradeNo := firstNonEmpty(strings.TrimSpace(resp.TradeNo), strings.TrimSpace(o.PaymentTradeNo))
 	updated, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
 		paymentorder.Or(
 			paymentorder.StatusEQ(OrderStatusPending),
-			paymentorder.And(paymentorder.StatusEQ(OrderStatusExpired), paymentorder.UpdatedAtGTE(grace)),
+			paymentorder.And(paymentorder.StatusIn(OrderStatusExpired, OrderStatusCancelled), paymentorder.ExpiresAtGTE(grace)),
 		),
 	).SetStatus(OrderStatusPaid).
 		SetPayAmount(resp.Amount).
@@ -429,6 +474,9 @@ func (s *PaymentService) handleCloudcatPaidQuery(ctx context.Context, o *dbent.P
 		return fmt.Errorf("mark cloudcat order paid: %w", err)
 	}
 	if updated > 0 {
+		if o.Status == OrderStatusCancelled {
+			s.writeAuditLog(ctx, o.ID, "CLOUDCAT_PAYMENT_AFTER_LOCAL_CLOSE", payment.TypeCloudcat, map[string]any{"tradeNo": tradeNo})
+		}
 		s.writeAuditLog(ctx, o.ID, "ORDER_PAID", payment.TypeCloudcat, map[string]any{
 			"tradeNo": tradeNo, "paidAmount": resp.Amount,
 		})
@@ -525,7 +573,11 @@ func (s *PaymentService) ReconcilePendingWxpayOrders(ctx context.Context) (int, 
 
 	recovered := 0
 	for _, order := range orders {
-		if s.reconcilePaid(ctx, order) == checkPaidResultAlreadyPaid {
+		_, result, err := s.reconcilePaidWithCooldown(ctx, order)
+		if err != nil {
+			return recovered, err
+		}
+		if result == checkPaidResultAlreadyPaid {
 			recovered++
 		}
 	}
@@ -538,9 +590,17 @@ func (s *PaymentService) ReconcileCloudcatOrders(ctx context.Context) (int, erro
 	orders, err := s.entClient.PaymentOrder.Query().
 		Where(
 			paymentorder.ProviderKeyEQ(payment.TypeCloudcat),
-			paymentorder.StatusIn(OrderStatusPending, OrderStatusPaid),
+			paymentorder.PaymentTradeNoNEQ(""),
+			paymentorder.Or(
+				paymentorder.StatusIn(OrderStatusPending, OrderStatusPaid),
+				paymentorder.And(paymentorder.StatusEQ(OrderStatusRecharging), paymentorder.UpdatedAtLTE(time.Now().Add(-paymentFulfillmentLeaseDuration))),
+				paymentorder.And(
+					paymentorder.StatusIn(OrderStatusExpired, OrderStatusCancelled),
+					paymentorder.ExpiresAtGTE(time.Now().Add(-cloudcatRecoveryWindow)),
+				),
+			),
 		).
-		Order(dbent.Asc(paymentorder.FieldCreatedAt)).
+		Order(dbent.Asc(paymentorder.FieldUpdatedAt), dbent.Asc(paymentorder.FieldID)).
 		Limit(pendingCloudcatReconcileLimit).
 		All(ctx)
 	if err != nil {
@@ -549,7 +609,23 @@ func (s *PaymentService) ReconcileCloudcatOrders(ctx context.Context) (int, erro
 
 	reconciled := 0
 	for _, order := range orders {
-		if s.reconcilePaid(ctx, order) == checkPaidResultAlreadyPaid {
+		if err := ctx.Err(); err != nil {
+			return reconciled, err
+		}
+		// Rotate attempted orders so a slow or undelivered order cannot starve
+		// the rest of the queue across the bounded reconciliation cycles.
+		if order.Status != OrderStatusRecharging {
+			if _, err := s.entClient.PaymentOrder.Update().Where(
+				paymentorder.IDEQ(order.ID), paymentorder.StatusEQ(order.Status),
+			).SetUpdatedAt(time.Now()).Save(ctx); err != nil {
+				return reconciled, err
+			}
+		}
+		_, result, err := s.reconcilePaidWithCooldown(ctx, order)
+		if err != nil {
+			return reconciled, err
+		}
+		if result == checkPaidResultAlreadyPaid {
 			reconciled++
 		}
 	}

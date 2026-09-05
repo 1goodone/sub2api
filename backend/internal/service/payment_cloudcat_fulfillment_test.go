@@ -445,8 +445,8 @@ func TestCloudcatCloseReportsPaymentThatWonTheStatusRace(t *testing.T) {
 	require.Equal(t, checkPaidResultAlreadyPaid, outcome)
 }
 
-func TestCloudcatClosedOrderRejectsLatePaidQuery(t *testing.T) {
-	fixture := newCloudcatFulfillmentFixture(t, nil)
+func TestCloudcatClosedOrderRecoversLatePaidQueryExactlyOnce(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, &RedeemCode{Type: RedeemTypeBalance, Value: 5, Status: StatusUnused})
 	ctx := context.Background()
 	order, err := fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
 		SetStatus(OrderStatusCancelled).
@@ -454,19 +454,52 @@ func TestCloudcatClosedOrderRejectsLatePaidQuery(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 
-	err = fixture.service.handleCloudcatPaidQuery(ctx, order, &payment.QueryOrderResponse{
+	paid := &payment.QueryOrderResponse{
 		TradeNo:  "CAT-LATE-PAID",
 		Status:   payment.ProviderStatusPaid,
 		Amount:   order.PayAmount,
-		Metadata: map[string]string{payment.MetadataCloudcatRechargeCode: "LATE-CDK"},
-	})
-	require.ErrorContains(t, err, "closed locally")
-	require.Zero(t, fixture.balanceCalls)
-	require.Empty(t, fixture.redeemRepo.useCalls)
+		Metadata: map[string]string{payment.MetadataCloudcatRechargeCode: fixture.order.RechargeCode},
+	}
+	require.NoError(t, fixture.service.handleCloudcatPaidQuery(ctx, order, paid))
+	require.NoError(t, fixture.service.handleCloudcatPaidQuery(ctx, order, paid))
+	require.Equal(t, 1, fixture.balanceCalls)
+	require.Len(t, fixture.redeemRepo.useCalls, 1)
 
 	reloaded, getErr := fixture.client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, getErr)
-	require.Equal(t, OrderStatusCancelled, reloaded.Status)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+}
+
+func TestCloudcatReconciliationRecoversClosedExpiredAndInterruptedOrders(t *testing.T) {
+	for _, status := range []string{OrderStatusCancelled, OrderStatusExpired, OrderStatusPaid, OrderStatusRecharging} {
+		t.Run(status, func(t *testing.T) {
+			fixture := newCloudcatFulfillmentFixture(t, &RedeemCode{Type: RedeemTypeBalance, Value: 5, Status: StatusUnused})
+			ctx := context.Background()
+			inst, err := fixture.client.PaymentProviderInstance.Create().SetProviderKey(payment.TypeCloudcat).SetName("reconcile").SetConfig("{}").SetSupportedTypes(payment.TypeAlipay).Save(ctx)
+			require.NoError(t, err)
+			_, err = fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).
+				SetStatus(status).SetExpiresAt(time.Now().Add(-time.Hour)).
+				SetUpdatedAt(time.Now().Add(-time.Hour)).SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).Save(ctx)
+			require.NoError(t, err)
+			p := &paymentOrderLifecycleQueryProvider{key: payment.TypeCloudcat, resp: &payment.QueryOrderResponse{
+				TradeNo: fixture.order.PaymentTradeNo, Status: payment.ProviderStatusPaid, Amount: 5,
+				Metadata: map[string]string{payment.MetadataCloudcatRechargeCode: fixture.order.RechargeCode},
+			}}
+			fixture.service.loadBalancer = &captureLoadBalancer{}
+			t.Cleanup(replacePaymentProviderFactoryForTest(t, p))
+			count, err := fixture.service.ReconcileCloudcatOrders(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 1, count)
+			reloaded, err := fixture.client.PaymentOrder.Get(ctx, fixture.order.ID)
+			require.NoError(t, err)
+			require.Equal(t, OrderStatusCompleted, reloaded.Status)
+			require.Equal(t, 1, fixture.balanceCalls)
+			count, err = fixture.service.ReconcileCloudcatOrders(ctx)
+			require.NoError(t, err)
+			require.Zero(t, count)
+			require.Equal(t, 1, fixture.balanceCalls)
+		})
+	}
 }
 
 func TestCloudcatClosedOrderRejectsLateWebhook(t *testing.T) {
@@ -485,4 +518,69 @@ func TestCloudcatClosedOrderRejectsLateWebhook(t *testing.T) {
 	reloaded, getErr := fixture.client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, getErr)
 	require.Equal(t, OrderStatusCancelled, reloaded.Status)
+}
+
+func TestCloudcatReconciliationRotatesBeyondTheBatchLimit(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, nil)
+	ctx := context.Background()
+	old := time.Now().Add(-time.Hour)
+	inst, err := fixture.client.PaymentProviderInstance.Create().SetProviderKey(payment.TypeCloudcat).SetName("reconcile").SetConfig("{}").SetSupportedTypes(payment.TypeAlipay).Save(ctx)
+	require.NoError(t, err)
+	p := &paymentOrderLifecycleQueryProvider{key: payment.TypeCloudcat, resp: &payment.QueryOrderResponse{Status: payment.ProviderStatusPending}}
+	fixture.service.loadBalancer = &captureLoadBalancer{}
+	t.Cleanup(replacePaymentProviderFactoryForTest(t, p))
+	var lastID int64
+	for i := 0; i <= pendingCloudcatReconcileLimit; i++ {
+		order, err := fixture.client.PaymentOrder.Create().SetUserID(fixture.order.UserID).
+			SetUserEmail(fixture.order.UserEmail).SetUserName(fixture.order.UserName).SetClientIP("127.0.0.1").SetSrcHost("localhost").SetAmount(5).SetPayAmount(5).SetFeeRate(0).
+			SetRechargeCode("").SetOutTradeNo("rotation-" + strconv.Itoa(i)).SetPaymentType(payment.TypeAlipay).
+			SetPaymentTradeNo("CAT-" + strconv.Itoa(i)).SetOrderType(payment.OrderTypeBalance).
+			SetProviderKey(payment.TypeCloudcat).SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).
+			SetStatus(OrderStatusPending).SetExpiresAt(time.Now().Add(time.Hour)).SetUpdatedAt(old).Save(ctx)
+		require.NoError(t, err)
+		lastID = order.ID
+	}
+	_, err = fixture.service.ReconcileCloudcatOrders(ctx)
+	require.NoError(t, err)
+	last, err := fixture.client.PaymentOrder.Get(ctx, lastID)
+	require.NoError(t, err)
+	require.WithinDuration(t, old, last.UpdatedAt, time.Millisecond)
+	_, err = fixture.service.ReconcileCloudcatOrders(ctx)
+	require.NoError(t, err)
+	last, err = fixture.client.PaymentOrder.Get(ctx, lastID)
+	require.NoError(t, err)
+	require.True(t, last.UpdatedAt.After(old.Add(time.Minute)), "orders beyond the first batch must be attempted")
+}
+
+func TestCloudcatSignedResumeWaitsForCardAndCompletesExactlyOnce(t *testing.T) {
+	fixture := newCloudcatFulfillmentFixture(t, &RedeemCode{Type: RedeemTypeBalance, Value: 5, Status: StatusUnused})
+	ctx := context.Background()
+	inst, err := fixture.client.PaymentProviderInstance.Create().SetProviderKey(payment.TypeCloudcat).SetName("resume-delivery").SetConfig("{}").SetSupportedTypes(payment.TypeAlipay).Save(ctx)
+	require.NoError(t, err)
+	instanceID := strconv.FormatInt(inst.ID, 10)
+	_, err = fixture.client.PaymentOrder.UpdateOneID(fixture.order.ID).SetRechargeCode("").SetProviderInstanceID(instanceID).Save(ctx)
+	require.NoError(t, err)
+	p := &paymentOrderLifecycleQueryProvider{key: payment.TypeCloudcat, responses: []*payment.QueryOrderResponse{
+		{TradeNo: fixture.order.PaymentTradeNo, Status: payment.ProviderStatusPaid, Amount: 5},
+		{TradeNo: fixture.order.PaymentTradeNo, Status: payment.ProviderStatusPaid, Amount: 5, Metadata: map[string]string{payment.MetadataCloudcatRechargeCode: fixture.order.RechargeCode}},
+	}}
+	fixture.service.loadBalancer = &captureLoadBalancer{}
+	fixture.service.resumeService = NewPaymentResumeService([]byte("0123456789abcdef0123456789abcdef"))
+	t.Cleanup(replacePaymentProviderFactoryForTest(t, p))
+	token, err := fixture.service.resumeService.CreateToken(ResumeTokenClaims{
+		OrderID: fixture.order.ID, UserID: fixture.order.UserID, ProviderInstanceID: instanceID,
+		ProviderKey: payment.TypeCloudcat, PaymentType: payment.TypeAlipay, CanonicalReturnURL: "https://app.example.com/payment/result",
+	})
+	require.NoError(t, err)
+	order, err := fixture.service.GetPublicOrderByResumeToken(ctx, token)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusPaid, order.Status)
+	require.Zero(t, fixture.balanceCalls)
+	order, err = fixture.service.GetPublicOrderByResumeToken(ctx, token)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, order.Status)
+	_, err = fixture.service.GetPublicOrderByResumeToken(ctx, token)
+	require.NoError(t, err)
+	require.Equal(t, 2, p.queryCalls)
+	require.Equal(t, 1, fixture.balanceCalls)
 }

@@ -2,13 +2,13 @@
   "schema_version": 1,
   "id": "even.sub2api.cpa-compatible-transport",
   "name": "CPA-Compatible OpenAI Transport",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Auditable Chrome uTLS and HTTP/2 transport for Sub2API OpenAI OAuth requests.",
   "author": "Even",
   "requires": {
-    "sub2api": ">=0.1.179 <0.2.0",
-    "recommended_sub2api_version": "0.1.183",
-    "tested_sub2api_versions": ["0.1.183"],
+    "sub2api": ">=0.1.179 <0.2.1",
+    "recommended_sub2api_version": "0.2.0",
+    "tested_sub2api_versions": ["0.1.183", "0.2.0"],
     "plugin_protocol": 1,
     "transport_api": 1,
     "ui_bridge": 1

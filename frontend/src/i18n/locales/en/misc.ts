@@ -336,6 +336,8 @@ export default {
       continuePayment: 'Continue Payment',
       popupBlocked: 'Your browser blocked the payment window. Allow pop-ups and try again.',
       resumeFailed: 'Unable to continue this payment right now. Please try again later.',
+      loadingQRCode: 'Loading payment QR code',
+      loadingQRCodeHint: 'Fetching the QR code from the payment provider. Please wait and do not submit another order.',
       expiresIn: 'Expires in',
       expired: 'Order Expired',
       expiredDesc: 'This order has expired. Please create a new one.',

@@ -1,12 +1,28 @@
 package service
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCPACompatibleTransportManifestSupportsSub2API020(t *testing.T) {
+	raw, err := os.ReadFile("../../cmd/cpa-compatible-transport-plugin/manifest.source.json")
+	require.NoError(t, err)
+
+	var manifest PluginManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.0", BuildType: "release"})
+	require.True(t, result.Compatible)
+	assert.True(t, result.Tested)
+	assert.Equal(t, "compatible", result.Status)
+	assert.Equal(t, "0.1.1", manifest.Version)
+}
 
 func TestEvaluatePluginCompatibility(t *testing.T) {
 	manifest := testPluginManifest(nil)

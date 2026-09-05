@@ -217,7 +217,9 @@ export function decidePaymentLaunch(
     return { kind: 'alipay_deep_link', paymentState: baseState, recovery: baseRecovery }
   }
 
-  if (baseState.resumable && baseState.qrCode) {
+  // Cloudcat orders are resumable and stay on the local QR shell while the
+  // backend fetches or refreshes the QR payload.
+  if (baseState.resumable) {
     return { kind: 'qr_waiting', paymentState: baseState, recovery: baseRecovery }
   }
 

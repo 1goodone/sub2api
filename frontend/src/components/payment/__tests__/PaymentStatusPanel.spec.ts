@@ -106,7 +106,7 @@ describe('PaymentStatusPanel', () => {
     expect(wrapper.emitted('success')).toBeUndefined()
   })
 
-  it('actively verifies every poll for a resumable order and succeeds only when completed', async () => {
+  it('throttles resumable verification while continuing local status polling', async () => {
     pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
     verifyOrder
       .mockResolvedValueOnce({ data: orderFactory('PENDING') })
@@ -130,6 +130,10 @@ describe('PaymentStatusPanel', () => {
     expect(verifyOrder).toHaveBeenCalledTimes(1)
     expect(wrapper.emitted('success')).toBeUndefined()
 
+    await vi.advanceTimersByTimeAsync(12000)
+    await flushPromises()
+    expect(verifyOrder).toHaveBeenCalledTimes(1)
+
     await vi.advanceTimersByTimeAsync(3000)
     await flushPromises()
     expect(verifyOrder).toHaveBeenCalledTimes(2)
@@ -137,17 +141,43 @@ describe('PaymentStatusPanel', () => {
     wrapper.unmount()
   })
 
-  it('detects a closed hosted window and resumes the same order', async () => {
-    const initialWindow = { closed: false }
-    const resumedWindow = {
-      closed: false,
-      close: vi.fn(),
-      location: { href: '' },
-    }
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue(resumedWindow as unknown as Window)
+  it.each(['PAID', 'PENDING'])('keeps verifying %s Cloudcat orders beyond the local countdown until the server confirms settlement', async (status) => {
+    pollOrderStatus.mockResolvedValue(orderFactory(status))
+    verifyOrder
+      .mockResolvedValueOnce({ data: orderFactory(status) })
+      .mockResolvedValueOnce({ data: orderFactory('COMPLETED') })
+    resumeOrder.mockResolvedValue({ data: { qr_code: '' } })
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42, qrCode: '', expiresAt: new Date(Date.now() + 10000).toISOString(),
+        paymentType: 'alipay', orderType: 'balance', resumable: true,
+      },
+      global: { stubs: { Icon: true } },
+    })
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+    expect(verifyOrder).toHaveBeenCalledTimes(1)
+    if (status === 'PAID') expect(wrapper.text()).toContain('payment.result.processing')
+    await vi.advanceTimersByTimeAsync(15000)
+    await flushPromises()
+    expect(verifyOrder).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('success')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('payment.qr.expired')
+    wrapper.unmount()
+  })
+
+  it('shows a loading state and retries Cloudcat QR loading without opening a window', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
     pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
     verifyOrder.mockResolvedValue({ data: orderFactory('PENDING') })
-    resumeOrder.mockResolvedValue({ data: { pay_url: 'https://pay.example.com/resume/42' } })
+    resumeOrder
+      .mockResolvedValueOnce({ data: { pay_url: 'https://catfk.com/pay/CAT-42' } })
+      .mockResolvedValueOnce({
+        data: {
+          qr_code: 'https://qr.alipay.com/cloudcat-loaded',
+          pay_url: 'https://catfk.com/pay/CAT-42',
+        },
+      })
 
     const wrapper = mount(PaymentStatusPanel, {
       props: {
@@ -158,25 +188,28 @@ describe('PaymentStatusPanel', () => {
         orderType: 'balance',
         outTradeNo: 'sub2_20260420abcd1234',
         resumable: true,
-        paymentWindow: initialWindow as Window,
       },
       global: { stubs: { Icon: true } },
     })
 
-    initialWindow.closed = true
-    await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('payment.qr.paymentWindowClosed')
-    expect(wrapper.find('[data-test="resume-payment"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="qr-loading"]').text()).toContain('payment.qr.loadingQRCode')
+    expect(wrapper.text()).toContain('payment.qr.loadingQRCodeHint')
+    expect(resumeOrder).toHaveBeenCalledTimes(1)
+    expect(openSpy).not.toHaveBeenCalled()
 
-    await wrapper.get('[data-test="resume-payment"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(5000)
     await flushPromises()
 
-    expect(openSpy).toHaveBeenCalledWith('', 'paymentPopup', expect.any(String))
-    expect(resumeOrder).toHaveBeenCalledWith(42)
-    expect((resumedWindow as { opener?: unknown }).opener).toBeNull()
-    expect(resumedWindow.location.href).toBe('https://pay.example.com/resume/42')
+    expect(resumeOrder).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="qr-loading"]').exists()).toBe(false)
+    expect(toCanvas).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://qr.alipay.com/cloudcat-loaded',
+      expect.objectContaining({ width: 220 }),
+    )
+    expect(openSpy).not.toHaveBeenCalled()
     expect(wrapper.find('[data-test="close-order"]').exists()).toBe(true)
     wrapper.unmount()
   })

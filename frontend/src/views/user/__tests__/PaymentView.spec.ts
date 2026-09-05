@@ -638,7 +638,7 @@ describe('PaymentView payment recovery', () => {
     expect(wrapper.find('[data-test="method-selector"]').text()).toBe('ldc')
   })
 
-  it('preopens desktop Alipay and keeps a resumable hosted URL out of local storage', async () => {
+  it('closes the preopened desktop window when Cloudcat uses the local QR flow', async () => {
     isMobileDevice.mockReturnValue(false)
     const alipayMethod: MethodLimit = {
       daily_limit: 0,
@@ -692,14 +692,15 @@ describe('PaymentView payment recovery', () => {
     expect(openSpy).toHaveBeenCalledWith('', 'paymentPopup', expect.any(String))
     expect(openSpy.mock.invocationCallOrder[0]).toBeLessThan(createOrder.mock.invocationCallOrder[0])
     expect((popup as { opener?: unknown }).opener).toBeNull()
-    expect(popup.location.href).toBe('https://pay.example.com/hosted/901')
+    expect(popup.close).toHaveBeenCalled()
+    expect(popup.location.href).toBe('')
     const recovery = window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY) || ''
     expect(recovery).toContain('"resumable":true')
     expect(recovery).not.toContain('https://pay.example.com/hosted/901')
     wrapper.unmount()
   })
 
-  it('keeps the local status shell when a resumable payment popup is blocked', async () => {
+  it('keeps Cloudcat on the local QR loading flow when the first response has no QR code', async () => {
     isMobileDevice.mockReturnValue(false)
     const alipayMethod: MethodLimit = {
       daily_limit: 0,
@@ -707,6 +708,8 @@ describe('PaymentView payment recovery', () => {
       daily_remaining: 0,
       single_min: 0,
       single_max: 0,
+      amount_options: [5],
+      amount_selection_only: true,
       fee_rate: 0,
       available: true,
     }
@@ -726,7 +729,7 @@ describe('PaymentView payment recovery', () => {
     const originalLocation = window.location
     const locationState = { href: 'http://localhost/purchase', origin: 'http://localhost' }
     Object.defineProperty(window, 'location', { configurable: true, value: locationState })
-    vi.spyOn(window, 'open').mockReturnValue(null)
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
 
     const wrapper = shallowMount(PaymentView, {
       global: {
@@ -747,7 +750,11 @@ describe('PaymentView payment recovery', () => {
     await flushPromises()
 
     expect(locationState.href).toBe('http://localhost/purchase')
-    expect(showError).toHaveBeenCalledWith('payment.qr.popupBlocked')
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalledWith('payment.qr.popupBlocked')
+    const statusPanel = wrapper.findComponent({ name: 'PaymentStatusPanel' })
+    expect(statusPanel.props('qrCode')).toBe('')
+    expect(statusPanel.props('resumable')).toBe(true)
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toContain('"resumable":true')
     wrapper.unmount()
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })

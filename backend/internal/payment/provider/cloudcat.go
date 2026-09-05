@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 const (
 	cloudcatAPIBase         = "https://catfk.com"
 	cloudcatHTTPTimeout     = 12 * time.Second
+	cloudcatCreateTimeout   = 50 * time.Second
 	cloudcatCheckoutTimeout = 8 * time.Second
 	cloudcatMaxResponseSize = 1 << 20
 	cloudcatCheckoutUA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -117,6 +119,8 @@ func (c *Cloudcat) MerchantIdentityMetadata() map[string]string {
 }
 
 func (c *Cloudcat) CreatePayment(ctx context.Context, req payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, cloudcatCreateTimeout)
+	defer cancel()
 	if strings.TrimSpace(req.PayerEmail) == "" {
 		return nil, fmt.Errorf("cloudcat payer email is required")
 	}
@@ -166,6 +170,9 @@ func (c *Cloudcat) CreatePayment(ctx context.Context, req payment.CreatePaymentR
 	if err != nil || quotedMinor != minor {
 		return nil, fmt.Errorf("cloudcat checkout amount does not match configured amount")
 	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < cloudcatHTTPTimeout {
+		return nil, fmt.Errorf("cloudcat preflight timed out before order creation")
+	}
 
 	var created cloudcatOrderData
 	if err := c.post(ctx, "/shopApi/Pay/order", map[string]any{
@@ -194,14 +201,19 @@ func (c *Cloudcat) CreatePayment(ctx context.Context, req payment.CreatePaymentR
 	if err != nil || createdMinor != minor {
 		return nil, fmt.Errorf("cloudcat created order amount does not match configured amount")
 	}
-	qrCode, _ := c.ResolvePaymentQRCode(ctx, created.PayURL)
+	qrCtx, qrCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer qrCancel()
+	qrCode, qrErr := c.ResolvePaymentQRCode(qrCtx, created.PayURL)
+	if qrErr != nil {
+		slog.Warn("resolve cloudcat QR code after order creation failed", "tradeNo", created.TradeNo, "error", qrErr)
+	}
 	return &payment.CreatePaymentResponse{TradeNo: created.TradeNo, PayURL: created.PayURL, QRCode: qrCode}, nil
 }
 
 // ResolvePaymentQRCode follows CatFK's hosted checkout to Alipay and extracts
 // the original QR payload. Callers keep PayURL as a fallback when this fails.
 func (c *Cloudcat) ResolvePaymentQRCode(ctx context.Context, payURL string) (string, error) {
-	if c == nil || c.checkoutClient == nil {
+	if c == nil || c.httpClient == nil || c.checkoutClient == nil {
 		return "", fmt.Errorf("cloudcat checkout client is unavailable")
 	}
 	if err := ValidateCloudcatPaymentURL(payURL); err != nil {
@@ -213,7 +225,10 @@ func (c *Cloudcat) ResolvePaymentQRCode(ctx context.Context, payURL string) (str
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req.Header.Set("User-Agent", cloudcatCheckoutUA)
-	resp, err := c.checkoutClient.Do(req)
+	// CatFK is more reliable with standard HTTP; keep Chrome impersonation for Alipay.
+	checkoutClient := *c.httpClient
+	checkoutClient.CheckRedirect = cloudcatCheckoutRedirectPolicy
+	resp, err := checkoutClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("cloudcat checkout: %w", err)
 	}
@@ -271,6 +286,8 @@ func parseCloudcatCheckoutResponse(resp *http.Response) (string, *cloudcatPaymen
 }
 
 func (c *Cloudcat) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	tradeNo = strings.TrimSpace(tradeNo)
 	if tradeNo == "" {
 		return nil, fmt.Errorf("cloudcat trade number is required")
@@ -296,6 +313,14 @@ func (c *Cloudcat) QueryOrder(ctx context.Context, tradeNo string) (*payment.Que
 		return nil, fmt.Errorf("cloudcat load paid order: %w", err)
 	}
 	info = info.normalized()
+	if info.Code != 1 {
+		return nil, fmt.Errorf("cloudcat paid order details are not available yet")
+	}
+	for _, returnedTradeNo := range []string{query.TradeNo, info.TradeNo} {
+		if returnedTradeNo != "" && returnedTradeNo != tradeNo {
+			return nil, fmt.Errorf("cloudcat returned a different order")
+		}
+	}
 	amountText := firstNonEmptyString(info.TotalAmount.String(), query.TotalAmount.String())
 	minor, err := payment.AmountToMinorUnit(amountText, payment.DefaultPaymentCurrency)
 	if err != nil || minor <= 0 {
@@ -498,31 +523,71 @@ func (c *Cloudcat) post(ctx context.Context, path string, payload any, dest any)
 	if err != nil {
 		return err
 	}
+	attempts := 1
+	// These POST endpoints only read state. Never replay Pay/order: an EOF may
+	// arrive after CatFK created the order, and it has no idempotency contract.
+	switch path {
+	case "/shopApi/Shop/goodsInfo", "/shopApi/Shop/getUserChannel", "/shopApi/Shop/getGoodsPrice", "/shopApi/Pay/query", "/shopApi/Order/info":
+		attempts = 3
+	}
+	timeout := cloudcatHTTPTimeout
+	if attempts > 1 {
+		timeout *= 2
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(time.Duration(attempt) * 200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		var retry bool
+		retry, err = c.postOnce(ctx, path, body, dest)
+		if err == nil || !retry || ctx.Err() != nil {
+			return err
+		}
+	}
+	return err
+}
+
+func (c *Cloudcat) postOnce(ctx context.Context, path string, body []byte, dest any) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.apiBase, "/")+path, strings.NewReader(string(body)))
 	if err != nil {
-		return err
+		return false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", cloudcatCheckoutUA)
+	req.Header.Set("Origin", cloudcatAPIBase)
+	req.Header.Set("Referer", cloudcatAPIBase+"/")
 	req.Header.Set("Visitorid", c.visitorID)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, cloudcatMaxResponseSize))
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, cloudcatMaxResponseSize+1))
 	if err != nil {
-		return err
+		return true, err
+	}
+	if len(responseBody) > cloudcatMaxResponseSize {
+		return false, fmt.Errorf("cloudcat API response is too large")
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout
+		return retry, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(responseBody)))
 	decoder.UseNumber()
 	if err := decoder.Decode(dest); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return false, fmt.Errorf("decode response: %w", err)
 	}
-	return nil
+	return false, nil
 }
 
 func parseCloudcatItemURL(raw string) (string, string, error) {

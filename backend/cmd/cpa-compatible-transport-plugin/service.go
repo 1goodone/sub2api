@@ -19,7 +19,7 @@ import (
 
 const (
 	pluginID      = "even.sub2api.cpa-compatible-transport"
-	pluginVersion = "0.1.0"
+	pluginVersion = "0.1.1"
 	capabilityID  = "openai.oauth.outbound_transport.v1"
 )
 

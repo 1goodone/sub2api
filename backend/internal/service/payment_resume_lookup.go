@@ -45,13 +45,10 @@ func (s *PaymentService) GetPublicOrderByResumeToken(ctx context.Context, token 
 	if claims.PaymentType != "" && NormalizeVisibleMethod(order.PaymentType) != NormalizeVisibleMethod(claims.PaymentType) {
 		return nil, invalidResumeTokenMatchError()
 	}
-	if order.Status == OrderStatusPending || order.Status == OrderStatusExpired {
-		result := s.reconcilePaid(ctx, order)
-		if result == checkPaidResultAlreadyPaid {
-			order, err = s.entClient.PaymentOrder.Get(ctx, order.ID)
-			if err != nil {
-				return nil, fmt.Errorf("reload order by resume token: %w", err)
-			}
+	if order.Status == OrderStatusPending || order.Status == OrderStatusExpired || (isCloudcatOrder(order) && (order.Status == OrderStatusPaid || order.Status == OrderStatusRecharging || order.Status == OrderStatusCancelled)) {
+		order, _, err = s.reconcilePaidWithCooldown(ctx, order)
+		if err != nil {
+			return nil, fmt.Errorf("verify order by resume token: %w", err)
 		}
 	}
 

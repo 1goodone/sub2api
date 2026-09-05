@@ -360,6 +360,8 @@ export default {
       continuePayment: '继续支付',
       popupBlocked: '浏览器阻止了支付窗口，请允许弹出窗口后重试',
       resumeFailed: '暂时无法继续支付，请稍后重试',
+      loadingQRCode: '正在加载支付二维码',
+      loadingQRCodeHint: '正在从支付渠道获取二维码，请稍候，请勿重复提交订单',
       expiresIn: '剩余支付时间',
       expired: '订单已过期',
       expiredDesc: '订单已超时，请重新创建订单',

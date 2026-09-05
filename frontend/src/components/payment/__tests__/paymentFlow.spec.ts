@@ -160,7 +160,7 @@ describe('decidePaymentLaunch', () => {
     expect(decision.recovery.resumeToken).toBe('resume-2')
   })
 
-  it('does not persist hosted URLs for resumable orders', () => {
+  it('keeps resumable orders on the local QR loading flow without persisting hosted URLs', () => {
     const decision = decidePaymentLaunch(createOrderResult({
       pay_url: 'https://pay.example.com/resumable/session',
       payment_mode: 'popup',
@@ -172,8 +172,9 @@ describe('decidePaymentLaunch', () => {
       isMobile: false,
     })
 
-    expect(decision.kind).toBe('redirect_waiting')
+    expect(decision.kind).toBe('qr_waiting')
     expect(decision.paymentState.payUrl).toBe('https://pay.example.com/resumable/session')
+    expect(decision.paymentState.qrCode).toBe('')
     expect(decision.paymentState.resumable).toBe(true)
     expect(decision.recovery.payUrl).toBe('')
     expect(decision.recovery.resumable).toBe(true)

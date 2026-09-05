@@ -25,7 +25,7 @@ Run from `backend/cmd/cpa-compatible-transport-plugin`:
 ```text
 go test . -count=1
 go run ./tools/release keygen -private /secure/path/publisher.private -public /secure/path/publisher.public
-go run ./tools/release package -private /secure/path/publisher.private -key-id even-sub2api-cpa-transport-v1 -output /release/path/cpa-compatible-transport-v0.1.0-linux-amd64.s2plugin
+go run ./tools/release package -private /secure/path/publisher.private -key-id even-sub2api-cpa-transport-v1 -output /release/path/cpa-compatible-transport-v0.1.1-linux-amd64.s2plugin
 ```
 
 The package command cross-compiles Linux amd64, signs the exact manifest,

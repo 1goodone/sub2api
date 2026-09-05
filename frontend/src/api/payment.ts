@@ -47,7 +47,7 @@ export const paymentAPI = {
 
   /** Create a new payment order */
   createOrder(data: CreateOrderRequest) {
-    return apiClient.post<CreateOrderResult>('/payment/orders', data)
+    return apiClient.post<CreateOrderResult>('/payment/orders', data, { timeout: 60000 })
   },
 
   /** Reopen the hosted checkout for a resumable pending order */

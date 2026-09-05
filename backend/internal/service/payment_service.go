@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
+	"golang.org/x/sync/singleflight"
 )
 
 // --- Order Status Constants ---
@@ -184,10 +185,19 @@ type TopUserStat struct {
 // currency. A single cross-currency leaderboard would be misleading.
 type TopUsersByCurrency map[string][]TopUserStat
 
+// PaymentVerificationCooldown prevents repeated upstream checks for the same
+// order across application instances. Implementations should fail open at the
+// call site so a cache outage cannot block payment verification.
+type PaymentVerificationCooldown interface {
+	TryAcquire(ctx context.Context, orderID int64, ttl time.Duration) (bool, error)
+}
+
 // --- Service ---
 
 type PaymentService struct {
 	providerMu               sync.Mutex
+	verificationFlight       singleflight.Group
+	verificationCooldown     PaymentVerificationCooldown
 	providersLoaded          bool
 	entClient                *dbent.Client
 	registry                 *payment.Registry
@@ -210,6 +220,13 @@ func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, load
 
 func (s *PaymentService) SetNotificationEmailService(notificationEmailService *NotificationEmailService) {
 	s.notificationEmailService = notificationEmailService
+}
+
+func (s *PaymentService) SetPaymentVerificationCooldown(cooldown PaymentVerificationCooldown) {
+	if s == nil {
+		return
+	}
+	s.verificationCooldown = cooldown
 }
 
 // --- Provider Registry ---
