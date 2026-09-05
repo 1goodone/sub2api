@@ -64,7 +64,7 @@ func TestAPIKeyService_RejectsV15AuthSnapshotWithoutReasoningEffortPolicy(t *tes
 	}
 }
 
-func TestAPIKeyService_V24AuthSnapshotRoundTripPreservesAutomaticRouting(t *testing.T) {
+func TestAPIKeyService_CurrentAuthSnapshotRoundTripPreservesAutomaticRouting(t *testing.T) {
 	groupID := int64(9)
 	mixedGroupIDs := []int64{9, 11}
 	apiKey := &APIKey{
@@ -108,7 +108,7 @@ func TestAPIKeyService_V24AuthSnapshotRoundTripPreservesAutomaticRouting(t *test
 	svc := &APIKeyService{}
 
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
-	if snapshot.Version != 24 || apiKeyAuthSnapshotVersion != 24 {
+	if snapshot.Version != apiKeyAuthSnapshotVersion {
 		t.Fatalf("unexpected auth snapshot version: snapshot=%d current=%d", snapshot.Version, apiKeyAuthSnapshotVersion)
 	}
 	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)

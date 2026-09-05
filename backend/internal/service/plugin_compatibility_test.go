@@ -10,18 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCPACompatibleTransportManifestSupportsSub2API020(t *testing.T) {
+func TestCPACompatibleTransportManifestSupportsSub2API021(t *testing.T) {
 	raw, err := os.ReadFile("../../cmd/cpa-compatible-transport-plugin/manifest.source.json")
 	require.NoError(t, err)
 
 	var manifest PluginManifest
 	require.NoError(t, json.Unmarshal(raw, &manifest))
 
-	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.0", BuildType: "release"})
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.1", BuildType: "release"})
 	require.True(t, result.Compatible)
 	assert.True(t, result.Tested)
 	assert.Equal(t, "compatible", result.Status)
-	assert.Equal(t, "0.1.1", manifest.Version)
+	assert.Equal(t, "0.1.2", manifest.Version)
+
+	futureZeroMajor := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.9.9", BuildType: "release"})
+	require.True(t, futureZeroMajor.Compatible)
+	assert.False(t, futureZeroMajor.Tested)
 }
 
 func TestEvaluatePluginCompatibility(t *testing.T) {
