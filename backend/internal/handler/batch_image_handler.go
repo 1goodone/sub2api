@@ -39,10 +39,6 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
 		return
 	}
-	if !apiKeyAllowsModel(c, apiKey, req.Model) {
-		batchImageError(c, infraerrors.New(http.StatusForbidden, "MODEL_DISABLED", groupDisabledModelMessage))
-		return
-	}
 	owner, ok := batchImageOwnerFromContext(c)
 	if !ok {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
@@ -153,14 +149,26 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 		batchImageError(c, err)
 		return
 	}
-	filtered := got.Data[:0]
-	for _, model := range got.Data {
-		if apiKey.Group == nil || !apiKey.Group.IsModelDisabled(model.ID) {
+	// 分组级模型白名单：ListModels 已按分组账号枚举，这里再按白名单过滤一次。
+	if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
+		got.Data = filterBatchImageModelsByAllowlist(got.Data, apiKey.Group.ModelAllowlist)
+	}
+	c.JSON(http.StatusOK, got)
+}
+
+// filterBatchImageModelsByAllowlist 按分组模型白名单过滤批量生图模型列表。
+// 白名单未开启时原样返回。
+func filterBatchImageModelsByAllowlist(models []service.BatchImagePublicModel, allowlist service.GroupModelAllowlist) []service.BatchImagePublicModel {
+	if !allowlist.Enabled {
+		return models
+	}
+	filtered := make([]service.BatchImagePublicModel, 0, len(models))
+	for _, model := range models {
+		if allowlist.Allows(model.ID) {
 			filtered = append(filtered, model)
 		}
 	}
-	got.Data = filtered
-	c.JSON(http.StatusOK, got)
+	return filtered
 }
 
 func (h *BatchImageHandler) Items(c *gin.Context) {

@@ -74,10 +74,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 	requestModel := parsed.Model
-	if !apiKeyAllowsModel(c, apiKey, requestModel) {
-		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
-		return
-	}
 	ensureCompositeTargetPlatform(c, apiKey, requestModel)
 	clientRequestModel := clientRequestedModel(c, requestModel)
 	routingModel := requestModel

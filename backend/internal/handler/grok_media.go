@@ -133,10 +133,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
-	if !apiKeyAllowsModel(c, apiKey, requestModel) {
-		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
-		return
-	}
 	if endpoint.IsVideoLookupRequest() && strings.TrimSpace(requestID) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "request_id is required")
 		return

@@ -162,6 +162,7 @@ describe('admin AccountsView selected group routing preference', () => {
         type: 'oauth',
         status: 'active',
         schedulable: true,
+        group_ids: [7],
         groups: [group]
       }],
       total: 1,

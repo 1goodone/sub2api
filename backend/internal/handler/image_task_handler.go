@@ -88,13 +88,9 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", "streaming image requests cannot be submitted as asynchronous tasks")
 		return
 	}
-	model, err := h.validateRequest(c, platform, body)
+	_, err = h.validateRequest(c, platform, body)
 	if err != nil {
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return
-	}
-	if !apiKeyAllowsModel(c, apiKey, model) {
-		imageTaskJSONError(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
 		return
 	}
 	if !restrictMixedKeyRouting(c, apiKey, service.GroupAllowsImageGeneration) || !service.GroupAllowsImageGeneration(apiKey.Group) {

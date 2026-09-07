@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // v25: include automatic routing candidates and group codex manifest config
+const apiKeyAuthSnapshotVersion = 26 // v26: preserve automatic routing snapshots with group model allowlists
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -499,8 +499,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		AccountTypePreference:           groupAccountTypePreference(group),
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
-		ModelsListConfig:                group.ModelsListConfig,
-		DisabledModels:                  append([]string(nil), group.DisabledModels...),
+		ModelAllowlist:                  group.ModelAllowlist,
 		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
 		RPMLimit:                        group.RPMLimit,
 		MaxReasoningEffort:              group.MaxReasoningEffort,
@@ -570,8 +569,7 @@ func apiKeyAuthGroupSnapshotToGroup(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		AccountTypePreference:           snapshot.AccountTypePreference,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
-		ModelsListConfig:                snapshot.ModelsListConfig,
-		DisabledModels:                  append([]string(nil), snapshot.DisabledModels...),
+		ModelAllowlist:                  snapshot.ModelAllowlist,
 		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
 		RPMLimit:                        snapshot.RPMLimit,
 		MaxReasoningEffort:              snapshot.MaxReasoningEffort,

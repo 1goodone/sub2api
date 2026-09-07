@@ -76,10 +76,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	if !apiKeyAllowsModel(c, apiKey, reqModel) {
-		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
-		return
-	}
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {

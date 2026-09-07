@@ -28,7 +28,10 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 		ProfitControlEnabled: true,
 		ProfitMinMargin:      0.2,
 		ProfitSafetyBuffer:   0.05,
-		DisabledModels:       []string{"gpt-5.4"},
+		ModelAllowlist: service.GroupModelAllowlist{
+			Enabled: true,
+			Models:  []string{"gpt-5.4"},
+		},
 	})
 	user := mustCreateUser(t, integrationEntClient, &service.User{
 		Email: fmt.Sprintf("profit-proj-%d@example.com", suffix), Concurrency: 5,
@@ -58,5 +61,6 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 	require.True(t, got.Group.ProfitControlEnabled, "profit_control_enabled 必须进入认证投影（投影漏列会让门静默失效）")
 	require.InDelta(t, 0.2, got.Group.ProfitMinMargin, 1e-9)
 	require.InDelta(t, 0.05, got.Group.ProfitSafetyBuffer, 1e-9)
-	require.True(t, got.Group.IsModelDisabled("GPT-5.4"), "disabled_models 必须进入认证投影")
+	require.True(t, got.Group.ModelAllowlist.Allows("GPT-5.4"), "model_allowlist 必须进入认证投影")
+	require.False(t, got.Group.ModelAllowlist.Allows("gpt-5.4-mini"), "model_allowlist 准入语义必须保真")
 }

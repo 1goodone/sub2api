@@ -67,10 +67,6 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		}
 		request.Session = rewrittenSession
 	}
-	if !apiKeyAllowsModel(c, apiKey, model) {
-		h.errorResponse(c, http.StatusForbidden, "permission_error", groupDisabledModelMessage)
-		return
-	}
 	reqLog := requestLogger(
 		c,
 		"handler.openai_gateway.live",

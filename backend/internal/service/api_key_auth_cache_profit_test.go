@@ -31,18 +31,21 @@ func profitAuthTestAPIKey() *APIKey {
 			Concurrency: 5,
 		},
 		Group: &Group{
-			ID:                    groupID,
-			Name:                  "VIP-roundtrip",
-			Platform:              PlatformOpenAI,
-			Status:                StatusActive,
-			Hydrated:              true,
-			RateMultiplier:        0.06,
-			SubscriptionType:      SubscriptionTypeStandard,
-			PeakRateEnabled:       false,
-			ProfitControlEnabled:  true,
-			ProfitMinMargin:       0.2,
-			ProfitSafetyBuffer:    0.05,
-			DisabledModels:        []string{"gpt-5.4"},
+			ID:                   groupID,
+			Name:                 "VIP-roundtrip",
+			Platform:             PlatformOpenAI,
+			Status:               StatusActive,
+			Hydrated:             true,
+			RateMultiplier:       0.06,
+			SubscriptionType:     SubscriptionTypeStandard,
+			PeakRateEnabled:      false,
+			ProfitControlEnabled: true,
+			ProfitMinMargin:      0.2,
+			ProfitSafetyBuffer:   0.05,
+			ModelAllowlist: GroupModelAllowlist{
+				Enabled: true,
+				Models:  []string{"gpt-5.4"},
+			},
 			FocusAccountID:        &focusAccountID,
 			FocusAccountIDs:       focusAccountIDs,
 			AccountTypePreference: AccountTypePreferenceAuthFirst,
@@ -76,7 +79,8 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.InDelta(t, 0.2, materialized.Group.ProfitMinMargin, 1e-12)
 	require.InDelta(t, 0.05, materialized.Group.ProfitSafetyBuffer, 1e-12)
 	require.InDelta(t, 0.06, materialized.Group.RateMultiplier, 1e-12)
-	require.True(t, materialized.Group.IsModelDisabled("GPT-5.4"))
+	require.True(t, materialized.Group.ModelAllowlist.Allows("GPT-5.4"))
+	require.False(t, materialized.Group.ModelAllowlist.Allows("gpt-5.4-mini"))
 	require.NotNil(t, materialized.Group.FocusAccountID)
 	require.Equal(t, int64(501), *materialized.Group.FocusAccountID)
 	require.Equal(t, []int64{501, 502}, materialized.Group.FocusAccountIDs)

@@ -262,7 +262,7 @@ func (s *OpenAIGatewayService) handleOpenAIVideoErrorResponse(
 		upstreamDetail = truncateString(string(body), maxBytes)
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-	if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, body) {
+	if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, body) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
