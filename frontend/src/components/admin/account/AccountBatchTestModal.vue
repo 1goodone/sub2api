@@ -6,6 +6,16 @@
     @close="handleClose"
   >
     <div class="space-y-4">
+      <Input
+        id="batch-test-model"
+        v-model="customModel"
+        :label="t('admin.accounts.batchTest.model')"
+        :placeholder="t('admin.accounts.batchTest.modelPlaceholder')"
+        :hint="t('admin.accounts.batchTest.modelHint')"
+        :disabled="isRunning"
+        autocomplete="off"
+      />
+
       <div class="flex flex-wrap items-end justify-between gap-3" aria-live="polite">
         <div>
           <div class="text-2xl font-semibold text-gray-900 dark:text-gray-100">
@@ -112,6 +122,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Input from '@/components/common/Input.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
 
@@ -139,6 +150,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const items = ref<BatchTestItem[]>([])
+const customModel = ref('')
 const isRunning = ref(false)
 const hasStarted = ref(false)
 let activeController: AbortController | null = null
@@ -150,6 +162,7 @@ const failedCount = computed(() => items.value.filter(item => item.status === 'f
 const progressPercent = computed(() => items.value.length ? (completedCount.value / items.value.length) * 100 : 0)
 
 const resetItems = () => {
+  customModel.value = ''
   const accountByID = new Map(props.accounts.map(account => [account.id, account]))
   items.value = props.accountIds.map(id => {
     const account = accountByID.get(id)
@@ -175,6 +188,7 @@ const startTests = async () => {
   })
   hasStarted.value = true
   isRunning.value = true
+  const modelID = customModel.value.trim()
 
   for (const item of items.value) {
     if (version !== runVersion) return
@@ -183,7 +197,8 @@ const startTests = async () => {
     activeController = new AbortController()
 
     try {
-      const result = await adminAPI.accounts.testAccount(item.id, { prompt: 'hi' }, {
+      const request = modelID ? { model_id: modelID, prompt: 'hi' } : { prompt: 'hi' }
+      const result = await adminAPI.accounts.testAccount(item.id, request, {
         signal: activeController.signal,
         onEvent: event => {
           if (event.model) item.model = event.model

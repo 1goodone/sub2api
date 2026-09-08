@@ -486,6 +486,9 @@ export default {
       },
       batchTest: {
         title: 'Batch Connection Test',
+        model: 'Test model',
+        modelPlaceholder: 'Leave blank to use each account default',
+        modelHint: 'When set, every account in this batch sends hi with this model.',
         progress: 'Test progress',
         successCount: '{count} passed',
         failedCount: '{count} failed',

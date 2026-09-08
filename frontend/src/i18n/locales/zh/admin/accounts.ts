@@ -573,6 +573,9 @@ export default {
       },
       batchTest: {
         title: '批量测试连接',
+        model: '测试模型',
+        modelPlaceholder: '留空使用各账号默认模型',
+        modelHint: '填写后，整批账号都使用此模型发送 hi。',
         progress: '测试进度',
         successCount: '成功 {count}',
         failedCount: '失败 {count}',

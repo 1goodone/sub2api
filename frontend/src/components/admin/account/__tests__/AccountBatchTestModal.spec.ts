@@ -69,6 +69,22 @@ describe('AccountBatchTestModal', () => {
     wrapper.unmount()
   })
 
+  it('uses one trimmed custom model for every account in the batch', async () => {
+    testAccount.mockResolvedValue({ success: true })
+    const wrapper = mountModal()
+
+    await wrapper.get('#batch-test-model').setValue('  gpt-5.4  ')
+    await wrapper.get('[data-testid="start-batch-test"]').trigger('click')
+    await flushPromises()
+
+    expect(testAccount).toHaveBeenCalledTimes(2)
+    expect(testAccount.mock.calls.map(call => call[1])).toEqual([
+      { model_id: 'gpt-5.4', prompt: 'hi' },
+      { model_id: 'gpt-5.4', prompt: 'hi' }
+    ])
+    wrapper.unmount()
+  })
+
   it('aborts the active request and marks remaining accounts stopped', async () => {
     const active = deferred<{ success: boolean }>()
     testAccount.mockReturnValue(active.promise)
