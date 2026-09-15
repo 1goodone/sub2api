@@ -204,6 +204,8 @@ export default {
     desktop: 'Desktop download',
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
+    recharge: 'Recharge',
+    subscribe: 'Subscription',
     docs: 'Docs',
     myOrders: 'My Orders',
     orderManagement: 'Orders',

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 
 const AnnouncementPopup = defineAsyncComponent(() => import('@/components/common/AnnouncementPopup.vue'))
 const AdminComplianceDialog = defineAsyncComponent(() => import('@/components/admin/AdminComplianceDialog.vue'))
@@ -25,7 +27,9 @@ function updateDocumentTitle() {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems)
+  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems, {
+    billingMode: resolveSiteBillingMode(appStore.cachedPublicSettings),
+  })
 }
 
 // Watch for site settings changes and update favicon/title
@@ -46,6 +50,8 @@ watch(
     () => route.meta.titleKey,
     () => appStore.siteName,
     () => appStore.cachedPublicSettings?.custom_menu_items,
+    () => appStore.cachedPublicSettings?.subscription_enabled,
+    () => appStore.cachedPublicSettings?.payment_balance_disabled,
     () => authStore.isAdmin,
     () => adminSettingsStore.customMenuItems,
   ],
@@ -65,6 +71,25 @@ function onAdminComplianceRequired(event: Event) {
   adminComplianceStore.requireAcknowledgement(detail)
 }
 
+// 订阅功能开关（opt-out）。关闭后不再预加载/轮询订阅接口；开关在登录后才到达时补启动，反向则清空。
+const subscriptionFeatureEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.subscription))
+
+function startSubscriptionSync() {
+  subscriptionStore.fetchActiveSubscriptions().catch((error) => {
+    console.error('Failed to preload subscriptions:', error)
+  })
+  subscriptionStore.startPolling()
+}
+
+watch(subscriptionFeatureEnabled, (enabled) => {
+  if (!authStore.isAuthenticated) return
+  if (enabled) {
+    startSubscriptionSync()
+  } else {
+    subscriptionStore.clear()
+  }
+})
+
 watch(
   () => authStore.isAuthenticated,
   (isAuthenticated, oldValue) => {
@@ -75,11 +100,11 @@ watch(
         })
       }
 
-      // User logged in: preload subscriptions and start polling
-      subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-        console.error('Failed to preload subscriptions:', error)
-      })
-      subscriptionStore.startPolling()
+      // User logged in: preload subscriptions and start polling (skipped when the
+      // subscription feature is switched off; see the flag watcher below)
+      if (subscriptionFeatureEnabled.value) {
+        startSubscriptionSync()
+      }
 
       // Announcements: new login vs page refresh restore
       if (oldValue === false) {
