@@ -582,6 +582,30 @@ describe('PaymentView payment recovery', () => {
     expect(submit?.attributes('disabled')).toBeDefined()
   })
 
+  it.each([false, true])('does not replay Cloudcat creation on gateway failure with isMobile=%s', async (isMobile) => {
+    isMobileDevice.mockReturnValue(isMobile)
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: { alipay: { daily_limit: 0, daily_used: 0, daily_remaining: 0, single_min: 5, single_max: 5, fee_rate: 0, available: true } },
+      global_min: 5,
+      global_max: 5,
+    }))
+    createOrder.mockRejectedValue({ reason: 'PAYMENT_GATEWAY_ERROR', metadata: { provider: 'cloudcat' } })
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    wrapper.findComponent({ name: 'AmountInput' }).vm.$emit('update:modelValue', 5)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(submit).toBeDefined()
+    await submit!.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('payment.errors.cloudcatUnavailable payment.errors.cloudcatUnavailableHint')
+    wrapper.unmount()
+  })
+
   it('does not open a payment window when desktop Cloudcat renders a local QR code', async () => {
     isMobileDevice.mockReturnValue(false)
     const cloudcatMethod: MethodLimit = {

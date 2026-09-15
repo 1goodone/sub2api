@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/imroc/req/v3"
 	"golang.org/x/net/html"
 )
@@ -25,6 +28,7 @@ const (
 	cloudcatHTTPTimeout     = 12 * time.Second
 	cloudcatCreateTimeout   = 50 * time.Second
 	cloudcatCheckoutTimeout = 8 * time.Second
+	cloudcatQRCodeTimeout   = 12 * time.Second
 	cloudcatMaxResponseSize = 1 << 20
 	cloudcatCheckoutUA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
@@ -88,18 +92,43 @@ func NewCloudcat(instanceID string, config map[string]string) (*Cloudcat, error)
 	if err != nil {
 		return nil, fmt.Errorf("cloudcat cookie jar: %w", err)
 	}
-	checkoutClient := req.C().
+	proxyURL, _, err := proxyurl.Parse(os.Getenv("CLOUDCAT_PROXY_URL"))
+	if err != nil {
+		return nil, fmt.Errorf("cloudcat CLOUDCAT_PROXY_URL is invalid")
+	}
+	apiProxyURL := proxyURL
+	if raw := strings.TrimSpace(os.Getenv("CLOUDCAT_API_PROXY_URL")); raw != "" {
+		apiProxyURL, _, err = proxyurl.Parse(raw)
+		if err != nil {
+			return nil, fmt.Errorf("cloudcat CLOUDCAT_API_PROXY_URL is invalid")
+		}
+	}
+	apiClient := &http.Client{Timeout: cloudcatHTTPTimeout, Jar: jar}
+	checkout := req.C().
 		SetTimeout(cloudcatCheckoutTimeout).
 		ImpersonateChrome().
-		SetRedirectPolicy(cloudcatCheckoutRedirectPolicy).
-		GetClient()
+		SetRedirectPolicy(cloudcatCheckoutRedirectPolicy)
+	if apiProxyURL != "" {
+		shared, err := httpclient.GetClient(httpclient.Options{ProxyURL: apiProxyURL, Timeout: cloudcatHTTPTimeout})
+		if err != nil {
+			return nil, fmt.Errorf("cloudcat proxy client: %w", err)
+		}
+		// Reuse connections without sharing checkout cookies between provider instances.
+		client := *shared
+		client.Jar = jar
+		apiClient = &client
+	}
+	if proxyURL != "" {
+		checkout.SetProxyURL(proxyURL)
+	}
+	checkoutClient := checkout.GetClient()
 	checkoutClient.Jar = jar
 	return &Cloudcat{
 		instanceID:     instanceID,
 		channelID:      channelID,
 		products:       products,
 		apiBase:        cloudcatAPIBase,
-		httpClient:     &http.Client{Timeout: cloudcatHTTPTimeout, Jar: jar},
+		httpClient:     apiClient,
 		checkoutClient: checkoutClient,
 		visitorID:      newCloudcatVisitorID(instanceID),
 	}, nil
@@ -201,7 +230,7 @@ func (c *Cloudcat) CreatePayment(ctx context.Context, req payment.CreatePaymentR
 	if err != nil || createdMinor != minor {
 		return nil, fmt.Errorf("cloudcat created order amount does not match configured amount")
 	}
-	qrCtx, qrCancel := context.WithTimeout(ctx, 3*time.Second)
+	qrCtx, qrCancel := context.WithTimeout(ctx, cloudcatQRCodeTimeout)
 	defer qrCancel()
 	qrCode, qrErr := c.ResolvePaymentQRCode(qrCtx, created.PayURL)
 	if qrErr != nil {

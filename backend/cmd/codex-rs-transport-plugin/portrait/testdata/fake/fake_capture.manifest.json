@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "codex_cli_version": "fake-0.0.0",
+  "captured_at": "2026-09-11T01:41:10Z",
+  "os": "windows",
+  "arch": "amd64",
+  "method": "local_inspector",
+  "inspector": "codex-rs-transport-plugin/tools/capture",
+  "notes": "\u003e=2 requests same inspector session; no production load"
+}

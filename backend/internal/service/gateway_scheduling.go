@@ -1059,6 +1059,9 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 		}
 
 		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) {
+			if err := CheckGroupStreamingPolicy(ctx, group); err != nil {
+				return nil, nil, err
+			}
 			return group, &currentID, nil
 		}
 

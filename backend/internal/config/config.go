@@ -109,12 +109,23 @@ type Config struct {
 // PluginConfig 控制管理员手动上传的本地进程插件。
 // 默认不包含插件，也不允许安装未签名插件；TrustedPublishers 用于追加第三方发布者。
 type PluginConfig struct {
-	DataDir              string            `mapstructure:"data_dir"`
-	AllowUnsigned        bool              `mapstructure:"allow_unsigned"`
-	TrustedPublishers    map[string]string `mapstructure:"trusted_publishers"`
-	MaxUploadBytes       int64             `mapstructure:"max_upload_bytes"`
-	MaxUncompressedBytes int64             `mapstructure:"max_uncompressed_bytes"`
-	StartTimeoutSeconds  int               `mapstructure:"start_timeout_seconds"`
+	DataDir                      string            `mapstructure:"data_dir"`
+	AllowUnsigned                bool              `mapstructure:"allow_unsigned"`
+	TrustedPublishers            map[string]string `mapstructure:"trusted_publishers"`
+	MaxUploadBytes               int64             `mapstructure:"max_upload_bytes"`
+	MaxUncompressedBytes         int64             `mapstructure:"max_uncompressed_bytes"`
+	StartTimeoutSeconds          int               `mapstructure:"start_timeout_seconds"`
+	OpenAIOAuthAccountAllowlist  []int64           `mapstructure:"openai_oauth_account_allowlist"`
+}
+
+// OpenAICodexOutboundDiagnosticsConfig is host-side header self-check JSONL. Zero value writes nothing.
+type OpenAICodexOutboundDiagnosticsConfig struct {
+	Enabled    bool    `mapstructure:"enabled"`
+	Dir        string  `mapstructure:"dir"`
+	MaxSizeMB  int     `mapstructure:"max_size_mb"`
+	MaxBackups int     `mapstructure:"max_backups"`
+	MaxAgeDays int     `mapstructure:"max_age_days"`
+	SampleRate float64 `mapstructure:"sample_rate"`
 }
 
 type LogConfig struct {
@@ -1017,6 +1028,8 @@ type GatewayConfig struct {
 	OpenAIScheduler GatewayOpenAISchedulerConfig `mapstructure:"openai_scheduler"`
 	// OpenAIHTTP2: OpenAI HTTP 上游协议策略（默认启用 HTTP/2，可按代理能力回退 HTTP/1.1）
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
+	// OpenAICodexOutboundDiagnostics writes Codex routing-hint / identity JSONL. Default off.
+	OpenAICodexOutboundDiagnostics OpenAICodexOutboundDiagnosticsConfig `mapstructure:"openai_codex_outbound_diagnostics"`
 	// OpenAIProxyStreamCircuit: Responses SSE 代理断流熔断策略。
 	OpenAIProxyStreamCircuit GatewayOpenAIProxyStreamCircuitConfig `mapstructure:"openai_proxy_stream_circuit"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
@@ -2378,6 +2391,13 @@ func setDefaults() {
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.enabled", false)
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.dir", "")
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.max_size_mb", 32)
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.max_backups", 3)
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.max_age_days", 3)
+	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.sample_rate", 1.0)
+	viper.SetDefault("plugins.openai_oauth_account_allowlist", []int64{})
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	// Account-level opt-in is the normal control surface. The global value is
 	// retained only as an emergency kill switch and therefore defaults on.

@@ -258,6 +258,14 @@ gateway:
   #
   # 注意：开启后会影响所有客户端的行为（不仅限于 VS Code / Codex CLI），请谨慎开启。
   force_codex_cli: false
+  # Codex outbound header self-check JSONL (routing-hint / identity). Default off; never blocks requests.
+  openai_codex_outbound_diagnostics:
+    enabled: false
+    dir: ""
+    max_size_mb: 32
+    max_backups: 3
+    max_age_days: 3
+    sample_rate: 1.0
   # Stop rewriting load-shed Codex originators to the official CLI identity.
   # 关闭「把落在上游降载桶的 Codex originator 改写为官方 CLI 身份（codex_cli_rs）」。
   #
@@ -1048,6 +1056,9 @@ plugins:
   max_upload_bytes: 134217728
   max_uncompressed_bytes: 268435456
   start_timeout_seconds: 15
+  # First Enable of even.sub2api.codex-rs-transport requires a non-empty allowlist.
+  # Empty list does not filter (CPA and later expansion). Intersects with rollout_percent.
+  openai_oauth_account_allowlist: []
 
 # =============================================================================
 # Pricing Data Source (Optional)

@@ -23560,6 +23560,7 @@ type GroupMutation struct {
 	peak_rate_multiplier                    *float64
 	addpeak_rate_multiplier                 *float64
 	is_exclusive                            *bool
+	disable_non_streaming                   *bool
 	status                                  *string
 	duplicate_operation_id                  *string
 	platform                                *string
@@ -24228,6 +24229,42 @@ func (m *GroupMutation) OldIsExclusive(ctx context.Context) (v bool, err error) 
 // ResetIsExclusive resets all changes to the "is_exclusive" field.
 func (m *GroupMutation) ResetIsExclusive() {
 	m.is_exclusive = nil
+}
+
+// SetDisableNonStreaming sets the "disable_non_streaming" field.
+func (m *GroupMutation) SetDisableNonStreaming(b bool) {
+	m.disable_non_streaming = &b
+}
+
+// DisableNonStreaming returns the value of the "disable_non_streaming" field in the mutation.
+func (m *GroupMutation) DisableNonStreaming() (r bool, exists bool) {
+	v := m.disable_non_streaming
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisableNonStreaming returns the old "disable_non_streaming" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldDisableNonStreaming(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisableNonStreaming is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisableNonStreaming requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisableNonStreaming: %w", err)
+	}
+	return oldValue.DisableNonStreaming, nil
+}
+
+// ResetDisableNonStreaming resets all changes to the "disable_non_streaming" field.
+func (m *GroupMutation) ResetDisableNonStreaming() {
+	m.disable_non_streaming = nil
 }
 
 // SetStatus sets the "status" field.
@@ -27502,7 +27539,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 68)
+	fields := make([]string, 0, 69)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -27535,6 +27572,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.is_exclusive != nil {
 		fields = append(fields, group.FieldIsExclusive)
+	}
+	if m.disable_non_streaming != nil {
+		fields = append(fields, group.FieldDisableNonStreaming)
 	}
 	if m.status != nil {
 		fields = append(fields, group.FieldStatus)
@@ -27737,6 +27777,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.PeakRateMultiplier()
 	case group.FieldIsExclusive:
 		return m.IsExclusive()
+	case group.FieldDisableNonStreaming:
+		return m.DisableNonStreaming()
 	case group.FieldStatus:
 		return m.Status()
 	case group.FieldDuplicateOperationID:
@@ -27882,6 +27924,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldPeakRateMultiplier(ctx)
 	case group.FieldIsExclusive:
 		return m.OldIsExclusive(ctx)
+	case group.FieldDisableNonStreaming:
+		return m.OldDisableNonStreaming(ctx)
 	case group.FieldStatus:
 		return m.OldStatus(ctx)
 	case group.FieldDuplicateOperationID:
@@ -28081,6 +28125,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsExclusive(v)
+		return nil
+	case group.FieldDisableNonStreaming:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisableNonStreaming(v)
 		return nil
 	case group.FieldStatus:
 		v, ok := value.(string)
@@ -29030,6 +29081,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldIsExclusive:
 		m.ResetIsExclusive()
+		return nil
+	case group.FieldDisableNonStreaming:
+		m.ResetDisableNonStreaming()
 		return nil
 	case group.FieldStatus:
 		m.ResetStatus()

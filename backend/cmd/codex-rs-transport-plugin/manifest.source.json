@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "even.sub2api.codex-rs-transport",
+  "name": "Codex rustls OpenAI Transport",
+  "version": "0.1.1",
+  "description": "OpenAI OAuth outbound transport that mimics official Codex CLI rustls ClientHello and hyper HTTP/2.",
+  "author": "Even",
+  "requires": {
+    "sub2api": ">=0.1.179 <1.0.0",
+    "recommended_sub2api_version": "0.2.1",
+    "tested_sub2api_versions": ["0.1.183", "0.2.0", "0.2.1"],
+    "plugin_protocol": 1,
+    "transport_api": 1,
+    "ui_bridge": 1
+  },
+  "capabilities": [
+    {
+      "id": "openai.oauth.outbound_transport.v1",
+      "platform": "openai",
+      "account_type": "oauth"
+    }
+  ],
+  "runtimes": {},
+  "ui": { "entrypoint": "ui/index.html" },
+  "files": {}
+}

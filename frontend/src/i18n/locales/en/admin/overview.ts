@@ -1200,6 +1200,10 @@ export default {
         unsupportedMessage: 'This Sub2API server cannot generate the required Live attestation. Live will not work even if enabled. Continue anyway?',
         enableAnyway: 'Enable anyway'
       },
+      disableNonStreaming: {
+        label: 'Disable non-streaming text requests',
+        hint: 'Only streaming text generation is allowed. Images, videos, WebSocket connections, and read-only APIs are unaffected.'
+      },
       openaiFast: {
         title: 'OpenAI Fast mode',
         force: 'Force Fast (priority)',

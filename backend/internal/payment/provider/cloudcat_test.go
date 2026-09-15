@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,18 @@ func TestCloudcatCreatePaymentUsesMappedProductAndEmail(t *testing.T) {
 		"/gateway.do":                  `<html><input value="https://qr.alipay.com/cloudcat-test-1" id="J_qrCode"></html>`,
 	})
 	defer closeServer()
+	transport := provider.checkoutClient.Transport
+	provider.checkoutClient.Transport = cloudcatTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+		// A healthy relayed checkout can exceed the old three-second QR budget.
+		timer := time.NewTimer(3100 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		case <-timer.C:
+			return transport.RoundTrip(r)
+		}
+	})
 
 	result, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{
 		Amount: "5.00", PaymentType: payment.TypeAlipay, PayerEmail: "buyer@example.com",
@@ -192,6 +205,105 @@ func newCloudcatTestProvider(t *testing.T, responses map[string]string) (*Cloudc
 type cloudcatTestRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f cloudcatTestRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestCloudcatProxyAppliesToBothClientsWithoutDirectFallback(t *testing.T) {
+	requests := make(chan string, 8)
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.Method + " " + r.Host
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer proxyServer.Close()
+	t.Setenv("CLOUDCAT_PROXY_URL", proxyServer.URL)
+	config := map[string]string{
+		"channelId": "1",
+		"products":  `[{"amount":"5.00","itemUrl":"https://catfk.com/item/ee9c69"}]`,
+	}
+	p, err := NewCloudcat("proxy-test", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := NewCloudcat("other", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.httpClient.Jar != p.checkoutClient.Jar || p.httpClient.Jar == other.httpClient.Jar {
+		t.Fatal("checkout cookies must be shared within one provider, but isolated across providers")
+	}
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("configured proxy was bypassed")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer direct.Close()
+	for _, client := range []*http.Client{p.httpClient, p.checkoutClient} {
+		resp, err := client.Get(direct.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadGateway {
+			t.Fatalf("proxy response = %d", resp.StatusCode)
+		}
+		<-requests
+		resp, err = client.Get("https://cloudcat-proxy-test.invalid/")
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if err == nil {
+			t.Fatal("failed HTTPS proxy must return an error")
+		}
+		if got := <-requests; got != "CONNECT cloudcat-proxy-test.invalid:443" {
+			t.Fatalf("unexpected HTTPS proxy request: %s", got)
+		}
+	}
+	t.Setenv("CLOUDCAT_PROXY_URL", "file:///invalid-proxy")
+	if _, err := NewCloudcat("invalid", config); err == nil {
+		t.Fatal("invalid proxy configuration must fail at construction")
+	}
+}
+
+func TestCloudcatAPIProxyOverride(t *testing.T) {
+	var apiCalls, checkoutCalls atomic.Int32
+	apiProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer apiProxy.Close()
+	checkoutProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checkoutCalls.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer checkoutProxy.Close()
+	t.Setenv("CLOUDCAT_PROXY_URL", checkoutProxy.URL)
+	t.Setenv("CLOUDCAT_API_PROXY_URL", apiProxy.URL)
+	config := map[string]string{"channelId": "1", "products": `[{"amount":"5.00","itemUrl":"https://catfk.com/item/ee9c69"}]`}
+	p, err := NewCloudcat("split-proxy-test", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, client := range []*http.Client{p.httpClient, p.checkoutClient} {
+		resp, err := client.Get("https://proxy-test.invalid/")
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if err == nil {
+			t.Fatal("failed proxy CONNECT must return an error")
+		}
+	}
+	if apiCalls.Load() != 1 || checkoutCalls.Load() != 1 {
+		t.Fatalf("wrong route: API calls=%d, checkout calls=%d", apiCalls.Load(), checkoutCalls.Load())
+	}
+	apiProxy.Close()
+	if _, err := p.httpClient.Get("https://proxy-test.invalid/"); err == nil {
+		t.Fatal("unavailable API proxy must not fall back")
+	}
+	if checkoutCalls.Load() != 1 {
+		t.Fatal("unavailable API proxy fell back to the checkout proxy")
+	}
+	t.Setenv("CLOUDCAT_API_PROXY_URL", "file:///invalid-proxy")
+	if _, err := NewCloudcat("invalid-api-proxy", config); err == nil {
+		t.Fatal("invalid API proxy must fail at construction")
+	}
+}
 
 func TestCloudcatCheckoutSeparatesCatFKAndAlipayTransports(t *testing.T) {
 	for _, redirect := range []bool{false, true} {

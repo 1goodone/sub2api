@@ -176,6 +176,20 @@ func (_c *GroupCreate) SetNillableIsExclusive(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetDisableNonStreaming sets the "disable_non_streaming" field.
+func (_c *GroupCreate) SetDisableNonStreaming(v bool) *GroupCreate {
+	_c.mutation.SetDisableNonStreaming(v)
+	return _c
+}
+
+// SetNillableDisableNonStreaming sets the "disable_non_streaming" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDisableNonStreaming(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetDisableNonStreaming(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *GroupCreate) SetStatus(v string) *GroupCreate {
 	_c.mutation.SetStatus(v)
@@ -1104,6 +1118,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultIsExclusive
 		_c.mutation.SetIsExclusive(v)
 	}
+	if _, ok := _c.mutation.DisableNonStreaming(); !ok {
+		v := group.DefaultDisableNonStreaming
+		_c.mutation.SetDisableNonStreaming(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := group.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -1294,6 +1312,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsExclusive(); !ok {
 		return &ValidationError{Name: "is_exclusive", err: errors.New(`ent: missing required field "Group.is_exclusive"`)}
+	}
+	if _, ok := _c.mutation.DisableNonStreaming(); !ok {
+		return &ValidationError{Name: "disable_non_streaming", err: errors.New(`ent: missing required field "Group.disable_non_streaming"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "Group.status"`)}
@@ -1533,6 +1554,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)
 		_node.IsExclusive = value
+	}
+	if value, ok := _c.mutation.DisableNonStreaming(); ok {
+		_spec.SetField(group.FieldDisableNonStreaming, field.TypeBool, value)
+		_node.DisableNonStreaming = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
@@ -2072,6 +2097,18 @@ func (u *GroupUpsert) SetIsExclusive(v bool) *GroupUpsert {
 // UpdateIsExclusive sets the "is_exclusive" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateIsExclusive() *GroupUpsert {
 	u.SetExcluded(group.FieldIsExclusive)
+	return u
+}
+
+// SetDisableNonStreaming sets the "disable_non_streaming" field.
+func (u *GroupUpsert) SetDisableNonStreaming(v bool) *GroupUpsert {
+	u.Set(group.FieldDisableNonStreaming, v)
+	return u
+}
+
+// UpdateDisableNonStreaming sets the "disable_non_streaming" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDisableNonStreaming() *GroupUpsert {
+	u.SetExcluded(group.FieldDisableNonStreaming)
 	return u
 }
 
@@ -3230,6 +3267,20 @@ func (u *GroupUpsertOne) SetIsExclusive(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateIsExclusive() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetDisableNonStreaming sets the "disable_non_streaming" field.
+func (u *GroupUpsertOne) SetDisableNonStreaming(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisableNonStreaming(v)
+	})
+}
+
+// UpdateDisableNonStreaming sets the "disable_non_streaming" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDisableNonStreaming() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisableNonStreaming()
 	})
 }
 
@@ -4711,6 +4762,20 @@ func (u *GroupUpsertBulk) SetIsExclusive(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateIsExclusive() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetDisableNonStreaming sets the "disable_non_streaming" field.
+func (u *GroupUpsertBulk) SetDisableNonStreaming(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisableNonStreaming(v)
+	})
+}
+
+// UpdateDisableNonStreaming sets the "disable_non_streaming" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDisableNonStreaming() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisableNonStreaming()
 	})
 }
 

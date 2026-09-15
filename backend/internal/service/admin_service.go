@@ -288,6 +288,7 @@ type CreateGroupInput struct {
 	AllowMessagesDispatch       bool
 	AllowLive                   bool
 	ForceOpenAIFast             bool
+	DisableNonStreaming         bool
 	FreeOpenAIFast              bool
 	DefaultMappedModel          string
 	RequireOAuthOnly            bool
@@ -370,6 +371,7 @@ type UpdateGroupInput struct {
 	AllowMessagesDispatch       *bool
 	AllowLive                   *bool
 	ForceOpenAIFast             *bool
+	DisableNonStreaming         *bool
 	FreeOpenAIFast              *bool
 	DefaultMappedModel          *string
 	RequireOAuthOnly            *bool

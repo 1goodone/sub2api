@@ -1,5 +1,5 @@
 import { normalizeVisibleMethod } from '@/components/payment/paymentFlow'
-import { extractApiErrorCode } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMetadata } from '@/utils/apiError'
 
 const DISPLAY_METHOD_ALIASES: Record<string, string> = {
   wechat: 'wxpay',
@@ -55,6 +55,13 @@ export function describePaymentScenarioError(
       ? error.message
       : String(error || ''))
   const normalizedMessage = message.toLowerCase()
+
+  if (code === 'PAYMENT_GATEWAY_ERROR' && extractApiErrorMetadata(error)?.provider === 'cloudcat') {
+    return {
+      messageKey: 'payment.errors.cloudcatUnavailable',
+      hintKey: 'payment.errors.cloudcatUnavailableHint',
+    }
+  }
 
   if (method === 'wxpay') {
     if (code === 'WECHAT_H5_NOT_AUTHORIZED') {

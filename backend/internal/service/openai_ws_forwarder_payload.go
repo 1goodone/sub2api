@@ -193,6 +193,15 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 		strings.TrimSpace(headers.Get(openAICodexRoutingHintHeader)) != "",
 		"soft_routing_hint",
 	)
+	bridged := false
+	if c != nil {
+		if v, ok := c.Get("openai_ws_http_bridge"); ok {
+			bridged, _ = v.(bool)
+		}
+	}
+	if !bridged {
+		s.recordOpenAIOutboundDiagnostics(c, account, headers, routingModel, routingServiceTier, "ws")
+	}
 
 	return headers, sessionResolution, nil
 }

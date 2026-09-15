@@ -145,6 +145,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		AllowMessagesDispatch:           source.AllowMessagesDispatch,
 		AllowLive:                       source.AllowLive,
 		ForceOpenAIFast:                 source.ForceOpenAIFast,
+		DisableNonStreaming:             source.DisableNonStreaming,
 		FreeOpenAIFast:                  source.FreeOpenAIFast,
 		RequireOAuthOnly:                source.RequireOAuthOnly,
 		RequirePrivacySet:               source.RequirePrivacySet,

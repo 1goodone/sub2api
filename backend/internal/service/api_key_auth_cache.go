@@ -109,6 +109,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
 	AllowLive                   bool                              `json:"allow_live"`
 	ForceOpenAIFast             bool                              `json:"force_openai_fast"`
+	DisableNonStreaming         bool                              `json:"disable_non_streaming"`
 	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
 	FocusAccountIDs             []int64                           `json:"focus_account_ids,omitempty"`

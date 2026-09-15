@@ -18,6 +18,16 @@ describe('normalizePaymentMethodForDisplay', () => {
 })
 
 describe('describePaymentScenarioError', () => {
+  it.each([false, true])('identifies Cloudcat gateway failures with isMobile=%s', (isMobile) => {
+    expect(describePaymentScenarioError(
+      { reason: 'PAYMENT_GATEWAY_ERROR', metadata: { provider: 'cloudcat' } },
+      { paymentMethod: 'alipay', isMobile, isWechatBrowser: false },
+    )).toEqual({
+      messageKey: 'payment.errors.cloudcatUnavailable',
+      hintKey: 'payment.errors.cloudcatUnavailableHint',
+    })
+  })
+
   it('maps WeChat H5 authorization errors to explicit in-app guidance', () => {
     expect(describePaymentScenarioError(
       { reason: 'WECHAT_H5_NOT_AUTHORIZED' },

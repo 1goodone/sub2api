@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
+
+func TestClassifyCloudcatErrorPreservesProvider(t *testing.T) {
+	err := classifyCreatePaymentError(CreateOrderRequest{PaymentType: payment.TypeAlipay}, payment.TypeCloudcat, io.EOF)
+	appErr := infraerrors.FromError(err)
+	if appErr.Reason != "PAYMENT_GATEWAY_ERROR" || appErr.Metadata["provider"] != payment.TypeCloudcat {
+		t.Fatalf("gateway error lost provider identity: %v", err)
+	}
+}
 
 func TestShouldUseAlipayMobilePrecreate(t *testing.T) {
 	t.Parallel()

@@ -270,7 +270,7 @@ import { usePaymentStore } from '@/stores/payment'
 import { useSubscriptionStore } from '@/stores/subscriptions'
 import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
-import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorMetadata, extractI18nErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
@@ -1035,6 +1035,11 @@ interface MobileQrFallbackContext {
 
 function shouldFallbackToDesktopQr(err: unknown, paymentMethod: string, attempted: boolean): boolean {
   if (attempted || !isMobileDevice()) {
+    return false
+  }
+
+  // Cloudcat has one checkout flow; a second create could duplicate an upstream order.
+  if (extractApiErrorMetadata(err)?.provider === 'cloudcat') {
     return false
   }
 

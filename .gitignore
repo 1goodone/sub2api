@@ -76,6 +76,19 @@ Thumbs.db
 Desktop.ini
 
 # ===================
+# Plugin publisher private keys
+backend/cmd/**/.secrets/
+*.publisher.private
+
+# Codex rustls capture work product (pcap / inspector scratch)
+backend/cmd/codex-rs-transport-plugin/portrait/captures/work/
+backend/cmd/codex-rs-transport-plugin/portrait/testdata/fake/*.pem
+backend/cmd/codex-rs-transport-plugin/portrait/testdata/fake/*-key.pem
+backend/cmd/codex-rs-transport-plugin/portrait/testdata/debug/*
+!backend/cmd/codex-rs-transport-plugin/portrait/testdata/debug/.gitkeep
+backend/cmd/codex-rs-transport-plugin/tools/capture/*.pem
+backend/cmd/codex-rs-transport-plugin/tools/capture/*.key
+
 # 临时文件
 # ===================
 tmp/

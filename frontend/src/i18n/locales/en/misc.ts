@@ -419,6 +419,8 @@ export default {
       wechatSwitchBrowserHint: 'Switch to desktop WeChat QR payment, or reopen this page in an external browser and retry.',
       mobilePaymentFallbackToQr: 'This merchant has not enabled mobile payment. The flow has been switched to QR payment automatically.',
       alipayDesktopUnavailable: 'The desktop Alipay flow could not generate a QR code.',
+      cloudcatUnavailable: 'Cloudcat could not complete the payment request.',
+      cloudcatUnavailableHint: 'Check My Orders before retrying to avoid duplicate orders.',
       alipayDesktopQrHint: 'Desktop Alipay should render a QR code. Refresh and retry, or make sure the payment page was not blocked.',
       alipayMobileUnavailable: 'This page could not hand off to Alipay.',
       alipayMobileOpenHint: 'Allow the current page to open the Alipay app, or retry from the system browser.',

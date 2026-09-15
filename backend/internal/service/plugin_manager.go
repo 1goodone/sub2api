@@ -69,6 +69,20 @@ func NewPluginManager(repo PluginRepository, encryptor SecretEncryptor, cfg *con
 	}
 }
 
+func pluginJSONEnabled(configJSON []byte) bool {
+	trimmed := bytes.TrimSpace(configJSON)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
+	}
+	var cfg struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(trimmed, &cfg); err != nil {
+		return false
+	}
+	return cfg.Enabled
+}
+
 func (m *PluginManager) MaxUploadBytes() int64 {
 	if m == nil || m.cfg == nil {
 		return 0
@@ -571,6 +585,15 @@ func (m *PluginManager) Enable(ctx context.Context, id int64, acceptUntested boo
 			return installation, nil
 		}
 	}
+	if installation.Manifest.ID == "even.sub2api.codex-rs-transport" {
+		configJSON, cfgErr := m.decryptConfig(installation)
+		if cfgErr == nil && !pluginJSONEnabled(configJSON) {
+			return nil, errors.New("codex-rs-transport 配置 enabled=false，无法启用出站能力")
+		}
+		if m.cfg == nil || len(m.cfg.Plugins.OpenAIOAuthAccountAllowlist) == 0 {
+			return nil, errors.New("首次启用 rustls 传输必须配置 plugins.openai_oauth_account_allowlist")
+		}
+	}
 	compatibility := EvaluatePluginCompatibility(installation.Manifest, m.hostInfo)
 	if !compatibility.Compatible {
 		stateErr := m.repo.UpdateState(ctx, id, PluginStateIncompatible, compatibility.Message, nil, installation.BinarySHA256, installation.State)
@@ -958,8 +981,23 @@ func (m *PluginManager) ShouldRouteOpenAIOAuth(account *Account) bool {
 	if m == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
 		return false
 	}
+	if !accountInOpenAIOAuthAllowlist(m.cfg, account.ID) {
+		return false
+	}
 	route := m.route.Load()
 	return route != nil && route.rolloutPercent > 0 && int(stablePluginBucket(account.ID)) < route.rolloutPercent
+}
+
+func accountInOpenAIOAuthAllowlist(cfg *config.Config, accountID int64) bool {
+	if cfg == nil || len(cfg.Plugins.OpenAIOAuthAccountAllowlist) == 0 {
+		return true
+	}
+	for _, id := range cfg.Plugins.OpenAIOAuthAccountAllowlist {
+		if id == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *PluginManager) markRuntimeUnavailable(failedRoute *pluginRoute, message string) error {

@@ -12,12 +12,16 @@ const {
   getUsageSummary,
   getCapacitySummary,
   getLiveCapability,
+  createGroup,
+  updateGroup,
 } = vi.hoisted(() => ({
   listGroups: vi.fn(),
   getModelAllowlistCandidates: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
   getLiveCapability: vi.fn(),
+  createGroup: vi.fn(),
+  updateGroup: vi.fn(),
 }));
 
 vi.mock("@/api/admin", () => ({
@@ -29,8 +33,8 @@ vi.mock("@/api/admin", () => ({
       getUsageSummary,
       getCapacitySummary,
       getLiveCapability,
-      create: vi.fn(),
-      update: vi.fn(),
+      create: createGroup,
+      update: updateGroup,
       delete: vi.fn(),
       duplicate: vi.fn(),
       updateSortOrder: vi.fn(),
@@ -72,6 +76,7 @@ const sourceGroup = {
   rate_multiplier: 1,
   rpm_limit: 0,
   is_exclusive: false,
+  disable_non_streaming: true,
   status: "active",
   subscription_type: "standard",
   daily_limit_usd: null,
@@ -220,7 +225,6 @@ const mountView = () =>
         GroupCapacityBadge: true,
         GroupRateMultipliersModal: true,
         GroupRPMOverridesModal: true,
-        ReasoningEffortPolicyFields: true,
         CodexManifestAccountsField: CodexManifestAccountsFieldStub,
         PricingEntryCard: true,
         VueDraggable: true,
@@ -236,6 +240,10 @@ describe("GroupsView Codex manifest binding", () => {
     getUsageSummary.mockReset();
     getCapacitySummary.mockReset();
     getLiveCapability.mockReset();
+    createGroup.mockReset();
+    updateGroup.mockReset();
+    createGroup.mockResolvedValue(sourceGroup);
+    updateGroup.mockResolvedValue(sourceGroup);
 
     listGroups.mockResolvedValue({
       items: [sourceGroup],
@@ -283,6 +291,37 @@ describe("GroupsView Codex manifest binding", () => {
       }),
     );
 
+    wrapper.unmount();
+  });
+
+  it("creates a group with non-streaming disabled and resets the switch", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const createButton = () => wrapper.findAll("button").find((button) => button.text().includes("admin.groups.createGroup"))!;
+    await createButton().trigger("click");
+    const toggle = wrapper.get('[data-testid="create-disable-non-streaming"]');
+    expect(toggle.attributes("aria-checked")).toBe("false");
+    await toggle.trigger("click");
+    await wrapper.get('[data-tour="group-form-name"]').setValue("Streaming only");
+    await wrapper.get("#create-group-form").trigger("submit");
+    await flushPromises();
+    expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({ disable_non_streaming: true }));
+    await createButton().trigger("click");
+    expect(wrapper.get('[data-testid="create-disable-non-streaming"]').attributes("aria-checked")).toBe("false");
+    wrapper.unmount();
+  });
+
+  it("loads the saved flag and explicitly submits false when disabled", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    const toggle = wrapper.get('[data-testid="edit-disable-non-streaming"]');
+    expect(toggle.attributes("aria-checked")).toBe("true");
+    await toggle.trigger("click");
+    await wrapper.get("#edit-group-form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenCalledWith(sourceGroup.id, expect.objectContaining({ disable_non_streaming: false }));
     wrapper.unmount();
   });
 });

@@ -1198,6 +1198,10 @@ export default {
         unsupportedMessage: '当前 Sub2API 服务端无法生成 Live 所需的设备证明，即使开启也不能使用。是否仍然开启？',
         enableAnyway: '仍然开启'
       },
+      disableNonStreaming: {
+        label: '禁用同步调用（文本）',
+        hint: '开启后仅允许流式文本生成，非流式请求直接拒绝。图片、视频、WebSocket 和查询接口不受影响。'
+      },
       openaiFast: {
         title: 'OpenAI Fast 模式',
         force: '强制使用 Fast（priority）',

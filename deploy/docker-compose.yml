@@ -154,6 +154,9 @@ services:
       # Proxy for accessing GitHub (online updates + pricing data)
       # Examples: http://host:port, socks5://host:port
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
+      # Cloudcat buyer API, checkout and order reconciliation only
+      - CLOUDCAT_PROXY_URL=${CLOUDCAT_PROXY_URL:-}
+      - CLOUDCAT_API_PROXY_URL=${CLOUDCAT_API_PROXY_URL:-}
 
       # =======================================================================
       # Gateway Upstream, Scheduling & Image Configuration

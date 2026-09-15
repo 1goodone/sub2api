@@ -110,6 +110,11 @@ func IsExclusive(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldIsExclusive, v))
 }
 
+// DisableNonStreaming applies equality check predicate on the "disable_non_streaming" field. It's identical to DisableNonStreamingEQ.
+func DisableNonStreaming(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDisableNonStreaming, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldStatus, v))
@@ -853,6 +858,16 @@ func IsExclusiveEQ(v bool) predicate.Group {
 // IsExclusiveNEQ applies the NEQ predicate on the "is_exclusive" field.
 func IsExclusiveNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldIsExclusive, v))
+}
+
+// DisableNonStreamingEQ applies the EQ predicate on the "disable_non_streaming" field.
+func DisableNonStreamingEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDisableNonStreaming, v))
+}
+
+// DisableNonStreamingNEQ applies the NEQ predicate on the "disable_non_streaming" field.
+func DisableNonStreamingNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDisableNonStreaming, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

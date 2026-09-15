@@ -100,6 +100,7 @@ func shouldTryNextMixedGroupAfterBillingError(err error) bool {
 func shouldTryNextMixedGroupAfterSelectionError(err error) bool {
 	return errors.Is(err, ErrNoAvailableAccounts) ||
 		errors.Is(err, ErrNoAvailableCompactAccounts) ||
+		errors.Is(err, ErrNonStreamingDisabled) ||
 		errors.Is(err, ErrClaudeCodeOnly)
 }
 

@@ -1209,6 +1209,11 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 	return ""
 }
 
+// IsGeminiImageGenerationModel identifies native Gemini image generation models.
+func IsGeminiImageGenerationModel(model string) bool {
+	return isImageGenerationModel(model)
+}
+
 // isImageGenerationModel 判断模型是否为图片生成模型
 // 支持的模型：gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image 等
 func isImageGenerationModel(model string) bool {

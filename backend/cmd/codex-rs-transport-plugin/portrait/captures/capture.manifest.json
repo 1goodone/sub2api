@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "codex_cli_version": "0.146.0",
+  "captured_at": "2026-09-11T03:03:20Z",
+  "os": "windows",
+  "arch": "amd64",
+  "method": "local_inspector",
+  "inspector": "codex-rs-transport-plugin/tools/capture",
+  "notes": "TLS reuse probe: 2 rustls ClientHellos; HTTP/2 SETTINGS unavailable (ECH handshake with Go crypto/tls failed); no production load"
+}

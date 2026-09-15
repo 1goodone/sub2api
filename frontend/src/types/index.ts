@@ -618,6 +618,7 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  disable_non_streaming?: boolean
   force_openai_fast: boolean
   free_openai_fast: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
@@ -832,6 +833,7 @@ export interface UpgradePackageApiKeyRequest {
 }
 
 export interface CreateGroupRequest {
+  disable_non_streaming?: boolean
   name: string
   description?: string | null
   platform?: GroupPlatform
@@ -898,6 +900,7 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
+  disable_non_streaming?: boolean
   name?: string
   description?: string | null
   platform?: GroupPlatform

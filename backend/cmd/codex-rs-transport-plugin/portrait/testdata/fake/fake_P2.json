@@ -1,0 +1,192 @@
+{
+  "id": "fake-P2",
+  "source_capture": "capture.manifest.json",
+  "tls": {
+    "ja3_raw": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,17613-45-27-16-65037-13-10-35-5-23-65281-18-51-43-0-11,4588-29-23-24,0",
+    "ja3_hash": "16e13dbde9084106fbd2d9b266b9e932",
+    "ja4": "t13d1514h2_8daaf6152771_d8a2da3f94cd",
+    "cipher_suites": [
+      2570,
+      4865,
+      4866,
+      4867,
+      49195,
+      49199,
+      49196,
+      49200,
+      52393,
+      52392,
+      49171,
+      49172,
+      156,
+      157,
+      47,
+      53
+    ],
+    "compression_methods": [
+      0
+    ],
+    "extensions": [
+      {
+        "type": 10794,
+        "name": "grease"
+      },
+      {
+        "type": 17613
+      },
+      {
+        "type": 45,
+        "name": "psk_key_exchange_modes",
+        "modes": [
+          1
+        ]
+      },
+      {
+        "type": 27,
+        "name": "compress_certificate"
+      },
+      {
+        "type": 16,
+        "name": "alpn",
+        "protocols": [
+          "h2",
+          "http/1.1"
+        ]
+      },
+      {
+        "type": 65037,
+        "name": "encrypted_client_hello"
+      },
+      {
+        "type": 13,
+        "name": "signature_algorithms",
+        "schemes": [
+          1027,
+          2052,
+          1025,
+          1283,
+          2053,
+          1281,
+          2054,
+          1537
+        ]
+      },
+      {
+        "type": 10,
+        "name": "supported_groups",
+        "groups": [
+          19018,
+          4588,
+          29,
+          23,
+          24
+        ]
+      },
+      {
+        "type": 35,
+        "name": "session_ticket"
+      },
+      {
+        "type": 5,
+        "name": "status_request"
+      },
+      {
+        "type": 23,
+        "name": "extended_master_secret"
+      },
+      {
+        "type": 65281,
+        "name": "renegotiation_info"
+      },
+      {
+        "type": 18,
+        "name": "signed_certificate_timestamp"
+      },
+      {
+        "type": 51,
+        "name": "key_share",
+        "groups": [
+          19018,
+          4588,
+          29
+        ]
+      },
+      {
+        "type": 43,
+        "name": "supported_versions",
+        "versions": [
+          64250,
+          772,
+          771
+        ]
+      },
+      {
+        "type": 0,
+        "name": "server_name"
+      },
+      {
+        "type": 11,
+        "name": "ec_point_formats"
+      },
+      {
+        "type": 14906,
+        "name": "grease"
+      }
+    ],
+    "grease": {
+      "present": true,
+      "positions": [
+        "cipher_suites",
+        "extensions"
+      ]
+    },
+    "raw_client_hello_hex": "16030106d4010006d00303a0529336b54df52b237e4a7c5824992f551c9e9205b695149c54bb9d42a0f25720d5a3faf435ce5721ecffae9541b4efc675f5b0a41972115068488a3ab8db125d00200a0a130113021303c02bc02fc02cc030cca9cca8c013c014009c009d002f0035010006672a2a000044cd00050003026832002d00020101001b00030200020010000e000c02683208687474702f312e31fe0d00da00000100019400205ab8f1a254bdf2533c6315f3196532bfb18acea0b690ee6f341acd47910ba27800b0705ac5a129d10c395307bfc9d2f9989c0aa72d35feb6ec641e126ba9fbbfae2ac10af98758d0dd449412373e78eb0e8d778a6dde8f96b889f417ae5b6730b01ce98594ac049d90ed85e20cead510de0e8086984ba6cf2aac356688433f8c5f1034ba2e7c1886e8efd57c390e12d47216854ae8f1f05949c925110aeefafbe3aa14b5ec4264742bc5b7c73d361ccb3d733e7bd5ae45b8375d3559e8da77bc5c0fdd9b27c98ac0fcaf73d8965c6700cccc000d0012001004030804040105030805050108060601000a000c000a4a4a11ec001d001700180023000000050005010000000000170000ff0100010000120000003304ef04ed4a4a00010011ec04c05ff425fda820fd866d8e239d3a31ce87e2b5e785cbb7ba3c376153bc280b2827584fc62f68b470393cafd5889489324e619a466cf1222de41def529587a45f75d066bf398f858733776a431da0922d23aca4f99cb9014c50d73dbdb480cdb9bdd9754d57f378ff48979aeabc840cc92d8a72c1748cf0687b2983a3a2b7a145a0ca2147352f3946b35c932fb79ea49ba8dbdc84074a0b277761bc62c17ca259b85007c974ab2fd07e1c067e1a1c533831a83993314ecb3c5f58068e719f42f89565e91cf44632c8a710ff217ed61bb5d09138ff7b8c67d3ad7eb925f84acbaf2418de86a56537a1b86a229f452f3204480868178dc8631b082e1b232c0cf29c9dfa156858879b3aa595a79a0e46878e82276c882b2f834a58a0b333e93af2e7153b4477f1386564e7cd9ab2b75097a1a2343b0d67b6be11c789717595e60d75b00554a7bdb8f797512a57e777c192e05528b7c637eb6419dc0b1999a7433529c20bcc21f72331db199ab86d003538bb0518eb24695c50034323bdd50b3a0b69b77b36b7eef6168ef1c34b451981511be5050a7ff719a02138c7101f4b0976fc5980ec9a5e10ac5049595a69ca1ae3683b59575d3c407ee44a3eab8061f6c7a0a0a762453348f3957db3198f6798b6e99bb63b57c3342c39dda60bb78495194bbfb1516eb2b4979603af9476ccf659c5371045d2306f07b858b9449924185ab5c10e64377aef8cb3d367c10e7456cc84a814872cae25223da57d1b090d8bab564fc9bc178296bd7161f6e59af165986c5cc9c9516ead81015cac17fe237314c9a650b27cd1a4951e008a0e06981bf4c2c9c8ad32570dcc59972436855ec746323c3e25327350e7022169663c3335eb873e23f1165c709264e895ffe1635c9365efc45c6836095c4682bad797a03018a226b5b0d74351862d90e1288d25668beb6947b97933899497a86bdce80cf528c940a177a186bbfa62cedb7ca4ec06ccd947c5ede5cd04b63807b647d8e69c5c1680a77260079c1947d6879557481696a68dd72683690364ab253e4bbc5d13190c270c18c6969be8c471f85160a80672ca6a05d4a2c5b8491ef5b3be20321cf3b7ae603cb1f6c1d55295de4c16df292a2ad884a36aa9ae084a61992f87a57401e368a6e05965f7303fb1307ac4401912040b327cc35a4c2e8955cbf61f026231aa209a2ed5b6441a8b3905cfa8455c4b8295dd410ba177caa6848fa4e7caebb07eec985ddd399e587279503c52cada7bb97aca728a48c011881c02896ed481afa9586814baccf4748e3c8832cbc12684ccbd3936e2bbb39f13c45a9595af12c3ceea6688b01ca01b115f4c16cafb7cc6f790c1e0a678885bb05240c1e073df8029eb4c80cbcab39806b88fb2c2c6a34eb9e700e6074f97f7a4ae63a481272ecb5b5b05d697f9b1b952164bce35ce1220a2289c03b6854c118046dbabc935a6b7c1815f43158f05e8a05222335ff23758aa54b6e678d56615f6ca9ec8ea029ee28bdbc76414f022a1937a20046837d06f54c55b0e367e0c95277007bc261626160407c965a2ccc49c65b24c5f235fcea458abc96302722210487840c776ea623ee7216a947aae11acbfca5718e74084037b1551891c91870bbe680963c47453b87573f0ceca9de792cc8471b9d5051d044837580d52ba51f2b3f54dd3bb6e43678993ce116980347c3e4b6f1663b01f86091e001d0020b4ff3fc21b3d17d3f805d4829821de997f0f144390e10d289166f55fe57b8519002b000706fafa0304030300000010000e00000b636861746770742e636f6d000b000201003a3a000100"
+  },
+  "http2": {
+    "settings": [
+      {
+        "id": 2,
+        "name": "ENABLE_PUSH",
+        "value": 0
+      },
+      {
+        "id": 4,
+        "name": "INITIAL_WINDOW_SIZE",
+        "value": 4194304
+      },
+      {
+        "id": 5,
+        "name": "MAX_FRAME_SIZE",
+        "value": 1048576
+      },
+      {
+        "id": 6,
+        "name": "MAX_HEADER_LIST_SIZE",
+        "value": 10485760
+      }
+    ],
+    "settings_order": [
+      2,
+      4,
+      5,
+      6
+    ],
+    "connection_window_update": 1073741824,
+    "stream_initial_window": 4194304,
+    "priority_frames": null,
+    "pseudo_header_order": [
+      ":authority",
+      ":method",
+      ":path",
+      ":scheme"
+    ],
+    "max_header_list_size": 10485760,
+    "max_frame_size": 1048576
+  },
+  "connection": {
+    "reuse": "per_request",
+    "observed_new_conn_per_request": true,
+    "second_request_client_hello": true,
+    "idle_timeout_hint_seconds": null
+  }
+}

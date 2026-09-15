@@ -443,6 +443,8 @@ export default {
       wechatSwitchBrowserHint: '请改用电脑端微信扫码，或在外部浏览器重新打开本页后再试。',
       mobilePaymentFallbackToQr: '当前商户未开通移动支付，已自动切换为扫码支付。',
       alipayDesktopUnavailable: '当前支付宝桌面支付未成功生成二维码。',
+      cloudcatUnavailable: '云猫暂时无法完成支付请求。',
+      cloudcatUnavailableHint: '请先在“我的订单”确认订单状态，避免重复下单。',
       alipayDesktopQrHint: '电脑端支付宝应展示扫码单，请刷新后重试，或确认浏览器未拦截当前支付页。',
       alipayMobileUnavailable: '当前页面未成功跳转到支付宝。',
       alipayMobileOpenHint: '请允许当前页面打开支付宝 App，或改用系统浏览器重新发起支付。',

@@ -1,0 +1,116 @@
+{
+  "id": "P2",
+  "source_capture": "capture.manifest.json",
+  "tls": {
+    "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,13-51-45-10-23-0-35-5-11-43,4588-29-23-24,0",
+    "ja3_hash": "ad32ff399eddb08880a976d338c1bf25",
+    "ja4": "t13d100900_61a7ad8aa9b6_f9531d972513",
+    "cipher_suites": [
+      4866,
+      4865,
+      4867,
+      49196,
+      49195,
+      52393,
+      49200,
+      49199,
+      52392,
+      255
+    ],
+    "compression_methods": [
+      0
+    ],
+    "extensions": [
+      {
+        "type": 13,
+        "name": "signature_algorithms",
+        "schemes": [
+          1283,
+          1027,
+          1539,
+          2055,
+          2054,
+          2053,
+          2052,
+          1537,
+          1281,
+          1025
+        ]
+      },
+      {
+        "type": 51,
+        "name": "key_share",
+        "groups": [
+          4588,
+          29
+        ]
+      },
+      {
+        "type": 45,
+        "name": "psk_key_exchange_modes",
+        "modes": [
+          1
+        ]
+      },
+      {
+        "type": 10,
+        "name": "supported_groups",
+        "groups": [
+          4588,
+          29,
+          23,
+          24
+        ]
+      },
+      {
+        "type": 23,
+        "name": "extended_master_secret"
+      },
+      {
+        "type": 0,
+        "name": "server_name"
+      },
+      {
+        "type": 35,
+        "name": "session_ticket"
+      },
+      {
+        "type": 5,
+        "name": "status_request"
+      },
+      {
+        "type": 11,
+        "name": "ec_point_formats"
+      },
+      {
+        "type": 43,
+        "name": "supported_versions",
+        "versions": [
+          772,
+          771
+        ]
+      }
+    ],
+    "grease": {
+      "present": false,
+      "positions": null
+    },
+    "raw_client_hello_hex": "16030105b1010005ad03036cc8a7a0c93c5c9ffa9189017b4e70a634fe621a0ccb5d60b406c72c48e63ea52016c03dc172436342c1e0492ade30ffcd17a7ee0df8c1ea219b6eecde41e9b2cb0014130213011303c02cc02bcca9c030c02fcca800ff01000550000d001600140503040306030807080608050804060105010401003304ea04e811ec04c064c180fd8241dafb84a6fa8b130259a7d11f6f5b081d9a08b4e1a95bc786f88b0d77a6747c6a0a19099af24625f46989e39c83f033963611333ae08abe6516eba86912dcc282dc6dce0035ced5bd0f08574f95b00200881c95970b6028606aa3441cb40e082ce01a89c654af85d79c016707af118bd7d39ba6ec8efdf50a1ed651f6d6cef860ae6fb91787cc2b1bf38336c8c8f2dbc3f714279218b0049b8a01dbcaeac446c57c40c4b232c0338ad9ec94cb105f4d3427e9db1e07848b8632a0209620bda1b47ed51b0cb76890785e8314874848b0e2a382b0901d01a8c661d73c23fa47dcd4b195f251f263b77a071d0e1224d338990cf48720856f785438bb5b564ae484d0908842db6e8fbb6e999a9ce3e5a7a4e3169bc83fcb13349f1477b991a38cf46e3085c58938b792934633d4c74aa144a34c6d0f158a0b880513164b40ca6f639c67cbf23d84275e36c4195a1bc4d8377bf914475791153838575ff1279fb5b0b5d1119fb4224360a2b4288b2e19a7a2233f1562ad7bcb23be34ada93c201c2568a7956b03b052560b8d691191d8564a43d121f06193c2894a4a7a3876d12da511cb54250ebfec36bce90810b068d92040abaa2de8e371df5aba3b2916e859b5f50b455cc65b41eb0c8e3473b3b17fde9525a1856cff302efd5b13752cab10531bf9752b4f0cb0b04326b52c902886583224b3f25c1527e0949bca39882bc8d269049b829bf768535546a2fc46910ca8c4f4eb8d89fcba80b912214383ea4736454109d6d0a2844906d7e4367af85ffbf23e1ac62f0e805d3591185fa4206991a8bdf29d10e6374592a4ebb84b9d9b0e97a88c741994bd088812cb4ac16c388ef8c56eb02ef56a788e92afd3647d360b0c100284a26c06121c3832f14c4f65cb26fb668b529c5788ab98a115b770c58571102dd2b56df05e78a43607d59486c508fa1a0e49d8b4852b805e3879a129bd6178ae41e92dda78cb6f491feb61376ed42c5e2692db3b3c8229867af758fce75465c8682031ca34f458b176c671d8380d8c288c58870f669304261c27922eb2060d7e39648f73a3eedab39d72134dd06de1913b9121370a069904627dfb192859a8850926a84957a094847b80525b23b22016a148b2ccc7cb0b9269943428785456093f65181ec8a4411a765efb6c706245a1fdb78edf50ace45973450457e00c58dc5c400332803a81244a96a501c7b3f007663fa440b3e6c33332597945767c845f18dbcf8b4c173fc96e72b932f7cb616621a025bb0a60db13aa84ca7937603f869234eaac0c69cc5e1b06f389462a10cb12d1194476ca23a88a6b534d4016b2112740d9a9888989493161b8cea217fa3a84602a4c5b12530ba33efdc2555817a937e59e4470cdc8a1a315684ef77a45a7159602ccad63269a0ac2bb96f4a15ba18ac0f675fc8266de3a4bb7185e70d844439b8b7638aeec1c26cae713a1d1237e92609e0a5c742390f8a0395c92c24ce9933b549e3c257ee6d33cad3512d66987d13328319b86e4465755f904c206aafbf390d34268c2492f2640c1b2a68728567b20c32c29914746955c4bfc43b98640edc58c0064be01129779f5cba9d61443f357e3a6bae238c29a5c5dfe3cce0efcaed2a0fbaaea86a1cc2000d5a053b12780ccccf17d23f51158fa23770c50abb8b26952e0fadbc5c31e114aed6825e73ff6ab43a2e6595540001d002058fa23770c50abb8b26952e0fadbc5c31e114aed6825e73ff6ab43a2e6595540002d00020101000a000a000811ec001d001700180017000000000010000e00000b636861746770742e636f6d00230000000500050100000000000b00020100002b00050403040303"
+  },
+  "http2": {
+    "settings": null,
+    "settings_order": null,
+    "connection_window_update": 0,
+    "stream_initial_window": 0,
+    "priority_frames": null,
+    "pseudo_header_order": null,
+    "max_header_list_size": 0,
+    "max_frame_size": 0
+  },
+  "connection": {
+    "reuse": "per_request",
+    "observed_new_conn_per_request": true,
+    "second_request_client_hello": true,
+    "idle_timeout_hint_seconds": null
+  }
+}

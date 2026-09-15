@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 26 // v26: preserve automatic routing snapshots with group model allowlists
+const apiKeyAuthSnapshotVersion = 27 // v27: preserve non-streaming text restrictions
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -493,6 +493,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		AllowMessagesDispatch:           group.AllowMessagesDispatch,
 		AllowLive:                       group.AllowLive,
 		ForceOpenAIFast:                 group.ForceOpenAIFast,
+		DisableNonStreaming:             group.DisableNonStreaming,
 		FreeOpenAIFast:                  group.FreeOpenAIFast,
 		FocusAccountID:                  group.FocusAccountID,
 		FocusAccountIDs:                 append([]int64(nil), group.FocusAccountIDs...),
@@ -563,6 +564,7 @@ func apiKeyAuthGroupSnapshotToGroup(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		AllowMessagesDispatch:           snapshot.AllowMessagesDispatch,
 		AllowLive:                       snapshot.AllowLive,
 		ForceOpenAIFast:                 snapshot.ForceOpenAIFast,
+		DisableNonStreaming:             snapshot.DisableNonStreaming,
 		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
 		FocusAccountID:                  snapshot.FocusAccountID,
 		FocusAccountIDs:                 append([]int64(nil), snapshot.FocusAccountIDs...),
