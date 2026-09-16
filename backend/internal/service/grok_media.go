@@ -328,6 +328,18 @@ func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
 	requestID string,
 	userID, apiKeyID int64,
 ) (int64, error) {
+	if s != nil && s.videoTaskRepo != nil {
+		task, err := s.videoTaskRepo.GetTask(ctx, requestID, userID, apiKeyID)
+		if err != nil {
+			return 0, err
+		}
+		if task != nil {
+			if task.GroupID != derefGroupID(groupID) {
+				return 0, nil
+			}
+			return task.AccountID, nil
+		}
+	}
 	if s == nil || s.cache == nil {
 		return 0, fmt.Errorf("grok video request binding cache is unavailable")
 	}
@@ -343,6 +355,7 @@ func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
 // the ownership key; video lookups must neither escape nor refresh that key.
 func (s *OpenAIGatewayService) SelectGrokMediaVideoRequestAccount(
 	ctx context.Context, groupID *int64, sessionHash string, accountID int64, requestedModel string,
+	platforms ...string,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerSessionSticky}
 	if accountID <= 0 || strings.TrimSpace(sessionHash) == "" {
@@ -350,8 +363,12 @@ func (s *OpenAIGatewayService) SelectGrokMediaVideoRequestAccount(
 	}
 	ctx = s.withOpenAIGroupPrivacyRequirement(WithOpenAIProfitControlSuppressed(ctx), groupID)
 	scheduler := &defaultOpenAIAccountScheduler{service: s}
+	platform := PlatformGrok
+	if len(platforms) > 0 {
+		platform = platforms[0]
+	}
 	selection, _, err := scheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{
-		GroupID: groupID, Platform: PlatformGrok, SessionHash: sessionHash,
+		GroupID: groupID, Platform: platform, SessionHash: sessionHash,
 		StickyAccountID: accountID, PreserveStickyBinding: true, DisableStickyEscape: true,
 		RequestedModel: requestedModel, RequiredTransport: OpenAIUpstreamTransportHTTPSSE,
 		RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID),
@@ -372,6 +389,7 @@ func (s *OpenAIGatewayService) SelectGrokMediaVideoRequestAccount(
 // first observes a completed video URL. Status may omit model/duration; we fall
 // back to this snapshot, then defaults.
 type GrokVideoPendingBilling struct {
+	BillingRequestID     string `json:"billing_request_id,omitempty"`
 	Model                string `json:"model"`
 	BillingModel         string `json:"billing_model,omitempty"`
 	UpstreamModel        string `json:"upstream_model,omitempty"`
@@ -479,6 +497,15 @@ func (s *OpenAIGatewayService) LoadGrokVideoPendingBilling(
 	requestID string,
 	userID, apiKeyID int64,
 ) (*GrokVideoPendingBilling, error) {
+	if s != nil && s.videoTaskRepo != nil {
+		task, err := s.videoTaskRepo.GetTask(ctx, requestID, userID, apiKeyID)
+		if err != nil {
+			return nil, err
+		}
+		if task != nil {
+			return &task.Pending, nil
+		}
+	}
 	if s == nil || s.cache == nil {
 		return nil, fmt.Errorf("grok video pending billing cache is unavailable")
 	}
@@ -1408,6 +1435,9 @@ func writeGrokMediaContentResponse(c *gin.Context, resp *http.Response) error {
 		"Content-Range",
 		"Accept-Ranges",
 		"Content-Disposition",
+		"X-Video-Quality",
+		"ETag",
+		"Last-Modified",
 	} {
 		if value := strings.TrimSpace(resp.Header.Get(name)); value != "" {
 			c.Header(name, value)

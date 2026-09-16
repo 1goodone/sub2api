@@ -182,14 +182,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		defer userReleaseFunc()
 	}
 
-	if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	// Already submitted jobs remain readable after their completion charge uses
+	// the remaining balance. The ownership check below still scopes every read.
+	if !endpoint.IsVideoLookupRequest() {
+		if err := checkInitialBillingEligibility(c.Request.Context(), h.billingCacheService, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+			reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
 	}
 
 	sessionSeed := body
@@ -224,6 +228,24 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	if isGrokVideoCreateEndpoint(endpoint) {
 		videoCreateStartedAt = service.GrokVideoPendingCreatedAtNow()
 	}
+	if targetPlatform == service.PlatformOpenAI && isGrokVideoCreateEndpoint(endpoint) {
+		requestCtx = service.WithVideoTaskOwner(requestCtx, subject.UserID, apiKey.ID, apiKey.GroupID, requestModel, videoCreateStartedAt, body)
+		if operationKey := c.GetHeader("Idempotency-Key"); operationKey != "" {
+			operation, loadErr := h.gatewayService.GetVideoOperation(requestCtx, operationKey, subject.UserID, apiKey.ID)
+			if loadErr != nil {
+				h.errorResponse(c, http.StatusServiceUnavailable, "video_task_storage_unavailable", "Video operation cannot be loaded")
+				return
+			}
+			if operation != nil {
+				if operation.GroupID != derefVideoGroupID(apiKey.GroupID) {
+					h.errorResponse(c, http.StatusConflict, "idempotency_conflict", "Video operation belongs to another group")
+					return
+				}
+				boundLookupAccountID = operation.AccountID
+				sessionHash = "video-operation:" + operation.OperationKey
+			}
+		}
+	}
 	maxAccountSwitches := h.maxAccountSwitches
 	if maxAccountSwitches <= 0 {
 		maxAccountSwitches = 3
@@ -248,7 +270,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		var scheduleDecision service.OpenAIAccountScheduleDecision
 		if boundLookupAccountID > 0 {
 			selection, scheduleDecision, err = h.gatewayService.SelectGrokMediaVideoRequestAccount(
-				requestCtx, apiKey.GroupID, sessionHash, boundLookupAccountID, routingModel,
+				requestCtx, apiKey.GroupID, sessionHash, boundLookupAccountID, routingModel, targetPlatform,
 			)
 		} else {
 			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -413,6 +435,12 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				// An async POST may already have created a charged job. Never switch
+				// upstream accounts or silently issue a second creation after uncertainty.
+				if targetPlatform == service.PlatformOpenAI && isGrokVideoCreateEndpoint(endpoint) {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("grok_media.failover_aborted_client_disconnected",
 						zap.Int64("account_id", account.ID),
@@ -704,8 +732,11 @@ func prepareGrokVideoCompletionBilling(
 	}
 	// Always force durable task id so usage_billing_dedup survives multi-poll +
 	// context-local request ids (do not prefer empty-only fill).
-	merged.RequestID = service.StableGrokVideoBillingRequestID(firstNonEmptyString(merged.ResponseID, taskRequestID))
-	merged.ResponseID = firstNonEmptyString(merged.ResponseID, taskRequestID)
+	merged.ResponseID = taskRequestID
+	merged.RequestID = service.StableGrokVideoBillingRequestID(taskRequestID)
+	if pending != nil && pending.BillingRequestID != "" {
+		merged.RequestID = pending.BillingRequestID
+	}
 	merged.VideoCount = 1
 	// Pure video: do not keep legacy ImageCount (avoids image-path heuristics).
 	merged.ImageCount = 0
@@ -765,8 +796,8 @@ func recordGrokMediaUsage(
 	videoTaskID := ""
 	if result != nil && result.VideoCount > 0 {
 		videoTaskID = strings.TrimSpace(firstNonEmptyString(requestID, result.ResponseID))
-		if stable := service.StableGrokVideoBillingRequestID(firstNonEmptyString(result.ResponseID, requestID)); stable != "" {
-			result.RequestID = stable
+		if !strings.HasPrefix(result.RequestID, "grok-video:") {
+			result.RequestID = service.StableGrokVideoBillingRequestID(videoTaskID)
 		}
 		// Prefer task id hash for payload fingerprint stability across status/content.
 		if len(body) == 0 && videoTaskID != "" {

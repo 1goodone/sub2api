@@ -390,7 +390,7 @@ func TestGrokMediaVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 	key, ok := middleware2.GetAPIKeyFromContext(c)
 	require.True(t, ok)
 	subject := middleware2.AuthSubject{UserID: 10, Concurrency: 5}
-	result := &service.OpenAIForwardResult{ResponseID: "task", Model: "grok-imagine-video",
+	result := &service.OpenAIForwardResult{ResponseID: "poll-trace", Model: "grok-imagine-video",
 		VideoCount: 1, VideoDurationSeconds: 6}
 	for i := range 20 {
 		bill := prepareGrokVideoCompletionBilling(c.Request.Context(), h, zap.NewNop(), key, subject, "task", result)

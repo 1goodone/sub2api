@@ -108,13 +108,47 @@ func (s *OpenAIGatewayService) ForwardOpenAIVideo(
 	if err != nil {
 		return nil, err
 	}
+	var operation *VideoTaskRecord
+	created := true
+	if endpoint == GrokMediaEndpointVideosGenerations {
+		operation, created, err = s.reserveVideoOperation(upstreamCtx, c.GetHeader("Idempotency-Key"), account, targetURL, contentType, token, body, GrokVideoPendingBilling{
+			BillingModel: requestModel, UpstreamModel: upstreamModel, VideoResolution: requestInfo.Resolution, VideoDurationSeconds: requestInfo.DurationSeconds,
+		})
+		if err != nil {
+			status, code := http.StatusServiceUnavailable, "video_task_storage_unavailable"
+			if strings.Contains(err.Error(), "idempotency_conflict") {
+				status, code = http.StatusConflict, "idempotency_conflict"
+			}
+			if strings.Contains(err.Error(), "Idempotency-Key must") {
+				status, code = http.StatusBadRequest, "invalid_idempotency_key"
+			}
+			MarkResponseCommitted(c)
+			c.JSON(status, gin.H{"error": gin.H{"type": code, "message": code}})
+			return nil, err
+		}
+		if operation != nil {
+			upstreamReq.Header.Set("Idempotency-Key", operation.OperationKey)
+			if !created && operation.ResponseStatus == 0 {
+				MarkResponseCommitted(c)
+				c.Header("Retry-After", "5")
+				c.JSON(http.StatusConflict, gin.H{"error": gin.H{"type": "idempotency_in_progress", "message": "Video submission is awaiting confirmation; keep this operation key"}})
+				return nil, fmt.Errorf("video submission awaiting confirmation")
+			}
+		}
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
 	upstreamStart := time.Now()
-	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	var resp *http.Response
+	if operation != nil && !created {
+		resp = &http.Response{StatusCode: operation.ResponseStatus, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(operation.ResponseBody))}
+		c.Header("Idempotency-Replayed", "true")
+	} else {
+		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	}
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -140,13 +174,24 @@ func (s *OpenAIGatewayService) ForwardOpenAIVideo(
 		}
 		return result, nil
 	}
-	if resp.StatusCode >= 400 {
-		return s.handleOpenAIVideoErrorResponse(upstreamCtx, c, account, resp, targetURL, requestIDHeader, upstreamModel)
-	}
-
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
+	}
+	if operation != nil && created && (resp.StatusCode >= 200 && resp.StatusCode < 300 || resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 408 && resp.StatusCode != 409 && resp.StatusCode != 429) {
+		operation.ResponseStatus, operation.ResponseBody = resp.StatusCode, respBody
+		if resp.StatusCode < 300 {
+			operation.TaskID = extractOpenAIVideoTaskID(respBody)
+		}
+		if err := s.videoTaskRepo.Finish(upstreamCtx, operation); err != nil {
+			MarkResponseCommitted(c)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "video_receipt_pending", "message": "Video receipt could not be saved; keep the same operation key"}})
+			return nil, err
+		}
+	}
+	if resp.StatusCode >= 400 {
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		return s.handleOpenAIVideoErrorResponse(upstreamCtx, c, account, resp, targetURL, requestIDHeader, upstreamModel)
 	}
 	if endpoint == GrokMediaEndpointVideoStatus {
 		respBody = rewriteOpenAIVideoContentURLs(respBody, requestID, grokMediaContentProxyURL(c, requestID))
@@ -196,6 +241,11 @@ func (s *OpenAIGatewayService) buildOpenAIVideoRequest(
 	if err != nil {
 		return nil, err
 	}
+	if endpoint == GrokMediaEndpointVideosGenerations {
+		// Idempotency-Key otherwise lets net/http replay this POST on a reused
+		// connection failure. Only the persisted receipt may satisfy a retry.
+		req.GetBody = nil
+	}
 	authHeaders, err := s.buildOpenAIAuthenticationHeaders(ctx, account, token)
 	if err != nil {
 		return nil, fmt.Errorf("build openai video authentication headers: %w", err)
@@ -221,11 +271,25 @@ func (s *OpenAIGatewayService) buildOpenAIVideoRequest(
 		}
 		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Accept", "application/json")
+		if c != nil && c.GetHeader("Idempotency-Key") != "" {
+			req.Header.Set("Idempotency-Key", c.GetHeader("Idempotency-Key"))
+		}
 	} else if endpoint == GrokMediaEndpointVideoContent {
 		req.Header.Set("Accept", "*/*")
 		if c != nil {
+			if c.Request.Method == http.MethodHead {
+				req.Method = http.MethodHead
+			}
+			if c.Query("download") == "1" || strings.HasSuffix(c.Request.URL.Path, "/download") {
+				query := req.URL.Query()
+				query.Set("download", "1")
+				req.URL.RawQuery = query.Encode()
+			}
 			if rangeHeader := strings.TrimSpace(c.GetHeader("Range")); rangeHeader != "" {
 				req.Header.Set("Range", rangeHeader)
+			}
+			if value := c.GetHeader("If-Range"); value != "" {
+				req.Header.Set("If-Range", value)
 			}
 		}
 	} else {
@@ -310,7 +374,7 @@ func openAIVideoUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMe
 	usage, _ := extractOpenAIUsageFromJSONBytes(responseBody)
 	meta := grokMediaUsageMetadata{
 		Usage:      usage,
-		ResponseID: firstNonEmpty(extractGrokMediaVideoRequestID(responseBody), strings.TrimSpace(requestID)),
+		ResponseID: firstNonEmpty(strings.TrimSpace(requestID), extractOpenAIVideoTaskID(responseBody)),
 	}
 	switch endpoint {
 	case GrokMediaEndpointVideosGenerations:
@@ -333,6 +397,10 @@ func openAIVideoUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMe
 		}
 	}
 	return meta
+}
+
+func extractOpenAIVideoTaskID(body []byte) string {
+	return firstNonEmpty(openAIVideoString(body, "id", "task_id", "data.id", "data.task_id"), extractGrokMediaVideoRequestID(body))
 }
 
 func isOpenAIVideoStatusBillable(body []byte) bool {

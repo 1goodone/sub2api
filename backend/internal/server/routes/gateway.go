@@ -147,7 +147,7 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.GrokVideoContent(c)
 			return
 		}
-		if platform == service.PlatformOpenAI && strings.TrimPrefix(c.FullPath(), "/v1") == "/videos/:request_id/content" {
+		if platform == service.PlatformOpenAI && (strings.TrimPrefix(c.FullPath(), "/v1") == "/videos/:request_id/content" || strings.TrimPrefix(c.FullPath(), "/v1") == "/videos/:request_id/download") {
 			h.OpenAIGateway.OpenAIVideoContent(c)
 			return
 		}
@@ -300,6 +300,10 @@ func RegisterGatewayRoutes(
 		gateway.GET("/videos/extensions/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id/content", videoContentHandler)
+		gateway.GET("/videos/:request_id/download", videoContentHandler)
+		gateway.HEAD("/videos/:request_id/content", videoContentHandler)
+		gateway.HEAD("/videos/:request_id/download", videoContentHandler)
+		gateway.GET("/videos/operations/:operation_key", h.OpenAIGateway.OpenAIVideoOperation)
 
 		// xAI Voice APIs (Grok platform only): HTTP TTS/STT + Realtime WS.
 		// Not part of the creation-center product surface — gateway relay only.
@@ -446,6 +450,10 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/videos/extensions/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id/content", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodGet, "/videos/:request_id/download", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodHead, "/videos/:request_id/content", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodHead, "/videos/:request_id/download", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodGet, "/videos/operations/:operation_key", bodyLimit, h.OpenAIGateway.OpenAIVideoOperation)
 
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return func(c *gin.Context) {

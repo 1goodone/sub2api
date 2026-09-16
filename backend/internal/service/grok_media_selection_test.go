@@ -82,6 +82,17 @@ func TestSelectGrokMediaVideoRequestAccountPreservesOwner(t *testing.T) {
 	}
 }
 
+func TestSelectOpenAIVideoLookupUsesOpenAIPlatform(t *testing.T) {
+	groupID := int64(53)
+	account := Account{ID: 91, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}}
+	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{account}}, cache: &schedulerTestGatewayCache{}, cfg: &config.Config{}, concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{91: true}})}
+	selection, _, err := svc.SelectGrokMediaVideoRequestAccount(context.Background(), &groupID, "durable-operation", 91, "", PlatformOpenAI)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(91), selection.Account.ID)
+	selection.ReleaseFunc()
+}
+
 func TestGrokVideoStickySelectionIgnoresHealthEscape(t *testing.T) {
 	groupID := int64(24)
 	account := Account{ID: 1, Platform: PlatformGrok, Type: AccountTypeAPIKey,
