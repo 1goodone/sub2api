@@ -758,7 +758,7 @@ func TestOpenAIPoolModeTempRule_StopsSameAccountRetryAndIsolatesBlockToModel(t *
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
 	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
-	require.False(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.5"))
+	require.False(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.5", false))
 }
 
 func TestOpenAIPoolModeRetryable5xx_DoesNotCreateModelTransientBlock(t *testing.T) {
@@ -787,7 +787,7 @@ func TestOpenAIPoolModeRetryable5xx_DoesNotCreateModelTransientBlock(t *testing.
 		require.False(t, shouldDisable)
 	}
 
-	require.False(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4"))
+	require.False(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4", false))
 }
 
 func TestOpenAIPoolModeNonRetryable5xx_StillCreatesModelTransientBlock(t *testing.T) {
@@ -816,7 +816,7 @@ func TestOpenAIPoolModeNonRetryable5xx_StillCreatesModelTransientBlock(t *testin
 		require.False(t, shouldDisable)
 	}
 
-	require.True(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4"))
+	require.True(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4", false))
 }
 
 func TestOpenAINonPoolAPIKey5xx_StillCreatesModelTransientBlock(t *testing.T) {
@@ -841,7 +841,7 @@ func TestOpenAINonPoolAPIKey5xx_StillCreatesModelTransientBlock(t *testing.T) {
 		require.False(t, shouldDisable)
 	}
 
-	require.True(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4"))
+	require.True(t, gateway.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4", false))
 }
 
 func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
@@ -1022,7 +1022,7 @@ func TestRuntimeBlockHonorsClearedPersistedCooldown(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 92, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
 	svc.BlockAccountScheduling(account, time.Now().Add(30*time.Minute), "grok payment required")
-	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3"))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3", false))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
@@ -1037,7 +1037,7 @@ func TestRuntimeBlockConditionalClearSkipsNewerGeneration(t *testing.T) {
 	svc.BlockAccountScheduling(account, newerUntil, "fresh")
 	svc.clearOpenAIAccountRuntimeBlockIfUnchanged(account.ID, snapshot)
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
-	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3"))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3", false))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
@@ -1053,7 +1053,7 @@ func TestRuntimeBlockKeepsActivePersistedCooldown(t *testing.T) {
 		TempUnschedulableUntil: &until,
 	}
 	svc.BlockAccountScheduling(account, until, "grok payment required")
-	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3"))
+	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "grok-3", false))
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
