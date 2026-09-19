@@ -30,6 +30,7 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 	account *Account,
 	stateStore OpenAIWSStateStore,
 	groupID int64,
+	token string,
 ) error {
 	if s == nil {
 		return nil
@@ -77,8 +78,12 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 	}
 	prewarmPayload["generate"] = false
 	prewarmPayloadJSON := payloadAsJSONBytes(prewarmPayload)
+	prewarmPayloadJSON, stateObservation, stateErr := s.prepareCodexTurnStateWSFrame(ctx, account, s.codexTurnStateOwner(ctx, account), token, prewarmPayloadJSON)
+	if stateErr != nil {
+		return wrapOpenAIWSFallback("prewarm_codex_turn_state", stateErr)
+	}
 
-	if err := lease.WriteJSONWithContextTimeout(ctx, prewarmPayload, s.openAIWSWriteTimeout()); err != nil {
+	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(prewarmPayloadJSON), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"prewarm_write_fail account_id=%d conn_id=%s cause=%s",
@@ -111,6 +116,7 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 		}
 
 		eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(message)
+		stateObservation.observeEvent(message, eventType)
 		if eventType == "" {
 			continue
 		}
@@ -624,7 +630,7 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 		if vetoed, _ := openAIProfitControlVetoReason(ctx, latest); vetoed {
 			return 0, nil, "", nil
 		}
-		if s.isOpenAIAccountRequestRuntimeBlocked(latest, requestedModel, requireCompact) {
+		if s.isOpenAIAccountRequestRuntimeBlocked(ctx, latest, requestedModel, requireCompact) {
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}

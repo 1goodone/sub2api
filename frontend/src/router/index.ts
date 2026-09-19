@@ -562,6 +562,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/codex-state-pool',
+    name: 'AdminCodexStatePool',
+    component: () => import('@/views/admin/CodexStatePoolView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Codex State Pool',
+      titleKey: 'admin.accounts.statePool.title'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

@@ -57,41 +57,41 @@ func OpenAICodexOutboundDiagFailTotal() int64 {
 }
 
 type openaiOutboundDiagRecord struct {
-	Kind                 string            `json:"kind"`
-	TS                   string            `json:"ts"`
-	CorrelationID        string            `json:"correlation_id"`
-	Transport            string            `json:"transport"`
-	AccountID            int64             `json:"account_id"`
-	PluginRouted         bool              `json:"plugin_routed"`
-	FinalModel           string            `json:"final_model,omitempty"`
-	FinalServiceTier     string            `json:"final_service_tier,omitempty"`
-	ExpectedHint         string            `json:"expected_hint,omitempty"`
-	ObservedHint         string            `json:"observed_hint,omitempty"`
-	InboundHintPresent   bool              `json:"inbound_hint_present"`
-	Identity             map[string]string `json:"identity,omitempty"`
-	Headers              map[string]string `json:"headers,omitempty"`
-	SessionPresent       bool              `json:"session_id_present"`
-	ConversationPresent  bool              `json:"conversation_id_present"`
-	WindowPresent        bool              `json:"x_codex_window_id_present"`
-	ChatGPTAccountPresent bool             `json:"chatgpt_account_id_present"`
-	Assertions           map[string]bool   `json:"assertions"`
+	Kind                  string            `json:"kind"`
+	TS                    string            `json:"ts"`
+	CorrelationID         string            `json:"correlation_id"`
+	Transport             string            `json:"transport"`
+	AccountID             int64             `json:"account_id"`
+	PluginRouted          bool              `json:"plugin_routed"`
+	FinalModel            string            `json:"final_model,omitempty"`
+	FinalServiceTier      string            `json:"final_service_tier,omitempty"`
+	ExpectedHint          string            `json:"expected_hint,omitempty"`
+	ObservedHint          string            `json:"observed_hint,omitempty"`
+	InboundHintPresent    bool              `json:"inbound_hint_present"`
+	Identity              map[string]string `json:"identity,omitempty"`
+	Headers               map[string]string `json:"headers,omitempty"`
+	SessionPresent        bool              `json:"session_id_present"`
+	ConversationPresent   bool              `json:"conversation_id_present"`
+	WindowPresent         bool              `json:"x_codex_window_id_present"`
+	ChatGPTAccountPresent bool              `json:"chatgpt_account_id_present"`
+	Assertions            map[string]bool   `json:"assertions"`
 }
 
 var outboundDiagHeaderAllowlist = map[string]bool{
-	"user-agent":            true,
-	"originator":            true,
-	"version":               true,
-	"openai-beta":           true,
-	"x-codex-routing-hint":  true,
+	"user-agent":           true,
+	"originator":           true,
+	"version":              true,
+	"openai-beta":          true,
+	"x-codex-routing-hint": true,
 }
 
 var outboundDiagAlwaysRedact = map[string]bool{
-	"authorization":         true,
-	"proxy-authorization":   true,
-	"cookie":                true,
-	"set-cookie":            true,
-	"x-api-key":             true,
-	"x-goog-api-key":        true,
+	"authorization":       true,
+	"proxy-authorization": true,
+	"cookie":              true,
+	"set-cookie":          true,
+	"x-api-key":           true,
+	"x-goog-api-key":      true,
 }
 
 func expectedOpenAICodexRoutingHint(account *Account, model, serviceTier string) string {

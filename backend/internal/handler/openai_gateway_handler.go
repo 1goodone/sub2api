@@ -780,6 +780,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		c.Request = c.Request.WithContext(h.gatewayService.PinCodexTurnStateOwner(c.Request.Context(), account))
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
 		// 不能因心跳字节变化而放弃 failover 换号（#3887）。
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
@@ -1401,6 +1402,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		c.Request = c.Request.WithContext(h.gatewayService.PinCodexTurnStateOwner(c.Request.Context(), account))
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
@@ -3103,6 +3105,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			ctx = preemptCtx
 			defer cleanupPreempt()
 		}
+		ctx = h.gatewayService.PinCodexTurnStateOwner(ctx, account)
 
 		for {
 			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)

@@ -291,6 +291,27 @@ func ProvideAccountTestService(
 	return service
 }
 
+func ProvideCodexTurnStateProbeService(
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	tokenProvider *OpenAITokenProvider,
+	httpUpstream HTTPUpstream,
+	gateway *OpenAIGatewayService,
+	settings SettingRepository,
+	exitProber ProxyExitInfoProber,
+) *CodexTurnStateProbeService {
+	service := NewCodexTurnStateProbeService(accountRepo, proxyRepo, tokenProvider, httpUpstream)
+	service.settingRepo = settings
+	service.exitProber = exitProber
+	if gateway != nil {
+		gateway.codexTurnStateProbe = service
+		// Start both turn-state workers only after their production dependencies are wired.
+		gateway.StartOpenAICodexTicketHarvester()
+	}
+	service.Start()
+	return service
+}
+
 func ProvideGrokQuotaService(
 	accountRepo AccountRepository,
 	proxyRepo ProxyRepository,
@@ -927,6 +948,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideCodexTurnStateProbeService,
 	ProvideUpstreamBillingProbeService,
 	ProvideOllamaCloudUsageService,
 	ProvideSettingService,

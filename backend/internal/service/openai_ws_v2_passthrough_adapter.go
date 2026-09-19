@@ -688,6 +688,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	turnStateOwner := s.codexTurnStateOwner(ctx, account)
+	ctx = withCodexTurnStateOwner(ctx, turnStateOwner)
 	if isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
 		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(firstClientMessage, account)
 		if liteErr != nil {
@@ -954,6 +956,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	completedTurns := atomic.Int32{}
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	var acceptedTurnStartedAt atomic.Pointer[time.Time]
+	var stateObservation atomic.Pointer[codexTurnStateObservation]
 	clientFrameConn := &openAIWSClientFrameConn{
 		conn:                 clientConn,
 		controlCtx:           ctx,
@@ -961,6 +964,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		interTurnStarted:     make(chan struct{}, 1),
 		restoreResponseModel: func(payload []byte) []byte {
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+			stateObservation.Load().observeEvent(payload, eventType)
 			if !openAIWSEventMayContainModel(eventType) {
 				return payload
 			}
@@ -1113,6 +1117,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
 				out = s.prepareCodexQuotaOverdraftBody(ctx, account, false, out)
+				var observation *codexTurnStateObservation
+				out, observation, policyErr = s.prepareCodexTurnStateWSFrame(ctx, account, turnStateOwner, token, out)
+				if policyErr != nil {
+					return out, nil, policyErr
+				}
+				stateObservation.Store(observation)
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
 				SetOpsUpstreamModel(c, actualModel)
@@ -1137,6 +1147,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
+	firstClientMessage, firstStateObservation, err := s.prepareCodexTurnStateWSFrame(ctx, account, turnStateOwner, token, firstClientMessage)
+	if err != nil {
+		return err
+	}
+	stateObservation.Store(firstStateObservation)
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()

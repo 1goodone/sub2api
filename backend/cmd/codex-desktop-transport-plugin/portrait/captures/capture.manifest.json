@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "codex_cli_version": "0.153.4",
+  "codex_desktop_app_version": "26.903.9818.0",
+  "captured_at": "2026-09-17T07:49:17Z",
+  "os": "windows",
+  "arch": "amd64",
+  "method": "local_inspector",
+  "inspector": "codex-desktop-transport-plugin/tools/capture",
+  "notes": "Desktop-bundled Windows codex.exe 0.153.4 via CONNECT proxy; Schannel TLS 1.2 ClientHello (no GREASE, no ALPN); 4 new connections same process; HTTP/1.1; no production load"
+}

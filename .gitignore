@@ -88,6 +88,13 @@ backend/cmd/codex-rs-transport-plugin/portrait/testdata/debug/*
 !backend/cmd/codex-rs-transport-plugin/portrait/testdata/debug/.gitkeep
 backend/cmd/codex-rs-transport-plugin/tools/capture/*.pem
 backend/cmd/codex-rs-transport-plugin/tools/capture/*.key
+backend/cmd/codex-desktop-transport-plugin/portrait/captures/work/
+backend/cmd/codex-desktop-transport-plugin/portrait/testdata/fake/*.pem
+backend/cmd/codex-desktop-transport-plugin/portrait/testdata/fake/*-key.pem
+backend/cmd/codex-desktop-transport-plugin/portrait/testdata/debug/*
+!backend/cmd/codex-desktop-transport-plugin/portrait/testdata/debug/.gitkeep
+backend/cmd/codex-desktop-transport-plugin/tools/capture/*.pem
+backend/cmd/codex-desktop-transport-plugin/tools/capture/*.key
 
 # 临时文件
 # ===================

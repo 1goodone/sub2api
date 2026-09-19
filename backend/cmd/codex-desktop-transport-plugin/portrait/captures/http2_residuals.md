@@ -1,0 +1,27 @@
+# HTTP/2 residuals vs Codex Desktop hyper
+
+The Windows inspector capture of Desktop-bundled `codex.exe` 0.153.4 records
+the rustls ClientHello. HTTP/2 SETTINGS are empty when rustls offers ECH and
+Go `crypto/tls` fails the handshake (`error decrypting message` / `BadSignature`).
+`P2.json` then has empty `http2.settings` and `connection.reuse=per_request`.
+
+Go `golang.org/x/net/http2.Transport` can apply:
+
+| Setting | Applied |
+|---|---|
+| MAX_FRAME_SIZE (5) | `MaxReadFrameSize` |
+| MAX_HEADER_LIST_SIZE (6) | `MaxHeaderListSize` |
+
+Not applied without forking `x/net/http2`:
+
+- HEADER_TABLE_SIZE
+- ENABLE_PUSH
+- MAX_CONCURRENT_STREAMS
+- INITIAL_WINDOW_SIZE / connection WINDOW_UPDATE
+- header table / HPACK dynamic table size
+- PRIORITY frames
+- pseudo-header order
+
+Until a later inspector session records `reuse=pool`, the plugin keeps
+**per-request `NewClientConn`** and `ValidateConfig` rejects `connection_reuse=pool`.
+Two `account_id`s with the same SNI and proxy never share a TCP/TLS connection.

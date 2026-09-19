@@ -1,0 +1,102 @@
+{
+  "id": "P2",
+  "source_capture": "capture.manifest.json",
+  "tls": {
+    "ja3_raw": "771,49196-49195-49200-49199-49188-49187-49192-49191-49162-49161-49172-49171-157-156-61-60-53-47,0-10-11-13-35-23-65281,29-23-24,0",
+    "ja3_hash": "6a5d235ee78c6aede6a61448b4e9ff1e",
+    "ja4": "t12d180600_4b22cbed5bed_2dae41c691ec",
+    "cipher_suites": [
+      49196,
+      49195,
+      49200,
+      49199,
+      49188,
+      49187,
+      49192,
+      49191,
+      49162,
+      49161,
+      49172,
+      49171,
+      157,
+      156,
+      61,
+      60,
+      53,
+      47
+    ],
+    "compression_methods": [
+      0
+    ],
+    "extensions": [
+      {
+        "type": 0,
+        "name": "server_name"
+      },
+      {
+        "type": 10,
+        "name": "supported_groups",
+        "groups": [
+          29,
+          23,
+          24
+        ]
+      },
+      {
+        "type": 11,
+        "name": "ec_point_formats"
+      },
+      {
+        "type": 13,
+        "name": "signature_algorithms",
+        "schemes": [
+          2052,
+          2053,
+          2054,
+          1025,
+          1281,
+          513,
+          1027,
+          1283,
+          515,
+          514,
+          1537,
+          1539
+        ]
+      },
+      {
+        "type": 35,
+        "name": "session_ticket"
+      },
+      {
+        "type": 23,
+        "name": "extended_master_secret"
+      },
+      {
+        "type": 65281,
+        "name": "renegotiation_info"
+      }
+    ],
+    "grease": {
+      "present": false,
+      "positions": null
+    },
+    "raw_client_hello_hex": "16030300a20100009e03036aab9ab72ac6a84b9d6c177a8244891c93c479ec849302d268c6e90bd93389ab000024c02cc02bc030c02fc024c023c028c027c00ac009c014c013009d009c003d003c0035002f0100005100000010000e00000b636861746770742e636f6d000a00080006001d00170018000b00020100000d001a00180804080508060401050102010403050302030202060106030023000000170000ff01000100"
+  },
+  "http2": {
+    "settings": null,
+    "settings_order": null,
+    "connection_window_update": 0,
+    "stream_initial_window": 0,
+    "priority_frames": null,
+    "pseudo_header_order": null,
+    "max_header_list_size": 0,
+    "max_frame_size": 0
+  },
+  "connection": {
+    "reuse": "per_request",
+    "observed_new_conn_per_request": true,
+    "second_request_client_hello": true,
+    "idle_timeout_hint_seconds": null
+  }
+}

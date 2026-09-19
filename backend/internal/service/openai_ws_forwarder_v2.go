@@ -38,6 +38,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
+	turnStateOwner := s.codexTurnStateOwner(ctx, account)
+	ctx = withCodexTurnStateOwner(ctx, turnStateOwner)
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
@@ -203,9 +205,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	defer acquireCancel()
 
 	lease, err := s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
-		Account: account,
-		WSURL:   wsURL,
-		Headers: wsHeaders,
+		TurnStateOwner: turnStateOwner,
+		Account:        account,
+		WSURL:          wsURL,
+		Headers:        wsHeaders,
 		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
 			return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
 		},
@@ -338,12 +341,17 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		account,
 		stateStore,
 		groupID,
+		token,
 	); err != nil {
 		return nil, err
 	}
 	payload = s.prepareCodexQuotaOverdraftPayload(ctx, account, payload)
+	outboundPayload, stateObservation, stateErr := s.prepareCodexTurnStateWSFrame(ctx, account, turnStateOwner, token, payloadAsJSONBytes(payload))
+	if stateErr != nil {
+		return nil, wrapOpenAIWSFallback("codex_turn_state", stateErr)
+	}
 
-	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
+	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(outboundPayload), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
@@ -614,6 +622,7 @@ readLoop:
 		if eventType == "" {
 			continue
 		}
+		stateObservation.observeEvent(message, eventType)
 		responseModelObserver.ObserveOpenAI(message, eventType)
 		eventCount++
 		if firstEventType == "" {

@@ -65,6 +65,7 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	codexTurnStateProbe     *service.CodexTurnStateProbeService
 	codexTicketSettings     *service.SettingService
 	cfg                     *config.Config
 }
@@ -76,6 +77,10 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
+}
+
+func (h *AccountHandler) SetCodexTurnStateProbeService(probe *service.CodexTurnStateProbeService) {
+	h.codexTurnStateProbe = probe
 }
 
 // SetCodexTicketSettings supplies the live policy without mutating shared config.

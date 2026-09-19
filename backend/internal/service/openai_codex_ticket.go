@@ -88,7 +88,7 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 
 func (s *OpenAIGatewayService) openAICodexTicketGatedModel(model string) bool {
 	model = normalizeOpenAICodexTicketModel(model)
-	if model == "" || !s.openAICodexTicketEnabled() {
+	if model == "" {
 		return false
 	}
 	for _, item := range s.openAICodexTicketConfig().Models {
@@ -110,7 +110,7 @@ type OpenAICodexTicketStatus struct {
 }
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time) []OpenAICodexTicketStatus {
-	if !cfg.Enabled || !isOpenAICodexTicketAccount(account) {
+	if !codexTurnStateUsesLegacyTicket(account, cfg.Enabled) {
 		return nil
 	}
 	models, targetLen := cfg.Models, cfg.TargetLength
@@ -290,7 +290,7 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 // 请求路径只注入已捕获的有效门票，不现场打票；无票则返回
 // ErrOpenAICodexTicketUnavailable。打票由后台 harvester 完成。
 func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, account *Account, model string, h http.Header) error {
-	if s == nil || h == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabledContext(ctx) {
+	if s == nil || h == nil || s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
 		return nil
 	}
 	model = normalizeOpenAICodexTicketModel(model)
@@ -342,7 +342,7 @@ func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, 
 // outboundModel 必须是真正会发给上游的模型名（openAICodexTicketOutboundModel），
 // 不是客户端原始模型：注入侧读的是出站 body.model，两侧口径必须一致。
 func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
-	if s == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
+	if s == nil || s.codexTurnStateOwner(context.Background(), account) != CodexTurnStateModeLegacyTicket {
 		return false
 	}
 	cfg := s.openAICodexTicketConfig()
@@ -480,7 +480,7 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestLoop(ctx context.Context)
 // ticket once. The loop waits for all probes, then waits the configured interval
 // before starting the next cycle.
 func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
-	if s == nil || s.accountRepo == nil || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
+	if s == nil || s.accountRepo == nil || ctx.Err() != nil {
 		return
 	}
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
@@ -495,7 +495,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	probed := 0
 	for i := range accounts {
 		account := accounts[i]
-		if account.Status != StatusActive || !isOpenAICodexTicketAccount(&account) {
+		if account.Status != StatusActive || s.codexTurnStateOwner(ctx, &account) != CodexTurnStateModeLegacyTicket {
 			continue
 		}
 		for _, model := range cfg.Models {
@@ -529,7 +529,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 // gAAAAA 前缀）就落库；否则记 Info miss，交给下个周期重试。同一 key 并发去重，避免上一发还没
 // 回来又叠一发。
 func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, account *Account, model string) {
-	if s == nil || !isOpenAICodexTicketAccount(account) || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
+	if s == nil || ctx.Err() != nil || s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
 		return
 	}
 	cfg := s.openAICodexTicketConfig()
@@ -663,18 +663,19 @@ func isOpenAICodexTicketAccount(account *Account) bool {
 	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow()
 }
 
-// IsOpenAICodexTicketPrivateExtraKey also covers the retired account-level proxy
+// IsOpenAICodexTurnStatePrivateExtraKey also covers the retired account-level proxy
 // override, whose credentials may remain in older account records.
-func IsOpenAICodexTicketPrivateExtraKey(key string) bool {
-	return IsOpenAICodexTicketExtraKey(key) || key == "codex_harvest_proxy_url"
+func IsOpenAICodexTurnStatePrivateExtraKey(key string) bool {
+	return IsOpenAICodexTicketExtraKey(key) || key == "codex_harvest_proxy_url" ||
+		key == CodexTurnStateProbeCacheExtraKey || key == CodexTurnStateProbeFailureExtraKey
 }
 
-// RedactOpenAICodexTicketExtra strips ephemeral ticket material from exports
+// RedactOpenAICodexTurnStateExtra strips both engines' runtime material from exports
 // without changing the source account or unrelated backup fields.
-func RedactOpenAICodexTicketExtra(extra map[string]any) map[string]any {
+func RedactOpenAICodexTurnStateExtra(extra map[string]any) map[string]any {
 	redacted := maps.Clone(extra)
 	for key := range redacted {
-		if IsOpenAICodexTicketPrivateExtraKey(key) {
+		if IsOpenAICodexTurnStatePrivateExtraKey(key) {
 			delete(redacted, key)
 		}
 	}

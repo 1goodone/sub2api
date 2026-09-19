@@ -426,7 +426,7 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 			key == service.OllamaCloudUsageAutoRefreshExtraKey,
 			key == service.OllamaCloudUsageSnapshotExtraKey:
 			continue
-		case service.IsOpenAICodexTicketPrivateExtraKey(key):
+		case service.IsOpenAICodexTurnStatePrivateExtraKey(key):
 			continue
 		default:
 			redacted[key] = value

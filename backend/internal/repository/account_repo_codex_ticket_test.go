@@ -19,8 +19,8 @@ func TestLockAndMergeAccountExtraPreservesLatestCodexTicket(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
 		WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeOAuth, `{"access_token":"test"}`, nil).
-		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "current_extra"}).
-			AddRow(true, false, true, nil, nil, nil, nil, nil, nil, []byte(`{"codex_turn_ticket:model":{"state":"latest-database-ticket"},"old_admin_setting":true}`)))
+		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "current_extra", "current_platform", "current_type", "current_credentials"}).
+			AddRow(true, false, true, nil, nil, nil, nil, nil, nil, []byte(`{"codex_turn_ticket:model":{"state":"latest-database-ticket"},"old_admin_setting":true}`), service.PlatformOpenAI, service.AccountTypeOAuth, []byte(`{"access_token":"test"}`)))
 	account := &service.Account{ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"access_token": "test"}, Extra: map[string]any{"codex_turn_ticket:model": map[string]any{"state": "stale"}, "codex_turn_ticket:injected": map[string]any{"state": "spoofed"}, "new_admin_setting": true}}
 	extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, nil, nil)
 	require.NoError(t, err)
@@ -41,8 +41,8 @@ func TestLockAndMergeAccountExtraDegradesOnUnparsableExtra(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
 		WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeOAuth, `{"access_token":"test"}`, nil).
-		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "current_extra"}).
-			AddRow(true, false, true, nil, nil, nil, nil, nil, nil, []byte(`[1,2,3]`)))
+		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "current_extra", "current_platform", "current_type", "current_credentials"}).
+			AddRow(true, false, true, nil, nil, nil, nil, nil, nil, []byte(`[1,2,3]`), service.PlatformOpenAI, service.AccountTypeOAuth, []byte(`{"access_token":"test"}`)))
 	account := &service.Account{ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"access_token": "test"}, Extra: map[string]any{"codex_turn_ticket:injected": map[string]any{"state": "spoofed"}, "new_admin_setting": true}}
 	extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, nil, nil)
 	require.NoError(t, err, "unparsable extra must not fail the account update")
@@ -50,6 +50,64 @@ func TestLockAndMergeAccountExtraDegradesOnUnparsableExtra(t *testing.T) {
 	// 降级也绝不能让管理端伪造的门票键落库。
 	require.NotContains(t, extra, "codex_turn_ticket:injected")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLockAndMergeAccountExtraPreservesCodexStateRuntimeByOwner(t *testing.T) {
+	tests := []struct {
+		name            string
+		updatedToken    string
+		wantRuntimeKeys bool
+	}{
+		{name: "unrelated credential edit preserves runtime", updatedToken: "same-token", wantRuntimeKeys: true},
+		{name: "credential owner change clears runtime", updatedToken: "new-token", wantRuntimeKeys: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = db.Close() })
+			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+			t.Cleanup(func() { _ = client.Close() })
+
+			mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
+				WithArgs(int64(42), service.PlatformOpenAI, service.AccountTypeOAuth, sqlmock.AnyArg(), nil).
+				WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "current_extra", "current_platform", "current_type", "current_credentials"}).
+					AddRow(false, false, true, nil, nil, nil, nil, nil, nil,
+						[]byte(`{"codex_turn_state_mode":"state_pool","codex_turn_state_probe_cache":{"gpt-6-astra":{"state":"database-state"}},"codex_turn_state_probe_failures":{"gpt-6-astra":{"attempts":2}}}`),
+						service.PlatformOpenAI, service.AccountTypeOAuth,
+						[]byte(`{"access_token":"same-token","chatgpt_account_id":"acct-1","chatgpt_account_is_fedramp":true,"model_mapping":{"old":"old"}}`)))
+
+			account := &service.Account{
+				ID:       42,
+				Platform: service.PlatformOpenAI,
+				Type:     service.AccountTypeOAuth,
+				Credentials: map[string]any{
+					"access_token":               tt.updatedToken,
+					"chatgpt_account_id":         "acct-1",
+					"chatgpt_account_is_fedramp": true,
+					"model_mapping":              map[string]any{"new": "new"},
+				},
+				Extra: map[string]any{
+					service.CodexTurnStateModeExtraKey:         service.CodexTurnStateModeLegacyTicket,
+					service.CodexTurnStateProbeCacheExtraKey:   map[string]any{"forged": true},
+					service.CodexTurnStateProbeFailureExtraKey: map[string]any{"forged": true},
+				},
+			}
+
+			extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, nil, nil)
+			require.NoError(t, err)
+			require.Equal(t, service.CodexTurnStateModeLegacyTicket, extra[service.CodexTurnStateModeExtraKey])
+			if tt.wantRuntimeKeys {
+				require.Equal(t, map[string]any{"gpt-6-astra": map[string]any{"state": "database-state"}}, extra[service.CodexTurnStateProbeCacheExtraKey])
+				require.Equal(t, map[string]any{"gpt-6-astra": map[string]any{"attempts": float64(2)}}, extra[service.CodexTurnStateProbeFailureExtraKey])
+			} else {
+				require.NotContains(t, extra, service.CodexTurnStateProbeCacheExtraKey)
+				require.NotContains(t, extra, service.CodexTurnStateProbeFailureExtraKey)
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestCodexTicketExtraIsSchedulerNeutral(t *testing.T) {

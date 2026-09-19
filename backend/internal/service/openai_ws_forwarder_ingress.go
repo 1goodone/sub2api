@@ -92,6 +92,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	turnStateOwner := s.codexTurnStateOwner(ctx, account)
+	ctx = withCodexTurnStateOwner(ctx, turnStateOwner)
 
 	// 预取一次 OpenAI Fast Policy settings，绑定到 ctx，让该 WS session
 	// 内所有帧的 evaluateOpenAIFastPolicy 调用复用同一份快照，避免每帧
@@ -789,9 +791,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return fmt.Errorf("build ws headers: %w", buildHdrErr)
 	}
 	baseAcquireReq := openAIWSAcquireRequest{
-		Account: account,
-		WSURL:   wsURL,
-		Headers: wsHeaders,
+		TurnStateOwner: turnStateOwner,
+		Account:        account,
+		WSURL:          wsURL,
+		Headers:        wsHeaders,
 		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
 			return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
 		},
@@ -927,7 +930,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return nil, acquireErr
 		}
 		connID := strings.TrimSpace(lease.ConnID())
-		if handshakeTurnState := strings.TrimSpace(lease.HandshakeHeader(openAIWSTurnStateHeader)); handshakeTurnState != "" {
+		if handshakeTurnState := strings.TrimSpace(lease.HandshakeHeader(openAIWSTurnStateHeader)); handshakeTurnState != "" && turnStateOwner == CodexTurnStateModeNative {
 			turnState = handshakeTurnState
 			if stateStore != nil && sessionHash != "" {
 				stateStore.BindSessionTurnState(groupID, sessionHash, handshakeTurnState, s.openAIWSSessionStickyTTL())
@@ -964,6 +967,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnStart := time.Now()
 		wroteDownstream := false
 		outboundPayload := s.prepareCodexQuotaOverdraftBody(ctx, account, false, payload)
+		outboundPayload, stateObservation, err := s.prepareCodexTurnStateWSFrame(ctx, account, turnStateOwner, token, outboundPayload)
+		if err != nil {
+			return nil, wrapOpenAIWSIngressTurnError("codex_turn_state", err, false)
+		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(outboundPayload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
@@ -1026,6 +1033,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 
 			eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(upstreamMessage)
+			stateObservation.observeEvent(upstreamMessage, eventType)
 			responseModelObserver.ObserveOpenAI(upstreamMessage, eventType)
 			if responseID == "" && eventResponseID != "" {
 				responseID = eventResponseID

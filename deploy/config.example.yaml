@@ -1088,7 +1088,7 @@ plugins:
   max_upload_bytes: 134217728
   max_uncompressed_bytes: 268435456
   start_timeout_seconds: 15
-  # First Enable of even.sub2api.codex-rs-transport requires a non-empty allowlist.
+  # First Enable of even.sub2api.codex-rs-transport or even.sub2api.codex-desktop-transport requires a non-empty allowlist.
   # Empty list does not filter (CPA and later expansion). Intersects with rollout_percent.
   openai_oauth_account_allowlist: []
 

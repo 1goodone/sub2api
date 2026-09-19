@@ -2,10 +2,11 @@
 
 本文面向希望为 Sub2API 开发、打包和发布插件的团队。插件是独立进程和静态 UI 组成的 `.s2plugin` 包，宿主通过稳定的 gRPC 协议调用它。本文以当前宿主已经定义的 `openai.oauth.outbound_transport.v1` 能力作为协议示例，说明开发者需要准备什么、哪些职责属于插件、哪些职责仍由 Sub2API 负责。
 
-仓库内现有两条 OpenAI OAuth 出站参考实现，能力 ID 都是 `openai.oauth.outbound_transport.v1`，宿主同一时刻只能启用其中一个：
+仓库内现有三条 OpenAI OAuth 出站参考实现，能力 ID 都是 `openai.oauth.outbound_transport.v1`，宿主同一时刻只能启用其中一个：
 
 - `backend/cmd/cpa-compatible-transport-plugin/`：Chrome uTLS（`HelloChrome_Auto`）+ HTTP/2，兼容 CLIProxyAPI 指纹。
 - `backend/cmd/codex-rs-transport-plugin/`：官方 Codex CLI 0.146.0 的 rustls ClientHello（`HelloCustom`）。HTTP/2 SETTINGS 尚未从 hyper 抓全，连接是 per-request。首次启用必须配置 `plugins.openai_oauth_account_allowlist`。
+- `backend/cmd/codex-desktop-transport-plugin/`：Codex Desktop 捆绑引擎（Windows `app/resources/codex.exe`，`codex-cli` 0.153.4）的实际出站 ClientHello。本机抓包是 Schannel TLS 1.2（无 GREASE、无 ALPN、HTTP/1.1），不是 Chromium `ChatGPT.exe` 壳，也不是 CLI 0.146.0 的 rustls。
 
 本文其余部分描述公开协议、宿主边界和开发流程。
 
