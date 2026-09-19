@@ -41,10 +41,13 @@ func (e GrokMediaEndpoint) RequiresRequestBody() bool {
 }
 
 func (e GrokMediaEndpoint) IsVideoLookupRequest() bool {
-	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent
+	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
 }
 
 func (e GrokMediaEndpoint) IsGenerationRequest() bool {
+	if e == SeedanceEndpointCreate {
+		return true
+	}
 	switch e {
 	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits, GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions:
 		return true
@@ -357,15 +360,24 @@ func (s *OpenAIGatewayService) SelectGrokMediaVideoRequestAccount(
 	ctx context.Context, groupID *int64, sessionHash string, accountID int64, requestedModel string,
 	platforms ...string,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	platform := PlatformGrok
+	if len(platforms) > 0 && strings.TrimSpace(platforms[0]) != "" {
+		platform = platforms[0]
+	}
+	return s.SelectMediaVideoRequestAccount(ctx, groupID, sessionHash, accountID, requestedModel, platform)
+}
+
+func (s *OpenAIGatewayService) SelectMediaVideoRequestAccount(
+	ctx context.Context, groupID *int64, sessionHash string, accountID int64, requestedModel, platform string,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerSessionSticky}
 	if accountID <= 0 || strings.TrimSpace(sessionHash) == "" {
 		return nil, decision, ErrNoAvailableAccounts
 	}
 	ctx = s.withOpenAIGroupPrivacyRequirement(WithOpenAIProfitControlSuppressed(ctx), groupID)
 	scheduler := &defaultOpenAIAccountScheduler{service: s}
-	platform := PlatformGrok
-	if len(platforms) > 0 {
-		platform = platforms[0]
+	if strings.TrimSpace(platform) == "" {
+		platform = PlatformGrok
 	}
 	selection, _, err := scheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{
 		GroupID: groupID, Platform: platform, SessionHash: sessionHash,
