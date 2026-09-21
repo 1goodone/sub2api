@@ -49,7 +49,7 @@ export default {
         accountChanged: '账号配置已变更，请重试',
         concurrentUpdate: '候选已被其他请求更新',
         encryptedError: '密文校验错误，仅记录，不清理 State',
-        title: 'Haohex State 实时池',
+        title: 'State 实时池',
         description:
           '按账号与模型管理候选：Plus / Pro 长度 292，Team 长度 332。候选最长有效一小时，临近过期自动续取。',
         manageAccounts: '管理账号',
@@ -919,7 +919,7 @@ export default {
         codexTurnStateModeDesc: '为当前账号选择一套引擎。单次请求及重试固定使用同一套；切换模式时保留两套引擎各自的运行状态。',
         codexTurnStateModeInherit: '跟随全局旧门票开关',
         codexTurnStateModeLegacyTicket: '旧版 292 门票',
-        codexTurnStateModeStatePool: 'Haohex State 实时池',
+        codexTurnStateModeStatePool: 'State 实时池',
         codexTurnStateModeNative: '原生／不托管',
         codexImageTool: 'Codex 图片桥接策略',
         codexImageToolDesc:

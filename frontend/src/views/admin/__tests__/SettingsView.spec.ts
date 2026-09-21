@@ -575,6 +575,16 @@ async function openPaymentTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
+  await flushPromises();
+}
+
 async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
   const securityTabButton = wrapper
     .findAll("button")
@@ -734,6 +744,30 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_enabled).toBe(true);
     wrapper.unmount();
+  });
+
+  it("renders and preserves channel monitor v3 as an independent mode", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v3",
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const modeButtons = wrapper.findAll("button").filter((node) =>
+      ["modeV1", "modeV2", "modeV3"].some((mode) => node.text().includes(`channelMonitor.${mode}`)),
+    );
+    expect(modeButtons).toHaveLength(3);
+    expect(modeButtons.find((node) => node.text().includes("modeV3"))?.attributes("aria-pressed")).toBe("true");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ channel_monitor_mode: "v3" }),
+    );
   });
 
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {

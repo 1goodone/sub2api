@@ -49,7 +49,7 @@ export default {
         accountChanged: 'Account configuration changed; retry',
         concurrentUpdate: 'Candidate changed concurrently',
         encryptedError: 'Encrypted content validation failed; state retained',
-        title: 'Haohex State Pool',
+        title: 'State Realtime Pool',
         description:
           'Candidates are scoped to each account and model: Plus / Pro use length 292, Team 332. They expire within one hour and renew automatically as expiry approaches.',
         manageAccounts: 'Manage accounts',
@@ -844,7 +844,7 @@ export default {
           'Select one engine for this account. Requests and retries stay pinned to that engine; switching modes preserves both engines\' stored state.',
         codexTurnStateModeInherit: 'Follow global legacy-ticket setting',
         codexTurnStateModeLegacyTicket: 'Legacy 292 ticket',
-        codexTurnStateModeStatePool: 'Haohex State Pool',
+        codexTurnStateModeStatePool: 'State Realtime Pool',
         codexTurnStateModeNative: 'Native / unmanaged',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:

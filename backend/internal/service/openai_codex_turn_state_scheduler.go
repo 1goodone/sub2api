@@ -150,6 +150,31 @@ type codexStateSchedule struct {
 	Mode          string
 }
 
+type codexStateProbeTask struct {
+	account Account
+	model   string
+	due     time.Time
+}
+
+func fairCodexStateProbeTasks(tasks []codexStateProbeTask, cursor int) ([]codexStateProbeTask, int) {
+	if len(tasks) == 0 {
+		return nil, 0
+	}
+	unique := make([]codexStateProbeTask, 0, len(tasks))
+	seen := make(map[int64]struct{}, len(tasks))
+	for _, task := range tasks {
+		if _, ok := seen[task.account.ID]; ok {
+			continue
+		}
+		seen[task.account.ID] = struct{}{}
+		unique = append(unique, task)
+	}
+	start := cursor % len(unique)
+	ordered := append(make([]codexStateProbeTask, 0, len(unique)), unique[start:]...)
+	ordered = append(ordered, unique[:start]...)
+	return ordered, (start + 1) % len(unique)
+}
+
 func codexStateMode(entry codexTurnStateCacheEntry, expected int, token string, now time.Time) string {
 	if !validCodexTurnStateCacheEntry(entry, expected, token, now) {
 		return "continuous"
@@ -202,12 +227,7 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	type task struct {
-		account Account
-		model   string
-		due     time.Time
-	}
-	tasks := []task{}
+	tasks := []codexStateProbeTask{}
 	for _, account := range accounts {
 		if !codexTurnStateProbeEnabled(&account) || CodexTurnStateHealthyLength(&account) == 0 {
 			s.pauseStateAccount(account.ID)
@@ -263,7 +283,7 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 			importPending := s.importPending[account.ID]
 			s.importMu.Unlock()
 			if mode != "idle" && mode != "paused" && !importPending && !state.Next.After(now) && !s.active[account.ID] {
-				tasks = append(tasks, task{account, model, state.Next})
+				tasks = append(tasks, codexStateProbeTask{account, model, state.Next})
 			}
 			s.scheduleMu.Unlock()
 			if previous != "" && previous != mode && (previous == "paused" || mode == "paused") {
@@ -272,6 +292,7 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 		}
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].due.Before(tasks[j].due) })
+	tasks, s.dispatchCursor = fairCodexStateProbeTasks(tasks, s.dispatchCursor)
 	for _, task := range tasks {
 		if !s.reserveStateAccount(task.account.ID) {
 			continue

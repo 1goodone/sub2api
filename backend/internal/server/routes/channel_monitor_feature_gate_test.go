@@ -121,7 +121,7 @@ func TestChannelMonitorAdminFeatureGuard(t *testing.T) {
 	}
 }
 
-func TestChannelMonitorModeV2Guard(t *testing.T) {
+func TestChannelMonitorPassiveModeGuard(t *testing.T) {
 	tests := []struct {
 		name       string
 		svc        *service.SettingService
@@ -151,13 +151,18 @@ func TestChannelMonitorModeV2Guard(t *testing.T) {
 			svc:        newChannelMonitorModeSettings(true, service.ChannelMonitorModeV2),
 			wantStatus: http.StatusOK,
 		},
+		{
+			name:       "mode v3 allows",
+			svc:        newChannelMonitorModeSettings(true, service.ChannelMonitorModeV3),
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.Use(channelMonitorModeV2Guard(tt.svc))
+			router.Use(channelMonitorPassiveModeGuard(tt.svc))
 			router.GET("/test", func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"ok": true})
 			})

@@ -409,22 +409,23 @@ func containsString(values []string, wanted string) bool {
 // CodexTurnStateProbeService refreshes configured account/model candidates in
 // the background using isolated HTTP SSE connections and account-scoped scheduling.
 type CodexTurnStateProbeService struct {
-	accountRepo   AccountRepository
-	proxyRepo     ProxyRepository
-	tokenProvider *OpenAITokenProvider
-	httpUpstream  HTTPUpstream
-	settingRepo   SettingRepository
-	exitProber    ProxyExitInfoProber
-	scheduleMu    sync.Mutex
-	schedules     map[codexTurnStatePoolKey]*codexStateSchedule
-	active        map[int64]bool
-	lastCleanup   time.Time
-	requestDo     func(*http.Request, string) (*http.Response, error)
-	runtimeMu     sync.Mutex
-	runtime       map[codexTurnStatePoolKey]codexTurnStateProbeRuntime
-	importMu      sync.Mutex
-	importJobs    map[string]*CodexStateImportJob
-	importPending map[int64]bool
+	accountRepo    AccountRepository
+	proxyRepo      ProxyRepository
+	tokenProvider  *OpenAITokenProvider
+	httpUpstream   HTTPUpstream
+	settingRepo    SettingRepository
+	exitProber     ProxyExitInfoProber
+	scheduleMu     sync.Mutex
+	schedules      map[codexTurnStatePoolKey]*codexStateSchedule
+	active         map[int64]bool
+	dispatchCursor int
+	lastCleanup    time.Time
+	requestDo      func(*http.Request, string) (*http.Response, error)
+	runtimeMu      sync.Mutex
+	runtime        map[codexTurnStatePoolKey]codexTurnStateProbeRuntime
+	importMu       sync.Mutex
+	importJobs     map[string]*CodexStateImportJob
+	importPending  map[int64]bool
 
 	startOnce sync.Once
 	stopOnce  sync.Once

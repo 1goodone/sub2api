@@ -985,6 +985,44 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI OAuth 批量编辑可统一选择 Codex Turn-State 引擎', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-turn-state-mode-enabled').setValue(true)
+    await wrapper
+      .get('[data-testid="bulk-edit-openai-codex-turn-state-mode-select"]')
+      .setValue('state_pool')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_turn_state_mode: 'state_pool'
+      }
+    })
+  })
+
+  it('未勾选 Turn-State 引擎时不覆盖账号现值', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-cli-only-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-codex-cli-only-toggle').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_cli_only: true
+      }
+    })
+  })
+
   // 未勾选「编辑该项」时不得写入该键，否则批量编辑别的字段会顺手清掉账号的收敛设置。
   it('未勾选编辑该项时不写入 codex_fingerprint_mode', async () => {
     const wrapper = mountModal({
