@@ -399,6 +399,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
 	}
+	if err := ValidateCacheReadReductionPercent(input.CacheReadReductionPercent); err != nil {
+		return nil, err
+	}
 	accountTypePreference, err := normalizeAccountTypePreference(input.AccountTypePreference)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_TYPE_PREFERENCE", err.Error())
@@ -576,6 +579,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		CacheReadReductionPercent:       input.CacheReadReductionPercent,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -795,6 +799,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+	}
+	if input.CacheReadReductionPercent != nil {
+		if err := ValidateCacheReadReductionPercent(*input.CacheReadReductionPercent); err != nil {
+			return nil, err
+		}
+		group.CacheReadReductionPercent = *input.CacheReadReductionPercent
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive

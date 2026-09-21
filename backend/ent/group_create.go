@@ -106,6 +106,20 @@ func (_c *GroupCreate) SetNillableRateMultiplier(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetCacheReadReductionPercent sets the "cache_read_reduction_percent" field.
+func (_c *GroupCreate) SetCacheReadReductionPercent(v float64) *GroupCreate {
+	_c.mutation.SetCacheReadReductionPercent(v)
+	return _c
+}
+
+// SetNillableCacheReadReductionPercent sets the "cache_read_reduction_percent" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCacheReadReductionPercent(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetCacheReadReductionPercent(*v)
+	}
+	return _c
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_c *GroupCreate) SetPeakRateEnabled(v bool) *GroupCreate {
 	_c.mutation.SetPeakRateEnabled(v)
@@ -1098,6 +1112,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.CacheReadReductionPercent(); !ok {
+		v := group.DefaultCacheReadReductionPercent
+		_c.mutation.SetCacheReadReductionPercent(v)
+	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		v := group.DefaultPeakRateEnabled
 		_c.mutation.SetPeakRateEnabled(v)
@@ -1287,6 +1305,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "Group.rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.CacheReadReductionPercent(); !ok {
+		return &ValidationError{Name: "cache_read_reduction_percent", err: errors.New(`ent: missing required field "Group.cache_read_reduction_percent"`)}
 	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		return &ValidationError{Name: "peak_rate_enabled", err: errors.New(`ent: missing required field "Group.peak_rate_enabled"`)}
@@ -1534,6 +1555,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(group.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
+	}
+	if value, ok := _c.mutation.CacheReadReductionPercent(); ok {
+		_spec.SetField(group.FieldCacheReadReductionPercent, field.TypeFloat64, value)
+		_node.CacheReadReductionPercent = value
 	}
 	if value, ok := _c.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
@@ -2031,6 +2056,24 @@ func (u *GroupUpsert) UpdateRateMultiplier() *GroupUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *GroupUpsert) AddRateMultiplier(v float64) *GroupUpsert {
 	u.Add(group.FieldRateMultiplier, v)
+	return u
+}
+
+// SetCacheReadReductionPercent sets the "cache_read_reduction_percent" field.
+func (u *GroupUpsert) SetCacheReadReductionPercent(v float64) *GroupUpsert {
+	u.Set(group.FieldCacheReadReductionPercent, v)
+	return u
+}
+
+// UpdateCacheReadReductionPercent sets the "cache_read_reduction_percent" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCacheReadReductionPercent() *GroupUpsert {
+	u.SetExcluded(group.FieldCacheReadReductionPercent)
+	return u
+}
+
+// AddCacheReadReductionPercent adds v to the "cache_read_reduction_percent" field.
+func (u *GroupUpsert) AddCacheReadReductionPercent(v float64) *GroupUpsert {
+	u.Add(group.FieldCacheReadReductionPercent, v)
 	return u
 }
 
@@ -3190,6 +3233,27 @@ func (u *GroupUpsertOne) AddRateMultiplier(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRateMultiplier() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetCacheReadReductionPercent sets the "cache_read_reduction_percent" field.
+func (u *GroupUpsertOne) SetCacheReadReductionPercent(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCacheReadReductionPercent(v)
+	})
+}
+
+// AddCacheReadReductionPercent adds v to the "cache_read_reduction_percent" field.
+func (u *GroupUpsertOne) AddCacheReadReductionPercent(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCacheReadReductionPercent(v)
+	})
+}
+
+// UpdateCacheReadReductionPercent sets the "cache_read_reduction_percent" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCacheReadReductionPercent() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCacheReadReductionPercent()
 	})
 }
 
@@ -4685,6 +4749,27 @@ func (u *GroupUpsertBulk) AddRateMultiplier(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRateMultiplier() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetCacheReadReductionPercent sets the "cache_read_reduction_percent" field.
+func (u *GroupUpsertBulk) SetCacheReadReductionPercent(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCacheReadReductionPercent(v)
+	})
+}
+
+// AddCacheReadReductionPercent adds v to the "cache_read_reduction_percent" field.
+func (u *GroupUpsertBulk) AddCacheReadReductionPercent(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCacheReadReductionPercent(v)
+	})
+}
+
+// UpdateCacheReadReductionPercent sets the "cache_read_reduction_percent" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCacheReadReductionPercent() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCacheReadReductionPercent()
 	})
 }
 

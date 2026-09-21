@@ -871,6 +871,8 @@ export default {
         descriptionPlaceholder: 'Enter description (optional)',
         rateMultiplierLabel: 'Rate Multiplier',
         rateMultiplierHint: '1.0 = standard rate, 0.5 = half price, 2.0 = double',
+        cacheReadReductionPercent: 'Cache Read Reduction (%)',
+        cacheReadReductionPercentHint: 'Reclassifies this share of cache-read tokens as regular input for local billing and usage only. 0 disables it; requests without cache are unchanged.',
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
         rpmLimitHint: 'Max requests per minute for each user in this group; 0 = unlimited. Once set, it takes over per-user rate limiting in this group (overrides the user-level rpm_limit fallback).',

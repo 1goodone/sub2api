@@ -28,6 +28,9 @@ type Group struct {
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// CacheReadReductionPercent 将该比例的缓存读取 token 重新计为普通输入。
+	// 仅影响本地计费与用量分类，不改变上游真实缓存。
+	CacheReadReductionPercent float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled     bool
@@ -559,6 +562,52 @@ func computePeakAwareMultipliers(apiKey *APIKey, base float64, now time.Time) (t
 	}
 	text = base * peak
 	return
+}
+
+// ValidateCacheReadReductionPercent validates the group-level cache read
+// reclassification percentage at the service boundary.
+func ValidateCacheReadReductionPercent(percent float64) error {
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 || percent > 100 {
+		return errors.New("cache_read_reduction_percent must be between 0 and 100")
+	}
+	return nil
+}
+
+// reduceCacheReadTokens returns the remaining cache-read tokens and the amount
+// reclassified as normal input. Runtime clamping protects billing from stale or
+// malformed data even though persisted group configuration is validated.
+func reduceCacheReadTokens(cacheReadTokens int, percent float64) (remaining, moved int) {
+	cacheReadTokens = max(cacheReadTokens, 0)
+	if cacheReadTokens == 0 || math.IsNaN(percent) || percent <= 0 {
+		return cacheReadTokens, 0
+	}
+	if math.IsInf(percent, 1) || percent >= 100 {
+		return 0, cacheReadTokens
+	}
+	moved = int(math.Round(float64(cacheReadTokens) * percent / 100))
+	moved = min(max(moved, 0), cacheReadTokens)
+	return cacheReadTokens - moved, moved
+}
+
+func applyOpenAICacheReadReduction(usage *OpenAIUsage, percent float64) {
+	if usage == nil || percent <= 0 || math.IsNaN(percent) {
+		return
+	}
+	originalCacheRead := max(usage.CacheReadInputTokens, 0)
+	usage.CacheReadInputTokens, _ = reduceCacheReadTokens(originalCacheRead, percent)
+
+	imageCacheRead := min(max(usage.ImageCacheReadTokens, 0), originalCacheRead)
+	usage.ImageCacheReadTokens, _ = reduceCacheReadTokens(imageCacheRead, percent)
+	usage.ImageCacheReadTokens = min(usage.ImageCacheReadTokens, usage.CacheReadInputTokens)
+}
+
+func applyClaudeCacheReadReduction(usage *ClaudeUsage, percent float64) {
+	if usage == nil || percent <= 0 || math.IsNaN(percent) {
+		return
+	}
+	remaining, moved := reduceCacheReadTokens(usage.CacheReadInputTokens, percent)
+	usage.InputTokens += moved
+	usage.CacheReadInputTokens = remaining
 }
 
 // validProfitControlRatio 判定 margin/buffer 是否为可落库的合法小数：[0,1) 且非 NaN/Inf。

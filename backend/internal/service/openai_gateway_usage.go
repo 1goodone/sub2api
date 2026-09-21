@@ -175,6 +175,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ApplyOpenAIImageBillingResolution(result)
 	}
 	logServiceTierBillingDowngrade("service.openai_gateway", account, result.RequestID, ApplyOpenAIServiceTierBillingResolution(billingAccount, result))
+	if apiKey != nil && apiKey.Group != nil {
+		applyOpenAICacheReadReduction(&result.Usage, apiKey.Group.CacheReadReductionPercent)
+	}
 
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。

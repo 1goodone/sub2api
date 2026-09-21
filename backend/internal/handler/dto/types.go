@@ -170,6 +170,8 @@ type Group struct {
 type AdminGroup struct {
 	Group
 	DisableNonStreaming bool `json:"disable_non_streaming"`
+	// CacheReadReductionPercent is billing policy and remains admin-only.
+	CacheReadReductionPercent float64 `json:"cache_read_reduction_percent"`
 	// ForceOpenAIFast 是管理端请求策略，用户侧分组 DTO 无需暴露。
 	ForceOpenAIFast bool `json:"force_openai_fast"`
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。

@@ -22,12 +22,13 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()
 	group := mustCreateGroup(t, integrationEntClient, &service.Group{
-		Name:                 fmt.Sprintf("profit-proj-group-%d", suffix),
-		Platform:             service.PlatformOpenAI,
-		RateMultiplier:       0.06,
-		ProfitControlEnabled: true,
-		ProfitMinMargin:      0.2,
-		ProfitSafetyBuffer:   0.05,
+		Name:                      fmt.Sprintf("profit-proj-group-%d", suffix),
+		Platform:                  service.PlatformOpenAI,
+		RateMultiplier:            0.06,
+		CacheReadReductionPercent: 37.5,
+		ProfitControlEnabled:      true,
+		ProfitMinMargin:           0.2,
+		ProfitSafetyBuffer:        0.05,
 		ModelAllowlist: service.GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-5.4"},
@@ -58,6 +59,7 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 
 	require.Equal(t, service.PlatformOpenAI, got.Group.Platform)
 	require.InDelta(t, 0.06, got.Group.RateMultiplier, 1e-9)
+	require.InDelta(t, 37.5, got.Group.CacheReadReductionPercent, 1e-9, "cache_read_reduction_percent 必须进入认证投影")
 	require.True(t, got.Group.ProfitControlEnabled, "profit_control_enabled 必须进入认证投影（投影漏列会让门静默失效）")
 	require.InDelta(t, 0.2, got.Group.ProfitMinMargin, 1e-9)
 	require.InDelta(t, 0.05, got.Group.ProfitSafetyBuffer, 1e-9)
