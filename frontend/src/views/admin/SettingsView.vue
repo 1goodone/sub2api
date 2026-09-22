@@ -4516,6 +4516,34 @@
                     v-model="form.openai_codex_ticket_enabled"
                   />
                 </div>
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketModels") }}
+                  </h3>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketModelsDesc") }}
+                  </p>
+                  <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        id="codex-ticket-model-astra"
+                        type="checkbox"
+                        :checked="form.openai_codex_ticket_models.includes('gpt-6-astra')"
+                        @change="toggleCodexTicketModel('gpt-6-astra', ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>Astra (gpt-6-astra)</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        id="codex-ticket-model-sol"
+                        type="checkbox"
+                        :checked="form.openai_codex_ticket_models.includes('gpt-5.6-sol')"
+                        @change="toggleCodexTicketModel('gpt-5.6-sol', ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>Sol (gpt-5.6-sol)</span>
+                    </label>
+                  </div>
+                </div>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
@@ -9929,6 +9957,7 @@ const form = reactive<SettingsForm>({
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
+  openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -11185,6 +11214,16 @@ const siteBillingModeHint = computed(() =>
   t(`admin.settings.features.siteBillingMode.hints.${SITE_BILLING_MODE_I18N_KEYS[siteBillingMode.value]}`),
 );
 
+function toggleCodexTicketModel(model: string, enabled: boolean) {
+  const models = new Set(form.openai_codex_ticket_models);
+  if (enabled) {
+    models.add(model);
+  } else {
+    models.delete(model);
+  }
+  form.openai_codex_ticket_models = [...models];
+}
+
 async function saveSettings() {
   saving.value = true;
   try {
@@ -11558,6 +11597,7 @@ async function saveSettings() {
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
+      openai_codex_ticket_models: [...form.openai_codex_ticket_models],
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:

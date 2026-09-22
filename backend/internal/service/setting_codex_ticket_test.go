@@ -16,6 +16,38 @@ type codexTicketSettingRepo struct {
 	err error
 }
 
+func TestCodexTicketModelsRuntimeDisableAndEmpty(t *testing.T) {
+	repo := &codexTicketSettingRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{}}}
+	settings := NewSettingService(repo, &config.Config{})
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc.settingService = settings
+	account := ticketTestAccount(41)
+	ctx := context.Background()
+	require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-5.6-sol"))
+	repo.values[SettingKeyOpenAICodexTicketModels] = `["gpt-6-astra"]`
+	settings.InvalidateOpenAICodexTicketModelsCache()
+	require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-5.6-sol"))
+	require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+	h := http.Header{}
+	h.Set(openAICodexTurnStateHeader, "client-state")
+	require.NoError(t, svc.applyOpenAICodexTicket(ctx, account, "gpt-5.6-sol", h))
+	require.Equal(t, "client-state", h.Get(openAICodexTurnStateHeader))
+	repo.values[SettingKeyOpenAICodexTicketModels] = `[]`
+	settings.InvalidateOpenAICodexTicketModelsCache()
+	for range 2 { // Both the initial read and cached read preserve the empty list.
+		cfg := svc.openAICodexTicketConfig()
+		require.NotNil(t, cfg.Models)
+		require.Empty(t, cfg.Models)
+		require.Empty(t, OpenAICodexTicketStatuses(account, cfg, time.Now()))
+		require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+	}
+	upstream := &httpUpstreamRecorder{}
+	svc.httpUpstream = upstream
+	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*account}}
+	svc.refreshOpenAICodexTickets(ctx)
+	require.Empty(t, upstream.requests)
+}
+
 func (r *codexTicketSettingRepo) GetValue(ctx context.Context, key string) (string, error) {
 	if r.err != nil {
 		return "", r.err

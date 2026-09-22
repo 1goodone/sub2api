@@ -332,6 +332,78 @@ func (s *SettingService) InvalidateOpenAICodexTicketEnabledCache() {
 	s.openAICodexTicketEnabledCache.Store(&cachedOpenAICodexTicketEnabled{expiresAt: 0})
 }
 
+type cachedOpenAICodexTicketModels struct {
+	models     []string
+	configured bool
+	expiresAt  int64
+}
+
+const openAICodexTicketModelsCacheTTL = 5 * time.Second
+
+// GetOpenAICodexTicketModels returns the model list saved by the admin panel.
+// A missing setting falls back to the static config; an explicitly saved empty
+// list remains empty so individual models can be disabled.
+func (s *SettingService) GetOpenAICodexTicketModels(ctx context.Context, fallback []string) []string {
+	if len(fallback) == 0 {
+		fallback = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
+	fallback = NormalizeOpenAICodexTicketModels(fallback)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s == nil || s.settingRepo == nil || ctx.Err() != nil {
+		return fallback
+	}
+	if cached, ok := s.openAICodexTicketModelsCache.Load().(*cachedOpenAICodexTicketModels); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+		if cached.configured {
+			return NormalizeOpenAICodexTicketModels(cached.models)
+		}
+		return fallback
+	}
+	resultCh := s.openAICodexTicketModelsSF.DoChan(SettingKeyOpenAICodexTicketModels, func() (any, error) {
+		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexTicketModels)
+		if errors.Is(err, ErrSettingNotFound) {
+			s.openAICodexTicketModelsCache.Store(&cachedOpenAICodexTicketModels{expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		var models []string
+		if err := json.Unmarshal([]byte(value), &models); err != nil {
+			return nil, err
+		}
+		models = NormalizeOpenAICodexTicketModels(models)
+		s.openAICodexTicketModelsCache.Store(&cachedOpenAICodexTicketModels{models: models, configured: true, expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
+		return models, nil
+	})
+	select {
+	case <-ctx.Done():
+		return fallback
+	case result := <-resultCh:
+		if result.Err == nil {
+			if models, ok := result.Val.([]string); ok {
+				return NormalizeOpenAICodexTicketModels(models)
+			}
+			return fallback
+		}
+		if cached, ok := s.openAICodexTicketModelsCache.Load().(*cachedOpenAICodexTicketModels); ok && cached != nil && cached.configured {
+			return NormalizeOpenAICodexTicketModels(cached.models)
+		}
+		return fallback
+	}
+}
+
+func (s *SettingService) InvalidateOpenAICodexTicketModelsCache() {
+	if s == nil {
+		return
+	}
+	s.openAICodexTicketModelsSF.Forget(SettingKeyOpenAICodexTicketModels)
+	s.openAICodexTicketModelsCache.Store(&cachedOpenAICodexTicketModels{expiresAt: 0})
+}
+
 type cachedOpenAICodexTicketHarvestProxy struct {
 	value     string
 	expiresAt int64

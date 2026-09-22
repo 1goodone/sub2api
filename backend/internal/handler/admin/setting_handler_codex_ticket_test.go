@@ -46,3 +46,19 @@ func TestSettingsCodexTicketRejectInvalidProxyWithoutLeakingPassword(t *testing.
 	require.NotContains(t, rec.Body.String(), "invalid-secret")
 	require.Equal(t, "http://previous.example.com:8080", repo.values[key])
 }
+
+func TestSettingsCodexTicketModelsPersistOmissionAndEmpty(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketModels
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{key: `["gpt-6-astra","gpt-5.6-sol"]`})
+	ctx := context.Background()
+	require.Len(t, h.settingService.GetOpenAICodexTicketModels(ctx, nil), 2)
+	for _, models := range [][]string{{"gpt-6-astra"}, {}} {
+		rec := doUpdateSettings(t, h, map[string]any{key: models}, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, models, h.settingService.GetOpenAICodexTicketModels(ctx, nil))
+		saved := repo.values[key]
+		rec = doUpdateSettings(t, h, map[string]any{"site_name": "updated"}, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, saved, repo.values[key])
+	}
+}

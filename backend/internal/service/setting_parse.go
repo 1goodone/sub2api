@@ -898,6 +898,20 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.OpenAICodexTicketEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
 	}
 	result.OpenAICodexTicketHarvestProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketHarvestProxyURL])
+	if raw, ok := settings[SettingKeyOpenAICodexTicketModels]; ok && strings.TrimSpace(raw) != "" {
+		var models []string
+		if err := json.Unmarshal([]byte(raw), &models); err == nil {
+			result.OpenAICodexTicketModels = NormalizeOpenAICodexTicketModels(models)
+		}
+	}
+	if result.OpenAICodexTicketModels == nil && s != nil && s.cfg != nil {
+		if len(s.cfg.Gateway.OpenAICodexTicket.Models) > 0 {
+			result.OpenAICodexTicketModels = NormalizeOpenAICodexTicketModels(s.cfg.Gateway.OpenAICodexTicket.Models)
+		}
+	}
+	if result.OpenAICodexTicketModels == nil {
+		result.OpenAICodexTicketModels = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
 	// codex_cli_only 加固
 	result.MinCodexVersion = settings[SettingKeyMinCodexVersion]
 	result.MaxCodexVersion = settings[SettingKeyMaxCodexVersion]

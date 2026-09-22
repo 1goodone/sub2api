@@ -147,6 +147,26 @@ func normalizeOpenAICodexTicketModel(model string) string {
 	return strings.TrimSpace(model)
 }
 
+// NormalizeOpenAICodexTicketModels removes empty and duplicate model names
+// while preserving the configured order. An empty result disables ticket
+// gating for every model while keeping the global feature enabled.
+func NormalizeOpenAICodexTicketModels(models []string) []string {
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, model := range models {
+		model = normalizeOpenAICodexTicketModel(model)
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	return out
+}
+
 func extractOpenAICodexTicketModel(body []byte) string {
 	return normalizeOpenAICodexTicketModel(gjson.GetBytes(body, "model").String())
 }
@@ -173,6 +193,9 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 	}
 	if len(cfg.Models) == 0 {
 		cfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
+	if s != nil && s.settingService != nil {
+		cfg.Models = s.settingService.GetOpenAICodexTicketModels(context.Background(), cfg.Models)
 	}
 	return cfg
 }
@@ -208,7 +231,7 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 		return nil
 	}
 	models := cfg.Models
-	if len(models) == 0 {
+	if models == nil {
 		models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
 	}
 	out := make([]OpenAICodexTicketStatus, 0, len(models))

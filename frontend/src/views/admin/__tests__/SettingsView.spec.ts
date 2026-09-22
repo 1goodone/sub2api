@@ -755,6 +755,22 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("loads and saves independent Codex ticket model toggles", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get("#codex-ticket-model-sol").setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_models).toEqual([
+      "gpt-6-astra",
+    ]);
+    wrapper.unmount();
+  });
+
   it("submits the Codex ticket harvest toggle", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
