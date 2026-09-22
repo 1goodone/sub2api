@@ -268,7 +268,7 @@ type cachedOpenAICodexTicketEnabled struct {
 
 const openAICodexTicketEnabledCacheTTL = 5 * time.Second
 
-// GetOpenAICodexTicketEnabled 返回后台 292 打票总开关。
+// GetOpenAICodexTicketEnabled 返回后台 Codex 门票总开关。
 // 设置键存在时以后台为准；缺失则回退 yaml/env。
 func (s *SettingService) GetOpenAICodexTicketEnabled(ctx context.Context, fallback bool) bool {
 	if ctx == nil {
@@ -339,7 +339,7 @@ type cachedOpenAICodexTicketHarvestProxy struct {
 
 const openAICodexTicketHarvestProxyCacheTTL = 5 * time.Second
 
-// GetOpenAICodexTicketHarvestProxyURL 返回后台配置的 292 打票代理。空则调用方回退 yaml/env。
+// GetOpenAICodexTicketHarvestProxyURL 返回后台配置的 Codex 门票代理。空则调用方回退 yaml/env。
 func (s *SettingService) GetOpenAICodexTicketHarvestProxyURL(ctx context.Context) string {
 	if ctx == nil {
 		ctx = context.Background()

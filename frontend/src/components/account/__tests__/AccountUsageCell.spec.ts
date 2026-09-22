@@ -115,7 +115,7 @@ describe('AccountUsageCell', () => {
           platform: 'openai',
           type,
           codex_turn_tickets: [
-            { model: 'gpt-6-astra', ready: true, remaining_seconds: 2520, blocked: false },
+            { model: 'gpt-6-astra', ready: true, remaining_seconds: 2520, blocked: false, standby_expires_at: '2026-09-22T22:00:00Z' },
             { model: 'gpt-5.6-sol', ready: false, remaining_seconds: 0, blocked: true },
             { model: 'custom-model', ready: false, remaining_seconds: 0, blocked: false },
           ],
@@ -129,6 +129,7 @@ describe('AccountUsageCell', () => {
     })
     await flushPromises()
     expect(wrapper.text()).toContain('42m00s')
+    expect(wrapper.text()).toContain('admin.accounts.openai.codexTurnTicketStandbyReady')
     expect(wrapper.text()).toContain('admin.accounts.openai.codexTurnTicketPaused')
     expect(wrapper.text()).toContain('admin.accounts.openai.codexTurnTicketMissing')
     if (type === 'setup-token') {

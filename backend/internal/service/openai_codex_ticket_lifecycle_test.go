@@ -26,7 +26,11 @@ func (u *codexTicketFuncUpstream) Do(req *http.Request, _ string, _ int64, _ int
 func codexTicketResponse() *http.Response {
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
-	return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}
+	return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(`data: {"type":"response.completed","response":{"model":"gpt-6-astra","status":"completed"}}
+
+data: [DONE]
+
+`))}
 }
 
 func TestCodexTicketProbeBypassesPluginDuringWiring(t *testing.T) {
@@ -164,12 +168,28 @@ func TestCodexTicketHarvesterStopCancelsInFlightWork(t *testing.T) {
 	}
 }
 
-type codexTicketHeaderOnlyBody struct{ reads, closes int }
+type codexTicketHeaderOnlyBody struct {
+	reads, closes int
+	data          []byte
+}
 
-func (b *codexTicketHeaderOnlyBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
-func (b *codexTicketHeaderOnlyBody) Close() error             { b.closes++; return nil }
-func TestCodexTicketProbeClosesStreamWithoutDraining(t *testing.T) {
-	body := &codexTicketHeaderOnlyBody{}
+func (b *codexTicketHeaderOnlyBody) Read(p []byte) (int, error) {
+	b.reads++
+	if len(b.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, b.data)
+	b.data = b.data[n:]
+	return n, nil
+}
+func (b *codexTicketHeaderOnlyBody) Close() error { b.closes++; return nil }
+
+func TestCodexTicketProbeReadsAndClosesStream(t *testing.T) {
+	body := &codexTicketHeaderOnlyBody{data: []byte(`data: {"type":"response.completed","response":{"model":"gpt-6-astra","status":"completed"}}
+
+data: [DONE]
+
+`)}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) {
 		response := codexTicketResponse()
 		response.Body = body
@@ -177,10 +197,9 @@ func TestCodexTicketProbeClosesStreamWithoutDraining(t *testing.T) {
 	}})
 	_, _, err := svc.fireOpenAICodexTicketProbe(context.Background(), ticketTestAccount(41), "test-token", "gpt-6-astra", "", time.Second)
 	require.NoError(t, err)
-	require.Zero(t, body.reads)
+	require.Greater(t, body.reads, 0)
 	require.Equal(t, 1, body.closes)
 }
-
 func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	parentID := int64(41)
 	parent := ticketTestAccount(parentID)

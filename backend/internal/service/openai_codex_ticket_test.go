@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"strings"
@@ -15,10 +17,35 @@ import (
 )
 
 func fakeCodexTicketState(n int) string {
+	if n == 292 || n == 332 {
+		blocks := openAICodexTicketPersonalBlocks
+		if n == 332 {
+			blocks = openAICodexTicketTeamBlocks
+		}
+		raw := make([]byte, 57+16*blocks)
+		raw[0] = 0x80
+		binary.BigEndian.PutUint64(raw[1:9], uint64(time.Now().Unix()-60))
+		return base64.URLEncoding.EncodeToString(raw)
+	}
 	if n < len(openAICodexTicketStatePrefix) {
 		return strings.Repeat("A", n)
 	}
 	return openAICodexTicketStatePrefix + strings.Repeat("B", n-len(openAICodexTicketStatePrefix))
+}
+
+func fakeCodexTicketStateSalt(n int, salt byte) string {
+	if n != 292 && n != 332 {
+		return fakeCodexTicketState(n)
+	}
+	blocks := openAICodexTicketPersonalBlocks
+	if n == 332 {
+		blocks = openAICodexTicketTeamBlocks
+	}
+	raw := make([]byte, 57+16*blocks)
+	raw[0] = 0x80
+	binary.BigEndian.PutUint64(raw[1:9], uint64(time.Now().Unix()-60))
+	raw[56] = salt
+	return base64.URLEncoding.EncodeToString(raw)
 }
 
 func ticketTestAccount(id int64) *Account {
@@ -105,7 +132,7 @@ func TestLookupOpenAICodexTicket_PrefersNewerExtra(t *testing.T) {
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, TargetLength: 292, TTLSeconds: 3600}, nil)
 	account := ticketTestAccount(41)
 	oldState := fakeCodexTicketState(292)
-	newState := openAICodexTicketStatePrefix + strings.Repeat("C", 286)
+	newState := fakeCodexTicketStateSalt(292, 1)
 	svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
 		AccountID:  41,
 		Model:      "gpt-6-astra",
@@ -207,12 +234,12 @@ func TestHarvestOpenAICodexTicket_StopsAt292AndUsesHarvestProxy(t *testing.T) {
 			{
 				StatusCode: http.StatusOK,
 				Header:     header312,
-				Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 			},
 			{
 				StatusCode: http.StatusOK,
 				Header:     header292,
-				Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 			},
 		},
 	}
@@ -258,7 +285,7 @@ func TestHarvestOpenAICodexTicket_HTTP503DoesNotAbortHunt(t *testing.T) {
 	responses = append(responses, &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     header292,
-		Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+		Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 	})
 	upstream := &httpUpstreamRecorder{responses: responses}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
@@ -366,7 +393,7 @@ func (u *codexTicketConcurrentUpstream) Do(req *http.Request, _ string, _ int64,
 	}
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
-	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}, nil
+	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader(`{"status":"completed"}`))}, nil
 }
 func TestRefreshOpenAICodexTickets_ConcurrentModelsPreserveAccountSnapshot(t *testing.T) {
 	account := ticketTestAccount(41)

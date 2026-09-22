@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func TestCodexTurnStatePoolFailsClosed(t *testing.T) {
 			case "future":
 				entry.State = poolTestState("plus", time.Now().Add(2*time.Minute))
 			case "invalid_format":
-				entry.State = fakeCodexTicketState(292)
+				entry.State = openAICodexTicketStatePrefix + strings.Repeat("!", 286)
 			case "account_expiry":
 				entry.ExpiresAt = time.Now().Add(-time.Second)
 			}
