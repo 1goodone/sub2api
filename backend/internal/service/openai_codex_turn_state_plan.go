@@ -12,7 +12,7 @@ func CodexTurnStateHealthyLength(account *Account) int {
 	switch plan {
 	case "plus", "pro", "chatgptpro", "prolite", "pro5x", "pro20x":
 		return 292
-	case "team":
+	case "team", "business", "selfservebusinessprolite", "selfservebusinessusagebased":
 		return 332
 	default:
 		return 0

@@ -168,6 +168,54 @@ func TestGatewayServiceRecordUsage_BillingFingerprintFallsBackToContextRequestID
 	require.Equal(t, "local:req-local-123", billingRepo.lastCmd.RequestPayloadHash)
 }
 
+func TestGatewayServiceRecordUsage_AppliesGroupCacheReadReduction(t *testing.T) {
+	tests := []struct {
+		name       string
+		usage      ClaudeUsage
+		percent    float64
+		wantInput  int
+		wantCached int
+	}{
+		{name: "partial cache", usage: ClaudeUsage{InputTokens: 10, CacheReadInputTokens: 90}, percent: 50, wantInput: 55, wantCached: 45},
+		{name: "no cache", usage: ClaudeUsage{InputTokens: 12}, percent: 95, wantInput: 12, wantCached: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+			groupID := int64(18)
+
+			err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+				Result: &ForwardResult{
+					RequestID: "cache-reduction-" + tt.name,
+					Usage:     tt.usage,
+					Model:     "claude-sonnet-4",
+					Duration:  time.Second,
+				},
+				APIKey: &APIKey{
+					ID:      1,
+					Quota:   100,
+					GroupID: &groupID,
+					Group: &Group{
+						ID:                        groupID,
+						RateMultiplier:            1,
+						CacheReadReductionPercent: tt.percent,
+					},
+				},
+				User:    &User{ID: 2},
+				Account: &Account{ID: 3, Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.Equal(t, tt.wantInput, usageRepo.lastLog.InputTokens)
+			require.Equal(t, tt.wantCached, usageRepo.lastLog.CacheReadTokens)
+			require.GreaterOrEqual(t, usageRepo.lastLog.CacheReadTokens, 0)
+		})
+	}
+}
+
 func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})

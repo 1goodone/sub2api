@@ -85,6 +85,11 @@ func RateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// CacheReadReductionPercent applies equality check predicate on the "cache_read_reduction_percent" field. It's identical to CacheReadReductionPercentEQ.
+func CacheReadReductionPercent(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCacheReadReductionPercent, v))
+}
+
 // PeakRateEnabled applies equality check predicate on the "peak_rate_enabled" field. It's identical to PeakRateEnabledEQ.
 func PeakRateEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldPeakRateEnabled, v))
@@ -668,6 +673,46 @@ func RateMultiplierLT(v float64) predicate.Group {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// CacheReadReductionPercentEQ applies the EQ predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCacheReadReductionPercent, v))
+}
+
+// CacheReadReductionPercentNEQ applies the NEQ predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCacheReadReductionPercent, v))
+}
+
+// CacheReadReductionPercentIn applies the In predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCacheReadReductionPercent, vs...))
+}
+
+// CacheReadReductionPercentNotIn applies the NotIn predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCacheReadReductionPercent, vs...))
+}
+
+// CacheReadReductionPercentGT applies the GT predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldCacheReadReductionPercent, v))
+}
+
+// CacheReadReductionPercentGTE applies the GTE predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldCacheReadReductionPercent, v))
+}
+
+// CacheReadReductionPercentLT applies the LT predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldCacheReadReductionPercent, v))
+}
+
+// CacheReadReductionPercentLTE applies the LTE predicate on the "cache_read_reduction_percent" field.
+func CacheReadReductionPercentLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldCacheReadReductionPercent, v))
 }
 
 // PeakRateEnabledEQ applies the EQ predicate on the "peak_rate_enabled" field.

@@ -770,6 +770,30 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("renders and preserves channel monitor v3 as an independent mode", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v3",
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const modeButtons = wrapper.findAll("button").filter((node) =>
+      ["modeV1", "modeV2", "modeV3"].some((mode) => node.text().includes(`channelMonitor.${mode}`)),
+    );
+    expect(modeButtons).toHaveLength(3);
+    expect(modeButtons.find((node) => node.text().includes("modeV3"))?.attributes("aria-pressed")).toBe("true");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ channel_monitor_mode: "v3" }),
+    );
+  });
+
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

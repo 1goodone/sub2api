@@ -624,6 +624,7 @@ export interface Group {
 
 export interface AdminGroup extends Group {
   disable_non_streaming?: boolean
+  cache_read_reduction_percent?: number
   force_openai_fast: boolean
   free_openai_fast: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]

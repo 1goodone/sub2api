@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 27 // v27: preserve non-streaming text restrictions
+const apiKeyAuthSnapshotVersion = 28 // v28: preserve group cache-read reclassification
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -458,6 +458,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		Status:                          group.Status,
 		SubscriptionType:                group.SubscriptionType,
 		RateMultiplier:                  group.RateMultiplier,
+		CacheReadReductionPercent:       group.CacheReadReductionPercent,
 		DailyLimitUSD:                   group.DailyLimitUSD,
 		WeeklyLimitUSD:                  group.WeeklyLimitUSD,
 		MonthlyLimitUSD:                 group.MonthlyLimitUSD,
@@ -529,6 +530,7 @@ func apiKeyAuthGroupSnapshotToGroup(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		Hydrated:                        true,
 		SubscriptionType:                snapshot.SubscriptionType,
 		RateMultiplier:                  snapshot.RateMultiplier,
+		CacheReadReductionPercent:       snapshot.CacheReadReductionPercent,
 		DailyLimitUSD:                   snapshot.DailyLimitUSD,
 		WeeklyLimitUSD:                  snapshot.WeeklyLimitUSD,
 		MonthlyLimitUSD:                 snapshot.MonthlyLimitUSD,

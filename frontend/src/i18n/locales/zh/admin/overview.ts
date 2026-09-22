@@ -845,6 +845,8 @@ export default {
         descriptionPlaceholder: '请输入描述（可选）',
         rateMultiplierLabel: '费率倍数',
         rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+        cacheReadReductionPercent: '缓存读取降低比例 (%)',
+        cacheReadReductionPercentHint: '将该比例的缓存读取 token 重新计为普通输入，仅影响本地计费与用量分类；0 表示关闭，无缓存时不会调整。',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
         rpmLimitHint: '每用户在本分组每分钟最大请求数，0 = 不限制；一旦设置即接管该用户的限流（覆盖用户级 rpm_limit）',

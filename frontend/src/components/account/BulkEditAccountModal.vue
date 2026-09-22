@@ -885,6 +885,40 @@
         </div>
       </div>
 
+      <!-- OpenAI OAuth Codex turn-state engine -->
+      <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-openai-codex-turn-state-mode-label"
+            class="input-label mb-0"
+            for="bulk-edit-openai-codex-turn-state-mode-enabled"
+          >
+            {{ t('admin.accounts.openai.codexTurnStateMode') }}
+          </label>
+          <input
+            v-model="enableCodexTurnStateMode"
+            id="bulk-edit-openai-codex-turn-state-mode-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-codex-turn-state-mode"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-openai-codex-turn-state-mode"
+          :class="!enableCodexTurnStateMode && 'pointer-events-none opacity-50'"
+        >
+          <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.codexTurnStateModeDesc') }}
+          </p>
+          <Select
+            v-model="codexTurnStateMode"
+            data-testid="bulk-edit-openai-codex-turn-state-mode-select"
+            :options="codexTurnStateModeOptions"
+            aria-labelledby="bulk-edit-openai-codex-turn-state-mode-label"
+          />
+        </div>
+      </div>
+
       <!-- OpenAI OAuth Codex CLI only -->
       <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1665,6 +1699,7 @@ const enableOpenAIResponsesMode = ref(false)
 const enableOpenAIWSMode = ref(false)
 const enableOpenAIAPIKeyWSMode = ref(false)
 const enableUpstreamBillingAutoProbe = ref(false)
+const enableCodexTurnStateMode = ref(false)
 const enableCodexCLIOnly = ref(false)
 const enableCodexCLIOnlyAppServer = ref(false)
 const enableOpenAICompactMode = ref(false)
@@ -1704,6 +1739,14 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const upstreamBillingAutoProbeMode = ref<'enabled' | 'disabled'>('enabled')
+type CodexTurnStateMode = 'inherit' | 'legacy_ticket' | 'state_pool' | 'native'
+const codexTurnStateMode = ref<CodexTurnStateMode>('inherit')
+const codexTurnStateModeOptions = computed(() => [
+  { value: 'inherit' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeInherit') },
+  { value: 'legacy_ticket' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeLegacyTicket') },
+  { value: 'state_pool' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeStatePool') },
+  { value: 'native' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeNative') }
+])
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -2073,6 +2116,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.upstream_billing_probe_enabled = upstreamBillingAutoProbeMode.value === 'enabled'
   }
 
+  if (enableCodexTurnStateMode.value && allOpenAIOAuth.value) {
+    const extra = ensureExtra()
+    extra.codex_turn_state_mode = codexTurnStateMode.value
+  }
+
   if (enableCodexCLIOnly.value) {
     const extra = ensureExtra()
     extra.codex_cli_only = codexCLIOnlyEnabled.value
@@ -2221,6 +2269,7 @@ const handleSubmit = async () => {
     enableOpenAIWSMode.value ||
     enableOpenAIAPIKeyWSMode.value ||
     enableUpstreamBillingAutoProbe.value ||
+    enableCodexTurnStateMode.value ||
     enableCodexCLIOnly.value ||
     enableCodexCLIOnlyAppServer.value ||
     enableCodexFingerprintMode.value ||
@@ -2372,6 +2421,7 @@ watch(
       enableOpenAIWSMode.value = false
       enableOpenAIAPIKeyWSMode.value = false
       enableUpstreamBillingAutoProbe.value = false
+      enableCodexTurnStateMode.value = false
       enableCodexCLIOnly.value = false
       enableCodexCLIOnlyAppServer.value = false
       enableCodexFingerprintMode.value = false
@@ -2405,6 +2455,7 @@ watch(
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       upstreamBillingAutoProbeMode.value = 'enabled'
+      codexTurnStateMode.value = 'inherit'
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
       openAICompactMode.value = 'auto'
