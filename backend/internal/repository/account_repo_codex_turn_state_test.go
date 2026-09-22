@@ -33,7 +33,7 @@ func TestCodexTurnStateCASFencesCredentialsModeAndRuntime(t *testing.T) {
 		}
 		mock.ExpectExec(`(?s)UPDATE accounts SET extra =.*WHERE id = \$2.*credentials = \$5::jsonb.*jsonb_build_object.*codex_turn_state_mode.*codex_turn_state_probe_cache.*codex_turn_state_probe_failures.*= \$6::jsonb`).
 			WithArgs(`{"codex_turn_state_probe_cache":null,"codex_turn_state_probe_failures":null}`, int64(41), service.PlatformOpenAI, service.AccountTypeOAuth,
-				`{"access_token":"test-token"}`, `{"codex_turn_state_mode":"state_pool","codex_turn_state_probe_cache":null,"codex_turn_state_probe_failures":null}`).
+				`{"access_token":"test-token"}`, `{"codex_turn_state_mode":"state_pool","codex_turn_state_outbound_identity":null,"codex_turn_state_probe_cache":null,"codex_turn_state_probe_failures":null,"codex_turn_state_routing_cookies":null}`).
 			WillReturnResult(sqlmock.NewResult(0, affected))
 		saved, err := repo.CompareAndSwapCodexTurnStateProbe(ctx, expected, updates)
 		require.NoError(t, err)

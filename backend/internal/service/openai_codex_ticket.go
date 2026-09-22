@@ -667,7 +667,8 @@ func isOpenAICodexTicketAccount(account *Account) bool {
 // override, whose credentials may remain in older account records.
 func IsOpenAICodexTurnStatePrivateExtraKey(key string) bool {
 	return IsOpenAICodexTicketExtraKey(key) || key == "codex_harvest_proxy_url" ||
-		key == CodexTurnStateProbeCacheExtraKey || key == CodexTurnStateProbeFailureExtraKey
+		key == CodexTurnStateProbeCacheExtraKey || key == CodexTurnStateProbeFailureExtraKey ||
+		key == CodexTurnStateOutboundIdentityExtraKey || key == CodexTurnStateRoutingCookieExtraKey
 }
 
 // RedactOpenAICodexTurnStateExtra strips both engines' runtime material from exports

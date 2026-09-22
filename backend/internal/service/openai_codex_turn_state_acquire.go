@@ -18,11 +18,12 @@ import (
 type codexStateAcquisition struct {
 	state                  string
 	obtained               time.Time
+	routing                codexTurnStateRoutingCookies
 	status, returnedLength int
 	err                    error
 }
 
-func (s *CodexTurnStateProbeService) acquireState(parent context.Context, account *Account, proxy *Proxy, token, model, supplied string) (out codexStateAcquisition) {
+func (s *CodexTurnStateProbeService) acquireState(parent context.Context, account *Account, proxy *Proxy, token, model, supplied string, identity codexTurnStateOutboundIdentity) (out codexStateAcquisition) {
 	ctx, cancel := context.WithTimeout(parent, codexTurnStateProbeTimeout)
 	defer cancel()
 	out.obtained = time.Now().UTC()
@@ -30,7 +31,9 @@ func (s *CodexTurnStateProbeService) acquireState(parent context.Context, accoun
 		out.err = errors.New("probe_unavailable")
 		return
 	}
-	body, err := json.Marshal(createOpenAITestPayload(model, true))
+	payload := createOpenAITestPayload(model, true)
+	applyCodexTurnStateOutboundIdentityProbePayload(payload, identity)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		out.err = errors.New("invalid_probe_payload")
 		return
@@ -47,9 +50,11 @@ func (s *CodexTurnStateProbeService) acquireState(parent context.Context, accoun
 		enforceCodexIdentityHeadersWithUA(req.Header, ua)
 	}
 	account.ApplyHeaderOverrides(req.Header)
+	applyCodexTurnStateOutboundIdentityHeaders(req.Header, identity)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	applyCodexRoutingCookies(req.Header, account, out.obtained)
 	req.Header.Del(openAICodexTurnStateHeader)
 	if supplied != "" {
 		req.Header.Set(openAICodexTurnStateHeader, supplied)
@@ -84,6 +89,9 @@ func (s *CodexTurnStateProbeService) acquireState(parent context.Context, accoun
 		defer func() { _ = resp.Body.Close() }()
 	}
 	out.status = resp.StatusCode
+	if routing, ok := codexRoutingCookiesFromResponse(resp.Header, out.obtained); ok {
+		out.routing = routing
+	}
 	out.state = resp.Header.Get(openAICodexTurnStateHeader)
 	out.returnedLength = len(out.state)
 	if out.status != http.StatusOK {

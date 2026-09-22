@@ -414,6 +414,8 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
 	delete(accountExtra, CodexTurnStateProbeCacheExtraKey)
 	delete(accountExtra, CodexTurnStateProbeFailureExtraKey)
+	delete(accountExtra, CodexTurnStateOutboundIdentityExtraKey)
+	delete(accountExtra, CodexTurnStateRoutingCookieExtraKey)
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -690,6 +692,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, CodexQuotaOverdraftProbeExtraKey)
 		delete(normalizedExtra, CodexTurnStateProbeCacheExtraKey)
 		delete(normalizedExtra, CodexTurnStateProbeFailureExtraKey)
+		delete(normalizedExtra, CodexTurnStateOutboundIdentityExtraKey)
+		delete(normalizedExtra, CodexTurnStateRoutingCookieExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -709,6 +713,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OpenAIAutoResetCreditStateExtraKey,
 			CodexTurnStateProbeCacheExtraKey,
 			CodexTurnStateProbeFailureExtraKey,
+			CodexTurnStateOutboundIdentityExtraKey,
+			CodexTurnStateRoutingCookieExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
@@ -930,6 +936,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, CodexTurnStateProbeRetryExtraKey)
 	delete(updates, CodexTurnStateProbeCacheExtraKey)
 	delete(updates, CodexTurnStateProbeFailureExtraKey)
+	delete(updates, CodexTurnStateOutboundIdentityExtraKey)
+	delete(updates, CodexTurnStateRoutingCookieExtraKey)
 	if _, exists := updates[CodexTurnStateModeExtraKey]; exists {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {

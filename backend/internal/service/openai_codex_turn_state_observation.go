@@ -275,9 +275,11 @@ func (s *OpenAIGatewayService) currentCodexTurnStateAccount(ctx context.Context,
 	if snapshot.Extra == nil {
 		snapshot.Extra = make(map[string]any)
 	}
-	delete(snapshot.Extra, CodexTurnStateProbeCacheExtraKey)
-	if value, ok := current.Extra[CodexTurnStateProbeCacheExtraKey]; ok {
-		snapshot.Extra[CodexTurnStateProbeCacheExtraKey] = value
+	for _, key := range []string{CodexTurnStateProbeCacheExtraKey, CodexTurnStateOutboundIdentityExtraKey, CodexTurnStateRoutingCookieExtraKey} {
+		delete(snapshot.Extra, key)
+		if value, ok := current.Extra[key]; ok {
+			snapshot.Extra[key] = value
+		}
 	}
 	return &snapshot, nil
 }

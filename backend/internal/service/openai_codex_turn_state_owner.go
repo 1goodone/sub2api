@@ -22,7 +22,15 @@ func (s *OpenAIGatewayService) applyCodexTurnStateForHTTPRequest(ctx context.Con
 		return s.applyOpenAICodexTicket(ctx, account, model, headers)
 	case CodexTurnStateModeStatePool:
 		headers.Del(openAICodexTurnStateHeader)
-		state := configuredCodexTurnState(account, model, token, time.Now())
+		now := time.Now()
+		applyCodexRoutingCookies(headers, account, now)
+		// A ticket without a live routing cookie is not sent. The request
+		// continues without it; a missing ticket while the cookie is live
+		// still fails closed.
+		if !codexRoutingCookiesLive(account, now) {
+			return nil
+		}
+		state := configuredCodexTurnState(account, model, token, now)
 		if state == "" {
 			return ErrCodexTurnStateUnavailable
 		}
@@ -40,6 +48,7 @@ func (s *OpenAIGatewayService) applyCodexTurnStateForWSHandshake(ctx context.Con
 		return s.applyOpenAICodexTicket(ctx, account, model, headers)
 	case CodexTurnStateModeStatePool:
 		headers.Del(openAICodexTurnStateHeader)
+		applyCodexRoutingCookies(headers, account, time.Now())
 	}
 	return nil
 }
@@ -57,7 +66,11 @@ func applyCodexTurnStateToWSFrame(account *Account, owner, token string, payload
 		return nil, errors.New("client_metadata must be an object")
 	}
 	model := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
-	state := configuredCodexTurnState(account, model, token, time.Now())
+	now := time.Now()
+	if !codexRoutingCookiesLive(account, now) {
+		return payload, nil
+	}
+	state := configuredCodexTurnState(account, model, token, now)
 	if state == "" {
 		return nil, ErrCodexTurnStateUnavailable
 	}

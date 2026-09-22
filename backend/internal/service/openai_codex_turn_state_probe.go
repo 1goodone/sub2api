@@ -30,7 +30,8 @@ const (
 	CodexTurnStateProbeCacheExtraKey  = "codex_turn_state_probe_cache"
 
 	codexTurnStateLength           = 292
-	codexTurnStateTTL              = time.Hour
+	codexTurnStateTTL              = 240 * time.Second
+	codexTurnStateRefreshBefore    = 60 * time.Second
 	codexTurnStateProbeMaxAttempts = 25
 	codexTurnStateProbeTimeout     = 10 * time.Second
 )
@@ -409,22 +410,26 @@ func containsString(values []string, wanted string) bool {
 // CodexTurnStateProbeService refreshes configured account/model candidates in
 // the background using isolated HTTP SSE connections and account-scoped scheduling.
 type CodexTurnStateProbeService struct {
-	accountRepo   AccountRepository
-	proxyRepo     ProxyRepository
-	tokenProvider *OpenAITokenProvider
-	httpUpstream  HTTPUpstream
-	settingRepo   SettingRepository
-	exitProber    ProxyExitInfoProber
-	scheduleMu    sync.Mutex
-	schedules     map[codexTurnStatePoolKey]*codexStateSchedule
-	active        map[int64]bool
-	lastCleanup   time.Time
-	requestDo     func(*http.Request, string) (*http.Response, error)
-	runtimeMu     sync.Mutex
-	runtime       map[codexTurnStatePoolKey]codexTurnStateProbeRuntime
-	importMu      sync.Mutex
-	importJobs    map[string]*CodexStateImportJob
-	importPending map[int64]bool
+	accountRepo    AccountRepository
+	proxyRepo      ProxyRepository
+	tokenProvider  *OpenAITokenProvider
+	httpUpstream   HTTPUpstream
+	settingRepo    SettingRepository
+	exitProber     ProxyExitInfoProber
+	scheduleMu     sync.Mutex
+	schedules      map[codexTurnStatePoolKey]*codexStateSchedule
+	active         map[int64]bool
+	dispatchCursor int
+	lastCleanup    time.Time
+	requestDo      func(*http.Request, string) (*http.Response, error)
+	runtimeMu      sync.Mutex
+	runtime        map[codexTurnStatePoolKey]codexTurnStateProbeRuntime
+	importMu       sync.Mutex
+	importJobs     map[string]*CodexStateImportJob
+	importPending  map[int64]bool
+	// outboundPending holds a not-yet-published session and the tickets minted
+	// under it. Lost on restart: the next probe starts a new candidate.
+	outboundPending map[int64]*codexTurnStatePendingBundle
 
 	startOnce sync.Once
 	stopOnce  sync.Once

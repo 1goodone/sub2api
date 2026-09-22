@@ -32,15 +32,47 @@ func poolTestAccount(plan string) *Account {
 	a.Credentials["model_mapping"] = map[string]any{"alias": "gpt-6-astra"}
 	now := time.Now().UTC().Truncate(time.Second)
 	a.Extra = map[string]any{
-		CodexTurnStateModeExtraKey: CodexTurnStateModeStatePool,
+		CodexTurnStateModeExtraKey:          CodexTurnStateModeStatePool,
+		CodexTurnStateRoutingCookieExtraKey: liveTestRoutingCookies(now).extraValue(),
 		CodexTurnStateProbeCacheExtraKey: codexTurnStateCacheToExtra(map[string]codexTurnStateCacheEntry{
-			"gpt-6-astra": {State: poolTestState(plan, now), ObtainedAt: now, ExpiresAt: now.Add(time.Hour), ProxyID: 1, CredentialHash: codexTurnStateCredentialHash("tok")},
+			"gpt-6-astra": {State: poolTestState(plan, now), ObtainedAt: now, ExpiresAt: now.Add(codexTurnStateTTL), ProxyID: 1, CredentialHash: codexTurnStateCredentialHash("tok")},
 		}),
 		openAICodexTicketExtraKey("gpt-6-astra"): &openAICodexTicket{
 			AccountID: a.ID, Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292, CapturedAt: now, ExpiresAt: now.Add(time.Hour),
 		},
 	}
 	return a
+}
+
+func TestCodexTurnStateHealthyLengthBusinessPlans(t *testing.T) {
+	for _, plan := range []string{"team", "business", "self_serve_business_prolite", "self_serve_business_usage_based"} {
+		a := ticketTestAccount(41)
+		a.Credentials["plan_type"] = plan
+		require.Equal(t, 332, CodexTurnStateHealthyLength(a), plan)
+	}
+
+	a := ticketTestAccount(41)
+	a.Credentials["plan_type"] = "enterprise"
+	require.Zero(t, CodexTurnStateHealthyLength(a))
+}
+
+func TestFairCodexStateProbeTasksRotatesAccounts(t *testing.T) {
+	tasks := []codexStateProbeTask{
+		{account: Account{ID: 1}, model: "a"},
+		{account: Account{ID: 1}, model: "b"},
+		{account: Account{ID: 2}, model: "a"},
+		{account: Account{ID: 3}, model: "a"},
+		{account: Account{ID: 4}, model: "a"},
+		{account: Account{ID: 5}, model: "a"},
+	}
+
+	first, cursor := fairCodexStateProbeTasks(tasks, 0)
+	require.Equal(t, []int64{1, 2, 3, 4, 5}, []int64{first[0].account.ID, first[1].account.ID, first[2].account.ID, first[3].account.ID, first[4].account.ID})
+	require.Equal(t, "a", first[0].model, "only the earliest due model per account should be dispatched")
+
+	second, cursor := fairCodexStateProbeTasks(tasks, cursor)
+	require.Equal(t, []int64{2, 3, 4, 5, 1}, []int64{second[0].account.ID, second[1].account.ID, second[2].account.ID, second[3].account.ID, second[4].account.ID})
+	require.Equal(t, 2, cursor)
 }
 
 func TestCodexTurnStateModesSelectOneOwner(t *testing.T) {

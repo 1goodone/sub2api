@@ -150,16 +150,37 @@ type codexStateSchedule struct {
 	Mode          string
 }
 
+type codexStateProbeTask struct {
+	account Account
+	model   string
+	due     time.Time
+}
+
+func fairCodexStateProbeTasks(tasks []codexStateProbeTask, cursor int) ([]codexStateProbeTask, int) {
+	if len(tasks) == 0 {
+		return nil, 0
+	}
+	unique := make([]codexStateProbeTask, 0, len(tasks))
+	seen := make(map[int64]struct{}, len(tasks))
+	for _, task := range tasks {
+		if _, ok := seen[task.account.ID]; ok {
+			continue
+		}
+		seen[task.account.ID] = struct{}{}
+		unique = append(unique, task)
+	}
+	start := cursor % len(unique)
+	ordered := append(make([]codexStateProbeTask, 0, len(unique)), unique[start:]...)
+	ordered = append(ordered, unique[:start]...)
+	return ordered, (start + 1) % len(unique)
+}
+
 func codexStateMode(entry codexTurnStateCacheEntry, expected int, token string, now time.Time) string {
 	if !validCodexTurnStateCacheEntry(entry, expected, token, now) {
 		return "continuous"
 	}
-	remaining := codexStateEffectiveExpiry(entry, now).Sub(now)
-	if remaining <= 10*time.Minute {
+	if codexStateEffectiveExpiry(entry, now).Sub(now) <= codexTurnStateRefreshBefore {
 		return "continuous"
-	}
-	if remaining <= 30*time.Minute {
-		return "periodic"
 	}
 	return "idle"
 }
@@ -202,12 +223,7 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	type task struct {
-		account Account
-		model   string
-		due     time.Time
-	}
-	tasks := []task{}
+	tasks := []codexStateProbeTask{}
 	for _, account := range accounts {
 		if !codexTurnStateProbeEnabled(&account) || CodexTurnStateHealthyLength(&account) == 0 {
 			s.pauseStateAccount(account.ID)
@@ -255,15 +271,21 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 			if previous == "paused" && mode != "paused" {
 				state.Next = now
 			}
+			// Cookie expiry is independent of the ticket. A fresh ticket does
+			// not keep a dead or nearly dead routing pair from being refreshed.
+			if mode == "idle" && codexRoutingCookieDue(account.Extra, now) {
+				mode = "periodic"
+				state.Next = now
+			}
 			state.Mode = mode
 			if mode == "idle" {
-				state.Next = codexStateEffectiveExpiry(entry, now).Add(-30 * time.Minute)
+				state.Next = codexStateEffectiveExpiry(entry, now).Add(-codexTurnStateRefreshBefore)
 			}
 			s.importMu.Lock()
 			importPending := s.importPending[account.ID]
 			s.importMu.Unlock()
 			if mode != "idle" && mode != "paused" && !importPending && !state.Next.After(now) && !s.active[account.ID] {
-				tasks = append(tasks, task{account, model, state.Next})
+				tasks = append(tasks, codexStateProbeTask{account, model, state.Next})
 			}
 			s.scheduleMu.Unlock()
 			if previous != "" && previous != mode && (previous == "paused" || mode == "paused") {
@@ -272,6 +294,7 @@ func (s *CodexTurnStateProbeService) dispatchStateProbes(ctx context.Context) {
 		}
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].due.Before(tasks[j].due) })
+	tasks, s.dispatchCursor = fairCodexStateProbeTasks(tasks, s.dispatchCursor)
 	for _, task := range tasks {
 		if !s.reserveStateAccount(task.account.ID) {
 			continue
@@ -307,20 +330,26 @@ func (s *CodexTurnStateProbeService) executeStateAttempt(ctx context.Context, id
 	s.setProbeRuntime(id, model, "running", attempt, "")
 	outcome := "probe_unavailable"
 	replaced := false
+	cookiesSaved := false
 	var replacedExpiry time.Time
 	defer func() {
 		s.scheduleMu.Lock()
 		defer s.scheduleMu.Unlock()
-		if replaced {
-			left := time.Until(replacedExpiry)
+		// A saved cookie or a newer ticket ends this attempt. Keep hunting only
+		// while the model still has no usable ticket.
+		if replaced || (cookiesSaved && !state.NoValid) {
 			state.Mode = "idle"
-			if left <= 10*time.Minute {
+			if replaced && time.Until(replacedExpiry) <= codexTurnStateRefreshBefore {
 				state.Mode = "continuous"
-			} else if left <= 30*time.Minute {
-				state.Mode = "periodic"
 			}
+			state.Manual = false
+			state.Remaining = 0
+			state.Attempt = 0
+			state.Next = time.Now().Add(time.Second)
+			s.setProbeRuntime(id, model, "idle", attempt, outcome)
+			return
 		}
-		advanceCodexStateSchedule(state, replaced, time.Now())
+		advanceCodexStateSchedule(state, false, time.Now())
 		s.setProbeRuntime(id, model, "idle", attempt, outcome)
 	}()
 	account, err := s.accountRepo.GetByID(ctx, id)
@@ -346,55 +375,191 @@ func (s *CodexTurnStateProbeService) executeStateAttempt(ctx context.Context, id
 	event := CodexStateEvent{AccountID: id, Model: model, Source: source, Attempt: attempt, Kind: "probe_started", ProxyID: proxy.ID, ProxyName: proxy.Name, ProxyAddress: fmt.Sprintf("%s://%s:%d", proxy.Protocol, proxy.Host, proxy.Port)}
 	recordCodexStateEvent(s.accountRepo, event)
 	start := time.Now()
-	result := s.acquireState(ctx, account, proxy, token, model, "")
+	result := s.acquireState(ctx, account, proxy, token, model, "", codexTurnStateOutboundIdentity{})
 	event.Kind = "probe_result"
 	event.HTTPStatus = result.status
 	event.ReturnedLength = result.returnedLength
 	event.DurationMS = time.Since(start).Milliseconds()
 	if result.err != nil {
 		outcome = result.err.Error()
+		if result.routing.complete() {
+			cookiesSaved = s.persistRoutingCookies(ctx, account, result.routing)
+		}
 	} else {
-		replaced, outcome = s.replaceState(ctx, account, model, token, result.state, result.obtained, proxy.ID, source)
+		replaced, outcome, cookiesSaved = s.replaceState(ctx, account, model, token, result.state, result.obtained, proxy.ID, source, result.routing)
 		_, expires, _ := codexStateTimes(result.state, result.obtained, time.Now())
 		event.ExpiresAt = &expires
-		replacedExpiry = expires
+		if replaced {
+			replacedExpiry = expires
+		}
 	}
 	event.Reason = outcome
 	s.referenceIP(ctx, proxy, &event)
 	recordCodexStateEvent(s.accountRepo, event)
 }
 
-func (s *CodexTurnStateProbeService) replaceState(ctx context.Context, expected *Account, model, token, state string, obtained time.Time, proxyID int64, source string) (bool, string) {
+func (s *CodexTurnStateProbeService) replaceState(ctx context.Context, expected *Account, model, token, state string, obtained time.Time, proxyID int64, source string, cookies codexTurnStateRoutingCookies) (bool, string, bool) {
+	_, expires, err := codexStateTimes(state, obtained, time.Now())
+	if err != nil {
+		return false, err.Error(), false
+	}
+	for range 3 {
+		current, err := s.accountRepo.GetByID(ctx, expected.ID)
+		if err != nil {
+			return false, "account_unavailable", false
+		}
+		if !codexTurnStateProbeEnabled(current) || current.Status != StatusActive || codexTurnStateOwnerIdentity(current) != codexTurnStateOwnerIdentity(expected) || !containsString(CodexTurnStateProbeModels(current), model) || CodexTurnStateHealthyLength(current) != len(state) {
+			return false, "account_changed", false
+		}
+		cache := codexTurnStateCacheFromExtra(current.Extra)
+		old := cache[model]
+		now := time.Now()
+		if old.State == state || (validCodexTurnStateCacheEntry(old, CodexTurnStateHealthyLength(current), token, now) && !expires.After(codexStateEffectiveExpiry(old, now))) {
+			reason := "not_newer"
+			if old.State == state {
+				reason = "same_state"
+			}
+			if !cookies.complete() {
+				return false, reason, false
+			}
+			saved, err := s.saveRoutingCookiesOn(ctx, current, cookies)
+			if err != nil {
+				return false, "save_failed", false
+			}
+			if saved {
+				return false, reason, true
+			}
+			continue
+		}
+		cache[model] = codexTurnStateCacheEntry{State: state, ObtainedAt: obtained, ExpiresAt: expires, ProxyID: proxyID, CredentialHash: codexTurnStateCredentialHash(token), Source: source}
+		failures := codexTurnStateProbeFailuresFromExtra(current.Extra)
+		delete(failures, model)
+		updates := codexTurnStateProbeRuntimeUpdates(cache, failures)
+		if cookies.complete() {
+			updates[CodexTurnStateRoutingCookieExtraKey] = cookies.extraValue()
+		}
+		saved, err := saveCodexTurnStateProbeRuntime(ctx, s.accountRepo, current, updates)
+		if err != nil {
+			return false, "save_failed", false
+		}
+		if saved {
+			return true, "replaced", cookies.complete()
+		}
+	}
+	return false, "concurrent_update", false
+}
+
+func cloneCodexTurnStateCache(in map[string]codexTurnStateCacheEntry) map[string]codexTurnStateCacheEntry {
+	out := make(map[string]codexTurnStateCacheEntry, len(in))
+	for model, entry := range in {
+		out[model] = entry
+	}
+	return out
+}
+
+// stageCodexTurnStatePending keeps a ticket minted under a session that is
+// not published yet. The live cache changes only when every model that still
+// has a ticket has a newer one under that same session.
+func (s *CodexTurnStateProbeService) stageCodexTurnStatePending(ctx context.Context, expected *Account, model, token, state string, obtained time.Time, proxyID int64, source string, identity codexTurnStateOutboundIdentity) (bool, string) {
 	_, expires, err := codexStateTimes(state, obtained, time.Now())
 	if err != nil {
 		return false, err.Error()
 	}
+	if expected == nil || !identity.complete() {
+		return false, "identity_changed"
+	}
+	entry := codexTurnStateCacheEntry{State: state, ObtainedAt: obtained, ExpiresAt: expires, ProxyID: proxyID, CredentialHash: codexTurnStateCredentialHash(token), Source: source}
+	s.scheduleMu.Lock()
+	bundle := s.outboundPending[expected.ID]
+	if bundle == nil || bundle.identity.SessionID != identity.SessionID {
+		s.scheduleMu.Unlock()
+		return false, "identity_changed"
+	}
+	if bundle.tickets == nil {
+		bundle.tickets = map[string]codexTurnStateCacheEntry{}
+	}
+	if old, ok := bundle.tickets[model]; ok {
+		if old.State == state || (validCodexTurnStateCacheEntry(old, len(state), token, time.Now()) && !expires.After(codexStateEffectiveExpiry(old, time.Now()))) {
+			s.scheduleMu.Unlock()
+			if old.State == state {
+				return false, "pending_bundle"
+			}
+			return false, "not_newer"
+		}
+	}
+	bundle.tickets[model] = entry
+	s.scheduleMu.Unlock()
+	return s.commitCodexTurnStatePending(ctx, expected, token, identity)
+}
+
+func (s *CodexTurnStateProbeService) commitCodexTurnStatePending(ctx context.Context, expected *Account, token string, identity codexTurnStateOutboundIdentity) (bool, string) {
 	for range 3 {
 		current, err := s.accountRepo.GetByID(ctx, expected.ID)
 		if err != nil {
 			return false, "account_unavailable"
 		}
-		if !codexTurnStateProbeEnabled(current) || current.Status != StatusActive || codexTurnStateOwnerIdentity(current) != codexTurnStateOwnerIdentity(expected) || !containsString(CodexTurnStateProbeModels(current), model) || CodexTurnStateHealthyLength(current) != len(state) {
+		if !codexTurnStateProbeEnabled(current) || current.Status != StatusActive || codexTurnStateOwnerIdentity(current) != codexTurnStateOwnerIdentity(expected) || CodexTurnStateHealthyLength(current) == 0 {
 			return false, "account_changed"
 		}
-		cache := codexTurnStateCacheFromExtra(current.Extra)
-		old := cache[model]
-		if old.State == state {
-			return false, "same_state"
+		s.scheduleMu.Lock()
+		bundle := s.outboundPending[current.ID]
+		if bundle == nil || bundle.identity.SessionID != identity.SessionID {
+			s.scheduleMu.Unlock()
+			return false, "identity_changed"
 		}
-		if validCodexTurnStateCacheEntry(old, CodexTurnStateHealthyLength(current), token, time.Now()) && !expires.After(codexStateEffectiveExpiry(old, time.Now())) {
-			return false, "not_newer"
+		pending := cloneCodexTurnStateCache(bundle.tickets)
+		s.scheduleMu.Unlock()
+		models := CodexTurnStateProbeModels(current)
+		live := codexTurnStateCacheFromExtra(current.Extra)
+		required := make(map[string]codexTurnStateCacheEntry, len(live))
+		for model, entry := range live {
+			if containsString(models, model) {
+				required[model] = entry
+			}
 		}
-		cache[model] = codexTurnStateCacheEntry{State: state, ObtainedAt: obtained, ExpiresAt: expires, ProxyID: proxyID, CredentialHash: codexTurnStateCredentialHash(token), Source: source}
+		probedPending := make(map[string]codexTurnStateCacheEntry, len(pending))
+		for model, entry := range pending {
+			if containsString(models, model) {
+				probedPending[model] = entry
+			}
+		}
+		now := time.Now()
+		if !codexTurnStateBundleReady(required, probedPending, CodexTurnStateHealthyLength(current), token, now) {
+			return false, "pending_bundle"
+		}
+		nextCache := make(map[string]codexTurnStateCacheEntry, len(probedPending))
+		var latest time.Time
+		for model, entry := range probedPending {
+			if !validCodexTurnStateCacheEntry(entry, CodexTurnStateHealthyLength(current), token, now) {
+				continue
+			}
+			nextCache[model] = entry
+			if expires := codexStateEffectiveExpiry(entry, now); expires.After(latest) {
+				latest = expires
+			}
+		}
+		if len(nextCache) == 0 || latest.IsZero() {
+			return false, "pending_bundle"
+		}
+		published := identity
+		published.ExpiresAt = latest
 		failures := codexTurnStateProbeFailuresFromExtra(current.Extra)
-		delete(failures, model)
-		saved, err := saveCodexTurnStateProbeRuntime(ctx, s.accountRepo, current, codexTurnStateProbeRuntimeUpdates(cache, failures))
+		for model := range nextCache {
+			delete(failures, model)
+		}
+		saved, err := saveCodexTurnStateProbeRuntime(ctx, s.accountRepo, current, codexTurnStateProbeRuntimeUpdatesWithIdentity(nextCache, failures, published.extraValue()))
 		if err != nil {
 			return false, "save_failed"
 		}
-		if saved {
-			return true, "replaced"
+		if !saved {
+			continue
 		}
+		s.scheduleMu.Lock()
+		if currentBundle := s.outboundPending[current.ID]; currentBundle != nil && currentBundle.identity.SessionID == identity.SessionID {
+			delete(s.outboundPending, current.ID)
+		}
+		s.scheduleMu.Unlock()
+		return true, "replaced"
 	}
 	return false, "concurrent_update"
 }
@@ -445,14 +610,17 @@ func (s *CodexTurnStateProbeService) ImportState(ctx context.Context, id int64, 
 	started.Kind = "import_started"
 	recordCodexStateEvent(s.accountRepo, started)
 	start := time.Now()
-	result := s.acquireState(ctx, account, proxy, token, model, state)
+	result := s.acquireState(ctx, account, proxy, token, model, state, codexTurnStateOutboundIdentity{})
 	event.HTTPStatus = result.status
 	event.ReturnedLength = result.returnedLength
 	event.DurationMS = time.Since(start).Milliseconds()
 	if result.err != nil {
 		event.Reason = result.err.Error()
+		if result.routing.complete() {
+			s.persistRoutingCookies(ctx, account, result.routing)
+		}
 	} else {
-		_, event.Reason = s.replaceState(ctx, account, model, token, state, now, proxy.ID, "manual_import")
+		_, event.Reason, _ = s.replaceState(ctx, account, model, token, state, now, proxy.ID, "manual_import", result.routing)
 	}
 	s.referenceIP(ctx, proxy, &event)
 	if event.Reason != "replaced" {
@@ -492,6 +660,7 @@ func advanceCodexStateSchedule(state *codexStateSchedule, replaced bool, now tim
 func (s *CodexTurnStateProbeService) pauseStateAccount(id int64) {
 	events := []CodexStateEvent{}
 	s.scheduleMu.Lock()
+	delete(s.outboundPending, id)
 	for key, state := range s.schedules {
 		if key.accountID == id && state.Mode != "paused" {
 			state.Mode = "paused"

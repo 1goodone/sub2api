@@ -23,6 +23,12 @@ func codexTurnStateProbeRuntimeUpdates(cache map[string]codexTurnStateCacheEntry
 	return updates
 }
 
+func codexTurnStateProbeRuntimeUpdatesWithIdentity(cache map[string]codexTurnStateCacheEntry, failures map[string]codexTurnStateProbeFailure, identity map[string]any) map[string]any {
+	updates := codexTurnStateProbeRuntimeUpdates(cache, failures)
+	updates[CodexTurnStateOutboundIdentityExtraKey] = identity
+	return updates
+}
+
 func saveCodexTurnStateProbeRuntime(ctx context.Context, repo AccountRepository, expected *Account, updates map[string]any) (bool, error) {
 	store, ok := repo.(CodexTurnStateProbeRepository)
 	if !ok {
@@ -60,7 +66,7 @@ func PreserveCodexTurnStateProbeRuntimeForEdit(updated, current *Account) {
 	if updated.Extra == nil {
 		updated.Extra = make(map[string]any)
 	}
-	for _, key := range []string{CodexTurnStateProbeCacheExtraKey, CodexTurnStateProbeFailureExtraKey} {
+	for _, key := range []string{CodexTurnStateProbeCacheExtraKey, CodexTurnStateProbeFailureExtraKey, CodexTurnStateOutboundIdentityExtraKey, CodexTurnStateRoutingCookieExtraKey} {
 		delete(updated.Extra, key)
 	}
 	if !IsCodexTurnStateProbeAccount(updated) || !IsCodexTurnStateProbeAccount(current) {
@@ -69,7 +75,7 @@ func PreserveCodexTurnStateProbeRuntimeForEdit(updated, current *Account) {
 	if updated.Type != current.Type || codexTurnStateOwnerIdentity(updated) != codexTurnStateOwnerIdentity(current) {
 		return
 	}
-	for _, key := range []string{CodexTurnStateProbeCacheExtraKey, CodexTurnStateProbeFailureExtraKey} {
+	for _, key := range []string{CodexTurnStateProbeCacheExtraKey, CodexTurnStateProbeFailureExtraKey, CodexTurnStateOutboundIdentityExtraKey, CodexTurnStateRoutingCookieExtraKey} {
 		if value, ok := current.Extra[key]; ok {
 			updated.Extra[key] = value
 		}
