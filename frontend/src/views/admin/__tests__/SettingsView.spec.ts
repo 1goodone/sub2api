@@ -477,6 +477,11 @@ const baseSettingsResponse = {
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
+  openai_codex_ticket_enabled: false,
+  openai_codex_ticket_harvest_proxy_url: "",
+  openai_codex_ticket_harvest_proxy_configured: false,
+  openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
+  openai_codex_ticket_harvest_scope: { mode: "all", group_ids: [] },
   payment_enabled: true,
   payment_min_amount: 1,
   payment_max_amount: 10000,
@@ -783,6 +788,48 @@ describe("admin SettingsView payment visible method controls", () => {
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_enabled).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("loads and saves a selected Codex ticket harvest group", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_scope: { mode: "selected", group_ids: [42] },
+    });
+    getGroups.mockImplementation(async (platform?: string) =>
+      platform === "openai"
+        ? [{ id: 42, name: "OpenAI primary", platform: "openai", status: "active", sort_order: 1 }]
+        : [],
+    );
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.get("#codex-ticket-harvest-group-42").element.checked).toBe(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({
+      mode: "selected",
+      group_ids: [42],
+    });
+    wrapper.unmount();
+  });
+
+  it("keeps selected Codex harvest IDs when the group list fails", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_scope: { mode: "selected", group_ids: [99] },
+    });
+    getGroups.mockImplementation(async (platform?: string) => {
+      if (platform === "openai") throw new Error("group list unavailable");
+      return [];
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({
+      mode: "selected",
+      group_ids: [99],
+    });
     wrapper.unmount();
   });
 

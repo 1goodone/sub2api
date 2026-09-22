@@ -109,13 +109,13 @@ type Config struct {
 // PluginConfig 控制管理员手动上传的本地进程插件。
 // 默认不包含插件，也不允许安装未签名插件；TrustedPublishers 用于追加第三方发布者。
 type PluginConfig struct {
-	DataDir                      string            `mapstructure:"data_dir"`
-	AllowUnsigned                bool              `mapstructure:"allow_unsigned"`
-	TrustedPublishers            map[string]string `mapstructure:"trusted_publishers"`
-	MaxUploadBytes               int64             `mapstructure:"max_upload_bytes"`
-	MaxUncompressedBytes         int64             `mapstructure:"max_uncompressed_bytes"`
-	StartTimeoutSeconds          int               `mapstructure:"start_timeout_seconds"`
-	OpenAIOAuthAccountAllowlist  []int64           `mapstructure:"openai_oauth_account_allowlist"`
+	DataDir                     string            `mapstructure:"data_dir"`
+	AllowUnsigned               bool              `mapstructure:"allow_unsigned"`
+	TrustedPublishers           map[string]string `mapstructure:"trusted_publishers"`
+	MaxUploadBytes              int64             `mapstructure:"max_upload_bytes"`
+	MaxUncompressedBytes        int64             `mapstructure:"max_uncompressed_bytes"`
+	StartTimeoutSeconds         int               `mapstructure:"start_timeout_seconds"`
+	OpenAIOAuthAccountAllowlist []int64           `mapstructure:"openai_oauth_account_allowlist"`
 }
 
 // OpenAICodexOutboundDiagnosticsConfig is host-side header self-check JSONL. Zero value writes nothing.
@@ -1249,6 +1249,8 @@ type OpenAICodexTicketConfig struct {
 	RefreshBeforeSeconds         int      `mapstructure:"refresh_before_seconds"`
 	HarvestProxyURL              string   `mapstructure:"harvest_proxy_url"`
 	HarvestProbeIntervalSeconds  int      `mapstructure:"harvest_probe_interval_seconds"`
+	HarvestCooldownSeconds       int      `mapstructure:"harvest_cooldown_seconds"`
+	MaxProbesPerRound            int      `mapstructure:"max_probes_per_round"`
 	HarvestAttemptTimeoutSeconds int      `mapstructure:"harvest_attempt_timeout_seconds"`
 	FailClosed                   bool     `mapstructure:"fail_closed"`
 	Models                       []string `mapstructure:"models"`
@@ -2433,6 +2435,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 600)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_interval_seconds", 6)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_cooldown_seconds", 180)
+	viper.SetDefault("gateway.openai_codex_ticket.max_probes_per_round", 6)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_attempt_timeout_seconds", 25)
 	viper.SetDefault("gateway.openai_codex_ticket.fail_closed", true)
 	viper.SetDefault("gateway.openai_codex_ticket.models", []string{"gpt-6-astra", "gpt-5.6-sol"})

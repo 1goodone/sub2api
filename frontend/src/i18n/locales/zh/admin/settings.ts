@@ -543,6 +543,12 @@ export default {
           '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台打票，并在业务请求中覆盖该头。',
         codexTicketModels: '打票模型',
         codexTicketModelsDesc: '只对勾选的模型打票和注入；取消勾选后该模型按原链路转发。',
+        codexTicketHarvestScope: '后台采票范围',
+        codexTicketHarvestScopeDesc: '可限制后台采票只使用指定的 OpenAI 分组；选择全部时沿用现有全量范围。',
+        codexTicketHarvestScopeAll: '全部 OpenAI 分组',
+        codexTicketHarvestScopeSelected: '仅选定分组',
+        codexTicketHarvestGroups: 'OpenAI 分组',
+        codexTicketHarvestGroupsEmpty: '暂无可用的 OpenAI 分组',
         codexTicketHarvestProxy: 'Codex 门票代理',
         codexTicketHarvestProxyDesc:
           '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',

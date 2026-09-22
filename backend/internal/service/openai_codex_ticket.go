@@ -13,9 +13,11 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -57,6 +59,16 @@ const (
 	openAICodexTicketPersonalBlocks = 10
 	openAICodexTicketTeamBlocks     = 12
 )
+
+type codexTicketHarvestContextKey struct{}
+
+func isCodexTicketHarvestContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(codexTicketHarvestContextKey{}).(bool)
+	return value
+}
 
 type openAICodexTicketShape struct {
 	Blocks   int
@@ -187,6 +199,12 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 	}
 	if cfg.HarvestProbeIntervalSeconds <= 0 {
 		cfg.HarvestProbeIntervalSeconds = 6
+	}
+	if cfg.HarvestCooldownSeconds <= 0 {
+		cfg.HarvestCooldownSeconds = 180
+	}
+	if cfg.MaxProbesPerRound <= 0 {
+		cfg.MaxProbesPerRound = 6
 	}
 	if cfg.HarvestAttemptTimeoutSeconds <= 0 {
 		cfg.HarvestAttemptTimeoutSeconds = 25
@@ -642,6 +660,27 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 	return extractOpenAICodexTurnState(resp.Header), resp.StatusCode, nil
 }
 
+func (s *OpenAIGatewayService) ticketProbeCoolingDown(accountID int64, model string, now time.Time) bool {
+	if s == nil {
+		return false
+	}
+	key := openAICodexTicketKey(accountID, model)
+	value, _ := s.openaiCodexTicketProbeCooldown.Load(key)
+	until, ok := value.(time.Time)
+	if !ok || !until.After(now) {
+		s.openaiCodexTicketProbeCooldown.Delete(key)
+		return false
+	}
+	return true
+}
+
+func (s *OpenAIGatewayService) cooldownTicketProbe(accountID int64, model string, cfg config.OpenAICodexTicketConfig) {
+	if s == nil {
+		return
+	}
+	s.openaiCodexTicketProbeCooldown.Store(openAICodexTicketKey(accountID, model), time.Now().Add(time.Duration(cfg.HarvestCooldownSeconds)*time.Second))
+}
+
 func jsonString(v string) string {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -735,37 +774,108 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	cfg := s.openAICodexTicketConfig()
 	now := time.Now()
 	refreshBefore := time.Duration(cfg.RefreshBeforeSeconds) * time.Second
-	var wg sync.WaitGroup
-	probed := 0
+	scope := CodexTicketHarvestScope{Mode: "all"}
+	if s.settingService != nil {
+		scope, err = s.settingService.GetCodexTicketHarvestScope(ctx)
+		if err != nil {
+			logger.L().Warn("openai_codex_ticket harvest scope unavailable; skipping round", zap.Error(err))
+			return
+		}
+	}
+
+	// Build independent priority queues. A duplicated account (for example from
+	// a group join) must only consume one account/model slot.
+	tiers := make(map[codexHarvestTier][]Account)
+	seen := make(map[int64]bool, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if account.Status != StatusActive || s.codexTurnStateOwner(ctx, &account) != CodexTurnStateModeLegacyTicket {
+		if seen[account.ID] || !scope.includes(&account) || account.Status != StatusActive || account.IsRateLimited() || s.codexTurnStateOwner(ctx, &account) != CodexTurnStateModeLegacyTicket {
 			continue
 		}
-		for _, model := range cfg.Models {
-			model := normalizeOpenAICodexTicketModel(model)
-			if model == "" {
+		seen[account.ID] = true
+		tier := scope.tier(&account)
+		tiers[tier] = append(tiers[tier], account)
+	}
+
+	keys := make([]codexHarvestTier, 0, len(tiers))
+	for tier := range tiers {
+		keys = append(keys, tier)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Schedulable != keys[j].Schedulable {
+			return keys[i].Schedulable
+		}
+		if keys[i].Priority != keys[j].Priority {
+			return keys[i].Priority < keys[j].Priority
+		}
+		return keys[i].AccountPriority < keys[j].AccountPriority
+	})
+	// Drop cursors for tiers no longer present after a group or priority change.
+	s.openaiCodexTicketCursors.Range(func(key, _ any) bool {
+		tier, ok := key.(codexHarvestTier)
+		if !ok {
+			return true
+		}
+		if _, exists := tiers[tier]; !exists {
+			s.openaiCodexTicketCursors.Delete(key)
+		}
+		return true
+	})
+
+	counts := [2]int{}
+	probed := 0
+	probeCtx := context.WithValue(ctx, codexTicketHarvestContextKey{}, true)
+	for _, tier := range keys {
+		pool := tiers[tier]
+		sort.Slice(pool, func(i, j int) bool { return pool[i].ID < pool[j].ID })
+		if ctx.Err() != nil || probed >= cfg.MaxProbesPerRound {
+			break
+		}
+		total := len(pool) * len(cfg.Models)
+		if total == 0 {
+			continue
+		}
+		stored, _ := s.openaiCodexTicketCursors.LoadOrStore(tier, &atomic.Uint64{})
+		cursor := stored.(*atomic.Uint64)
+		start := int(cursor.Load() % uint64(total))
+		var wg sync.WaitGroup
+		for offset := 0; offset < total && probed < cfg.MaxProbesPerRound && ctx.Err() == nil; offset++ {
+			index := (start + offset) % total
+			cursor.Store(uint64((index + 1) % total))
+			account := pool[index/len(cfg.Models)]
+			model := normalizeOpenAICodexTicketModel(cfg.Models[index%len(cfg.Models)])
+			if model == "" || s.ticketProbeCoolingDown(account.ID, model, now) {
 				continue
 			}
-			// 已有一张有效且未临近过期的票 → 本周期不打，省得白刷。
-			if t := s.lookupOpenAICodexTicket(&account, model); t.validForAccount(&account, now, cfg) && !t.needsRefresh(now, refreshBefore) {
+			ticket := s.lookupOpenAICodexTicket(&account, model)
+			if ticket.validForAccount(&account, now, cfg) && !ticket.needsRefresh(now, refreshBefore) {
+				continue
+			}
+			if ticket != nil && ticket.Standby != nil && ticket.Standby.validForAccount(&account, now, cfg) && !ticket.Standby.needsRefresh(now, refreshBefore) {
 				continue
 			}
 			acc := account
-			// Token/header helpers may update account metadata; each model owns its maps.
 			acc.Extra = maps.Clone(account.Extra)
 			acc.Credentials = maps.Clone(account.Credentials)
 			probed++
+			if tier.Schedulable {
+				counts[0]++
+			} else {
+				counts[1]++
+			}
 			wg.Add(1)
 			go func(acc Account, model string) {
 				defer wg.Done()
-				s.probeOnceOpenAICodexTicket(ctx, &acc, model)
+				s.probeOnceOpenAICodexTicket(probeCtx, &acc, model)
 			}(acc, model)
 		}
+		// Finish a higher-priority tier before starting a deferred tier.
+		wg.Wait()
 	}
-	wg.Wait()
 	if probed > 0 {
-		logger.L().Info("openai_codex_ticket probe cycle", zap.Int("probed", probed))
+		logger.L().Info("openai_codex_ticket probe cycle", zap.Int("probed", probed),
+			zap.Int("schedulable_probed", counts[0]), zap.Int("deferred_probed", counts[1]),
+			zap.String("scope", scope.Mode), zap.Int("selected_groups", len(scope.GroupIDs)))
 	}
 }
 
@@ -781,10 +891,16 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 	if proxyURL == "" || s.httpUpstream == nil || ctx.Err() != nil {
 		return
 	}
+	if isCodexTicketHarvestContext(ctx) && s.ticketProbeCoolingDown(account.ID, model, time.Now()) {
+		return
+	}
 	key := openAICodexTicketKey(account.ID, model)
 	_, _, _ = s.openaiCodexTicketFlight.Do(key, func() (any, error) {
 		token, _, err := s.GetAccessToken(ctx, account)
 		if err != nil || strings.TrimSpace(token) == "" {
+			if isCodexTicketHarvestContext(ctx) {
+				s.cooldownTicketProbe(account.ID, model, cfg)
+			}
 			logger.L().Info("openai_codex_ticket probe miss",
 				zap.Int64("account_id", account.ID), zap.String("model", model),
 				zap.String("reason", "token"), zap.Error(err))
@@ -792,6 +908,9 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		}
 		state, status, perr := s.fireOpenAICodexTicketProbe(ctx, account, token, model, proxyURL, time.Duration(cfg.HarvestAttemptTimeoutSeconds)*time.Second)
 		if perr != nil {
+			if isCodexTicketHarvestContext(ctx) {
+				s.cooldownTicketProbe(account.ID, model, cfg)
+			}
 			logger.L().Info("openai_codex_ticket probe miss",
 				zap.Int64("account_id", account.ID), zap.String("model", model),
 				zap.String("reason", "error"), zap.Error(perr))
@@ -800,10 +919,16 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		targetLen := openAICodexTicketTargetLength(account, cfg)
 		shape, shapeErr := parseOpenAICodexTicketShape(state)
 		if status != http.StatusOK || state == "" || len(state) != targetLen || shapeErr != nil || shape.Blocks != openAICodexTicketExpectedBlocks(account) {
+			if isCodexTicketHarvestContext(ctx) {
+				s.cooldownTicketProbe(account.ID, model, cfg)
+			}
 			logger.L().Info("openai_codex_ticket probe miss",
 				zap.Int64("account_id", account.ID), zap.String("model", model),
 				zap.Int("http", status), zap.Int("len", len(state)), zap.Error(shapeErr))
 			return nil, nil
+		}
+		if isCodexTicketHarvestContext(ctx) {
+			s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 		}
 		now := time.Now()
 		ticket := &openAICodexTicket{

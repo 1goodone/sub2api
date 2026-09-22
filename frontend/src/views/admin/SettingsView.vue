@@ -4544,6 +4544,45 @@
                     </label>
                   </div>
                 </div>
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestScope") }}
+                  </h3>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestScopeDesc") }}
+                  </p>
+                  <Select
+                    id="codex-ticket-harvest-scope"
+                    v-model="form.openai_codex_ticket_harvest_scope.mode"
+                    class="mt-3 max-w-sm"
+                    :options="codexTicketHarvestScopeOptions"
+                    :aria-label="t('admin.settings.gatewayForwarding.codexTicketHarvestScope')"
+                  />
+                  <div
+                    v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'"
+                    class="mt-3 space-y-2"
+                  >
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketHarvestGroups") }}
+                    </p>
+                    <label
+                      v-for="group in openAITicketGroups"
+                      :key="group.id"
+                      class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                    >
+                      <input
+                        :id="`codex-ticket-harvest-group-${group.id}`"
+                        type="checkbox"
+                        :checked="form.openai_codex_ticket_harvest_scope.group_ids.includes(group.id)"
+                        @change="toggleCodexTicketHarvestGroup(group.id, ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>{{ group.name }} (#{{ group.id }})</span>
+                    </label>
+                    <p v-if="openAITicketGroups.length === 0" class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketHarvestGroupsEmpty") }}
+                    </p>
+                  </div>
+                </div>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
@@ -8950,6 +8989,7 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
+  CodexTicketHarvestScope,
   OpenAIFastPolicyRule,
   WeChatConnectMode,
   WebSearchEmulationConfig,
@@ -9127,6 +9167,7 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
+const openAITicketGroups = ref<AdminGroup[]>([]);
 
 // Upstream billing probe state
 const upstreamBillingProbeLoading = ref(true);
@@ -9958,6 +9999,7 @@ const form = reactive<SettingsForm>({
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
+  openai_codex_ticket_harvest_scope: { mode: "all", group_ids: [] },
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -10958,6 +11000,9 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.openai_codex_ticket_harvest_scope = normalizeCodexTicketHarvestScope(
+      settings.openai_codex_ticket_harvest_scope,
+    );
     form.payment_visible_method_alipay_source = normalizePaymentVisibleMethodSource(
       "alipay",
       settings.payment_visible_method_alipay_source,
@@ -11140,6 +11185,17 @@ async function loadSubscriptionGroups() {
   }
 }
 
+async function loadOpenAITicketGroups() {
+  try {
+    openAITicketGroups.value = (await adminAPI.groups.getAll("openai"))
+      .filter((group) => group.platform === "openai" && group.status === "active")
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+  } catch (_error: unknown) {
+    // Keep the IDs loaded from settings so a transient group-list failure cannot clear them.
+    openAITicketGroups.value = [];
+  }
+}
+
 function findNextAvailableSubscriptionGroup(
   existingGroupIDs: number[],
 ): AdminGroup | undefined {
@@ -11213,6 +11269,41 @@ const siteBillingMode = computed<SiteBillingMode>({
 const siteBillingModeHint = computed(() =>
   t(`admin.settings.features.siteBillingMode.hints.${SITE_BILLING_MODE_I18N_KEYS[siteBillingMode.value]}`),
 );
+
+const codexTicketHarvestScopeOptions = computed<SelectOption[]>(() => [
+  {
+    value: "all",
+    label: t("admin.settings.gatewayForwarding.codexTicketHarvestScopeAll"),
+  },
+  {
+    value: "selected",
+    label: t("admin.settings.gatewayForwarding.codexTicketHarvestScopeSelected"),
+  },
+]);
+
+function normalizeCodexTicketHarvestScope(
+  value: unknown,
+): CodexTicketHarvestScope {
+  const raw = value as Partial<CodexTicketHarvestScope> | null | undefined;
+  const ids = Array.isArray(raw?.group_ids)
+    ? raw.group_ids
+        .filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0)
+    : [];
+  return {
+    mode: raw?.mode === "selected" ? "selected" : "all",
+    group_ids: [...new Set(ids)].sort((a, b) => a - b),
+  };
+}
+
+function toggleCodexTicketHarvestGroup(groupID: number, enabled: boolean): void {
+  const ids = new Set(form.openai_codex_ticket_harvest_scope.group_ids);
+  if (enabled) {
+    ids.add(groupID);
+  } else {
+    ids.delete(groupID);
+  }
+  form.openai_codex_ticket_harvest_scope.group_ids = [...ids].sort((a, b) => a - b);
+}
 
 function toggleCodexTicketModel(model: string, enabled: boolean) {
   const models = new Set(form.openai_codex_ticket_models);
@@ -11598,6 +11689,9 @@ async function saveSettings() {
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
       openai_codex_ticket_models: [...form.openai_codex_ticket_models],
+      openai_codex_ticket_harvest_scope: normalizeCodexTicketHarvestScope(
+        form.openai_codex_ticket_harvest_scope,
+      ),
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -11762,6 +11856,9 @@ async function saveSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.openai_codex_ticket_harvest_scope = normalizeCodexTicketHarvestScope(
+      updated.openai_codex_ticket_harvest_scope,
+    );
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
@@ -12805,6 +12902,7 @@ async function handleDeleteProvider() {
 onMounted(() => {
   loadSettings();
   loadSubscriptionGroups();
+  loadOpenAITicketGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
   loadOllamaCloudUsageSettings();

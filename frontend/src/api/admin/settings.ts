@@ -16,6 +16,11 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export interface CodexTicketHarvestScope {
+  mode: "all" | "selected";
+  group_ids: number[];
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -651,6 +656,7 @@ export interface SystemSettings {
   openai_codex_ticket_harvest_proxy_url: string;
   openai_codex_ticket_harvest_proxy_configured: boolean;
   openai_codex_ticket_models: string[];
+  openai_codex_ticket_harvest_scope: CodexTicketHarvestScope;
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -973,6 +979,7 @@ export interface UpdateSettingsRequest {
   openai_codex_ticket_enabled?: boolean;
   openai_codex_ticket_harvest_proxy_url?: string;
   openai_codex_ticket_models?: string[];
+  openai_codex_ticket_harvest_scope?: CodexTicketHarvestScope;
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;

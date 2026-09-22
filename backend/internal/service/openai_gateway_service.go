@@ -515,13 +515,15 @@ type OpenAIGatewayService struct {
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，按套餐长度校验。
-	openaiCodexTickets           sync.Map
-	openaiCodexTicketStateMu     sync.Mutex
-	openaiCodexTicketFlight      singleflight.Group
-	openaiCodexTicketLifecycleMu sync.Mutex
-	openaiCodexTicketCancel      context.CancelFunc
-	openaiCodexTicketDone        chan struct{}
-	openaiCodexTicketStopped     bool
+	openaiCodexTickets             sync.Map
+	openaiCodexTicketStateMu       sync.Mutex
+	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
+	openaiCodexTicketProbeCooldown sync.Map // accountID\x00model -> time.Time
+	openaiCodexTicketFlight        singleflight.Group
+	openaiCodexTicketLifecycleMu   sync.Mutex
+	openaiCodexTicketCancel        context.CancelFunc
+	openaiCodexTicketDone          chan struct{}
+	openaiCodexTicketStopped       bool
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

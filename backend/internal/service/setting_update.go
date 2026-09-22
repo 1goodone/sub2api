@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -490,6 +491,28 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
 	}
 	updates[SettingKeyOpenAICodexTicketHarvestProxyURL] = strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL)
+	scope, scopeErr := NormalizeCodexTicketHarvestScope(settings.OpenAICodexTicketHarvestScope)
+	if scopeErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_SCOPE", scopeErr.Error())
+	}
+	// Validate only a changed selection. A deleted group must not block saving
+	// unrelated settings, while stale IDs remain harmless at harvest time.
+	if s.defaultSubGroupReader != nil && len(scope.GroupIDs) > 0 {
+		oldScope, readErr := s.GetCodexTicketHarvestScope(ctx)
+		if readErr != nil || oldScope.Mode != scope.Mode || !slices.Equal(oldScope.GroupIDs, scope.GroupIDs) {
+			for _, id := range scope.GroupIDs {
+				group, err := s.defaultSubGroupReader.GetByID(ctx, id)
+				if err != nil && !errors.Is(err, ErrGroupNotFound) {
+					return nil, err
+				}
+				if err != nil || group == nil || group.Platform != PlatformOpenAI {
+					return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_GROUP", "harvest groups must exist and use the OpenAI platform")
+				}
+			}
+		}
+	}
+	scopeJSON, _ := json.Marshal(scope)
+	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
 	modelsJSON, err := json.Marshal(NormalizeOpenAICodexTicketModels(settings.OpenAICodexTicketModels))
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex ticket models: %w", err)
