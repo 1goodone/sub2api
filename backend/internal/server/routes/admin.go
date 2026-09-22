@@ -857,10 +857,10 @@ func registerAffiliateRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	// Config GET/PUT: feature enabled only (operators can prepare V2 before flipping mode).
-	// Read/matrix endpoints: require mode=v2 so V1 deployments do not serve passive data.
+	// Config GET/PUT: feature enabled only (operators can prepare passive monitoring before flipping mode).
+	// Read/matrix endpoints: require mode=v2/v3 so V1 deployments do not serve passive data.
 	featureGuard := channelMonitorAdminFeatureGuard(settingService)
-	modeV2Guard := channelMonitorModeV2Guard(settingService)
+	passiveModeGuard := channelMonitorPassiveModeGuard(settingService)
 
 	monitor := admin.Group("/channel-monitor-v2")
 	{
@@ -871,7 +871,7 @@ func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers,
 			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
 		}
 		reads := monitor.Group("")
-		reads.Use(modeV2Guard)
+		reads.Use(passiveModeGuard)
 		{
 			reads.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
 			reads.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
@@ -894,8 +894,8 @@ func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin
 	}
 }
 
-// channelMonitorModeV2Guard requires feature enabled and channel_monitor_mode=v2.
-func channelMonitorModeV2Guard(settingService *service.SettingService) gin.HandlerFunc {
+// channelMonitorPassiveModeGuard requires feature enabled and channel_monitor_mode=v2/v3.
+func channelMonitorPassiveModeGuard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService == nil {
 			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)

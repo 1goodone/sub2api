@@ -1,0 +1,489 @@
+/* Shared system surfaces and type for the console and its floating controls. */
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay, body:has(.console-signal) > .select-dropdown-portal, body:has(.console-signal) > .account-popover) {
+  --signal-bg: #f2f2f7;
+  --signal-surface: #ffffff;
+  --signal-raised: #f5f5f8;
+  --signal-sidebar: #f2f2f7;
+  --signal-line: #dedee4;
+  --signal-text: #1c1c1e;
+  --signal-muted: #63636c;
+  --signal-accent: #0066d6;
+  --signal-amber: #a66a19;
+  --signal-hover: #e9e9ef;
+  --signal-accent-soft: #e3efff;
+  --signal-on-accent: #ffffff;
+  --signal-control-line: #c7c7ce;
+  --signal-highlight: #ffffff;
+  --signal-inset: #ededf2;
+  --signal-divider: #e8e8ed;
+  --signal-shadow: 0 1px 3px #1c1c1e08, 0 6px 16px #1c1c1e05;
+  --signal-popover-shadow: 0 3px 10px #1c1c1e0a, 0 20px 56px #1c1c1e24;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.dark :is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay, body:has(.console-signal) > .select-dropdown-portal, body:has(.console-signal) > .account-popover) {
+  --signal-bg: #111113;
+  --signal-surface: #1c1c1e;
+  --signal-raised: #28282b;
+  --signal-sidebar: #171719;
+  --signal-line: #38383b;
+  --signal-text: #f2f2f7;
+  --signal-muted: #aeaeb2;
+  --signal-accent: #78b4ff;
+  --signal-amber: #e3b770;
+  --signal-hover: #303034;
+  --signal-accent-soft: #22364e;
+  --signal-on-accent: #10253d;
+  --signal-control-line: #545459;
+  --signal-highlight: #ffffff0c;
+  --signal-inset: #151517;
+  --signal-divider: #303034;
+  --signal-shadow: 0 2px 4px #00000014, 0 8px 20px #0000000f;
+  --signal-popover-shadow: 0 4px 12px #00000029, 0 24px 64px #00000066;
+}
+
+.console-signal .signal-sidebar {
+  background: var(--signal-sidebar);
+  border-color: var(--signal-line);
+}
+
+.console-signal .sidebar-header {
+  height: 64px;
+  padding-inline: 16px;
+  border-bottom-color: transparent;
+}
+
+.console-signal .sidebar-header-collapsed {
+  padding-inline: 16px;
+}
+
+.console-signal .signal-sidebar .sidebar-brand-title {
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.console-signal .sidebar-nav {
+  padding-inline: 12px;
+}
+
+.console-signal .signal-sidebar .sidebar-link {
+  min-height: 38px;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--signal-muted);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.console-signal .signal-sidebar .sidebar-link-active {
+  background: var(--signal-accent-soft);
+  border-color: transparent;
+  color: var(--signal-accent);
+  box-shadow: none;
+}
+
+.console-signal .signal-sidebar .sidebar-link-active::before {
+  display: none;
+}
+
+.console-signal .signal-sidebar .sidebar-link-active > svg {
+  color: var(--signal-accent);
+}
+
+.console-signal .signal-sidebar .sidebar-link:hover {
+  background: var(--signal-hover);
+  color: var(--signal-text);
+}
+
+.console-signal .signal-header {
+  background: var(--signal-surface);
+  border-color: var(--signal-line);
+}
+
+.console-signal .header-inner { height: 56px; }
+
+@media (min-width: 1024px) {
+  .console-signal { --signal-nav-size: 216px; }
+  .console-signal.signal-nav-collapsed { --signal-nav-size: 72px; }
+  .console-signal .signal-sidebar { width: var(--signal-nav-size); }
+  .console-signal .signal-frame { margin-left: var(--signal-nav-size); }
+  .console-signal .signal-main { padding: 24px; }
+  .console-signal .header-inner { padding-inline: 24px; }
+}
+
+.console-signal :is(.header-avatar, .header-balance) {
+  box-shadow: inset 0 1px 0 var(--signal-highlight);
+}
+
+.console-signal .signal-main {
+  max-width: 1680px;
+}
+
+.console-signal :is(.signal-masthead, .signal-workspace-heading, .signal-account-heading) {
+  padding-bottom: 22px;
+}
+
+.console-signal :is(h1, h2, h3) {
+  letter-spacing: 0;
+}
+
+.console-signal :is(.signal-heading h1, .signal-workspace-heading h1, .signal-account-heading h1) {
+  font-size: 26px;
+  line-height: 34px;
+  font-weight: 600;
+}
+
+.console-signal :is(.signal-mark, .signal-payment-heading__icon, .admin-overview-mark) {
+  border-radius: 8px;
+  background: linear-gradient(145deg, var(--signal-raised), var(--signal-surface));
+  box-shadow: inset 0 1px 0 var(--signal-highlight), 0 3px 8px #00000008;
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) :is(.btn, .input, .select-trigger) {
+  border-radius: 8px;
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .btn-secondary {
+  background: linear-gradient(180deg, var(--signal-raised), var(--signal-surface));
+  border-color: var(--signal-line);
+  box-shadow: inset 0 1px 0 var(--signal-highlight), 0 1px 2px #00000008;
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .btn-secondary:hover:not(:disabled) {
+  border-color: var(--signal-control-line);
+  background: linear-gradient(180deg, var(--signal-hover), var(--signal-surface));
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .btn-primary {
+  border: 1px solid color-mix(in srgb, var(--signal-accent) 80%, black);
+  box-shadow: inset 0 1px 0 #ffffff30, 0 2px 5px #00000014;
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .input {
+  background: var(--signal-inset);
+  box-shadow: inset 0 1px 2px #00000008;
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .select-trigger {
+  box-shadow: inset 0 1px 0 var(--signal-highlight);
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) :is(.input:focus, .select-trigger-open) {
+  box-shadow: inset 0 1px 2px #00000008, 0 0 0 3px color-mix(in srgb, var(--signal-accent) 14%, transparent);
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Floating controls need separation; page sections keep their own flat layout. */
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) :is(.dropdown, .modal-content, .dialog-container),
+body:has(.console-signal) > .select-dropdown-portal {
+  box-shadow: inset 0 1px 0 var(--signal-highlight), var(--signal-popover-shadow);
+}
+
+:is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) :is(.modal-footer, .dialog-footer) {
+  background: var(--signal-inset);
+}
+
+.console-signal :is(.signal-value, .signal-reading-value, .admin-metric-grid, .table-pagination) {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.console-signal .signal-dashboard .signal-stats { display: block; }
+.console-signal .signal-dashboard .signal-masthead { padding-bottom: 20px; border: 0; }
+.console-signal .signal-dashboard .signal-lead-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.7fr); gap: 14px; }
+.console-signal .signal-dashboard .signal-lead-grid--simple { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.console-signal .signal-dashboard .signal-stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 16px; border: 0; background: transparent; box-shadow: none; }
+.console-signal .signal-dashboard .signal-stat-strip--models { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(205px, 1.35fr); }
+.console-signal .signal-dashboard .signal-metric { display: flex; flex-direction: column; min-width: 0; padding: 18px; border: 1px solid var(--signal-line); border-radius: 8px; background: var(--signal-surface); overflow: hidden; box-shadow: none; }
+.console-signal .signal-dashboard .signal-lead-grid > .signal-metric { min-height: 164px; }
+.console-signal .signal-dashboard .signal-value { margin: 12px 0 0; color: var(--signal-text); font-size: 25px; font-weight: 600; line-height: 32px; }
+.console-signal .signal-dashboard .signal-lead-grid .signal-value { font-size: 28px; line-height: 36px; }
+.console-signal .signal-dashboard .signal-metric--balance .signal-value { color: var(--signal-text); }
+.console-signal .signal-dashboard .signal-value small { font-size: 14px; font-weight: 400; color: var(--signal-muted); }
+.console-signal .signal-dashboard .signal-metric--cost .signal-value { color: var(--signal-amber); }
+.console-signal .signal-dashboard .signal-label { font-size: 12px; }
+.console-signal .signal-dashboard .signal-label > svg { display: none; }
+.console-signal .signal-dashboard .signal-metric-foot { display: flex; flex-direction: column; gap: 3px; min-height: 54px; margin: auto -18px -18px; padding: 11px 18px; border-top: 1px solid var(--signal-line); background: var(--signal-raised); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--signal-muted); overflow-wrap: anywhere; }
+.console-signal .signal-dashboard .signal-metric-foot strong { font-size: 12px; font-weight: 500; color: var(--signal-text); }
+.console-signal .signal-dashboard .signal-metric .signal-value { padding-bottom: 18px; }
+.console-signal .signal-dashboard .signal-token-split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--signal-line); font-size: 11px; font-variant-numeric: tabular-nums; }
+.console-signal .signal-dashboard .signal-token-split dt { color: var(--signal-muted); }
+.console-signal .signal-dashboard .signal-token-split dd { margin-top: 5px; color: var(--signal-text); overflow-wrap: anywhere; }
+.console-signal .signal-dashboard .signal-actions { display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 12px 4px 0 12px; }
+.console-signal .signal-dashboard .signal-actions-label { display: block; padding: 0; color: var(--signal-text); font-size: 14px; font-weight: 600; }
+.console-signal .signal-dashboard .signal-actions-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px 16px; }
+.console-signal .signal-dashboard .signal-actions button { display: flex; align-items: center; justify-content: flex-start; min-width: 0; min-height: 48px; gap: 10px; padding: 8px 0; border-radius: 0; border-bottom: 1px solid var(--signal-line); background: transparent; color: var(--signal-text); text-align: left; font-size: 12px; }
+.console-signal .signal-dashboard .signal-actions button span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.console-signal .signal-dashboard .signal-actions button svg { color: var(--signal-muted); flex-shrink: 0; }
+.console-signal .signal-dashboard .signal-actions button:hover { color: var(--signal-accent); border-color: var(--signal-control-line); }
+.console-signal .signal-dashboard .signal-telemetry { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 24px; margin-top: 12px; padding: 0; border: 0; }
+.console-signal .signal-dashboard .signal-telemetry .signal-reading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; padding: 0; border: 0; }
+.console-signal .signal-dashboard .signal-reading-value { margin: 0; font-size: 12px; font-weight: 500; }
+.console-signal .signal-dashboard .signal-platform-grid { gap: 12px; padding-block: 12px 20px; }
+.console-signal .signal-dashboard .signal-platform { padding: 16px; border: 1px solid var(--signal-line); border-radius: 8px; background: var(--signal-surface); }
+.console-signal .signal-dashboard .signal-platform-heading { margin-bottom: 14px; }
+
+@media (max-width: 1279px) {
+  .console-signal .signal-dashboard .signal-lead-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-signal .signal-dashboard .signal-actions { grid-column: 1 / -1; padding: 4px 0 0; }
+  .console-signal .signal-dashboard .signal-actions-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .console-signal .signal-dashboard .signal-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-signal .signal-dashboard .signal-model-card { grid-column: 1 / -1; }
+  .console-signal .signal-dashboard .signal-model-summary { max-width: 400px; }
+}
+
+@media (max-width: 479px) {
+  .console-signal .signal-dashboard .signal-metric { padding: 14px; }
+  .console-signal .signal-dashboard .signal-metric-foot { margin-inline: -14px; margin-bottom: -14px; padding-inline: 14px; }
+  .console-signal .signal-dashboard .signal-lead-grid .signal-value { font-size: 23px; }
+  .console-signal .signal-dashboard .signal-value { font-size: 22px; }
+  .console-signal .signal-dashboard .signal-actions-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-signal .signal-dashboard .signal-telemetry { justify-content: flex-start; }
+  .console-signal .signal-dashboard .signal-lead-grid--simple > .signal-metric { grid-column: 1 / -1; }
+}
+
+.console-signal .signal-payment :is(.payment-method-selector__option, .payment-amount-input__option):not([aria-pressed='true']) {
+  background: linear-gradient(165deg, var(--signal-raised), var(--signal-surface));
+  border-color: var(--signal-line);
+  box-shadow: inset 0 1px 0 var(--signal-highlight), 0 1px 2px #00000008;
+}
+
+.console-signal .signal-payment :is(.payment-method-selector__option, .payment-amount-input__option)[aria-pressed='true'] {
+  color: var(--signal-text);
+  border-color: var(--signal-accent);
+  background: var(--signal-accent-soft);
+  box-shadow: inset 0 1px 0 var(--signal-highlight), inset 0 -2px var(--signal-accent);
+}
+
+.console-signal .signal-payment :is(.payment-method-selector__option, .payment-amount-input__option):hover:not(:disabled):not([aria-pressed='true']) {
+  border-color: var(--signal-control-line);
+}
+
+.console-signal .signal-checkout-summary {
+  box-shadow: inset 0 1px 0 var(--signal-highlight), var(--signal-shadow);
+}
+
+.console-signal .signal-checkout-summary__header {
+  background: linear-gradient(155deg, var(--signal-raised), var(--signal-surface));
+}
+
+.console-signal .signal-payment [data-testid='payment-method-label'] {
+  overflow: visible;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.console-signal .signal-profile :is(.rounded-3xl, .rounded-2xl) {
+  border-radius: 8px;
+}
+
+.console-signal.signal-admin .signal-admin-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--signal-text);
+}
+
+.console-signal.signal-admin .table-page-layout {
+  gap: 16px;
+  min-width: 0;
+}
+
+.console-signal.signal-admin .signal-main .table-page-layout .table-scroll-container {
+  border: 1px solid var(--signal-line);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 var(--signal-highlight), var(--signal-shadow);
+}
+
+.console-signal.signal-admin .table-scroll-container :is(th, td) {
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.console-signal.signal-admin .table-scroll-container tr:hover td {
+  background-color: var(--signal-hover);
+}
+
+.console-signal.signal-admin .table-scroll-container tbody tr:has(input[data-test='select-row']:checked) td,
+.console-signal.signal-admin .accounts-table-stage tbody tr:has(td:first-child > input[type='checkbox']:checked) td {
+  background-color: var(--signal-accent-soft);
+}
+
+.console-signal .accounts-table-stage > .space-y-3 > .rounded-lg {
+  background: var(--signal-surface);
+  border-color: var(--signal-line);
+}
+
+.console-signal .accounts-table-stage > .space-y-3 > .rounded-lg:has([data-field='select'] input:checked) {
+  background: var(--signal-accent-soft);
+  border-color: var(--signal-accent);
+}
+
+.console-signal .signal-main .table-wrapper :is(.sticky-col-left, .sticky-col-left-second)::after,
+.console-signal .signal-main .table-wrapper .sticky-col-right::before {
+  width: 6px;
+  opacity: 0.6;
+}
+
+.console-signal .table-body > tr + tr {
+  border-color: var(--signal-divider);
+}
+
+.console-signal .table-pagination {
+  border-color: var(--signal-line);
+  background: transparent;
+  padding-inline: 0;
+}
+
+.console-signal .table-pagination nav {
+  gap: 4px;
+  box-shadow: none;
+}
+
+.console-signal .table-pagination button:not(.btn) {
+  min-width: 34px;
+  min-height: 36px;
+  margin-left: 0;
+  border: 1px solid var(--signal-line);
+  border-radius: 6px;
+  background: var(--signal-surface);
+  color: var(--signal-muted);
+}
+
+.console-signal .table-pagination button:hover:not(:disabled) {
+  background: var(--signal-hover);
+  color: var(--signal-text);
+}
+
+.console-signal .table-pagination button[aria-current='page'] {
+  background: var(--signal-accent-soft);
+  border-color: var(--signal-accent);
+  color: var(--signal-accent);
+  box-shadow: inset 0 1px 0 var(--signal-highlight);
+}
+
+.console-signal.signal-admin :is(.text-gray-900, .text-gray-800, .text-gray-700) {
+  color: var(--signal-text);
+}
+
+.console-signal.signal-admin :is(.text-gray-500, .text-gray-400, .text-gray-600) {
+  color: var(--signal-muted);
+}
+
+.console-signal.signal-admin .card {
+  border-color: var(--signal-line);
+  background-color: var(--signal-surface);
+}
+
+.console-signal .admin-overview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--signal-line);
+}
+
+.admin-overview-identity { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.admin-overview-mark { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--signal-line); color: var(--signal-accent); }
+.admin-overview-label { font-size: 10px; color: var(--signal-muted); }
+.admin-overview-identity p { margin-top: 4px; font-size: 25px; line-height: 32px; font-weight: 600; }
+
+.console-signal .admin-metric-grid > .card {
+  padding: 20px;
+  background: linear-gradient(155deg, var(--signal-raised), var(--signal-surface));
+}
+
+.console-signal .admin-metric-grid > .card > div {
+  align-items: flex-start;
+}
+
+.console-signal .admin-metric-grid > .card > div > div + div { min-width: 0; }
+.console-signal .admin-metric-grid .text-xl { margin-block: 8px 4px; font-size: 26px; font-weight: 600; overflow-wrap: anywhere; }
+.console-signal .admin-metric-grid-secondary .text-xl { font-size: 21px; }
+
+.console-signal .admin-dashboard-shortcuts {
+  padding-block: 12px;
+  border-block: 1px solid var(--signal-line);
+}
+
+.console-signal .admin-dashboard-shortcuts > div + div {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.console-signal .admin-dashboard-shortcuts button {
+  flex: 1 1 240px;
+  border: 1px solid var(--signal-line);
+  background: var(--signal-surface);
+}
+
+.console-signal .admin-chart-toolbar {
+  padding-block: 4px 16px;
+  border-bottom: 1px solid var(--signal-line);
+}
+
+.console-signal .admin-dashboard-charts > .grid > .card,
+.console-signal .admin-dashboard-charts > .card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 639px) {
+  .console-signal .table-pagination button:not(.btn) { min-height: 44px; }
+  .console-signal .signal-sidebar .sidebar-link { min-height: 44px; }
+  .console-signal .admin-metric-grid { gap: 10px; }
+  .console-signal .admin-metric-grid > .card { padding: 14px 12px; }
+  .console-signal .admin-metric-grid > .card > div { flex-direction: column; gap: 8px; }
+  .console-signal .admin-chart-toolbar .ml-auto { margin-left: 0; }
+  .console-signal.signal-admin .table-page-layout.mobile-mode { height: auto; min-height: calc(100dvh - 120px); }
+  .console-signal.signal-admin .signal-main .table-page-layout.mobile-mode .table-scroll-container { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+}
+
+@media (max-width: 479px) {
+  .console-signal .header-actions { gap: 0; }
+  .console-signal .header-actions > :is(button, div) > button,
+  .console-signal .header-actions > button {
+    min-width: 36px;
+    min-height: 40px;
+    padding-inline: 6px;
+  }
+  .console-signal .header-subscriptions > button > div { display: none; }
+  .console-signal .header-locale > button > svg { display: none; }
+  .console-signal .header-identity { max-width: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.console-signal, body:has(.console-signal) > .modal-overlay, body:has(.console-signal) > .dialog-overlay) .btn:active:not(:disabled) { transform: none; }
+  .console-signal .signal-dashboard .signal-actions button { transition: none; }
+}
+
+.console-signal.model-plaza-public {
+  background: var(--signal-bg);
+  color: var(--signal-text);
+}
+
+.console-signal .plaza-pricing-table :is(th, td) {
+  border-color: var(--signal-line);
+}
+
+.console-signal .plaza-pricing-table tbody tr:hover {
+  background: var(--signal-hover);
+}
+
+.console-signal .custom-page-layout > .card,
+.console-signal .canvas-page-layout > .card {
+  border: 1px solid var(--signal-line);
+  border-radius: 8px;
+  background: var(--signal-surface);
+  box-shadow: none;
+}

@@ -490,12 +490,13 @@ const (
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
 
 	// SettingKeyChannelMonitorMode selects exclusive implementation:
-	// "v1" active probes, "v2" passive aggregation. Default "v1" (opt-in to v2).
+	// "v1" active probes; "v2" and "v3" share passive aggregation. Default "v1".
 	SettingKeyChannelMonitorMode = "channel_monitor_mode"
 
-	// ChannelMonitorModeV1/V2 are the only accepted mode values.
+	// ChannelMonitorModeV1/V2/V3 are the only accepted mode values.
 	ChannelMonitorModeV1 = "v1"
 	ChannelMonitorModeV2 = "v2"
+	ChannelMonitorModeV3 = "v3"
 
 	// SettingKeyChannelMonitorDefaultIntervalSeconds controls the default interval (seconds)
 	// pre-filled when creating a new channel monitor from the admin UI. Range: [15, 3600].

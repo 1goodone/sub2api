@@ -86,13 +86,14 @@ export default {
       saveSuccess: 'V2 monitor config saved',
       saveFailed: 'Failed to save V2 config',
       modeBanner:
-        'System mode is currently {mode}. V2 minute aggregation will not run; this config can be prepared now and takes effect after switching to {modeV2}. Change mode under System Settings → Feature switches.',
+        'System mode is currently {mode}. Passive minute aggregation will not run; this config can be prepared now and takes effect after switching to V2 or V3. Change mode under System Settings → Feature switches.',
       modeClosed: 'Channel monitor disabled',
       modeV1: 'V1 active probes',
       modeV2: 'V2 passive monitoring',
+      modeV3: 'V3 redesigned monitor',
       enableTitle: 'Enable V2 aggregation',
       enableHint:
-        'Applies when system mode is V2. Turning this off only stops this config’s aggregation; the system mode switch remains under Feature switches.',
+        'Applies when system mode is V2 or V3. Turning this off only stops this config’s aggregation; the system mode switch remains under Feature switches.',
       refreshTitle: 'Aggregation interval',
       refreshHint: 'Affects matrix time granularity and refresh cadence',
       refreshAria: 'Aggregation interval',
@@ -138,6 +139,8 @@ export default {
         'System mode is V1 active probes: manage probe monitors and run checks now; V2 aggregation does not run.',
       descriptionV2:
         'System mode is V2 passive monitoring: configure aggregation dimensions; V1 active probes do not run.',
+      descriptionV3:
+        'System mode is V3 redesigned monitoring: it uses passive aggregation data and V1 active probes do not run.',
       tabAria: 'Monitor management',
       tabV2: 'V2 data monitor config',
       tabV1Active: 'V1 active probes',

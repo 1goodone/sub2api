@@ -86,12 +86,13 @@ export default {
       saveSuccess: 'V2 监控配置已保存',
       saveFailed: 'V2 配置保存失败',
       modeBanner:
-        '当前系统设置为 {mode}。V2 分钟聚合不会运行；此处配置可预先保存，切换到 {modeV2} 后立即生效。可在系统设置 → 功能开关调整。',
+        '当前系统设置为 {mode}。被动分钟聚合不会运行；此处配置可预先保存，切换到 V2 或 V3 后立即生效。可在系统设置 → 功能开关调整。',
       modeClosed: '渠道监控已关闭',
       modeV1: 'V1 主动探测',
       modeV2: 'V2 被动监控',
+      modeV3: 'V3 新版监控',
       enableTitle: '启用 V2 汇总',
-      enableHint: '在系统模式为 V2 时生效；关闭后仅停止本配置的汇总，系统模式开关仍在「功能开关」',
+      enableHint: '在系统模式为 V2 或 V3 时生效；关闭后仅停止本配置的汇总，系统模式开关仍在「功能开关」',
       refreshTitle: '汇总频率',
       refreshHint: '影响矩阵时间粒度与刷新节奏',
       refreshAria: '汇总频率',
@@ -133,6 +134,7 @@ export default {
     admin: {
       descriptionV1: '当前系统设置为 V1 主动探测：可管理监控项并立即检测；V2 聚合不会运行。',
       descriptionV2: '当前系统设置为 V2 被动监控：配置聚合维度；V1 主动探测不会运行。',
+      descriptionV3: '当前系统设置为 V3 新版监控：复用被动聚合数据；V1 主动探测不会运行。',
       tabAria: '监控管理',
       tabV2: 'V2 数据监控配置',
       tabV1Active: 'V1 主动探测',

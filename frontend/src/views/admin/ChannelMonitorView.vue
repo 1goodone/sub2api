@@ -12,9 +12,11 @@
         </h1>
         <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           {{
-            isV1Mode
+            mode === 'v1'
               ? t('channelMonitorV2.admin.descriptionV1')
-              : t('channelMonitorV2.admin.descriptionV2')
+              : mode === 'v3'
+                ? t('channelMonitorV2.admin.descriptionV3')
+                : t('channelMonitorV2.admin.descriptionV2')
           }}
         </p>
         <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
@@ -199,10 +201,11 @@ import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vu
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
-import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
+import { getChannelMonitorMode, isChannelMonitorV1Mode } from '@/utils/featureFlags'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const mode = computed(() => getChannelMonitorMode())
 const isV1Mode = computed(() => isChannelMonitorV1Mode())
 const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
 const {

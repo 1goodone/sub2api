@@ -389,13 +389,15 @@ const (
 	defaultChannelMonitorMode      = ChannelMonitorModeV1
 )
 
-// normalizeChannelMonitorMode accepts only v1/v2; empty/invalid → v1 (safe default).
+// normalizeChannelMonitorMode accepts only v1/v2/v3; empty/invalid → v1 (safe default).
 func normalizeChannelMonitorMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case ChannelMonitorModeV1, "":
 		return ChannelMonitorModeV1
 	case ChannelMonitorModeV2:
 		return ChannelMonitorModeV2
+	case ChannelMonitorModeV3:
+		return ChannelMonitorModeV3
 	default:
 		return defaultChannelMonitorMode
 	}
@@ -429,7 +431,7 @@ func clampChannelMonitorInterval(v int) int {
 // consumed by the runner, V2 aggregator, and user-facing handlers.
 type ChannelMonitorRuntime struct {
 	Enabled                bool
-	Mode                   string // ChannelMonitorModeV1 or ChannelMonitorModeV2
+	Mode                   string // ChannelMonitorModeV1, ChannelMonitorModeV2, or ChannelMonitorModeV3
 	DefaultIntervalSeconds int
 	// HideThroughput: when true, user-facing V2 APIs omit RPM/TPM scale signals.
 	HideThroughput bool
@@ -447,9 +449,9 @@ func (r ChannelMonitorRuntime) ActiveProbesAllowed() bool {
 	return r.Enabled && r.Mode == ChannelMonitorModeV1
 }
 
-// PassiveAggregationAllowed reports whether V2 passive aggregation may run.
+// PassiveAggregationAllowed reports whether the shared V2/V3 passive pipeline may run.
 func (r ChannelMonitorRuntime) PassiveAggregationAllowed() bool {
-	return r.Enabled && r.Mode == ChannelMonitorModeV2
+	return r.Enabled && (r.Mode == ChannelMonitorModeV2 || r.Mode == ChannelMonitorModeV3)
 }
 
 // GetChannelMonitorRuntime reads the channel monitor feature flags directly from

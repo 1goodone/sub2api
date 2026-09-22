@@ -1,0 +1,323 @@
+.console-signal .signal-channel-page {
+  --channel-bg: var(--signal-bg);
+  --channel-surface: var(--signal-surface);
+  --channel-surface-muted: var(--signal-hover);
+  --channel-line: var(--signal-line);
+  --channel-line-strong: var(--signal-control-line);
+  --channel-text: var(--signal-text);
+  --channel-muted: var(--signal-muted);
+  --channel-accent: var(--signal-accent);
+  --channel-accent-soft: var(--signal-accent-soft);
+  --channel-amber: var(--signal-amber);
+  min-width: 0;
+  color: var(--channel-text);
+  letter-spacing: 0;
+}
+
+.console-signal .signal-channel-page :is(button, input, [role='tab']) {
+  letter-spacing: 0;
+}
+
+.console-signal .signal-channel-page :is(.btn, .btn-icon, .input, .select-trigger) {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.console-signal .signal-channel-page :is(button, input, [tabindex='0']):focus-visible {
+  outline: 2px solid var(--channel-accent);
+  outline-offset: 2px;
+}
+
+.app-shell.console-signal:has(.signal-channel-v3) {
+  background: var(--signal-bg);
+}
+
+.console-signal .signal-channel-v3 {
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+.console-signal .signal-v3-toolbar {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--channel-line);
+}
+
+.console-signal .signal-v3-updated {
+  color: var(--channel-muted);
+}
+
+.console-signal .signal-v3-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.console-signal .signal-v3-ranges {
+  display: flex;
+  padding: 4px;
+  border: 1px solid var(--channel-line);
+  border-radius: 8px;
+  background: var(--signal-inset);
+}
+
+.console-signal .signal-v3-ranges button {
+  min-width: 58px;
+  min-height: 36px;
+  border-radius: 5px;
+  color: var(--channel-muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-signal .signal-v3-ranges button:hover {
+  color: var(--channel-text);
+}
+
+.console-signal .signal-v3-ranges button[aria-pressed='true'] {
+  color: var(--channel-accent);
+  background: var(--channel-surface);
+  box-shadow: var(--signal-shadow);
+}
+
+.console-signal .signal-v3-summary {
+  display: flex;
+  gap: 24px;
+}
+
+.console-signal .signal-v3-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.console-signal .signal-v3-summary dt {
+  color: var(--channel-muted);
+  font-size: 12px;
+}
+
+.console-signal .signal-v3-summary dd {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-signal .signal-channel-v3 .channel-status-board {
+  display: grid;
+  gap: 28px;
+}
+
+.console-signal .signal-channel-v3 .signal-platform-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin-bottom: 12px;
+  padding: 0;
+  color: var(--channel-text) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.console-signal .signal-channel-v3 .signal-platform-heading::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  margin-left: 8px;
+  background: var(--channel-line);
+}
+
+.console-signal .signal-channel-v3 .signal-platform-heading > span {
+  border-radius: 4px;
+  color: var(--channel-muted) !important;
+  background: var(--signal-hover) !important;
+  font-size: 11px;
+}
+
+.console-signal .signal-v3-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.console-signal .signal-v3-card-grid > * {
+  min-width: 0;
+}
+
+.console-signal .signal-v3-loading > div {
+  border: 1px solid var(--channel-line);
+  border-radius: 8px;
+}
+
+.console-signal .channel-signal-card {
+  min-height: 272px;
+  padding: 22px;
+  border: 1px solid var(--channel-line);
+  border-radius: 8px;
+  background: var(--channel-surface);
+  box-shadow: var(--signal-shadow);
+}
+
+.console-signal .channel-signal-card:focus-within {
+  border-color: var(--channel-line-strong);
+}
+
+.console-signal .channel-signal-card__header {
+  min-height: 44px;
+  flex-wrap: wrap;
+}
+
+.console-signal .channel-signal-card__provider {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+}
+
+.console-signal .channel-signal-card__name {
+  color: var(--channel-text) !important;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.console-signal .channel-signal-card__rate {
+  color: var(--channel-muted);
+  font-size: 12px;
+}
+
+.console-signal .channel-signal-card__rate strong {
+  margin-left: 4px;
+  color: var(--channel-text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-signal .channel-signal-card__meta > span,
+.console-signal .channel-signal-card__sample {
+  border-radius: 3px !important;
+}
+
+.console-signal .channel-signal-card__sample {
+  border: 1px solid var(--channel-line);
+  background: var(--channel-bg) !important;
+}
+
+.console-signal .channel-signal-card__metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-block: 24px;
+}
+
+.console-signal .channel-signal-card__metric {
+  min-width: 0;
+  padding-inline: 16px;
+}
+
+.console-signal .channel-signal-card__metric:first-child {
+  padding-left: 0;
+}
+
+.console-signal .channel-signal-card__metric:last-child {
+  padding-right: 0;
+}
+
+.console-signal .channel-signal-card__metric + .channel-signal-card__metric {
+  border-left: 1px solid var(--signal-divider);
+}
+
+.console-signal .channel-signal-card__label {
+  color: var(--channel-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.console-signal .channel-signal-card__value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 30px;
+  font-variant-numeric: lining-nums tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.console-signal .channel-signal-card__timeline {
+  border-color: var(--channel-line) !important;
+}
+
+.console-signal .channel-signal-timeline__legend,
+.console-signal .channel-signal-timeline__axis {
+  color: var(--channel-muted) !important;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.console-signal .channel-signal-timeline .v3-timeline-bars {
+  gap: 4px;
+}
+
+.console-signal .channel-signal-timeline .v3-soft-glass-bar {
+  border-radius: 5px;
+}
+
+@media (max-width: 1023px) {
+  .console-signal .signal-v3-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .console-signal .signal-v3-controls {
+    gap: 18px;
+    margin-top: 20px;
+  }
+
+  .console-signal .signal-v3-ranges,
+  .console-signal .signal-v3-summary {
+    width: 100%;
+  }
+
+  .console-signal .signal-v3-ranges button {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  .console-signal .signal-v3-summary {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .console-signal .signal-v3-summary > div {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .console-signal .channel-signal-card__metric {
+    padding-inline: 12px;
+  }
+
+  .console-signal .channel-signal-card {
+    padding: 18px;
+  }
+
+  .console-signal .channel-signal-card__value {
+    font-size: 22px;
+  }
+}
+
+@media (max-width: 374px) {
+  .console-signal .channel-signal-card__metric > div:first-child {
+    font-size: 12px;
+  }
+
+  .console-signal .channel-signal-card__metric {
+    padding-inline: 8px;
+  }
+
+  .console-signal .channel-signal-card__value {
+    font-size: 20px;
+  }
+}

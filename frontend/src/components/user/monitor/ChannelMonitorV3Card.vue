@@ -1,0 +1,88 @@
+<template>
+  <article class="channel-signal-card relative flex flex-col text-left">
+    <header class="channel-signal-card__header flex items-start gap-3">
+      <span class="channel-signal-card__provider grid h-9 w-9 shrink-0 place-items-center rounded-xl ring-1 ring-black/5 dark:ring-white/10" :class="providerGradient(row.platform)">
+        <ProviderIcon :provider="row.platform" :size="20" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="channel-signal-card__name text-base font-semibold text-gray-900 dark:text-gray-100">{{ groupLabel }}</div>
+        <div class="channel-signal-card__meta mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+          <span v-if="showPlatformBadge" class="rounded-md px-1.5 py-0.5 text-[10px] font-medium" :class="providerBadgeClass(row.platform)">{{ providerLabel(row.platform) }}</span>
+          <span class="channel-signal-card__rate">{{ t('channelMonitorV3.userRate') }} <strong>{{ formattedUserRate }}</strong></span>
+        </div>
+      </div>
+      <span
+            v-if="showInsufficientSample"
+            data-testid="channel-status-sample-badge"
+            class="channel-signal-card__sample shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+          >{{ t('channelMonitorV3.unknown') }}</span>
+    </header>
+
+    <div class="channel-signal-card__metrics grid">
+      <div class="channel-signal-card__metric">
+        <div class="channel-signal-card__label">{{ t('channelMonitorV3.cacheRate') }}</div>
+        <div class="channel-signal-card__value">{{ cacheRate }}</div>
+      </div>
+      <div class="channel-signal-card__metric">
+        <div class="channel-signal-card__label">{{ t('channelMonitorV3.successRate') }}</div>
+        <div class="channel-signal-card__value" :class="availabilityClass">{{ successRate }}</div>
+      </div>
+      <div class="channel-signal-card__metric">
+        <div class="channel-signal-card__label">{{ t('channelMonitorV3.ttft') }}</div>
+        <div class="channel-signal-card__value">{{ ttft }}</div>
+      </div>
+    </div>
+
+    <ChannelMonitorV3Timeline
+      class="channel-signal-card__timeline mt-auto"
+      :buckets="row.buckets"
+      :countdown-seconds="countdownSeconds"
+      :length="timelineLength"
+    />
+  </article>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import type { MonitorMatrixRow } from '@/api/channelMonitorV2'
+import { availabilityTextClass, formatMonitorMs, formatMonitorPercent } from '@/features/channel-monitor-v2/monitorFormat'
+import { providerGradient, useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import ProviderIcon from './ProviderIcon.vue'
+import ChannelMonitorV3Timeline from './ChannelMonitorV3Timeline.vue'
+
+const props = withDefaults(defineProps<{
+  row: MonitorMatrixRow
+  countdownSeconds: number
+  timelineLength: number
+  userRateMultiplier?: number | null
+  showPlatformBadge?: boolean
+}>(), {
+  showPlatformBadge: true,
+})
+const { t } = useI18n()
+const { providerLabel, providerBadgeClass } = useChannelMonitorFormat()
+
+const groupLabel = computed(() => props.row.group_name || t('channelMonitorV3.unknownGroup'))
+const formattedUserRate = computed(() => {
+  const value = props.userRateMultiplier
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}x` : '-'
+})
+const latestBucket = computed(() => [...props.row.buckets]
+  .filter(bucket => bucket.bucket_start && bucket.metrics)
+  .sort((a, b) => Date.parse(a.bucket_start) - Date.parse(b.bucket_start))
+  .at(-1))
+const latestMetrics = computed(() => latestBucket.value?.metrics ?? props.row.metrics)
+const latestHealth = computed(() => latestBucket.value?.health ?? props.row.health)
+// Availability and latency show the newest completed bucket.
+// Cache rate follows the selected range aggregate (90m/24h/7d/30d).
+const cacheRate = computed(() => formatMonitorPercent(props.row.metrics.cache_rate))
+const availabilityPercent = computed(() => (1 - latestMetrics.value.error_rate) * 100)
+const successRate = computed(() => formatMonitorPercent(availabilityPercent.value / 100))
+const availabilityClass = computed(() => availabilityTextClass(availabilityPercent.value))
+const ttft = computed(() => formatMonitorMs(latestMetrics.value.ttft.p50_ms))
+const showInsufficientSample = computed(() => {
+  const overall = latestHealth.value.overall
+  return overall !== 'healthy' && overall !== 'warning' && overall !== 'critical'
+})
+</script>
