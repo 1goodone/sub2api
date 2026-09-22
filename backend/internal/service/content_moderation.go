@@ -1052,6 +1052,33 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 	result, err := s.callModeration(ctx, cfg, content.ModerationInput(), trackPreBlock)
 	latency := int(time.Since(start).Milliseconds())
 	if err != nil {
+		if errors.Is(err, errTypeSafeImageOnlyUnaudited) && allowBlock && cfg.Mode == ContentModerationModePreBlock {
+			if trackPreBlock {
+				s.recordPreBlockSyncMetric(latency, ContentModerationActionBlock)
+			}
+			slog.Info("content_moderation.typesafe_image_only_blocked",
+				"user_id", input.UserID,
+				"api_key_id", input.APIKeyID,
+				"group_id", contentModerationLogGroupID(input.GroupID),
+				"endpoint", input.Endpoint,
+				"protocol", input.Protocol,
+				"mode", cfg.Mode)
+			log := s.buildLog(input, cfg, ContentModerationActionBlock, true, "", 0, nil, content.ExcerptText(), &latency, queueDelay, err.Error())
+			log.EngineMeta = moderationAttemptMeta(cfg, content)
+			if queueDelay == nil && s.asyncQueue != nil {
+				s.enqueueRecord(input, cfg, log, hashText, false, false)
+			} else if s.repo != nil {
+				_ = s.repo.CreateLog(ctx, log)
+			}
+			return &ContentModerationDecision{
+				Allowed:    false,
+				Blocked:    true,
+				Flagged:    true,
+				Message:    cfg.BlockMessage,
+				StatusCode: cfg.BlockStatus,
+				Action:     ContentModerationActionBlock,
+			}
+		}
 		if trackPreBlock {
 			s.recordPreBlockSyncMetric(latency, ContentModerationActionError)
 		}

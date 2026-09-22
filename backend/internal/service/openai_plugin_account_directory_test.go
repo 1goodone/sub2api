@@ -27,12 +27,19 @@ func TestListPluginAccounts_ScopeAndSchedulable(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 	parentID := int64(1)
 	openai := []Account{
-		// schedulable active oauth. Credentials hold secrets (stripped); Extra is
-		// released.
+		// schedulable active oauth. Credentials and Extra secrets are stripped;
+		// non-secret Extra is released.
 		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true,
 			Name:        "primary",
 			Credentials: map[string]any{"access_token": "SECRET-TOKEN", "refresh_token": "SECRET-REFRESH"},
-			Extra:       map[string]any{"existing_key": "ek-value", "openai_compact_mode": "auto"}},
+			Extra: map[string]any{
+				"existing_key":                   "ek-value",
+				"openai_compact_mode":            "auto",
+				OllamaCloudUsageSessionExtraKey:  "ciphertext-secret",
+				codexFingerprintSeedExtraKey:     "11111111-1111-4111-8111-111111111111",
+				"codex_harvest_proxy_url":        "http://user:legacy-proxy-secret@proxy.example.com:8080",
+				CodexTurnStateProbeCacheExtraKey: map[string]any{"state": "pool-secret"},
+			}},
 		// active but temp-unschedulable (paused) — status stays active, must still be
 		// returned, but not schedulable
 		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true,
@@ -73,8 +80,12 @@ func TestListPluginAccounts_ScopeAndSchedulable(t *testing.T) {
 	meta := string(got[1].MetadataJSON)
 	assert.NotContains(t, meta, "SECRET-TOKEN", "credentials must never appear in metadata")
 	assert.NotContains(t, meta, "SECRET-REFRESH", "credentials must never appear in metadata")
-	assert.Contains(t, meta, "ek-value", "Extra is intentionally released")
-	assert.Contains(t, meta, "openai_compact_mode", "Extra is intentionally released")
+	assert.Contains(t, meta, "ek-value", "non-secret Extra is released")
+	assert.Contains(t, meta, "openai_compact_mode", "non-secret Extra is released")
+	assert.NotContains(t, meta, "ciphertext-secret", "Ollama Cloud session ciphertext must not appear in metadata")
+	assert.NotContains(t, meta, "legacy-proxy-secret", "harvest proxy credentials must not appear in metadata")
+	assert.NotContains(t, meta, "pool-secret", "turn-state probe cache must not appear in metadata")
+	assert.NotContains(t, meta, "11111111-1111-4111-8111-111111111111", "fingerprint seed must not appear in metadata")
 	assert.Contains(t, meta, "primary", "readable name must be present in metadata")
 	assert.Contains(t, string(got[2].MetadataJSON), "429 from upstream", "pause reason must be readable in metadata")
 }
@@ -93,8 +104,9 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	stripped := map[string]struct{}{
 		"Credentials": {}, "Groups": {}, "AccountGroups": {},
 	}
-	// Fields intentionally exposed as readable metadata (incl. Extra and Proxy —
-	// the proxy password is already handed out via ResolveOutboundIdentity's URL).
+	// Fields intentionally exposed as readable metadata. Extra and Proxy stay
+	// listed here because the snapshot still serializes them after redacting
+	// Extra secrets and Proxy.Password in place.
 	safeToExpose := map[string]struct{}{
 		"ID": {}, "Name": {}, "Notes": {}, "Platform": {}, "Type": {}, "Extra": {},
 		"Proxy": {}, "ProxyID": {}, "ProxyFallbackOriginID": {}, "ProxyFallbackOriginName": {},
@@ -121,20 +133,37 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		}
 	}
 
-	// The raw Credentials blob must never serialize; Extra and the proxy ARE released.
+	// The raw Credentials blob must never serialize. Non-secret Extra is released;
+	// Extra secrets and Proxy.Password are not.
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
 		Credentials: map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
-		Extra:       map[string]any{"opaque": "extra-released"},
-		Proxy:       &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
+		Extra: map[string]any{
+			"opaque":                        "extra-released",
+			OllamaCloudUsageSessionExtraKey: "ciphertext-secret",
+			"codex_harvest_proxy_url":       "http://user:legacy-proxy-secret@proxy.example.com:8080",
+			codexFingerprintSeedExtraKey:    "22222222-2222-4222-8222-222222222222",
+		},
+		Proxy: &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
 	}
 	snap := accountReadableSnapshotJSON(acct)
 	require.NotNil(t, snap)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(snap, &m))
 	assert.NotContains(t, string(snap), "LEAK-REFRESH", "raw Credentials must never appear in metadata")
-	assert.Contains(t, string(snap), "extra-released", "Extra is intentionally released")
-	assert.Contains(t, string(snap), "pw-released", "proxy is intentionally released (already exposed via 打票)")
+	assert.Contains(t, string(snap), "extra-released", "non-secret Extra is released")
+	assert.NotContains(t, string(snap), "ciphertext-secret")
+	assert.NotContains(t, string(snap), "legacy-proxy-secret")
+	assert.NotContains(t, string(snap), "22222222-2222-4222-8222-222222222222")
+	assert.NotContains(t, string(snap), "pw-released", "proxy password belongs on ResolveOutboundIdentity, not ListAccounts")
+	if proxy, ok := m["Proxy"].(map[string]any); ok {
+		assert.Equal(t, "user", proxy["Username"])
+		assert.Equal(t, "", proxy["Password"])
+	} else {
+		t.Fatalf("expected Proxy object in snapshot, got %T", m["Proxy"])
+	}
+	require.Equal(t, "pw-released", acct.Proxy.Password, "snapshot must not mutate the source proxy")
+	require.Equal(t, "ciphertext-secret", acct.Extra[OllamaCloudUsageSessionExtraKey], "snapshot must not mutate source Extra")
 
 	// Cycle safety: a populated Groups/AccountGroups back-reference cycle must NOT
 	// crash json.Marshal (encoding/json does not detect cycles). Stripping them

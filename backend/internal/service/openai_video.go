@@ -296,8 +296,12 @@ func (s *OpenAIGatewayService) buildOpenAIVideoRequest(
 		req.Header.Set("Accept", "application/json")
 	}
 	req.Header.Del("User-Agent")
-	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+	if account.UsesOpenAICodexProtocol() {
+		enforceCodexIdentityHeadersWithUA(req.Header, account.GetOpenAIUserAgent())
+	} else if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
+	} else {
+		req.Header.Set("User-Agent", resolveCodexOutboundIdentity("").userAgent)
 	}
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil

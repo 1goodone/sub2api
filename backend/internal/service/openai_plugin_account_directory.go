@@ -11,8 +11,8 @@ import (
 // itself is generic: it enumerates accounts and resolves outbound identities
 // strictly within the scope the host derived from the plugin's declared
 // capabilities (see PluginManager.buildHostServices). A plugin can never widen
-// that scope, and metadata never carries credentials — those are only handed out
-// by ResolvePluginOutboundIdentity.
+// that scope, and metadata never carries credentials or Extra/proxy secrets —
+// those are only handed out by ResolvePluginOutboundIdentity.
 //
 // The implementation lives on OpenAIGatewayService because it owns both the
 // account repository (for scope-neutral metadata) and the OpenAI token/header
@@ -87,15 +87,17 @@ func accountToPluginInfo(account *Account) PluginAccountInfo {
 
 // accountReadableSnapshotJSON marshals the account's readable field set to JSON.
 // It is a DENYLIST on purpose: any non-secret field added to the account model
-// later flows through automatically with no host change. Only two categories are
-// stripped:
+// later flows through automatically with no host change. Categories stripped:
 //
 //   - Credentials: holds the refresh_token (and possibly api_key), a long-lived
 //     credential that ResolveOutboundIdentity does NOT hand out (that channel only
-//     mints a short-lived access token). Keeping it out of this list keeps the
-//     credential surface exactly what the outbound-identity channel already
-//     exposes. (Extra and the proxy — including its password, which is already
-//     handed out via the resolved ProxyURL — are intentionally NOT stripped.)
+//     mints a short-lived access token).
+//   - Extra secrets: the same managed keys the admin DTO redacts — Ollama Cloud
+//     session ciphertext, Codex turn-state / ticket / harvest-proxy material, and
+//     the device fingerprint seed. Listing metadata must not be a back door around
+//     ResolveOutboundIdentity.
+//   - Proxy.Password: the listing channel is not the identity channel. Proxy URL
+//     (including credentials) is handed out only by ResolvePluginOutboundIdentity.
 //   - Groups / AccountGroups: relational graphs with *Group/*Account
 //     back-references. encoding/json does NOT detect reference cycles and would
 //     recurse into a stack-overflow panic if the reverse relation is ever
@@ -111,11 +113,40 @@ func accountReadableSnapshotJSON(account *Account) []byte {
 	clone.Credentials = nil
 	clone.Groups = nil
 	clone.AccountGroups = nil
+	clone.Extra = redactPluginAccountExtra(account.Extra)
+	if account.Proxy != nil {
+		proxy := *account.Proxy
+		proxy.Password = ""
+		clone.Proxy = &proxy
+	}
 	data, err := json.Marshal(&clone)
 	if err != nil {
 		return nil
 	}
 	return data
+}
+
+// redactPluginAccountExtra drops Extra keys that are secrets or runtime material,
+// matching the admin DTO denylist plus the Codex fingerprint seed.
+func redactPluginAccountExtra(extra map[string]any) map[string]any {
+	if extra == nil {
+		return nil
+	}
+	redacted := make(map[string]any, len(extra))
+	for key, value := range extra {
+		switch {
+		case key == OllamaCloudUsageSessionExtraKey,
+			key == OllamaCloudUsageAutoRefreshExtraKey,
+			key == OllamaCloudUsageSnapshotExtraKey,
+			key == codexFingerprintSeedExtraKey:
+			continue
+		case IsOpenAICodexTurnStatePrivateExtraKey(key):
+			continue
+		default:
+			redacted[key] = value
+		}
+	}
+	return redacted
 }
 
 // ResolvePluginOutboundIdentity resolves the access token plus the outbound

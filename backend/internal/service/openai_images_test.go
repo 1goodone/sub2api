@@ -2231,3 +2231,24 @@ func TestOpenAIGatewayServiceForwardImages_OAuthStreamingDrainsAfterClientDiscon
 	require.Equal(t, 9, result.Usage.OutputTokens)
 	require.Equal(t, 4, result.Usage.ImageOutputTokens)
 }
+
+func TestBuildOpenAIImagesRequestDoesNotLeakClientUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const clientUA = "claude-cli/1.0.60 (external, cli)"
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", http.NoBody)
+	c.Request.Header.Set("User-Agent", clientUA)
+	c.Request.Header.Set("Accept-Language", "zh-CN")
+
+	account := &Account{
+		ID: 41, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+	svc := &OpenAIGatewayService{}
+	req, err := svc.buildOpenAIImagesRequest(context.Background(), c, account, []byte(`{"prompt":"cat"}`), "application/json", "sk-test", openAIImagesGenerationsEndpoint)
+	require.NoError(t, err)
+	require.NotEqual(t, clientUA, req.Header.Get("User-Agent"))
+	require.NotContains(t, req.Header.Get("User-Agent"), "claude-cli")
+	require.NotEmpty(t, req.Header.Get("User-Agent"))
+	require.Equal(t, "zh-CN", req.Header.Get("Accept-Language"))
+}

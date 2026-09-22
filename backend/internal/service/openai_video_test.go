@@ -68,7 +68,9 @@ func TestBuildOpenAIVideoRequestDoesNotForwardClientUserAgent(t *testing.T) {
 	req, err := svc.buildOpenAIVideoRequest(context.Background(), c, openAIVideoTestAccount(), GrokMediaEndpointVideosGenerations, "https://video-upstream.example/v1/videos", []byte(`{}`), "application/json", "upstream-key")
 
 	require.NoError(t, err)
-	require.Empty(t, req.Header.Get("User-Agent"))
+	require.NotEqual(t, "Python-urllib/3.12", req.Header.Get("User-Agent"))
+	require.NotContains(t, req.Header.Get("User-Agent"), "Python-urllib")
+	require.NotEmpty(t, req.Header.Get("User-Agent"), "empty UA lets net/http send Go-http-client/1.1")
 }
 
 func TestBuildOpenAIVideoRequestUsesAccountUserAgent(t *testing.T) {

@@ -270,6 +270,27 @@ describe('admin RiskControlView', () => {
     wrapper.unmount()
   })
 
+  it('does not fail OpenAI-only saves when a hidden TypeSafe draft is left in replace mode', async () => {
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.apiKeysModeReplace').trigger('click')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'openai')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      engine: 'openai',
+      engine_configs: expect.objectContaining({
+        typesafe: expect.objectContaining({ api_keys_mode: 'append', api_keys: undefined, clear_api_key: false }),
+      }),
+    }))
+    wrapper.unmount()
+  })
+
   it('preserves both engine drafts and saves thresholds independently', async () => {
     const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
     await flushPromises()

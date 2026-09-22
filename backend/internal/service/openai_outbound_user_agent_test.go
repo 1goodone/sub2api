@@ -131,3 +131,20 @@ func TestCountTokensDoesNotLeakClientUserAgent(t *testing.T) {
 		})
 	}
 }
+
+func TestImagesAndVideoOutboundUserAgentNeverSendsGoDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c := newOutboundUAGinContext(t, "curl/8.5.0")
+	account := &Account{ID: 77, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk"}}
+	svc := &OpenAIGatewayService{}
+
+	imageReq, err := svc.buildOpenAIImagesRequest(context.Background(), c, account, []byte(`{}`), "application/json", "sk", openAIImagesGenerationsEndpoint)
+	require.NoError(t, err)
+	require.NotContains(t, outboundUserAgent(t, imageReq), "Go-http-client")
+	require.NotContains(t, outboundUserAgent(t, imageReq), "curl/")
+
+	videoReq, err := svc.buildOpenAIVideoRequest(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "https://api.openai.com/v1/videos", []byte(`{}`), "application/json", "sk")
+	require.NoError(t, err)
+	require.NotContains(t, outboundUserAgent(t, videoReq), "Go-http-client")
+	require.NotContains(t, outboundUserAgent(t, videoReq), "curl/")
+}

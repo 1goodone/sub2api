@@ -75,7 +75,35 @@ func (cfg *ContentModerationConfig) engineProfile(engine string) *ContentModerat
 	p.ProxyID = cloneInt64Ptr(p.ProxyID)
 	p.APIKeys = append([]string(nil), p.APIKeys...)
 	p.Thresholds = cloneFloatMap(p.Thresholds)
+	p.normalize(engine)
 	return &p
+}
+
+func (p *ContentModerationEngineConfig) normalize(engine string) {
+	if p == nil {
+		return
+	}
+	defaults := moderationEngineDefaults(engine)
+	p.BaseURL = strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
+	if p.BaseURL == "" {
+		p.BaseURL = defaults.BaseURL
+	}
+	p.Model = strings.TrimSpace(p.Model)
+	if p.Model == "" {
+		p.Model = defaults.Model
+	}
+	if p.TimeoutMS <= 0 {
+		p.TimeoutMS = defaults.TimeoutMS
+	}
+	if p.TimeoutMS > maxContentModerationTimeoutMS {
+		p.TimeoutMS = maxContentModerationTimeoutMS
+	}
+	if p.RetryCount < 0 {
+		p.RetryCount = defaults.RetryCount
+	}
+	if len(p.Thresholds) == 0 {
+		p.Thresholds = cloneFloatMap(defaults.Thresholds)
+	}
 }
 
 func (cfg *ContentModerationConfig) applyEngineProfile(p *ContentModerationEngineConfig) {

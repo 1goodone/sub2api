@@ -11,6 +11,11 @@ import (
 
 const TypeSafeModerationRulesVersion = "content-audit-13-zh-v1"
 
+// errTypeSafeImageOnlyUnaudited is returned when TypeSafe is asked to audit a
+// request that has images but no text. TypeSafe cannot score images; pre_block
+// must not fail-open that path the way a 429 would.
+var errTypeSafeImageOnlyUnaudited = errors.New("typesafe text-only: no text to audit; images were not audited")
+
 // These are independent judgments, not a claim of OpenAI policy equivalence.
 var typeSafeModerationRules = map[string]string{
 	"harassment":             "文本是否包含针对个人或群体的辱骂、贬损或骚扰？中立报道、批评行为本身、为辨识或反对骚扰而引用的内容不算。",
@@ -58,13 +63,20 @@ func typeSafeText(input any) (string, int) {
 func (s *ContentModerationService) callTypeSafeModeration(ctx context.Context, cfg *ContentModerationConfig, key string, input any, httpStatus *int) (*moderationAPIResult, error) {
 	text, skipped := typeSafeText(input)
 	if strings.TrimSpace(text) == "" {
-		return nil, errors.New("typesafe text-only: no text to audit; images were not audited")
+		if skipped > 0 {
+			return nil, errTypeSafeImageOnlyUnaudited
+		}
+		return nil, errors.New("typesafe text-only: no text to audit")
 	}
 	client, err := s.moderationHTTPClient(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutMS)*time.Millisecond)
+	timeoutMS := cfg.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = defaultContentModerationTimeoutMS
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
 	result, status, err := typesafe.Evaluate(ctx, client, cfg.BaseURL, key, typesafe.Request{
 		Model: cfg.Model, State: text, Questions: typeSafeModerationQuestions(),

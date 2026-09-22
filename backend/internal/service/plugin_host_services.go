@@ -64,7 +64,8 @@ type PluginAccountInfo struct {
 	Status      string
 	Schedulable bool
 	IsShadow    bool
-	// MetadataJSON 是账号全量可读、非机密字段的 JSON 对象（键为账号模型字段名）。
+	// MetadataJSON 是账号可读、非机密字段的 JSON 对象（键为账号模型字段名）。
+	// Extra 中的托管密钥与 Proxy.Password 不会进入这份快照。
 	MetadataJSON []byte
 }
 

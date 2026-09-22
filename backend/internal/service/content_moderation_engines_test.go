@@ -100,8 +100,33 @@ func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
 	trial := buildContentModerationTestAuditResult(result, cfg.Thresholds)
 	require.Equal(t, result.EngineMeta, trial.EngineMeta)
 	_, err = s.callModeration(context.Background(), cfg, ContentModerationInput{Images: content.Images}.ModerationInput())
-	require.ErrorContains(t, err, "no text to audit")
+	require.ErrorIs(t, err, errTypeSafeImageOnlyUnaudited)
 	require.Equal(t, int32(1), calls.Load())
+
+	cfg.Mode = ContentModerationModePreBlock
+	cfg.RecordNonHits = true
+	repo := &contentModerationTestRepo{}
+	s.repo = repo
+	decision := s.checkSync(context.Background(), ContentModerationCheckInput{UserID: 9, Endpoint: "/v1/images/generations"}, cfg, ContentModerationInput{Images: content.Images}, "image-hash", nil, true)
+	require.False(t, decision.Allowed)
+	require.True(t, decision.Blocked)
+	require.Equal(t, ContentModerationActionBlock, decision.Action)
+	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, "block", repo.logs[0].Action)
+	require.True(t, repo.logs[0].Flagged)
+	require.Empty(t, repo.logs[0].HighestCategory)
+}
+
+func TestContentModerationTypeSafeNestedProfileNormalizesTimeout(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.Engine = ContentModerationEngineTypeSafe
+	cfg.TimeoutMS = 3000
+	cfg.TypeSafe = &ContentModerationEngineConfig{APIKeys: []string{"k"}}
+	runtime := cfg.effectiveEngine(cfg.Engine)
+	require.Equal(t, defaultContentModerationTimeoutMS, runtime.TimeoutMS)
+	require.Equal(t, "https://api.typesafe.ai", runtime.BaseURL)
+	require.Equal(t, "jev-latest", runtime.Model)
+	require.Equal(t, []string{"k"}, runtime.APIKeys)
 }
 
 func TestContentModerationTypeSafeFailureOpenAndKeyIsolation(t *testing.T) {

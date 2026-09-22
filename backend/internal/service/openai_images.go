@@ -795,17 +795,22 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 			req.Header.Add(key, value)
 		}
 	}
-	for key, values := range c.Request.Header {
-		if !openaiPassthroughAllowedHeaders[strings.ToLower(key)] {
-			continue
-		}
-		for _, value := range values {
-			req.Header.Add(key, value)
+	if c != nil && c.Request != nil {
+		for key, values := range c.Request.Header {
+			if !openaiPassthroughAllowedHeaders[strings.ToLower(key)] {
+				continue
+			}
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
 		}
 	}
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
+	if account.UsesOpenAICodexProtocol() {
+		enforceCodexIdentityHeadersWithUA(req.Header, account.GetOpenAIUserAgent())
+	} else if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
+	} else {
+		req.Header.Set("User-Agent", resolveCodexOutboundIdentity("").userAgent)
 	}
 	if strings.TrimSpace(contentType) != "" {
 		req.Header.Set("Content-Type", contentType)

@@ -1331,15 +1331,21 @@ function engineDraftFromConfig(config: ContentModerationConfig | undefined, engi
   }
 }
 
+function engineDraftNeedsReplacementKeys(draft: EngineDraft): boolean {
+  return !draft.clear_api_key && draft.api_keys_mode === 'replace' && parseApiKeys(draft.api_keys_text).length === 0
+}
+
 function engineDraftPayload(draft: EngineDraft): UpdateModerationEngineConfig {
   const keys = parseApiKeys(draft.api_keys_text)
-  if (!draft.clear_api_key && draft.api_keys_mode === 'replace' && keys.length === 0) throw new Error('empty replacement keys')
+  const replaceWithoutKeys = engineDraftNeedsReplacementKeys(draft)
   return {
     base_url: draft.base_url, model: draft.model, proxy_id: draft.proxy_id ?? 0,
     timeout_ms: draft.timeout_ms, retry_count: draft.retry_count,
     thresholds: Object.fromEntries(riskThresholdCategories.map(k => [k, clampPercent(draft.thresholds[k]) / 100])),
-    clear_api_key: draft.clear_api_key, api_keys: keys.length ? keys : undefined,
-    api_keys_mode: draft.api_keys_mode, delete_api_key_hashes: draft.pendingDeletes,
+    clear_api_key: replaceWithoutKeys ? false : draft.clear_api_key,
+    api_keys: keys.length ? keys : undefined,
+    api_keys_mode: replaceWithoutKeys ? 'append' : draft.api_keys_mode,
+    delete_api_key_hashes: replaceWithoutKeys ? [] : draft.pendingDeletes,
   }
 }
 

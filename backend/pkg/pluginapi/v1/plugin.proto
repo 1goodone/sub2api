@@ -248,14 +248,16 @@ message AccountInfo {
   // metadata_json is a host-produced JSON object holding the account's readable
   // field set (status timestamps, rate-limit / overload / temp-unschedulable
   // windows and reason, last-used, expiry, session window, group ids, priority,
-  // concurrency, quota dimension, extra config, proxy, and any future field).
-  // Keys are the account model's field names. Times are RFC3339 strings (JSON
-  // null when unset). Only two things are withheld: the raw Credentials blob
-  // (the refresh_token — a long-lived secret the outbound-identity RPC does not
-  // hand out; the short-lived access token and proxy URL come from that RPC), and
-  // the Groups/AccountGroups relation graphs (cyclic — group_ids conveys
-  // membership). Plugins read whatever keys they need; the host does not have to
-  // change when the account model gains a field.
+  // concurrency, quota dimension, extra config, proxy host/port without the
+  // password, and any future non-secret field). Keys are the account model's
+  // field names. Times are RFC3339 strings (JSON null when unset). Withheld:
+  // the raw Credentials blob (refresh_token — a long-lived secret the
+  // outbound-identity RPC does not hand out; the short-lived access token and
+  // proxy URL come from that RPC), Extra keys the admin DTO already redacts
+  // (Ollama Cloud session, Codex turn-state/tickets/fingerprint seed), the
+  // proxy password, and the Groups/AccountGroups relation graphs (cyclic —
+  // group_ids conveys membership). Plugins read whatever remaining keys they
+  // need; a newly added *secret* field still requires a host denylist entry.
   bytes  metadata_json = 20;
 }
 
