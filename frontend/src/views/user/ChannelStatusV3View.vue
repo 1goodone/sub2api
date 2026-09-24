@@ -49,6 +49,7 @@
                 :row="row"
                 :show-platform-badge="false"
                 :user-rate-multiplier="getUserRateMultiplier(row.group_id)"
+                :coverage="matrix?.coverage ?? snapshot?.coverage"
                 :countdown-seconds="countdownSeconds"
                 :timeline-length="timelineLength"
               />
@@ -68,6 +69,7 @@
                 :row="item.row"
                 :show-platform-badge="false"
                 :user-rate-multiplier="getUserRateMultiplier(item.row.group_id)"
+                :coverage="matrix?.coverage ?? snapshot?.coverage"
                 :countdown-seconds="countdownSeconds"
                 :timeline-length="timelineLength"
               />

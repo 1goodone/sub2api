@@ -53,6 +53,32 @@ function bucket(
 }
 
 describe('ChannelMonitorV3Timeline unknown bars', () => {
+  it('places empty windows on the clock instead of left-padding them', () => {
+    const wrapper = mount(ChannelMonitorV3Timeline, {
+      props: {
+        buckets: [bucket('healthy', 0, '2026-09-24T05:20:00.000Z')],
+        coverage: {
+          requested_start: '2026-09-24T05:05:00.000Z',
+          coverage_start: '2026-09-24T05:05:00.000Z',
+          data_through: '2026-09-24T05:21:00.000Z',
+          computed_at: '2026-09-24T05:21:00.000Z',
+          aggregation_lag_seconds: 0,
+          coverage_complete: true,
+          bucket_seconds: 300,
+        },
+        countdownSeconds: 0,
+        length: 4,
+      },
+    })
+    const bars = wrapper.findAll('.v3-soft-glass-bar')
+    expect(bars).toHaveLength(4)
+    expect(bars[0]?.attributes('data-empty')).toBe('true')
+    expect(bars[1]?.attributes('data-empty')).toBe('true')
+    expect(bars[2]?.attributes('data-empty')).toBe('true')
+    expect(bars[3]?.attributes('data-empty')).toBe('false')
+    expect(bars[3]?.classes()).toContain('bg-emerald-600')
+  })
+
   it('paints insufficient-sample bars gray instead of availability black', () => {
     const wrapper = mount(ChannelMonitorV3Timeline, {
       props: {

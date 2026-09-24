@@ -28,6 +28,7 @@
             <span
               class="v3-soft-glass-bar"
               :class="bar.colorClass"
+              :data-empty="bar.empty ? 'true' : 'false'"
               :style="{ height: `${bar.heightPct}%`, animationDelay: `${index * 18}ms` }"
             />
           </span>
@@ -58,15 +59,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MonitorMatrixBucket } from '@/api/channelMonitorV2'
+import type { MonitorCoverage, MonitorMatrixBucket } from '@/api/channelMonitorV2'
 import { availabilityBarClass, formatMonitorMs, formatMonitorPercent } from '@/features/channel-monitor-v2/monitorFormat'
+import { alignV3TimelineSlots } from './v3TimelineSlots'
 
 const props = withDefaults(defineProps<{
   buckets?: MonitorMatrixBucket[]
+  coverage?: MonitorCoverage | null
   countdownSeconds: number
   length?: number
 }>(), {
   buckets: () => [],
+  coverage: null,
   length: 18,
 })
 
@@ -132,6 +136,7 @@ interface TimelineBar {
   colorClass: string
   heightPct: number
   title: string
+  empty: boolean
 }
 
 function formatBucketTime(value: string) {
@@ -143,16 +148,18 @@ function formatBucketTime(value: string) {
 }
 
 const displayBars = computed<TimelineBar[]>(() => {
-  const real = [...props.buckets]
-    .sort((a, b) => Date.parse(a.bucket_start) - Date.parse(b.bucket_start))
-    .slice(-props.length)
-  const bars: TimelineBar[] = Array.from({ length: Math.max(0, props.length - real.length) }, (_, index) => ({
-    key: `empty-${index}`,
-    ...UNKNOWN_STYLE,
-    title: '',
-  }))
-
-  for (const bucket of real) {
+  return alignV3TimelineSlots(props.buckets, props.coverage, props.length).map((slot, index) => {
+    const bucket = slot.bucket
+    if (!bucket) {
+      return {
+        key: slot.start || `empty-${index}`,
+        ...UNKNOWN_STYLE,
+        empty: true,
+        title: slot.start
+          ? t('channelMonitorV2.pulse.noTrafficAt', { time: formatBucketTime(slot.start) })
+          : '',
+      }
+    }
     const availabilityPercent = Math.round(
       Math.max(0, Math.min(100, (1 - bucket.metrics.error_rate) * 100)) * 100,
     ) / 100
@@ -162,18 +169,18 @@ const displayBars = computed<TimelineBar[]>(() => {
           colorClass: availabilityBarClass(availabilityPercent),
           heightPct: Math.max(15, availabilityPercent),
         }
-    bars.push({
+    return {
       key: bucket.bucket_start,
       ...style,
+      empty: false,
       title: t('channelMonitorV3.timelineTooltip', {
         time: formatBucketTime(bucket.bucket_start),
         availability: formatMonitorPercent(1 - bucket.metrics.error_rate, locale.value || 'zh-CN'),
         cache: formatMonitorPercent(bucket.metrics.cache_rate, locale.value || 'zh-CN'),
         ttft: formatMonitorMs(bucket.metrics.ttft.p50_ms),
       }),
-    })
-  }
-  return bars
+    }
+  })
 })
 
 const tooltipStyle = computed(() => ({

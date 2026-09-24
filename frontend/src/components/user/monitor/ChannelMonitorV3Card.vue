@@ -36,6 +36,7 @@
     <ChannelMonitorV3Timeline
       class="channel-signal-card__timeline mt-auto"
       :buckets="row.buckets"
+      :coverage="coverage"
       :countdown-seconds="countdownSeconds"
       :length="timelineLength"
     />
@@ -45,7 +46,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MonitorMatrixRow } from '@/api/channelMonitorV2'
+import type { MonitorCoverage, MonitorMatrixRow } from '@/api/channelMonitorV2'
 import { availabilityTextClass, formatMonitorMs, formatMonitorPercent } from '@/features/channel-monitor-v2/monitorFormat'
 import { providerGradient, useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import ProviderIcon from './ProviderIcon.vue'
@@ -55,9 +56,11 @@ const props = withDefaults(defineProps<{
   row: MonitorMatrixRow
   countdownSeconds: number
   timelineLength: number
+  coverage?: MonitorCoverage | null
   userRateMultiplier?: number | null
   showPlatformBadge?: boolean
 }>(), {
+  coverage: null,
   showPlatformBadge: true,
 })
 const { t } = useI18n()
