@@ -156,7 +156,7 @@ const displayBars = computed<TimelineBar[]>(() => {
         ...UNKNOWN_STYLE,
         empty: true,
         title: slot.start
-          ? t('channelMonitorV2.pulse.noTrafficAt', { time: formatBucketTime(slot.start) })
+          ? t('channelMonitorV3.timelineEmpty', { time: formatBucketTime(slot.start) })
           : '',
       }
     }
