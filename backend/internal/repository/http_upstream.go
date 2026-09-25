@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"io"
 	"log/slog"
@@ -323,8 +322,6 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 // doUpstreamRequest owns cancellation for one attempt, without cancelling the
 // caller's context (which may be detached for billing or reused for retries).
 func doUpstreamRequest(client *http.Client, req *http.Request) (result *http.Response, resultErr error) {
-	req, timingTrace := requesttiming.StartTransport(req)
-	defer func() { timingTrace.Response(result, resultErr) }()
 	_, observeCapture := requestcapture.FromContext(req.Context()).ObserveHTTPRequest(req, requestcapture.AccountFromContext(req.Context()))
 	defer func() { observeCapture(result, resultErr) }()
 
@@ -374,6 +371,7 @@ func (b *cancelOnCloseBody) Close() error {
 	})
 	return b.err
 }
+
 // httpClientForUpstreamRequest 按请求上下文的标记派生客户端：禁用重定向，或对重定向的每一跳做主机校验。
 // 派生的克隆与缓存客户端共享 Transport；未打标记时原样返回。
 func (s *httpUpstreamService) httpClientForUpstreamRequest(client *http.Client, req *http.Request) *http.Client {
