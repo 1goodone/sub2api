@@ -62,6 +62,12 @@ func (b *bpsImageAdmissionBudget) limits() (int64, int) {
 	if maxRequests == 0 {
 		maxRequests = bpsImageMaxRequests
 	}
+	// Each small request reserves at least 8 MiB. Scale the effective budget
+	// with the request cap so the configured slots remain usable, while
+	// preserving a larger explicitly configured budget. This is not RSS.
+	if minimum := int64(maxRequests) * bpsImageMinBodyBytes * bpsImageBodyMultiplier; minimum > limitBytes {
+		limitBytes = minimum
+	}
 	return limitBytes, maxRequests
 }
 
