@@ -364,6 +364,9 @@ type SystemSettings struct {
 	RequestCaptureRetentionDays int    `json:"request_capture_retention_days"`
 	ExcelBPSImageRelayEnabled   bool   `json:"excel_bps_image_relay_enabled"`
 	ExcelBPSImageBaseURL        string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageBodyLimitMiB   int    `json:"excel_bps_image_body_limit_mib"`
+	ExcelBPSImageBudgetMiB      int    `json:"excel_bps_image_budget_mib"`
+	ExcelBPSImageMaxRequests    int    `json:"excel_bps_image_max_requests"`
 }
 
 type DefaultSubscriptionSetting struct {

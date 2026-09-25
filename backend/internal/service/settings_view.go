@@ -329,6 +329,9 @@ type SystemSettings struct {
 	RequestCaptureRetentionDays int
 	ExcelBPSImageRelayEnabled   bool
 	ExcelBPSImageBaseURL        string
+	ExcelBPSImageBodyLimitMiB   int
+	ExcelBPSImageBudgetMiB      int
+	ExcelBPSImageMaxRequests    int
 }
 
 type DefaultSubscriptionSetting struct {

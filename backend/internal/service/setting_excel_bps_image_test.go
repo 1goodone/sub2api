@@ -74,11 +74,31 @@ func TestExcelBPSImageSettingsPersistAndApplyImmediately(t *testing.T) {
 	relay, err := gateway.excelBPSImageRelay(ctx)
 	require.NoError(t, err)
 	require.Nil(t, relay)
-	require.NoError(t, settings.UpdateSettings(ctx, &SystemSettings{ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: " https://images.example/ "}))
+	require.NoError(t, settings.UpdateSettings(ctx, &SystemSettings{
+		ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: " https://images.example/ ",
+		ExcelBPSImageBodyLimitMiB: 32, ExcelBPSImageBudgetMiB: 768, ExcelBPSImageMaxRequests: 48,
+	}))
 	saved, err := settings.GetAllSettings(ctx)
 	require.NoError(t, err)
 	require.True(t, saved.ExcelBPSImageRelayEnabled)
 	require.Equal(t, "https://images.example", saved.ExcelBPSImageBaseURL)
+	require.Equal(t, 32, saved.ExcelBPSImageBodyLimitMiB)
+	require.Equal(t, 768, saved.ExcelBPSImageBudgetMiB)
+	require.Equal(t, 48, saved.ExcelBPSImageMaxRequests)
+	runtime, err := settings.GetExcelBPSImageRelaySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 32, runtime.BodyLimitMiB)
+	require.Equal(t, 768, runtime.BudgetMiB)
+	require.Equal(t, 48, runtime.MaxRequests)
+	require.NoError(t, settings.UpdateSettings(ctx, &SystemSettings{
+		ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: "https://images.example",
+		ExcelBPSImageBodyLimitMiB: 128, ExcelBPSImageBudgetMiB: 1024, ExcelBPSImageMaxRequests: 128,
+	}))
+	runtime, err = settings.GetExcelBPSImageRelaySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 128, runtime.BodyLimitMiB)
+	require.Equal(t, 1024, runtime.BudgetMiB)
+	require.Equal(t, 128, runtime.MaxRequests)
 	relay, err = gateway.excelBPSImageRelay(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, relay)
@@ -117,6 +137,20 @@ func TestExcelBPSImageSettingsRejectInvalidUpdatesAtomically(t *testing.T) {
 	repo := &excelBPSImageSettingsRepo{}
 	settings := NewSettingService(repo, &config.Config{})
 	require.NoError(t, settings.UpdateSettings(ctx, &SystemSettings{ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: "https://images.example"}))
+	for _, limits := range []struct{ body, budget, requests int }{
+		{129, 2048, 32}, {64, 511, 32}, {64, 2049, 32}, {64, 512, 129}, {128, 512, 32},
+	} {
+		err := settings.UpdateSettings(ctx, &SystemSettings{
+			ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: "https://images.example",
+			ExcelBPSImageBodyLimitMiB: limits.body, ExcelBPSImageBudgetMiB: limits.budget, ExcelBPSImageMaxRequests: limits.requests,
+		})
+		require.Error(t, err)
+		runtime, err := settings.GetExcelBPSImageRelaySettings(ctx)
+		require.NoError(t, err)
+		require.Equal(t, DefaultExcelBPSImageBodyLimitMiB, runtime.BodyLimitMiB)
+		require.Equal(t, DefaultExcelBPSImageBudgetMiB, runtime.BudgetMiB)
+		require.Equal(t, DefaultExcelBPSImageMaxRequests, runtime.MaxRequests)
+	}
 	for _, origin := range []string{"", "http://images.example", "https://images.example/v1", "https://user:secret@images.example", "https://images.example?token=secret"} {
 		err := settings.UpdateSettings(ctx, &SystemSettings{ExcelBPSImageRelayEnabled: true, ExcelBPSImageBaseURL: origin})
 		require.Error(t, err)
