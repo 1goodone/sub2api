@@ -34,6 +34,10 @@ func (AccountGroup) Fields() []ent.Field {
 			Default(50),
 		field.Bool("is_focus").
 			Default(false),
+		field.JSON("allowed_models", []string{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("账号在该分组内可用的模型（支持末尾 * 通配）；空表示不限制"),
 		field.Time("created_at").
 			Immutable().
 			Default(time.Now).

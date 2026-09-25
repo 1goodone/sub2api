@@ -15,7 +15,7 @@ func TestNormalizeCodexTicketHarvestScope(t *testing.T) {
 		GroupIDs: []int64{9, 2, 9, 1},
 	})
 	require.NoError(t, err)
-	require.Equal(t, CodexTicketHarvestScope{Mode: "selected", GroupIDs: []int64{1, 2, 9}}, scope)
+	require.Equal(t, CodexTicketHarvestScope{Mode: "selected", GroupIDs: []int64{1, 2, 9}, AccountPolicy: CodexHarvestSchedulableOnly}, scope)
 
 	all, err := NormalizeCodexTicketHarvestScope(CodexTicketHarvestScope{})
 	require.NoError(t, err)

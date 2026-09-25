@@ -16,6 +16,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func attachReadyCodexTicket(account *Account, model string) {
+	if account == nil {
+		return
+	}
+	now := time.Now()
+	ticket := &openAICodexTicket{
+		AccountID:  account.ID,
+		Model:      normalizeOpenAICodexTicketModel(model),
+		State:      fakeCodexTicketState(292),
+		Length:     292,
+		CapturedAt: now,
+		ExpiresAt:  now.Add(time.Hour),
+		Blocks:     openAICodexTicketExpectedBlocks(account),
+		IssuedAt:   now.Add(-time.Minute),
+		Identity:   ticketIdentity(account),
+	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra[openAICodexTicketExtraKey(ticket.Model)] = ticket
+}
+
 func fakeCodexTicketState(n int) string {
 	if n == 292 || n == 332 {
 		blocks := openAICodexTicketPersonalBlocks
@@ -53,6 +75,8 @@ func ticketTestAccount(id int64) *Account {
 		ID:          id,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{"access_token": "tok", "chatgpt_account_id": "acc-1"},
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -245,14 +246,22 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 		builders := make([]*dbent.AccountGroupCreate, 0, len(groups))
 		for i := range groups {
 			groups[i].AccountID = account.ID
-			builders = append(builders, txClient.AccountGroup.Create().
+			groups[i].AllowedModels = service.NormalizeGroupAllowedModels(groups[i].AllowedModels)
+			builder := txClient.AccountGroup.Create().
 				SetAccountID(account.ID).
 				SetGroupID(groups[i].GroupID).
-				SetPriority(groups[i].Priority),
-			)
+				SetPriority(groups[i].Priority)
+			builders = append(builders, builder)
 		}
 		if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
 			return err
+		}
+		for i := range groups {
+			if len(groups[i].AllowedModels) > 0 {
+				if err := persistAccountGroupAllowedModels(ctx, r.sql, account.ID, groups[i].GroupID, groups[i].AllowedModels); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	account.GroupIDs = groupIDs
@@ -2018,6 +2027,12 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return err
 	}
 
+	// 绑定关系是整体删除重建的；仍保留的分组要沿用原有的模型限制，否则每次改分组都会把它清掉。
+	existingAllowedModels, err := loadAccountGroupAllowedModels(ctx, r.sql, accountID)
+	if err != nil {
+		return err
+	}
+
 	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
 		return err
 	}
@@ -2031,15 +2046,22 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 
 	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
 	for i, groupID := range groupIDs {
-		builders = append(builders, txClient.AccountGroup.Create().
+		builder := txClient.AccountGroup.Create().
 			SetAccountID(accountID).
 			SetGroupID(groupID).
-			SetPriority(i+1),
-		)
+			SetPriority(i + 1)
+		builders = append(builders, builder)
 	}
 
 	if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
 		return err
+	}
+	for _, groupID := range groupIDs {
+		if models := existingAllowedModels[groupID]; len(models) > 0 {
+			if err := persistAccountGroupAllowedModels(ctx, r.sql, accountID, groupID, models); err != nil {
+				return err
+			}
+		}
 	}
 
 	if tx != nil {
@@ -2052,6 +2074,143 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bind groups failed: account=%d err=%v", accountID, err)
 	}
 	return nil
+}
+
+// SetGroupAllowedModels 覆盖账号在各个已绑定分组内的模型限制：allowed 里没有的分组恢复为不限制，
+// 账号未绑定的分组被忽略。有变化时通知调度器刷新该账号的缓存。
+func (r *accountRepository) SetGroupAllowedModels(ctx context.Context, accountID int64, allowed map[int64][]string) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+
+	var txClient *dbent.Client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
+	} else {
+		// 已处于外部事务中（ErrTxStarted），复用当前 client
+		txClient = r.client
+	}
+
+	entries, err := txClient.AccountGroup.Query().
+		Where(dbaccountgroup.AccountIDEQ(accountID)).
+		All(ctx)
+	if err != nil {
+		return err
+	}
+
+	changedGroupIDs := make([]int64, 0, len(entries))
+	current, err := loadAccountGroupAllowedModels(ctx, r.sql, accountID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		groupID := entry.GroupID
+		next := service.NormalizeGroupAllowedModels(allowed[groupID])
+		if slices.Equal(next, current[groupID]) {
+			continue
+		}
+		if err := persistAccountGroupAllowedModels(ctx, r.sql, accountID, groupID, next); err != nil {
+			return err
+		}
+		changedGroupIDs = append(changedGroupIDs, groupID)
+	}
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if len(changedGroupIDs) == 0 {
+		return nil
+	}
+	payload := buildSchedulerGroupPayload(changedGroupIDs)
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue group allowed models failed: account=%d err=%v", accountID, err)
+	}
+	return nil
+}
+
+// loadAccountGroupAllowedModels 读取账号各分组绑定上已设置的模型限制，只返回有限制的分组。
+func persistAccountGroupAllowedModels(ctx context.Context, exec sqlExecutor, accountID, groupID int64, models []string) error {
+	if exec == nil {
+		return errors.New("account repository SQL executor not configured")
+	}
+	models = service.NormalizeGroupAllowedModels(models)
+	payload, err := json.Marshal(models)
+	if err != nil {
+		return err
+	}
+	if len(models) == 0 {
+		_, err = exec.ExecContext(ctx, `UPDATE account_groups SET allowed_models = NULL WHERE account_id = $1 AND group_id = $2`, accountID, groupID)
+		return err
+	}
+	_, err = exec.ExecContext(ctx, `UPDATE account_groups SET allowed_models = $3::jsonb WHERE account_id = $1 AND group_id = $2`, accountID, groupID, payload)
+	return err
+}
+
+func loadAccountGroupAllowedModels(ctx context.Context, exec sqlExecutor, accountID int64) (map[int64][]string, error) {
+	out := map[int64][]string{}
+	if exec == nil {
+		return out, nil
+	}
+	rows, err := exec.QueryContext(ctx, `SELECT group_id, allowed_models FROM account_groups WHERE account_id = $1 AND allowed_models IS NOT NULL`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var groupID int64
+		var raw []byte
+		if err := rows.Scan(&groupID, &raw); err != nil {
+			return nil, err
+		}
+		var models []string
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &models); err != nil {
+				return nil, err
+			}
+		}
+		if models = service.NormalizeGroupAllowedModels(models); len(models) > 0 {
+			out[groupID] = models
+		}
+	}
+	return out, rows.Err()
+}
+
+func loadAccountGroupsAllowedModels(ctx context.Context, exec sqlExecutor, accountIDs []int64) (map[int64]map[int64][]string, error) {
+	out := map[int64]map[int64][]string{}
+	if exec == nil || len(accountIDs) == 0 {
+		return out, nil
+	}
+	rows, err := exec.QueryContext(ctx, `SELECT account_id, group_id, allowed_models FROM account_groups WHERE account_id = ANY($1) AND allowed_models IS NOT NULL`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var accountID, groupID int64
+		var raw []byte
+		if err := rows.Scan(&accountID, &groupID, &raw); err != nil {
+			return nil, err
+		}
+		var models []string
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &models); err != nil {
+				return nil, err
+			}
+		}
+		if models = service.NormalizeGroupAllowedModels(models); len(models) > 0 {
+			byGroup := out[accountID]
+			if byGroup == nil {
+				byGroup = map[int64][]string{}
+				out[accountID] = byGroup
+			}
+			byGroup[groupID] = models
+		}
+	}
+	return out, rows.Err()
 }
 
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
@@ -3490,6 +3649,10 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		allowedByAccount, err := loadAccountGroupsAllowedModels(ctx, r.sql, accountIDs[start:end])
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		groupIDs := make([]int64, 0, len(entries))
 		for _, ag := range entries {
 			groupIDs = append(groupIDs, ag.GroupID)
@@ -3502,11 +3665,12 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 		for _, ag := range entries {
 			groupSvc := groupMap[ag.GroupID]
 			agSvc := service.AccountGroup{
-				AccountID: ag.AccountID,
-				GroupID:   ag.GroupID,
-				Priority:  ag.Priority,
-				CreatedAt: ag.CreatedAt,
-				Group:     groupSvc,
+				AccountID:     ag.AccountID,
+				GroupID:       ag.GroupID,
+				Priority:      ag.Priority,
+				AllowedModels: service.NormalizeGroupAllowedModels(allowedByAccount[ag.AccountID][ag.GroupID]),
+				CreatedAt:     ag.CreatedAt,
+				Group:         groupSvc,
 			}
 			accountGroupsByAccount[ag.AccountID] = append(accountGroupsByAccount[ag.AccountID], agSvc)
 			groupIDsByAccount[ag.AccountID] = append(groupIDsByAccount[ag.AccountID], ag.GroupID)

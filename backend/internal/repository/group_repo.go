@@ -209,7 +209,8 @@ func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operat
 }
 
 // CreateFromSource atomically persists a copied group, clones the source
-// account bindings with their exact priorities, and writes its scheduler event.
+// account bindings with their exact priorities and per-group model limits,
+// and writes its scheduler event.
 func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service.Group, sourceGroupID int64) error {
 	if groupIn == nil {
 		return errors.New("group is nil")
@@ -233,8 +234,8 @@ func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service
 	}
 	result, err := txClient.ExecContext(
 		ctx,
-		`INSERT INTO account_groups (account_id, group_id, priority, is_focus, created_at)
-		 SELECT ag.account_id, $2, ag.priority, ag.is_focus, NOW()
+		`INSERT INTO account_groups (account_id, group_id, priority, is_focus, allowed_models, created_at)
+		 SELECT ag.account_id, $2, ag.priority, ag.is_focus, ag.allowed_models, NOW()
 		 FROM account_groups ag
 		 JOIN accounts a ON a.id = ag.account_id
 		 WHERE ag.group_id = $1

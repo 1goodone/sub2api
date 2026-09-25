@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 28 // v28: preserve group cache-read reclassification
+const apiKeyAuthSnapshotVersion = 29 // v29: cache-read reclassification + stream_only/denied models
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -282,6 +282,10 @@ func (s *APIKeyService) loadAuthCacheEntry(ctx context.Context, key, cacheKey st
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
 	apiKey.Key = key
+	// 禁用模型是准入限制：查询失败不能当作「没有限制」放行，也不能写进缓存，直接报错让下次请求重试。
+	if err := s.loadUserGroupDeniedModels(ctx, apiKey); err != nil {
+		return nil, fmt.Errorf("get api key: load user group denied models: %w", err)
+	}
 	snapshot := s.snapshotFromAPIKey(ctx, apiKey)
 	if snapshot == nil {
 		return nil, fmt.Errorf("get api key: %w", ErrAPIKeyNotFound)
@@ -289,6 +293,19 @@ func (s *APIKeyService) loadAuthCacheEntry(ctx context.Context, key, cacheKey st
 	entry := &APIKeyAuthCacheEntry{Snapshot: snapshot}
 	s.setAuthCacheEntry(ctx, cacheKey, entry, s.authCfg.l2TTL)
 	return entry, nil
+}
+
+// loadUserGroupDeniedModels 把 (user, group) 禁用模型填到 apiKey.User 上，随认证快照一起缓存。
+func (s *APIKeyService) loadUserGroupDeniedModels(ctx context.Context, apiKey *APIKey) error {
+	if apiKey == nil || apiKey.User == nil || apiKey.GroupID == nil || *apiKey.GroupID <= 0 || s.userGroupRateRepo == nil {
+		return nil
+	}
+	denied, err := s.userGroupRateRepo.GetDeniedModelsByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID)
+	if err != nil {
+		return err
+	}
+	apiKey.User.UserGroupDeniedModels = denied
+	return nil
 }
 
 func (s *APIKeyService) lookupAPIKeyForAuth(ctx context.Context, key string) (*APIKey, error) {
@@ -368,6 +385,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			UserGroupDeniedModels:      apiKey.User.UserGroupDeniedModels,
 		},
 	}
 
@@ -380,6 +398,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
 	}
 	if apiKey.Group != nil {
+
 		snapshot.Group = apiKeyAuthGroupSnapshotFromGroup(apiKey.Group)
 	}
 	if len(apiKey.MixedGroups) > 0 {
@@ -388,6 +407,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			if groupSnapshot := apiKeyAuthGroupSnapshotFromGroup(group); groupSnapshot != nil {
 				snapshot.MixedGroups = append(snapshot.MixedGroups, *groupSnapshot)
 			}
+
 		}
 	}
 	return snapshot
@@ -431,15 +451,18 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			TotalRecharged:             snapshot.User.TotalRecharged,
 			RPMLimit:                   snapshot.User.RPMLimit,
 			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
+			UserGroupDeniedModels:      snapshot.User.UserGroupDeniedModels,
 		},
 	}
 	if snapshot.Group != nil {
+
 		apiKey.Group = apiKeyAuthGroupSnapshotToGroup(snapshot.Group)
 	}
 	if len(snapshot.MixedGroups) > 0 {
 		apiKey.MixedGroups = make([]*Group, 0, len(snapshot.MixedGroups))
 		for i := range snapshot.MixedGroups {
 			apiKey.MixedGroups = append(apiKey.MixedGroups, apiKeyAuthGroupSnapshotToGroup(&snapshot.MixedGroups[i]))
+
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

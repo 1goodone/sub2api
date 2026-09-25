@@ -1,3 +1,6 @@
+import qualityOps from './qualityOps'
+import accountOps from './accountOps'
+import requestTiming from './requestTiming'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -9,6 +12,9 @@ import admin from './admin'
 import misc from './misc'
 
 export default {
+  qualityOps,
+  accountOps,
+  requestTiming,
   ...landing,
   ...common,
   ...dashboard,

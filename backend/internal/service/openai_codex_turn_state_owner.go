@@ -45,7 +45,7 @@ func (s *OpenAIGatewayService) applyCodexTurnStateForWSHandshake(ctx context.Con
 	}
 	switch s.codexTurnStateOwner(ctx, account) {
 	case CodexTurnStateModeLegacyTicket:
-		return s.applyOpenAICodexTicket(ctx, account, model, headers)
+		return s.applyOpenAICodexTicket(ctx, account, model, headers, "websocket")
 	case CodexTurnStateModeStatePool:
 		headers.Del(openAICodexTurnStateHeader)
 		applyCodexRoutingCookies(headers, account, time.Now())

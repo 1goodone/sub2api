@@ -9,6 +9,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
@@ -89,6 +90,24 @@ func (_u *AccountGroupUpdate) SetNillableIsFocus(v *bool) *AccountGroupUpdate {
 	if v != nil {
 		_u.SetIsFocus(*v)
 	}
+	return _u
+}
+
+// SetAllowedModels sets the "allowed_models" field.
+func (_u *AccountGroupUpdate) SetAllowedModels(v []string) *AccountGroupUpdate {
+	_u.mutation.SetAllowedModels(v)
+	return _u
+}
+
+// AppendAllowedModels appends value to the "allowed_models" field.
+func (_u *AccountGroupUpdate) AppendAllowedModels(v []string) *AccountGroupUpdate {
+	_u.mutation.AppendAllowedModels(v)
+	return _u
+}
+
+// ClearAllowedModels clears the value of the "allowed_models" field.
+func (_u *AccountGroupUpdate) ClearAllowedModels() *AccountGroupUpdate {
+	_u.mutation.ClearAllowedModels()
 	return _u
 }
 
@@ -177,6 +196,17 @@ func (_u *AccountGroupUpdate) sqlSave(ctx context.Context) (_node int, err error
 	}
 	if value, ok := _u.mutation.IsFocus(); ok {
 		_spec.SetField(accountgroup.FieldIsFocus, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AllowedModels(); ok {
+		_spec.SetField(accountgroup.FieldAllowedModels, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedAllowedModels(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, accountgroup.FieldAllowedModels, value)
+		})
+	}
+	if _u.mutation.AllowedModelsCleared() {
+		_spec.ClearField(accountgroup.FieldAllowedModels, field.TypeJSON)
 	}
 	if _u.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -319,6 +349,24 @@ func (_u *AccountGroupUpdateOne) SetNillableIsFocus(v *bool) *AccountGroupUpdate
 	return _u
 }
 
+// SetAllowedModels sets the "allowed_models" field.
+func (_u *AccountGroupUpdateOne) SetAllowedModels(v []string) *AccountGroupUpdateOne {
+	_u.mutation.SetAllowedModels(v)
+	return _u
+}
+
+// AppendAllowedModels appends value to the "allowed_models" field.
+func (_u *AccountGroupUpdateOne) AppendAllowedModels(v []string) *AccountGroupUpdateOne {
+	_u.mutation.AppendAllowedModels(v)
+	return _u
+}
+
+// ClearAllowedModels clears the value of the "allowed_models" field.
+func (_u *AccountGroupUpdateOne) ClearAllowedModels() *AccountGroupUpdateOne {
+	_u.mutation.ClearAllowedModels()
+	return _u
+}
+
 // SetAccount sets the "account" edge to the Account entity.
 func (_u *AccountGroupUpdateOne) SetAccount(v *Account) *AccountGroupUpdateOne {
 	return _u.SetAccountID(v.ID)
@@ -436,6 +484,17 @@ func (_u *AccountGroupUpdateOne) sqlSave(ctx context.Context) (_node *AccountGro
 	}
 	if value, ok := _u.mutation.IsFocus(); ok {
 		_spec.SetField(accountgroup.FieldIsFocus, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AllowedModels(); ok {
+		_spec.SetField(accountgroup.FieldAllowedModels, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedAllowedModels(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, accountgroup.FieldAllowedModels, value)
+		})
+	}
+	if _u.mutation.AllowedModelsCleared() {
+		_spec.ClearField(accountgroup.FieldAllowedModels, field.TypeJSON)
 	}
 	if _u.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{

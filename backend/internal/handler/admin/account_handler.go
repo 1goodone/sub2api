@@ -67,6 +67,8 @@ type AccountHandler struct {
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	codexTurnStateProbe     *service.CodexTurnStateProbeService
 	codexTicketSettings     *service.SettingService
+	openAIGatewayService    *service.OpenAIGatewayService
+	codexHarvest            *service.CodexHarvestService
 	cfg                     *config.Config
 }
 
@@ -86,6 +88,14 @@ func (h *AccountHandler) SetCodexTurnStateProbeService(probe *service.CodexTurnS
 // SetCodexTicketSettings supplies the live policy without mutating shared config.
 func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
 	h.codexTicketSettings = settings
+}
+
+func (h *AccountHandler) SetOpenAIGatewayService(svc *service.OpenAIGatewayService) {
+	h.openAIGatewayService = svc
+}
+
+func (h *AccountHandler) SetConfig(cfg *config.Config) {
+	h.cfg = cfg
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -156,9 +166,10 @@ type UpdateAccountRequest struct {
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
-	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
-	GroupIDs                *[]int64       `json:"group_ids"`
-	ExpiresAt               *int64         `json:"expires_at"`
+	Status                  string             `json:"status" binding:"omitempty,oneof=active inactive error"`
+	GroupIDs                *[]int64           `json:"group_ids"`
+	GroupAllowedModels      map[int64][]string `json:"group_allowed_models"`
+	ExpiresAt               *int64             `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
 	RateSyncEnabled         *bool          `json:"upstream_billing_rate_sync_enabled"`
@@ -1196,6 +1207,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		LoadFactor:            req.LoadFactor,
 		Status:                req.Status,
 		GroupIDs:              req.GroupIDs,
+		GroupAllowedModels:    req.GroupAllowedModels,
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
 		ProbeEnabled:          req.ProbeEnabled,

@@ -332,9 +332,9 @@ gateway:
   # Credential shadow accounts retain their existing forwarding policy and are not ticket-gated.
   openai_codex_ticket:
     enabled: false
-    target_length: 292
-    ttl_seconds: 3600
-    refresh_before_seconds: 600
+    target_length: 780
+    ttl_seconds: 240
+    refresh_before_seconds: 60
     # 后台「系统设置 → 网关 → Codex 设置」可覆盖此值，无需重启。
     # 后台值的读取缓存为 5 秒，下个探测周期使用新代理；代理服务商自行负责轮换 IP。
     harvest_proxy_url: ""

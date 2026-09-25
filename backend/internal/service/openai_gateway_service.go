@@ -524,6 +524,11 @@ type OpenAIGatewayService struct {
 	openaiCodexTicketCancel        context.CancelFunc
 	openaiCodexTicketDone          chan struct{}
 	openaiCodexTicketStopped       bool
+	openaiCodexTicketChatHold      sync.Map
+	codexHarvest                   *CodexHarvestService
+	codexHarvestRunMu              sync.RWMutex
+	codexHarvestRoundActive        atomic.Bool
+	requireLatestTurnAdmission     bool
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -594,6 +599,7 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		requireLatestTurnAdmission: true,
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)
@@ -603,6 +609,13 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+func (s *OpenAIGatewayService) SetCodexHarvestService(harvest *CodexHarvestService) {
+	if s == nil {
+		return
+	}
+	s.codexHarvest = harvest
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）

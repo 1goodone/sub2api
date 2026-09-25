@@ -37,7 +37,9 @@ type Group struct {
 	PeakStart           string
 	PeakEnd             string
 	PeakRateMultiplier  float64
-	IsExclusive         bool
+	IsExclusive bool
+	// DisableNonStreaming 仅允许流式请求：非流式对话生成在网关入口拒绝。
+	// 对应 ranxi 2.8.8 的 StreamOnly，本地列名沿用 disable_non_streaming。
 	DisableNonStreaming bool
 	Status              string
 	Hydrated            bool // indicates the group was loaded from a trusted repository source

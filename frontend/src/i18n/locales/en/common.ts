@@ -216,6 +216,8 @@ export default {
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
     channelStatus: 'Channel Status',
+    pelicanShowcase: 'Pelican Showcase',
+    harvestFlow: 'Ticket harvest flow',
     riskControl: 'Risk Control',
     securityAudit: 'Security Audit',
     contentModeration: 'Content Moderation',

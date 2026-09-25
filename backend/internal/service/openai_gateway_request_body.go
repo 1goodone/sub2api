@@ -493,6 +493,18 @@ func openAIRequestBodyHasTools(body []byte) bool {
 // Keep the reasoning item and its portable fields (summary, encrypted_content,
 // ids, and opaque extensions). Callers scope this normalization to OpenAI
 // destinations; compatible providers may still consume their own content.
+func openAIRequestBodyHasAdditionalTools(body []byte) bool {
+	for _, item := range gjson.GetBytes(body, "input").Array() {
+		if strings.TrimSpace(item.Get("type").String()) != "additional_tools" {
+			continue
+		}
+		if tools := item.Get("tools"); tools.IsArray() && len(tools.Array()) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, error) {
 	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {

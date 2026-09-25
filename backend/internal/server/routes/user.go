@@ -163,6 +163,14 @@ func RegisterUserRoutes(
 		}
 
 		// V2 API powers both passive UIs and requires feature on + mode=v2/v3.
+		// 鹈鹕测智展示（用户只读；功能关闭时返回空画廊）
+		showcase := authenticated.Group("/pelican-showcase")
+		{
+			showcase.GET("", h.PelicanShowcase.List)
+			showcase.GET("/items/:id", h.PelicanShowcase.GetItem)
+		}
+
+		// V2 passive views require feature on + mode=v2.
 		monitorV2 := authenticated.Group("/channel-monitor-v2")
 		monitorV2.Use(panelRateLimiter.Heavy())
 		monitorV2.Use(channelMonitorPassiveModeGuard(settingService))

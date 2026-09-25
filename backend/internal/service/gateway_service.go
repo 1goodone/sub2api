@@ -1380,6 +1380,10 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 	return respBytes, nil
 }
 
+func mixedListingModelAllowed(groupPlatform, model string) bool {
+	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
+}
+
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1439,6 +1443,16 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 				modelSet[model] = struct{}{}
 			}
 		}
+		// 没有映射的账号默认支持全部模型；在本分组被限制时改为公布限制清单里的具体模型名。
+		if len(mapping) == 0 {
+			for _, model := range groupAllowedConcreteModels(&acc, groupID) {
+				if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
+					continue
+				}
+				modelSet[model] = struct{}{}
+				hasAnyMapping = true
+			}
+		}
 	}
 
 	// If no account has model_mapping, return nil (use default)
@@ -1458,7 +1472,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	sort.Strings(models)
 
 	if platform == PlatformOpenAI {
-		models = supplementUnmappedOpenAIModels(accounts, models)
+		models = supplementUnmappedOpenAIModels(accounts, groupID, models)
 	}
 
 	if s.modelsListCache != nil {

@@ -331,7 +331,7 @@ func init() {
 	// accountgroup.DefaultIsFocus holds the default value on creation for the is_focus field.
 	accountgroup.DefaultIsFocus = accountgroupDescIsFocus.Default.(bool)
 	// accountgroupDescCreatedAt is the schema descriptor for created_at field.
-	accountgroupDescCreatedAt := accountgroupFields[4].Descriptor()
+	accountgroupDescCreatedAt := accountgroupFields[5].Descriptor()
 	// accountgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
 	accountgroup.DefaultCreatedAt = accountgroupDescCreatedAt.Default.(func() time.Time)
 	announcementFields := schema.Announcement{}.Fields()
