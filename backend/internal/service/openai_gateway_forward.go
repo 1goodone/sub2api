@@ -59,6 +59,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
+	if account.IsExcelBPSEnabled() {
+		return s.forwardExcelBPS(ctx, c, account, body, startTime)
+	}
+
 	// The SDK adapter owns Lite declarations, custom tools, replay item IDs,
 	// namespaces and compaction. Do not lower them to generic OpenAI API shapes.
 	if account.IsCopilotSDKEnabled() {
@@ -1379,7 +1383,6 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	}
 	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
 }
-
 
 // shouldForwardOpenAIResponsesViaChatCompletions 是 chat-completions 回退的统一
 // 路由判定：账号级协议配置或探测结论要求回退，或者入站请求的形状是当前上游无法

@@ -2115,6 +2115,16 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	return false
 }
 
+// IsExcelBPSEnabled routes an existing ChatGPT OAuth account to the Excel gateway.
+// Credentials and refresh remain on the original account; no sidecar is involved.
+func (a *Account) IsExcelBPSEnabled() bool {
+	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth || a.IsShadow() || a.IsOpenAIAgentIdentity() || a.IsOpenAIPersonalAccessToken() {
+		return false
+	}
+	enabled, _ := a.Extra["openai_excel_bps"].(bool)
+	return enabled
+}
+
 // IsCopilotSDKEnabled selects the stateful Responses sidecar contract. The
 // endpoint and bearer key belong to the sidecar, not GitHub or ChatGPT OAuth.
 func (a *Account) IsCopilotSDKEnabled() bool {
@@ -2139,7 +2149,7 @@ func (a *Account) IsCopilotSDKEnabled() bool {
 // 1. 按账号类型读取分类型字段
 // 2. 分类型字段缺失时，回退兼容字段
 func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
-	if a.IsCopilotSDKEnabled() {
+	if a.IsCopilotSDKEnabled() || a.IsExcelBPSEnabled() {
 		return false
 	}
 	if a == nil || !a.IsOpenAI() || a.Extra == nil {
@@ -2210,7 +2220,7 @@ func normalizeOpenAIWSIngressDefaultMode(mode string) string {
 // 3. 兼容 enabled 旧字段（bool）
 // 4. defaultMode（非法时回退 ctx_pool）
 func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) string {
-	if a.IsCopilotSDKEnabled() {
+	if a.IsCopilotSDKEnabled() || a.IsExcelBPSEnabled() {
 		return OpenAIWSIngressModeOff
 	}
 	resolvedDefault := normalizeOpenAIWSIngressDefaultMode(defaultMode)
@@ -2283,7 +2293,7 @@ func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) stri
 // IsOpenAIWSForceHTTPEnabled 返回账号级"强制 HTTP"开关。
 // 字段：accounts.extra.openai_ws_force_http。
 func (a *Account) IsOpenAIWSForceHTTPEnabled() bool {
-	if a.IsCopilotSDKEnabled() {
+	if a.IsCopilotSDKEnabled() || a.IsExcelBPSEnabled() {
 		return true
 	}
 	if a == nil || !a.IsOpenAI() || a.Extra == nil {

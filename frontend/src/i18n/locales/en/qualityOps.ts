@@ -20,7 +20,7 @@ export default {
   "removeGroups": "Remove selected group memberships",
   "disableScheduling": "Disable account scheduling (keep groups)",
   "autoRestore": "Automatically restore after every probe in a later round passes",
-  "restoreHelp": "Only undo changes owned by this rule. Intervening account or membership edits block restoration and record a conflict; resolve it on the Accounts page.",
+  "restoreHelp": "Only undo changes owned by this rule. Other account or membership edits do not block automatic restoration; disable this rule's auto-restore when taking over manually.",
   "enabled": "Scheduled tests enabled",
   "paused": "Paused",
   "save": "Save",

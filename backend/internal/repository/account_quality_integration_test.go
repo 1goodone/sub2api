@@ -74,7 +74,9 @@ func TestQualityActionsRestoreOwnershipAndStaleRuns(t *testing.T) {
 			require.Equal(t, want, apply("failed"))
 			_, err = integrationDB.ExecContext(ctx, `UPDATE accounts SET updated_at=clock_timestamp(),name='manually edited' WHERE id=$1`, account)
 			require.NoError(t, err)
-			require.Equal(t, "restore_conflict", apply("passed"))
+			// An unrelated account edit does not cancel restoration of the
+			// mutation owned by this quality rule.
+			require.Equal(t, "restored", apply("passed"))
 			_, err = integrationDB.ExecContext(ctx, `UPDATE scheduled_test_plans SET enabled=false WHERE id=$1`, plan.ID)
 			require.NoError(t, err)
 			require.Equal(t, "stale_run", apply("failed"))
@@ -117,7 +119,7 @@ func TestQualityActionsRestoreOwnershipAndStaleRuns(t *testing.T) {
 
 			var events int
 			require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM scheduler_outbox WHERE account_id=$1 AND event_type='account_groups_changed'`, account).Scan(&events))
-			require.Equal(t, 3, events)
+			require.Equal(t, 4, events)
 		})
 	}
 }

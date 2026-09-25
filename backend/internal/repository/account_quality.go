@@ -153,8 +153,10 @@ func (r *scheduledTestPlanRepository) ApplyQualityOutcome(ctx context.Context, p
 			}
 		}
 	case outcome == "passed" && state.Action != "" && q.AutoRestore:
-		// Any intervening account/membership edit relinquishes automated restoration.
-		if !version.Equal(state.AccountVersion) || !jsonEqual(groups, state.Remaining) || status != "active" {
+		// Restore only the mutation owned by this quality rule. Other account or
+		// membership edits must not turn an enabled auto-restore rule into a
+		// manual cleanup task. A non-active account is not safe to reactivate.
+		if status != "active" {
 			return "restore_conflict", nil
 		}
 		switch state.Action {
@@ -227,15 +229,6 @@ func qualityGroups(ctx context.Context, tx *sql.Tx, accountID int64) ([]byte, er
 	var raw []byte
 	err := tx.QueryRowContext(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(g) ORDER BY g.group_id),'[]'::jsonb) FROM account_groups g WHERE account_id=$1`, accountID).Scan(&raw)
 	return raw, err
-}
-func jsonEqual(a, b []byte) bool {
-	var x, y any
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
-		return false
-	}
-	left, _ := json.Marshal(x)
-	right, _ := json.Marshal(y)
-	return string(left) == string(right)
 }
 
 // Global operation history is cursor-paginated independently of account/rule selection.

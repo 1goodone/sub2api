@@ -1339,7 +1339,7 @@ func IsMaskedProxyURL(raw string) bool {
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
 func isOpenAICodexTicketAccount(account *Account) bool {
-	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow()
+	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow() && !account.IsExcelBPSEnabled()
 }
 
 // IsOpenAICodexTurnStatePrivateExtraKey also covers the retired account-level proxy
