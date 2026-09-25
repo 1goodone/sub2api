@@ -402,6 +402,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		RequestCaptureEnabled:       settings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:      settings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays: settings.RequestCaptureRetentionDays,
 		ExcelBPSImageRelayEnabled:   settings.ExcelBPSImageRelayEnabled,
 		ExcelBPSImageBaseURL:        settings.ExcelBPSImageBaseURL,
 	}

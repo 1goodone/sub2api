@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
+	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"io"
 	"log/slog"
 	"net"
@@ -202,8 +204,15 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 //   - 调用方必须关闭 resp.Body，否则会导致 inFlight 计数泄漏
 //   - inFlight > 0 的客户端不会被淘汰，确保活跃请求不被中断
 func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	if req != nil {
+		requestcapture.FromContext(req.Context()).BindAccount(accountID)
+		req = req.WithContext(requestcapture.WithAccount(req.Context(), accountID))
+	}
 	applyGrokCLIProxyHeaders(req)
 	if err := s.validateRequestHost(req); err != nil {
+		if req != nil {
+			requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
+		}
 		return nil, err
 	}
 	profile := service.HTTPUpstreamProfileDefault
@@ -214,6 +223,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// 获取或创建对应的客户端，并标记请求占用
 	entry, err := s.acquireClientWithProfile(proxyURL, accountID, accountConcurrency, profile)
 	if err != nil {
+		requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
 		return nil, err
 	}
 
@@ -256,6 +266,10 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	if req != nil && req.URL != nil && strings.EqualFold(req.URL.Scheme, "http") {
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
 	}
+	if req != nil {
+		requestcapture.FromContext(req.Context()).BindAccount(accountID)
+		req = req.WithContext(requestcapture.WithAccount(req.Context(), accountID))
+	}
 	applyGrokCLIProxyHeaders(req)
 	upstreamProfile := service.HTTPUpstreamProfileDefault
 	if req != nil {
@@ -273,11 +287,15 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyInfo, "profile", profile.Name)
 
 	if err := s.validateRequestHost(req); err != nil {
+		if req != nil {
+			requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
+		}
 		return nil, err
 	}
 
 	entry, err := s.acquireClientWithTLS(proxyURL, accountID, accountConcurrency, profile, upstreamProfile)
 	if err != nil {
+		requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
 		slog.Debug("tls_fingerprint_acquire_client_failed", "account_id", accountID, "error", err)
 		return nil, err
 	}
@@ -302,6 +320,60 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	return resp, nil
 }
 
+// doUpstreamRequest owns cancellation for one attempt, without cancelling the
+// caller's context (which may be detached for billing or reused for retries).
+func doUpstreamRequest(client *http.Client, req *http.Request) (result *http.Response, resultErr error) {
+	req, timingTrace := requesttiming.StartTransport(req)
+	defer func() { timingTrace.Response(result, resultErr) }()
+	_, observeCapture := requestcapture.FromContext(req.Context()).ObserveHTTPRequest(req, requestcapture.AccountFromContext(req.Context()))
+	defer func() { observeCapture(result, resultErr) }()
+
+	ctx, cancel := context.WithCancel(req.Context())
+	resp, err := servertiming.Do(client, req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return resp, err
+	}
+	decompressResponseBody(resp)
+	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+	err    error
+	readMu sync.Mutex
+	closed bool
+}
+
+func (b *cancelOnCloseBody) Read(p []byte) (int, error) {
+	b.readMu.Lock()
+	defer b.readMu.Unlock()
+	if b.closed {
+		return 0, http.ErrBodyReadAfterClose
+	}
+	return b.ReadCloser.Read(p)
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	b.once.Do(func() {
+		// Cancel before closing, including before closing a decompressor. In Go
+		// 1.27 an early HTTP/1 close concurrent with Read can otherwise leave an
+		// EOF waiter on a reused connection and stall subsequent responses.
+		// Fully consumed responses have already released their transport request,
+		// so cancelling here preserves normal keep-alive reuse.
+		b.cancel()
+		// Wait for an active read to observe cancellation before touching the
+		// body or decompressor. Do not hold readMu while cancelling the request.
+		b.readMu.Lock()
+		defer b.readMu.Unlock()
+		b.closed = true
+		b.err = b.ReadCloser.Close()
+	})
+	return b.err
+}
 // httpClientForUpstreamRequest 按请求上下文的标记派生客户端：禁用重定向，或对重定向的每一跳做主机校验。
 // 派生的克隆与缓存客户端共享 Transport；未打标记时原样返回。
 func (s *httpUpstreamService) httpClientForUpstreamRequest(client *http.Client, req *http.Request) *http.Client {

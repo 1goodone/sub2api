@@ -163,6 +163,9 @@ docs/*
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/account-token-guard.md
+!docs/cyber-session-blocking.md
+!docs/request-capture.md
+!docs/codex-credits.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

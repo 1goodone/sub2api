@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"io"
 	"net/http"
 	"strings"
@@ -63,7 +64,13 @@ func (p *PrereadBody) Bytes() []byte {
 // client used to compress the body (zstd, gzip, deflate).
 // 已由 PrereadBody 回填的请求体直接返回其完整切片（零拷贝），不检查内部
 // reader 是否已被消费——见 PrereadBody 的文档说明。
-func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
+func ReadRequestBodyWithPrealloc(req *http.Request) (result []byte, resultErr error) {
+	defer func() {
+		if resultErr == nil && req != nil {
+			requestcapture.FromContext(req.Context()).ClientRequest(result, req.Header.Get("Content-Type"), req.Header)
+		}
+	}()
+
 	if req == nil || req.Body == nil {
 		return nil, nil
 	}

@@ -23,6 +23,7 @@ func ProvideAdminPaymentHandler(
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
+	requestCaptureHandler *admin.RequestCaptureHandler,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
@@ -76,6 +77,7 @@ func ProvideAdminHandlers(
 	accountHandler.SetOpenAIGatewayService(openAIGatewayService)
 	accountHandler.SetConfig(cfg)
 	return &AdminHandlers{
+		RequestCapture:         requestCaptureHandler,
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
 		Group:                  groupHandler,
@@ -319,6 +321,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewRequestCaptureHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,
