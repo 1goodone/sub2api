@@ -23,7 +23,7 @@ import (
 //
 // 巡检：用账号当前 access_token 调测活接口，区分「令牌失效 / 正常 / 临时异常」。
 // 修复：令牌失效 → 用配置里的邮箱+密码+2FA 重新登录，写回新凭据并恢复调度；
-//       探活正常但账号仍处于 error 态 → 清除错误态并恢复调度（避免禁用死锁）。
+// 探活正常但账号仍处于 error 态 → 清除错误态并恢复调度（避免禁用死锁）。
 const accountTokenGuardSettingsKey = "account_token_guard_config_v1"
 
 const (
