@@ -377,7 +377,7 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 	out := make([]OpenAICodexTicketStatus, 0, len(models))
 	for _, model := range models {
 		model = normalizeOpenAICodexTicketModel(model)
-		if model == "" {
+		if model == "" || !isOpenAICodexTicketAccount(account, model) {
 			continue
 		}
 		status := OpenAICodexTicketStatus{Model: model}
@@ -751,7 +751,7 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 // 请求路径只注入已捕获的有效门票，不现场打票；无票则返回
 // ErrOpenAICodexTicketUnavailable。打票由后台 harvester 完成。
 func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, account *Account, model string, h http.Header, transport ...string) error {
-	if s == nil || h == nil || !isOpenAICodexTicketAccount(account) {
+	if s == nil || h == nil || !isOpenAICodexTicketAccount(account, model) {
 		return nil
 	}
 	if s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
@@ -840,6 +840,9 @@ func (s *OpenAIGatewayService) openAICodexTicketReadyForRequest(account *Account
 		return false
 	}
 	outbound := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
+	if !isOpenAICodexTicketAccount(account, outbound) {
+		return false
+	}
 	model := normalizeOpenAICodexTicketModel(outbound)
 	if model == "" || !s.openAICodexTicketGatedModel(model) {
 		return false
@@ -864,6 +867,9 @@ const openAICodexTicketWakeMinInterval = time.Second
 // （默认非空），此时若门控仍按客户端原始模型判定，就会把「实际出站是非门控
 // 模型、根本不需要票」的 compact 请求整片误拦成不可调度。
 func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, requestedModel string, requireCompact bool) string {
+	if account.IsExcelBPSEnabledForModel(requestedModel) {
+		return account.GetMappedModel(requestedModel)
+	}
 	model := strings.TrimSpace(requestedModel)
 	if account == nil || model == "" {
 		return model
@@ -887,7 +893,7 @@ func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, 
 // outboundModel 必须是真正会发给上游的模型名（openAICodexTicketOutboundModel），
 // 不是客户端原始模型：注入侧读的是出站 body.model，两侧口径必须一致。
 func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
-	if s == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
+	if s == nil || !isOpenAICodexTicketAccount(account, outboundModel) || !s.openAICodexTicketEnabled() {
 		return false
 	}
 	if s.codexTurnStateOwner(context.Background(), account) != CodexTurnStateModeLegacyTicket {
@@ -1338,8 +1344,11 @@ func IsMaskedProxyURL(raw string) bool {
 
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
-func isOpenAICodexTicketAccount(account *Account) bool {
-	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow() && !account.IsExcelBPSEnabled()
+func isOpenAICodexTicketAccount(account *Account, upstreamModels ...string) bool {
+	if account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() || account.isExcelBPSAllModelsEnabled() {
+		return false
+	}
+	return len(upstreamModels) == 0 || !account.isExcelBPSUpstreamModelEnabled(upstreamModels[0])
 }
 
 // IsOpenAICodexTurnStatePrivateExtraKey also covers the retired account-level proxy

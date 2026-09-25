@@ -818,7 +818,7 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 // would be sent for a given request, honoring the legacy compact-only mapping
 // when the caller is on the /responses/compact path.
 func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
-	if account.IsExcelBPSEnabled() {
+	if account.IsExcelBPSEnabledForModel(requestedModel) {
 		return account.GetMappedModel(requestedModel)
 	}
 	// Forward checks the raw Chat Completions fallback before passthrough.

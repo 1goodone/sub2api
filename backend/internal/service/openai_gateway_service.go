@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
@@ -442,6 +443,8 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	excelBPSImagesMu      sync.Mutex
+	excelBPSImages        *basispoints.ImageRelay
 	codexTurnStateProbe   *CodexTurnStateProbeService
 	accountRepo           AccountRepository
 	usageLogRepo          UsageLogRepository
@@ -583,22 +586,22 @@ func NewOpenAIGatewayService(
 			nil,
 			"service.openai_gateway",
 		),
-		httpUpstream:          httpUpstream,
-		deferredService:       deferredService,
-		openAITokenProvider:   openAITokenProvider,
-		grokTokenProvider:     grokTokenProvider,
-		toolCorrector:         NewCodexToolCorrector(),
-		openaiWSResolver:      NewOpenAIWSProtocolResolver(cfg),
-		resolver:              resolver,
-		channelService:        channelService,
-		balanceNotifyService:  balanceNotifyService,
-		settingService:        settingService,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		liveAttestation:       liveattestation.NewProvider(),
-		liveAttestationCipher: newLiveAttestationCipher(cfg),
-		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
-		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
-		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		httpUpstream:               httpUpstream,
+		deferredService:            deferredService,
+		openAITokenProvider:        openAITokenProvider,
+		grokTokenProvider:          grokTokenProvider,
+		toolCorrector:              NewCodexToolCorrector(),
+		openaiWSResolver:           NewOpenAIWSProtocolResolver(cfg),
+		resolver:                   resolver,
+		channelService:             channelService,
+		balanceNotifyService:       balanceNotifyService,
+		settingService:             settingService,
+		userPlatformQuotaRepo:      userPlatformQuotaRepo,
+		liveAttestation:            liveattestation.NewProvider(),
+		liveAttestationCipher:      newLiveAttestationCipher(cfg),
+		responseHeaderFilter:       compileResponseHeaderFilter(cfg),
+		codexSnapshotThrottle:      newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		openaiModelTransient:       newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
 		requireLatestTurnAdmission: true,
 	}
 	if rateLimitService != nil {

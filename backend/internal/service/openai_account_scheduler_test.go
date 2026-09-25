@@ -3670,6 +3670,11 @@ func TestDefaultOpenAIAccountScheduler_IsAccountTransportCompatible_Branches(t *
 
 	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModeOff
 	require.False(t, scheduler.isAccountTransportCompatible(account, OpenAIUpstreamTransportResponsesWebsocketV2Ingress))
+
+	excel := excelAccount()
+	excel.Extra["openai_excel_bps_models"] = []string{"gpt-6-astra"}
+	require.False(t, scheduler.isAccountTransportCompatible(excel, OpenAIUpstreamTransportResponsesWebsocketV2, "gpt-6-astra"))
+	require.True(t, scheduler.isAccountTransportCompatible(excel, OpenAIUpstreamTransportResponsesWebsocketV2, "gpt-6-sol"))
 }
 
 func int64PtrForTest(v int64) *int64 {

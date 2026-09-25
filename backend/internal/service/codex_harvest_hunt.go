@@ -11,7 +11,7 @@ import (
 
 // Singleflight owns the entire node hunt, not each individual HTTP attempt.
 func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, account *Account, model string) {
-	if s == nil || ctx.Err() != nil || !isOpenAICodexTicketAccount(account) || s.httpUpstream == nil {
+	if s == nil || ctx.Err() != nil || !isOpenAICodexTicketAccount(account, model) || s.httpUpstream == nil {
 		return
 	}
 	if s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {

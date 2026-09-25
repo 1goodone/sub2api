@@ -398,6 +398,11 @@ func (b *Bridge) translateCall(native object) (object, error) {
 	envelope, marked, err := customTransportEnvelope(arguments)
 	if !marked && err == nil {
 		envelope, err = decodeTransportEnvelope(arguments["code"])
+		if err != nil {
+			if recovered, ok := recoverTransportEnvelope(arguments["code"], b.tools); ok {
+				envelope, err = recovered, nil
+			}
+		}
 	}
 	if err != nil {
 		return nil, err

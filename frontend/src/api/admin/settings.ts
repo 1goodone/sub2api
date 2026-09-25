@@ -779,6 +779,8 @@ export interface SystemSettings {
 
   // Allow user view error requests
   allow_user_view_error_requests: boolean;
+  excel_bps_image_relay_enabled: boolean;
+  excel_bps_image_base_url: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -1092,6 +1094,8 @@ export interface UpdateSettingsRequest {
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   allow_user_view_error_requests?: boolean;
+  excel_bps_image_relay_enabled?: boolean;
+  excel_bps_image_base_url?: string;
 }
 
 /**

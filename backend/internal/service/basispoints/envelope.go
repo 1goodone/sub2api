@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -150,6 +151,68 @@ func decodeTransportEnvelope(value any) (object, error) {
 		value = outer["code"]
 	}
 	return nil, fmt.Errorf("basispoints tool transport exceeds two nested wrappers")
+}
+
+var embeddedToolCall = regexp.MustCompile(`(?:^|\s)(?:await\s+|return\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*\(`)
+
+// recoverTransportEnvelope finds one unambiguous catalog envelope embedded in
+// a short wrapper such as `functions.exec({"cmd":["pwd"]})`. It only parses
+// JSON and checks exact catalog names; it never evaluates the surrounding text.
+func recoverTransportEnvelope(value any, catalog map[string]tool) (object, bool) {
+	raw, ok := value.(string)
+	if !ok || len(raw) > maxEnvelopeBytes {
+		return nil, false
+	}
+	if match := embeddedToolCall.FindStringSubmatch(raw); len(match) == 2 {
+		if _, known := catalog[match[1]]; !known {
+			if _, known = catalog[strings.TrimPrefix(match[1], "functions.")]; !known {
+				return nil, false
+			}
+		}
+		start := strings.Index(raw, "(")
+		if start >= 0 {
+			if envelope, _, ok := decodeLeadingObject(raw[start+1:]); ok {
+				return envelope, true
+			}
+		}
+	}
+	var found object
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '{' {
+			continue
+		}
+		candidate, end, ok := decodeLeadingObject(raw[i:])
+		if !ok {
+			continue
+		}
+		name, _ := envelopeName(candidate)
+		if _, known := catalog[name]; !known {
+			if _, known = catalog[strings.TrimPrefix(name, "functions.")]; !known {
+				i += end - 1
+				continue
+			}
+		}
+		if found != nil {
+			return nil, false
+		}
+		found = candidate
+		i += end - 1
+	}
+	return found, found != nil
+}
+
+func decodeLeadingObject(raw string) (object, int, bool) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return nil, 0, false
+	}
+	item, ok := value.(object)
+	if !ok || item == nil {
+		return nil, 0, false
+	}
+	return item, int(decoder.InputOffset()), true
 }
 
 func envelopeName(envelope object) (string, error) {

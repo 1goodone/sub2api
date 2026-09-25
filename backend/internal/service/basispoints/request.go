@@ -22,6 +22,7 @@ type Bridge struct {
 	Warnings         []string
 	tools            map[string]tool
 	unsupportedTools map[string]bool
+	structured       *structuredOutput
 	replay           *ReplayCache
 	scope            string
 }
@@ -94,7 +95,11 @@ func Prepare(raw []byte, scope string, replay *ReplayCache) ([]byte, *Bridge, er
 	if err != nil {
 		return nil, nil, err
 	}
-	b := &Bridge{RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), replay: replay, scope: scope}
+	structured, err := prepareStructuredOutput(source["text"])
+	if err != nil {
+		return nil, nil, err
+	}
+	b := &Bridge{RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), structured: structured, replay: replay, scope: scope}
 	choice := source["tool_choice"]
 	if choice != nil && text(choice) != "auto" && text(choice) != "none" {
 		return nil, nil, fmt.Errorf("basispoints supports tool_choice auto or none only")
@@ -116,11 +121,6 @@ func Prepare(raw []byte, scope string, replay *ReplayCache) ([]byte, *Bridge, er
 					catalog = append(catalog, additional...)
 				}
 			}
-		}
-	}
-	if format, ok := source["text"].(object); ok {
-		if f, ok := format["format"].(object); ok && text(f["type"]) != "" && text(f["type"]) != "text" {
-			return nil, nil, fmt.Errorf("basispoints does not support structured output formats")
 		}
 	}
 	var input []any
@@ -165,6 +165,9 @@ func Prepare(raw []byte, scope string, replay *ReplayCache) ([]byte, *Bridge, er
 		warning := "Hosted tools unavailable through Basispoints: " + strings.Join(kinds, ", ")
 		b.Warnings = append(b.Warnings, warning)
 		protocol += "\n" + warning + ". These declarations were omitted. Do not claim to have used them. If the task requires one, explain the limitation or use a suitable declared client tool."
+	}
+	if structured != nil {
+		protocol += "\n" + structured.instructions()
 	}
 	prologue = append(prologue, message("developer", protocol))
 	cacheKey := text(source["prompt_cache_key"])

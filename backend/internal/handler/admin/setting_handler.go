@@ -402,6 +402,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		ExcelBPSImageRelayEnabled:   settings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:        settings.ExcelBPSImageBaseURL,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

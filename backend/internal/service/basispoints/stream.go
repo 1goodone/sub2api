@@ -29,7 +29,8 @@ func (b *streamBody) Close() error {
 	return errors.Join(readerErr, b.closeUpstream())
 }
 
-// Stream keeps text incremental while withholding native tool events until validated.
+// Stream keeps ordinary text incremental while withholding native tool events
+// and structured final answers until validated.
 // Closing the downstream body interrupts an upstream read or a blocked pipe write.
 func (b *Bridge) Stream(upstream io.ReadCloser) io.ReadCloser {
 	reader, writer := io.Pipe()
@@ -96,10 +97,18 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 		if kind == "" {
 			kind = event
 		}
+		if b.structured != nil && kind == "response.completed" {
+			if response, ok := payload["response"].(object); !ok || response == nil {
+				return fmt.Errorf("basispoints structured output is missing its terminal response")
+			}
+		}
 		if isToolEvent(kind) {
 			return nil
 		}
 		item, _ := payload["item"].(object)
+		if b.structured != nil && isStructuredMessageEvent(kind, item) {
+			return nil
+		}
 		if kind == "response.output_item.added" && isTool(item) {
 			return nil
 		}
@@ -113,7 +122,20 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 			return nil
 		}
 		if response, ok := payload["response"].(object); ok {
+			if b.structured != nil {
+				config, _ := response["text"].(object)
+				if config == nil {
+					config = make(object)
+				}
+				config["format"] = b.structured.format
+				response["text"] = config
+			}
 			if kind == "response.completed" {
+				if b.structured != nil {
+					if err := b.structured.validate(response); err != nil {
+						return err
+					}
+				}
 				output, _ := response["output"].([]any)
 				for _, raw := range output {
 					item, _ := raw.(object)
@@ -134,6 +156,10 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 						if err := emitTool(item, i); err != nil {
 							return err
 						}
+					} else if b.structured != nil && text(item["type"]) == "message" {
+						if err := emitStructuredMessage(item, i, emit); err != nil {
+							return err
+						}
 					}
 				}
 			} else {
@@ -142,7 +168,7 @@ func (b *Bridge) transform(reader io.Reader, writer io.Writer) error {
 				filtered := make([]any, 0, len(output))
 				for _, raw := range output {
 					item, _ := raw.(object)
-					if !isTool(item) {
+					if !isTool(item) && (b.structured == nil || text(item["type"]) != "message") {
 						filtered = append(filtered, raw)
 					}
 				}

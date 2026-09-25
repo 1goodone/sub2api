@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -59,8 +60,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
-	if account.IsExcelBPSEnabled() {
-		return s.forwardExcelBPS(ctx, c, account, body, startTime)
+	if account.IsExcelBPSEnabledForModel(gjson.GetBytes(body, "model").String()) {
+		reason := basispoints.NativeFallbackReason(body)
+		if reason == "" {
+			return s.forwardExcelBPS(ctx, c, account, body, startTime)
+		}
+		c.Header("X-Codex2API-Upstream", "codex")
+		c.Header("X-Codex2API-Basispoints-Bypass", reason)
 	}
 
 	// The SDK adapter owns Lite declarations, custom tools, replay item IDs,
