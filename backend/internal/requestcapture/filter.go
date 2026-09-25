@@ -311,6 +311,7 @@ func (f *jsonFilter) Write(p []byte) []byte {
 
 type bodyFilter struct {
 	json             jsonFilter
+	framing          bodyFraming
 	sse, unsupported bool
 	linePrefix       []byte
 	lineStarted      bool
@@ -329,9 +330,9 @@ type bodyFilter struct {
 }
 
 func newBodyFilter(contentType string, media bool) *bodyFilter {
-	ct := strings.ToLower(contentType)
+	ct := strings.ToLower(strings.TrimSpace(contentType))
 	knownMedia := strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "application/octet-stream")
-	return &bodyFilter{knownMedia: knownMedia, contentType: bounded(contentType, 256), json: jsonFilter{media: media}, sse: strings.Contains(ct, "text/event-stream"), binary: media && (strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "application/octet-stream")), unsupported: ct != "" && !strings.Contains(ct, "json") && !strings.Contains(ct, "text/event-stream"), digest: sha256.New()}
+	return &bodyFilter{framing: newBodyFraming(contentType), knownMedia: knownMedia, contentType: bounded(contentType, 256), json: jsonFilter{media: media}, sse: strings.Contains(ct, "text/event-stream"), binary: media && (strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "application/octet-stream")), unsupported: ct != "" && !strings.Contains(ct, "json") && !strings.Contains(ct, "text/event-stream"), digest: sha256.New()}
 }
 func (f *bodyFilter) Write(p []byte) []byte {
 	f.bytes += int64(len(p))
@@ -360,6 +361,15 @@ func (f *bodyFilter) Write(p []byte) []byte {
 	if f.unsupported {
 		return nil
 	}
+	prefix, rest := f.framing.detect(p)
+	f.sse = f.framing.sse
+	if len(prefix) == 0 {
+		return f.writeText(rest)
+	}
+	return append(f.writeText(prefix), f.writeText(rest)...)
+}
+
+func (f *bodyFilter) writeText(p []byte) []byte {
 	if !f.sse {
 		return f.json.Write(p)
 	}
@@ -383,6 +393,10 @@ func (f *bodyFilter) Write(p []byte) []byte {
 					} else {
 						f.unsupportedSSE = true
 					}
+				} else if strings.HasPrefix(prefix, ":") {
+					// Comments are heartbeats, not malformed SSE. Do not persist
+					// arbitrary comment text, which has no JSON redaction boundary.
+					_, _ = out.WriteString(": [comment omitted]\n")
 				} else {
 					f.unsupportedSSE = true
 				}
@@ -474,6 +488,9 @@ func (f *bodyFilter) End() ([]byte, string) {
 		return b, reason
 	}
 	var tail []byte
+	if f.framing.pending && len(f.framing.prefix) > 0 {
+		f.invalid = true
+	}
 	if f.sse {
 		if f.lineStarted && !f.dataReady {
 			tail = f.sseData(nil, true)

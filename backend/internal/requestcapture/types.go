@@ -83,6 +83,9 @@ type Attempt struct {
 	Status            int       `json:"status,omitempty"`
 	UpstreamRequestID string    `json:"upstream_request_id,omitempty"`
 	Error             string    `json:"error,omitempty"`
+	ReadError         string    `json:"read_error,omitempty"`
+	ResponseTerminal  string    `json:"response_terminal,omitempty"`
+	LocalClose        bool      `json:"local_close,omitempty"`
 }
 
 type Part struct {
