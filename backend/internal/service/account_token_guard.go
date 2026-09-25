@@ -191,10 +191,10 @@ func NewAccountTokenGuardService(settings SettingRepository, repo AccountTokenGu
 
 func defaultAccountTokenGuardConfig() AccountTokenGuardConfig {
 	return AccountTokenGuardConfig{
-		Enabled:             false,
-		IntervalSeconds:     300,
-		ProbeEndpoint:       "https://session.ameng2027.xyz/api/v1/relogin/probe",
-		ProbeModel:          "gpt-6-astra",
+		Enabled:         false,
+		IntervalSeconds: 300,
+		ProbeEndpoint:   "https://session.ameng2027.xyz/api/v1/relogin/probe",
+		ProbeModel:      "gpt-6-astra",
 		ProbeHeaders: map[string]string{
 			"X-Session-Studio-Probe":  "1",
 			"X-Session-Studio-Client": "{{uuid}}",
@@ -203,7 +203,7 @@ func defaultAccountTokenGuardConfig() AccountTokenGuardConfig {
 		ProbeConcurrency:    6,
 		MaxProbePerCycle:    12,
 		AutoRelogin:         true,
-		ReloginEndpoint: "https://session.ameng2027.xyz/api/v1/relogin",
+		ReloginEndpoint:     "https://session.ameng2027.xyz/api/v1/relogin",
 		ReloginHeaders: map[string]string{
 			"X-Session-Studio-Relogin": "1",
 			"X-Session-Studio-Client":  "{{uuid}}",
@@ -953,7 +953,6 @@ func applyGuardRequestHeaders(req *http.Request, endpoint, kind string, extra ma
 		req.Header.Set(name, value)
 	}
 }
-
 
 func normalizeGuardHeaders(in map[string]string) map[string]string {
 	if len(in) == 0 {

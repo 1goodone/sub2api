@@ -153,66 +153,64 @@ func decodeTransportEnvelope(value any) (object, error) {
 	return nil, fmt.Errorf("basispoints tool transport exceeds two nested wrappers")
 }
 
-var embeddedToolCall = regexp.MustCompile(`(?:^|\s)(?:await\s+|return\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*\(`)
+var catalogInvocation = regexp.MustCompile(`^(?:(?:return\s+)?await\s+|return\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*\(`)
 
-// recoverTransportEnvelope finds one unambiguous catalog envelope embedded in
-// a short wrapper such as `functions.exec({"cmd":["pwd"]})`. It only parses
-// JSON and checks exact catalog names; it never evaluates the surrounding text.
+// recoverTransportEnvelope accepts one complete catalog invocation whose sole
+// argument is a JSON literal. It never evaluates code or extracts an object from
+// a program, batch, incomplete call or trailing text. The callee selects the tool;
+// fields named name/arguments inside the literal remain ordinary tool arguments.
 func recoverTransportEnvelope(value any, catalog map[string]tool) (object, bool) {
 	raw, ok := value.(string)
 	if !ok || len(raw) > maxEnvelopeBytes {
 		return nil, false
 	}
-	if match := embeddedToolCall.FindStringSubmatch(raw); len(match) == 2 {
-		if _, known := catalog[match[1]]; !known {
-			if _, known = catalog[strings.TrimPrefix(match[1], "functions.")]; !known {
-				return nil, false
-			}
-		}
-		start := strings.Index(raw, "(")
-		if start >= 0 {
-			if envelope, _, ok := decodeLeadingObject(raw[start+1:]); ok {
-				return envelope, true
-			}
-		}
-	}
-	var found object
-	for i := 0; i < len(raw); i++ {
-		if raw[i] != '{' {
-			continue
-		}
-		candidate, end, ok := decodeLeadingObject(raw[i:])
-		if !ok {
-			continue
-		}
-		name, _ := envelopeName(candidate)
-		if _, known := catalog[name]; !known {
-			if _, known = catalog[strings.TrimPrefix(name, "functions.")]; !known {
-				i += end - 1
-				continue
-			}
-		}
-		if found != nil {
+	raw = strings.TrimSpace(raw)
+	match := catalogInvocation.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		// Retain the existing complete JSON/fence/prose forms without searching
+		// arbitrary text for an executable-looking object.
+		envelope, err := decodeTransportEnvelope(raw)
+		if err != nil {
 			return nil, false
 		}
-		found = candidate
-		i += end - 1
+		name, err := envelopeName(envelope)
+		_, known := catalog[name]
+		return envelope, err == nil && known
 	}
-	return found, found != nil
-}
-
-func decodeLeadingObject(raw string) (object, int, bool) {
-	decoder := json.NewDecoder(strings.NewReader(raw))
+	name := match[1]
+	info, known := catalog[name]
+	if !known {
+		name = strings.TrimPrefix(name, "functions.")
+		info, known = catalog[name]
+	}
+	if !known {
+		return nil, false
+	}
+	argument := raw[len(match[0]):]
+	decoder := json.NewDecoder(strings.NewReader(argument))
 	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
-		return nil, 0, false
+	var literal any
+	if decoder.Decode(&literal) != nil {
+		return nil, false
 	}
-	item, ok := value.(object)
-	if !ok || item == nil {
-		return nil, 0, false
+	tail := strings.TrimSpace(argument[decoder.InputOffset():])
+	if !strings.HasPrefix(tail, ")") {
+		return nil, false
 	}
-	return item, int(decoder.InputOffset()), true
+	if tail = strings.TrimSpace(tail[1:]); tail != "" && tail != ";" {
+		return nil, false
+	}
+	switch info.Kind {
+	case "function":
+		if args, ok := literal.(object); ok && args != nil {
+			return object{"name": name, "arguments": args}, true
+		}
+	case "custom":
+		if input, ok := literal.(string); ok {
+			return object{"name": name, "input": input}, true
+		}
+	}
+	return nil, false
 }
 
 func envelopeName(envelope object) (string, error) {

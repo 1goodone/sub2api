@@ -285,7 +285,7 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 	result := make([]any, 0, len(input))
 	seenCalls := make(map[string]bool)
 	var trigger any
-	for _, raw := range input {
+	for index, raw := range input {
 		item, ok := raw.(object)
 		if !ok {
 			return nil, fmt.Errorf("invalid Basispoints input item")
@@ -328,7 +328,7 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 				seenCalls[id] = true
 			}
 			item["type"] = "function_call_output"
-			if err := validateHistoryContent(item["output"]); err != nil {
+			if err := validateHistoryContent(item["output"], index, "output"); err != nil {
 				return nil, err
 			}
 			// Codex custom results carry ctco_ IDs. After lowering to a function
@@ -344,7 +344,7 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 		case "configuration_update":
 			return nil, fmt.Errorf("basispoints does not support configuration_update; start a new request with the desired effort")
 		}
-		if err := validateHistoryContent(item["content"]); err != nil {
+		if err := validateHistoryContent(item["content"], index, "content"); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -353,23 +353,6 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 		result = append(result, trigger)
 	}
 	return result, nil
-}
-
-func validateHistoryContent(value any) error {
-	content, _ := value.([]any)
-	for _, rawPart := range content {
-		part, _ := rawPart.(object)
-		switch text(part["type"]) {
-		case "input_text", "output_text", "text", "refusal":
-		case "input_image":
-			if err := validateImage(part); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("basispoints supports text and HTTPS input_image content only")
-		}
-	}
-	return nil
 }
 
 func isTool(item object) bool {

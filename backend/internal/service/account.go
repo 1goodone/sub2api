@@ -2125,7 +2125,7 @@ func (a *Account) IsExcelBPSEnabled() bool {
 	return enabled
 }
 
-// IsExcelBPSCacheCreationAsInputEnabled controls local cache-creation billing only.
+// IsExcelBPSCacheCreationAsInputEnabled controls local billing and downstream usage.
 // The setting has no effect unless this account uses the Excel/BPS protocol.
 func (a *Account) IsExcelBPSCacheCreationAsInputEnabled() bool {
 	if !a.IsExcelBPSEnabled() {

@@ -761,7 +761,7 @@ export default {
         oauthPassthrough: 'Auto passthrough (auth only)',
         excelBPS: 'Excel / BPS protocol',
         excelBPSCacheCreationAsInput: 'Bill cache creation as regular input',
-        excelBPSCacheCreationAsInputDesc: 'Disabled by default. Count cache creation tokens as regular input usage and bill them at the input rate. Cache reads keep their existing rate. This changes local billing only, not upstream caching.',
+        excelBPSCacheCreationAsInputDesc: 'Disabled by default. Bill BPS cache creation tokens as regular input and report zero cache creation usage downstream. Total input and cache reads stay unchanged. This does not disable upstream caching.',
         excelBPSDesc: 'Forward Responses through Excel using this account’s existing ChatGPT OAuth credentials. No GitHub login or sidecar. Disable to restore Codex routing.',
         excelBPSAllModels: 'Enable for all models (legacy behavior)',
         excelBPSModels: 'Select models for Excel / BPS',
