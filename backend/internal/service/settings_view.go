@@ -330,11 +330,11 @@ type SystemSettings struct {
 	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
 	UsageShowLongContextBadge bool
 
-	ExcelBPSImageRelayEnabled   bool
-	ExcelBPSImageBaseURL        string
-	ExcelBPSImageBodyLimitMiB   int
-	ExcelBPSImageBudgetMiB      int
-	ExcelBPSImageMaxRequests    int
+	ExcelBPSImageRelayEnabled bool
+	ExcelBPSImageBaseURL      string
+	ExcelBPSImageBodyLimitMiB int
+	ExcelBPSImageBudgetMiB    int
+	ExcelBPSImageMaxRequests  int
 }
 
 type DefaultSubscriptionSetting struct {

@@ -277,7 +277,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyExcelBPSImageBodyLimitMiB:  strconv.Itoa(DefaultExcelBPSImageBodyLimitMiB),
 		SettingKeyExcelBPSImageBudgetMiB:     strconv.Itoa(DefaultExcelBPSImageBudgetMiB),
 		SettingKeyExcelBPSImageMaxRequests:   strconv.Itoa(DefaultExcelBPSImageMaxRequests),
-		SettingKeyUsageShowLongContextBadge: "true",
+		SettingKeyUsageShowLongContextBadge:  "true",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
