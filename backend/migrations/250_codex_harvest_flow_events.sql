@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS codex_harvest_flow_events (
+CREATE TABLE IF NOT EXISTS codex_harvest_flow_events (
     id BIGSERIAL PRIMARY KEY,
     event_id VARCHAR(64) NOT NULL UNIQUE,
     at TIMESTAMPTZ NOT NULL,

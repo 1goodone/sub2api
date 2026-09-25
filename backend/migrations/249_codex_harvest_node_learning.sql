@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS codex_harvest_learning_epoch (
+CREATE TABLE IF NOT EXISTS codex_harvest_learning_epoch (
     id SMALLINT PRIMARY KEY CHECK (id = 1),
     generation BIGINT NOT NULL DEFAULT 1
 );
