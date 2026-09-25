@@ -2,6 +2,7 @@ package requestcapture
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -110,35 +111,70 @@ func New(store Store, dir string, config Config) (*Manager, error) {
 					return nil, e
 				}
 			}
-			for ro := 0; ; ro += 100 {
+			var requests, partial, bytes int64
+			for ro := 0; ; {
 				records, e := store.Records(ctx, t.ID, "", false, 100, ro)
 				if e != nil {
 					return nil, e
 				}
+				kept := 0
 				for _, r := range records {
-					if r.FinishedAt == nil {
-						full, readErr := store.Record(ctx, t.ID, r.ID)
-						if readErr != nil {
-							return nil, readErr
-						}
-						r = *full
-						now := time.Now().UTC()
-						r.FinishedAt = &now
-						r.Partial = true
-						r.Reason = "server_restart"
-						if e = store.SaveRecord(ctx, &r); e != nil {
+					if !r.IsError || r.FinishedAt == nil {
+						if _, e = uuid.Parse(r.ID); e != nil {
 							return nil, e
 						}
+						if e = os.RemoveAll(filepath.Join(dir, t.ID, r.ID)); e != nil {
+							return nil, e
+						}
+						if e = store.DeleteRecord(ctx, t.ID, r.ID); e != nil {
+							return nil, e
+						}
+						continue
+					}
+					kept++
+					requests++
+					bytes += r.Bytes
+					if r.Partial {
+						partial++
 					}
 				}
 				if len(records) < 100 {
 					break
+				}
+				ro += kept
+			}
+			// A crash can occur between record persistence and task counter flush.
+			if t.Requests != requests || t.Partial != partial || t.Bytes != bytes {
+				t.Requests, t.Partial, t.Bytes = requests, partial, bytes
+				if e = store.SaveTask(ctx, &t); e != nil {
+					return nil, e
 				}
 			}
 		}
 		if len(tasks) < 100 {
 			break
 		}
+	}
+	// Remove bodies whose final error index was never committed, including crashes
+	// between a successful response and its asynchronous deletion.
+	if err = m.cleanOrphanBodies(ctx); err != nil {
+		return nil, err
+	}
+	m.used.Store(0)
+	if err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() != ".instance" {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			m.used.Add(info.Size())
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	go m.run()
 	return m, nil
@@ -305,11 +341,11 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.signal()
 	return nil
 }
-func (m *Manager) Records(ctx context.Context, task, rid string, onlyErrors bool, limit, offset int) ([]Record, error) {
+func (m *Manager) Records(ctx context.Context, task, rid string, _ bool, limit, offset int) ([]Record, error) {
 	if _, err := m.Task(ctx, task); err != nil {
 		return nil, err
 	}
-	return m.store.Records(ctx, task, rid, onlyErrors, limit, offset)
+	return m.store.Records(ctx, task, rid, true, limit, offset)
 }
 func (m *Manager) Record(ctx context.Context, task, id string) (*Record, error) {
 	if _, err := m.Task(ctx, task); err != nil {
@@ -319,7 +355,7 @@ func (m *Manager) Record(ctx context.Context, task, id string) (*Record, error) 
 	if err != nil {
 		return nil, err
 	}
-	if r.InstanceID != m.instance {
+	if r.InstanceID != m.instance || !r.IsError || r.FinishedAt == nil {
 		return nil, ErrNotFound
 	}
 	return r, nil
@@ -450,7 +486,7 @@ func (m *Manager) maintenance() {
 	m.mu.Unlock()
 	for _, s := range sessions {
 		for _, t := range s.candidates {
-			if !t.active.Load() {
+			if !t.active.Load() && s.pending.Load() == 0 {
 				m.finishTarget(s, t)
 			}
 		}
@@ -468,12 +504,6 @@ func (m *Manager) maintenance() {
 		s.mu.Unlock()
 		if (s.done.Load() || allStopped || allFinished || failed) && s.pending.Load() == 0 {
 			m.finish(s)
-		} else {
-			for _, r := range s.records {
-				if r.dirty {
-					m.flushRecord(s, r, false)
-				}
-			}
 		}
 	}
 	m.mu.Lock()
@@ -547,4 +577,42 @@ func (m *Manager) cleanExpired() {
 		}
 		offset += len(tasks) - deleted
 	}
+}
+
+// Recovery is fail-closed: only a finished error index authorizes retained files.
+func (m *Manager) cleanOrphanBodies(ctx context.Context) error {
+	tasks, err := os.ReadDir(m.dir)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if !task.IsDir() {
+			continue
+		}
+		if _, err := uuid.Parse(task.Name()); err != nil {
+			return err
+		}
+		records, err := os.ReadDir(filepath.Join(m.dir, task.Name()))
+		if err != nil {
+			return err
+		}
+		for _, record := range records {
+			if !record.IsDir() {
+				continue
+			}
+			if _, err := uuid.Parse(record.Name()); err != nil {
+				return err
+			}
+			r, err := m.store.Record(ctx, task.Name(), record.Name())
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err != nil || r.InstanceID != m.instance || !r.IsError || r.FinishedAt == nil {
+				if err := os.RemoveAll(filepath.Join(m.dir, task.Name(), record.Name())); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }

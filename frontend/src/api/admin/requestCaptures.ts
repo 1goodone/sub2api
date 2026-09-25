@@ -13,7 +13,7 @@ export interface CapturePart {
 export interface CaptureRecord {
   id: string; task_id: string; request_id: string; client_request_id?: string; instance_id: string
   user_id: number; group_id: number; routed_group_id?: number; model?: string; path: string
-  protocol: string; status: number; is_error: boolean; partial: boolean; reason?: string
+  protocol: string; status: number; is_error: boolean; turn?: number; partial: boolean; reason?: string
   created_at: string; finished_at?: string; bytes: number; error_code?: string
   attempts: Array<{ number: number; account_id: number; status?: number; upstream_request_id?: string; error?: string }>
   parts: CapturePart[]; usage?: Record<string, number>

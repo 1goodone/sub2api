@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,7 +102,7 @@ func (s *memoryStore) Records(_ context.Context, task, rid string, errorsOnly bo
 	for _, b := range s.records {
 		var r Record
 		_ = json.Unmarshal(b, &r)
-		if r.TaskID == task && (rid == "" || r.RequestID == rid) && (!errorsOnly || r.IsError) {
+		if r.TaskID == task && (rid == "" || r.RequestID == rid) && (!errorsOnly || (r.IsError && r.FinishedAt != nil)) {
 			out = append(out, r)
 		}
 	}
@@ -114,6 +115,18 @@ func (s *memoryStore) Records(_ context.Context, task, rid string, errorsOnly bo
 		end = len(out)
 	}
 	return out[offset:end], nil
+}
+func (s *memoryStore) DeleteRecord(_ context.Context, task, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if raw, ok := s.records[id]; ok {
+		var r Record
+		_ = json.Unmarshal(raw, &r)
+		if r.TaskID == task {
+			delete(s.records, id)
+		}
+	}
+	return nil
 }
 func (s *memoryStore) DeleteTask(_ context.Context, instance, id string) error {
 	s.mu.Lock()
@@ -300,8 +313,9 @@ func TestQuotaStopsAndPreservesFiles(t *testing.T) {
 	m.ApplyConfig(Config{true, 1, 7})
 	s := m.Begin(Meta{UserID: 1})
 	require.NotNil(t, s)
+	s.MarkError("upstream_failure")
 	s.ClientRequest([]byte(`{"input":"`+strings.Repeat("x", 2<<20)+`"}`), "application/json", nil)
-	s.Finish(200)
+	s.Finish(502)
 	drain(t, m)
 	require.LessOrEqual(t, m.Stats().UsedBytes, int64(1<<20))
 	require.Positive(t, m.Stats().UsedBytes)
@@ -321,6 +335,14 @@ func TestRestartInterruptsAndRetentionDeletes(t *testing.T) {
 	target.Status = "running"
 	target.EndedAt = nil
 	require.NoError(t, store.SaveTask(context.Background(), target))
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		r := Record{ID: uuid.NewString(), TaskID: target.ID, InstanceID: m.InstanceID(), CreatedAt: now, FinishedAt: &now, Bytes: int64((i + 1) * 10), Partial: i == 0, IsError: true}
+		if i == 1 {
+			r.FinishedAt = nil
+		}
+		require.NoError(t, store.SaveRecord(context.Background(), &r))
+	}
 	m, err = New(store, dir, Config{true, 1024, 7})
 	require.NoError(t, err)
 	defer m.Close()
@@ -328,6 +350,14 @@ func TestRestartInterruptsAndRetentionDeletes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "interrupted", v.Status)
 	require.Equal(t, "server_restart", v.Reason)
+	require.EqualValues(t, 2, v.Requests)
+	require.EqualValues(t, 1, v.Partial)
+	require.EqualValues(t, 40, v.Bytes)
+	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
+	require.NoError(t, err)
+	for _, r := range rows {
+		require.NotNil(t, r.FinishedAt)
+	}
 	old := time.Now().Add(-8 * 24 * time.Hour)
 	v.EndedAt = &old
 	require.NoError(t, store.SaveTask(context.Background(), v))
@@ -340,7 +370,7 @@ func TestExportAndPermissions(t *testing.T) {
 	target := task(t, m, "user", 1, false)
 	s := m.Begin(Meta{UserID: 1})
 	s.ClientRequest([]byte(`{"input":"hello"}`), "application/json", nil)
-	s.Finish(200)
+	s.Finish(500)
 	drain(t, m)
 	require.NoError(t, m.Stop(context.Background(), target.ID))
 	var archive bytes.Buffer
@@ -393,7 +423,11 @@ func TestCapture200Concurrent(t *testing.T) {
 			}
 			_ = up.Close()
 			_ = down.Close()
-			s.Finish(200)
+			status := 200
+			if s.meta.UserID%2 == 0 {
+				status = 502
+			}
+			s.Finish(status)
 		}(s)
 	}
 	wg.Wait()
@@ -403,7 +437,11 @@ func TestCapture200Concurrent(t *testing.T) {
 	rs, err := m.Records(context.Background(), target.ID, "", false, 1000, 0)
 	require.NoError(t, err)
 	t.Logf("stored_requests=%d stats=%+v", len(rs), m.Stats())
-	require.Len(t, rs, 200)
+	require.Len(t, rs, 100)
+	for _, r := range rs {
+		require.True(t, r.IsError)
+		require.Zero(t, r.UserID%2)
+	}
 	partial := 0
 	for _, r := range rs {
 		if r.Partial {

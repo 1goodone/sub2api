@@ -24,6 +24,8 @@ describe('request capture page', () => {
   it('renders capture content as text and replaces preview pages', async () => {
     const wrapper = mount(View, options); await flushPromises()
     await wrapper.findAll('button').find(b => b.text().includes('#7'))!.trigger('click'); await flushPromises()
+    expect(mocks.listRecords).toHaveBeenLastCalledWith('task', 1, '', true)
+    expect(wrapper.findAll('input[type=checkbox]')).toHaveLength(1) // Only media remains configurable.
     await wrapper.findAll('button').find(b => b.text() === 'request-id')!.trigger('click'); await flushPromises()
     expect(wrapper.find('img').exists()).toBe(false); expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
     mocks.getContent.mockResolvedValueOnce({ text: 'next page', next_offset: 19, has_more: false })

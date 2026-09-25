@@ -64,7 +64,6 @@ func (w *captureResponseWriter) observe(p []byte) {
 		w.stream = w.session.NewStream("client_response", 0, 0, w.Header().Get("Content-Type"), w.Header())
 	}
 	_, _ = w.stream.Write(p)
-	w.session.ObserveResult(p)
 }
 func (w *captureResponseWriter) Write(p []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(p)
@@ -73,6 +72,7 @@ func (w *captureResponseWriter) Write(p []byte) (int, error) {
 	}
 	if err != nil {
 		w.session.MarkPartial("client_write_failed")
+		w.session.MarkError("client_write_failed")
 	}
 	return n, err
 }

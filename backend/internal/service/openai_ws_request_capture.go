@@ -28,6 +28,7 @@ func (c *captureUpstreamFrameConn) ReadFrame(ctx context.Context) (coderws.Messa
 	}
 	if err != nil && ctx.Err() == nil && coderws.CloseStatus(err) != coderws.StatusNormalClosure && coderws.CloseStatus(err) != coderws.StatusGoingAway {
 		c.capture.MarkPartial("upstream_websocket_closed")
+		c.capture.MarkError("upstream_websocket_closed")
 	}
 	return t, b, err
 }
@@ -40,6 +41,7 @@ func WriteCapturedWSClient(ctx context.Context, conn *coderws.Conn, t coderws.Me
 		capture.Frame("client_response", 0, payload)
 	} else {
 		capture.MarkPartial("client_write_failed")
+		capture.MarkError("client_write_failed")
 	}
 	return err
 }
@@ -58,6 +60,7 @@ func captureWSLeaseRead(ctx context.Context, read func() ([]byte, error)) ([]byt
 	}
 	if err != nil && ctx.Err() == nil && coderws.CloseStatus(err) != coderws.StatusNormalClosure && coderws.CloseStatus(err) != coderws.StatusGoingAway {
 		capture.MarkPartial("upstream_websocket_read_failed")
+		capture.MarkError("upstream_websocket_read_failed")
 	}
 	return b, err
 }

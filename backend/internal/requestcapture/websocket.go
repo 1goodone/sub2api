@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+
+	"github.com/tidwall/gjson"
 )
 
 // WSRequest begins one actual upstream frame/attempt. RawMessage avoids an extra
@@ -57,13 +59,10 @@ func (s *Session) Frame(stage string, attempt int, payload []byte) {
 		_ = stream.Close()
 		return
 	}
-	if stage == "client_response" {
-		s.ObserveResult(payload)
-	}
 	s.frameMu.Lock()
 	s.mu.Lock()
 	turn := s.turn
-	closed := s.closed || s.failed
+	closed := s.closed || s.failed || s.turnEnded
 	s.mu.Unlock()
 	if closed {
 		s.frameMu.Unlock()
@@ -81,6 +80,7 @@ func (s *Session) Frame(stage string, attempt int, payload []byte) {
 		stream = s.NewStream(stage, attempt, turn, "text/event-stream; profile=websocket-frames", nil)
 		s.frameStreams[stage] = stream
 	}
+	terminal := isTerminalFrame(payload)
 	for len(payload) > 0 {
 		line, rest, found := bytes.Cut(payload, []byte{'\n'})
 		_, _ = stream.Write([]byte("data: "))
@@ -92,7 +92,65 @@ func (s *Session) Frame(stage string, attempt int, payload []byte) {
 		}
 	}
 	_, _ = stream.Write([]byte("\n"))
+	if stage == "client_response" && terminal {
+		s.endTurnLocked()
+	}
 	s.frameMu.Unlock()
+}
+func isTerminalFrame(payload []byte) bool {
+	switch gjson.GetBytes(payload, "type").String() {
+	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
+		return true
+	}
+	return false
+}
+
+// Called under frameMu after the terminal client frame has been enqueued.
+func (s *Session) endTurnLocked() {
+	s.mu.Lock()
+	isWS := s.meta.Protocol == "websocket"
+	s.mu.Unlock()
+	// HTTP bridges finish at the HTTP response boundary.
+	if !isWS {
+		return
+	}
+	for key, stream := range s.frameStreams {
+		_ = stream.Close()
+		delete(s.frameStreams, key)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.failed || s.turnEnded {
+		return
+	}
+	const charge = int64(64 << 10)
+	if !s.m.reserve(charge) {
+		s.failed = true
+		s.reason = "buffer_limit"
+		s.m.signal()
+		return
+	}
+	snapshot := &Record{}
+	s.snapshotLocked(snapshot)
+	snapshot.Status = 101
+	targets := []string{}
+	for _, t := range s.candidates {
+		if s.matched[t.task.ID] && !s.finishedTargets[t.task.ID] {
+			targets = append(targets, t.task.ID)
+		}
+	}
+	s.pending.Add(1)
+	select {
+	case s.m.queue <- event{s: s, final: snapshot, targets: targets, charge: charge}:
+		s.turnEnded = true
+		s.releaseInputLocked()
+	default:
+		s.pending.Add(-1)
+		s.m.buffer.Add(-charge)
+		s.failed = true
+		s.reason = "queue_full"
+		s.m.signal()
+	}
 }
 func (s *Session) closeFrameStreams() {
 	s.frameMu.Lock()

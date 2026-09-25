@@ -13,12 +13,12 @@ import (
 )
 
 func sensitive(k string) bool {
-	k = strings.ToLower(strings.ReplaceAll(k, "-", "_"))
+	k = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(k, "-", ""), "_", ""))
 	switch k {
-	case "authorization", "proxy_authorization", "cookie", "set_cookie", "api_key", "apikey", "x_api_key", "x_goog_api_key", "access_token", "refresh_token", "id_token", "token", "client_secret", "secret", "password", "credentials", "private_key", "signature", "sig", "key":
+	case "authorization", "proxyauthorization", "cookie", "setcookie", "apikey", "xapikey", "xgoogapikey", "accesstoken", "refreshtoken", "idtoken", "token", "clientsecret", "secret", "password", "credentials", "privatekey", "signature", "sig", "key":
 		return true
 	}
-	return strings.Contains(k, "credential") || strings.HasSuffix(k, "_secret") || strings.HasSuffix(k, "_token")
+	return strings.Contains(k, "credential") || strings.HasSuffix(k, "secret") || strings.HasSuffix(k, "token") || strings.HasSuffix(k, "accesskey") || strings.HasSuffix(k, "apikey")
 }
 
 func SafeURL(raw string) string {
@@ -218,7 +218,7 @@ func (f *jsonFilter) Write(p []byte) []byte {
 					f.digest = sha256.New()
 					_, _ = f.digest.Write(f.prefix)
 					f.prefix = nil
-				} else if strings.HasPrefix(strings.ToLower(prefix), "https://") || strings.HasPrefix(strings.ToLower(prefix), "http://") {
+				} else if strings.HasPrefix(strings.ToLower(prefix), "https://") || strings.HasPrefix(strings.ToLower(prefix), "http://") || strings.HasPrefix(strings.ToLower(prefix), "wss://") || strings.HasPrefix(strings.ToLower(prefix), "ws://") {
 					f.mode = "url"
 				} else if len(prefix) >= 8 {
 					f.mode = "text"
@@ -317,6 +317,7 @@ type bodyFilter struct {
 	bytes            int64
 	digest           hash.Hash
 	omitted          bool
+	unsupportedSSE   bool
 	invalid          bool
 	dataPrefix       []byte
 	dataReady        bool
@@ -380,10 +381,10 @@ func (f *bodyFilter) Write(p []byte) []byte {
 					if safeEventName(v) {
 						_, _ = out.WriteString(field + ": " + v + "\n")
 					} else {
-						f.omitted = true
+						f.unsupportedSSE = true
 					}
 				} else {
-					f.omitted = true
+					f.unsupportedSSE = true
 				}
 				f.linePrefix = nil
 				continue
@@ -472,11 +473,23 @@ func (f *bodyFilter) End() ([]byte, string) {
 		b, _ := json.Marshal(map[string]any{"omitted": reason, "content_type": f.contentType, "bytes": f.bytes, "sha256": hex.EncodeToString(f.digest.Sum(nil))})
 		return b, reason
 	}
+	var tail []byte
+	if f.sse {
+		if f.lineStarted && !f.dataReady {
+			tail = f.sseData(nil, true)
+		}
+		if len(bytes.TrimSpace(f.linePrefix)) > 0 {
+			f.unsupportedSSE = true
+		}
+	}
 	if f.invalid || f.json.invalid || f.json.quoted || f.json.suppressDepth > 0 || (f.json.started && !f.json.validator.complete()) {
-		return []byte("\n[capture incomplete: invalid or truncated content]\n"), "invalid_or_truncated_content"
+		return append(tail, []byte("\n[capture incomplete: invalid or truncated content]\n")...), "invalid_or_truncated_content"
+	}
+	if f.unsupportedSSE {
+		return tail, "unsupported_sse_field"
 	}
 	if f.json.omitted || f.omitted {
-		return nil, "media_metadata_only"
+		return tail, "media_metadata_only"
 	}
-	return nil, ""
+	return tail, ""
 }

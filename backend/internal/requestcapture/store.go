@@ -45,7 +45,7 @@ func (s *SQLStore) SaveRecord(ctx context.Context, r *Record) error {
 	return err
 }
 func (s *SQLStore) Records(ctx context.Context, task, requestID string, onlyErrors bool, limit, offset int) ([]Record, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT data - 'parts' - 'attempts' - 'usage' FROM request_capture_records WHERE task_id=$1 AND ($2='' OR request_id=$2) AND ($3=FALSE OR is_error=TRUE) ORDER BY created_at DESC,id DESC LIMIT $4 OFFSET $5`, task, requestID, onlyErrors, limit, offset)
+	rows, err := s.DB.QueryContext(ctx, `SELECT data - 'parts' - 'attempts' - 'usage' FROM request_capture_records WHERE task_id=$1 AND ($2='' OR request_id=$2) AND ($3=FALSE OR (is_error=TRUE AND data->>'finished_at' IS NOT NULL)) ORDER BY created_at DESC,id DESC LIMIT $4 OFFSET $5`, task, requestID, onlyErrors, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +75,10 @@ func (s *SQLStore) Record(ctx context.Context, task, id string) (*Record, error)
 }
 func (s *SQLStore) DeleteTask(ctx context.Context, instance, id string) error {
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM request_capture_tasks WHERE instance_id=$1 AND id=$2`, instance, id)
+	return err
+}
+func (s *SQLStore) DeleteRecord(ctx context.Context, task, id string) error {
+	_, err := s.DB.ExecContext(ctx, `DELETE FROM request_capture_records WHERE task_id=$1 AND id=$2`, task, id)
 	return err
 }
 

@@ -21,7 +21,7 @@ func TestCapture200LongStreams(t *testing.T) {
 	target := task(t, m, "user", 1, true)
 	sessions := make([]*Session, 200)
 	for i := range sessions {
-		sessions[i] = m.Begin(Meta{UserID: 1, RequestID: fmt.Sprint(i)})
+		sessions[i] = m.Begin(Meta{UserID: 1, GroupID: int64(i % 2), RequestID: fmt.Sprint(i)})
 		require.NotNil(t, sessions[i])
 	}
 	var before, peak, after runtime.MemStats
@@ -80,7 +80,11 @@ func TestCapture200LongStreams(t *testing.T) {
 			_, _ = client.Write([]byte("data: [DONE]\n\n"))
 			_ = upstream.Close()
 			_ = client.Close()
-			s.Finish(200)
+			status := 200
+			if s.meta.GroupID == 1 {
+				status = 502
+			}
+			s.Finish(status)
 		}(s)
 	}
 	wg.Wait()
@@ -91,7 +95,11 @@ func TestCapture200LongStreams(t *testing.T) {
 	runtime.ReadMemStats(&after)
 	rows, err := m.Records(context.Background(), target.ID, "", false, 201, 0)
 	require.NoError(t, err)
-	require.Len(t, rows, 200)
+	require.Len(t, rows, 100)
+	for _, r := range rows {
+		require.True(t, r.IsError)
+		require.EqualValues(t, 1, r.GroupID)
+	}
 	partial := 0
 	for _, r := range rows {
 		if r.Partial {

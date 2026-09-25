@@ -101,6 +101,7 @@ type Record struct {
 	ID         string `json:"id"`
 	TaskID     string `json:"task_id"`
 	InstanceID string `json:"instance_id"`
+	Turn       int    `json:"turn,omitempty"`
 	Meta
 	CreatedAt  time.Time        `json:"created_at"`
 	FinishedAt *time.Time       `json:"finished_at,omitempty"`
@@ -123,5 +124,6 @@ type Store interface {
 	SaveRecord(context.Context, *Record) error
 	Records(context.Context, string, string, bool, int, int) ([]Record, error)
 	Record(context.Context, string, string) (*Record, error)
+	DeleteRecord(context.Context, string, string) error
 	DeleteTask(context.Context, string, string) error
 }

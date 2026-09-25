@@ -77,7 +77,7 @@ func TestHTTPFourLegsPreserveBusinessBytes(t *testing.T) {
 	m, _ := testManager(t)
 	target := task(t, m, "group", 7, false)
 	upstreamBody := `{"model":"upstream-model","api_key":"BODY-SECRET","input":"converted"}`
-	upstreamResult := "data: {\"type\":\"response.completed\",\"usage\":{\"input_tokens\":2}}\n\ndata: [DONE]\n\n"
+	upstreamResult := "data: {\"type\":\"response.failed\",\"usage\":{\"input_tokens\":2}}\n\ndata: [DONE]\n\n"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(r.Body)
 		if err != nil || string(b) != upstreamBody {
@@ -136,7 +136,7 @@ func TestWebSocketMultiTurnAndAccountSwitch(t *testing.T) {
 	s.Frame("client_response", 0, []byte(`{"type":"response.completed"}`))
 	s.ClientFrame([]byte(`{"type":"response.create","model":"second"}`))
 	s.WSRequest(2, map[string]any{"type": "response.create", "input": "next"})
-	s.Frame("upstream_response", 3, []byte(`{"type":"response.completed"}`))
+	s.Frame("upstream_response", 1, []byte(`{"type":"response.completed"}`))
 	s.Frame("client_response", 0, []byte(`{"type":"response.completed"}`))
 	s.Finish(101)
 	drain(t, m)
@@ -146,15 +146,15 @@ func TestWebSocketMultiTurnAndAccountSwitch(t *testing.T) {
 	text := partsText(t, m, records[0])
 	require.NotContains(t, text, "OTHER_ACCOUNT")
 	require.Equal(t, 1, strings.Count(text, `"first"`))
-	require.Equal(t, 1, strings.Count(text, `"second"`))
-	require.Len(t, records[0].Attempts, 3)
+	require.NotContains(t, text, "second")
+	require.Len(t, records[0].Attempts, 2)
 	require.False(t, records[0].Partial, records[0].Reason)
 	turns := map[int]bool{}
 	for _, p := range records[0].Parts {
 		turns[p.Turn] = true
 	}
 	require.True(t, turns[1])
-	require.True(t, turns[2])
+	require.False(t, turns[2])
 }
 func TestLimitsAndDiskFailureDoNotAffectTraffic(t *testing.T) {
 	for _, mode := range []string{"buffer", "disk", "record"} {
@@ -185,8 +185,7 @@ func TestLimitsAndDiskFailureDoNotAffectTraffic(t *testing.T) {
 			require.Eventually(t, func() bool { return m.Stats().ActiveRequests == 0 }, 5*time.Second, 10*time.Millisecond)
 			rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
 			require.NoError(t, err)
-			require.Len(t, rows, 1)
-			require.True(t, rows[0].Partial)
+			require.Empty(t, rows)
 		})
 	}
 }
@@ -218,7 +217,7 @@ func TestPreviewPreservesUTF8AndRejectsTraversal(t *testing.T) {
 	target := task(t, m, "user", 1, true)
 	s := m.Begin(Meta{UserID: 1})
 	s.ClientRequest([]byte(`{"text":"`+strings.Repeat("汉", 100000)+`"}`), "application/json", nil)
-	s.Finish(200)
+	s.Finish(400)
 	drain(t, m)
 	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
 	require.NoError(t, err)
@@ -247,11 +246,9 @@ func TestOverlappingTaskStopsWithoutWaitingForOtherTask(t *testing.T) {
 	one := task(t, m, "user", 1, false)
 	two := task(t, m, "group", 2, false)
 	s := m.Begin(Meta{UserID: 1, GroupID: 2})
+	s.MarkError("upstream_failure")
 	s.ClientRequest([]byte(`{"input":"first"}`), "application/json", nil)
-	require.Eventually(t, func() bool {
-		rows, _ := m.Records(context.Background(), one.ID, "", false, 10, 0)
-		return len(rows) == 1
-	}, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return m.Stats().UsedBytes > 0 }, 5*time.Second, time.Millisecond)
 	require.NoError(t, m.Stop(context.Background(), one.ID))
 	require.Eventually(t, func() bool { var out bytes.Buffer; return m.Export(context.Background(), &out, one.ID, "") == nil }, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, 1, m.Stats().ActiveRequests)
@@ -294,6 +291,7 @@ func TestWebSocketLongResponseUsesBoundedSegments(t *testing.T) {
 		s.Frame("upstream_response", 1, []byte(`{"type":"response.output_text.delta","delta":"test"}`))
 		s.Frame("client_response", 0, []byte(`{"type":"response.output_text.delta","delta":"test"}`))
 	}
+	s.Frame("client_response", 0, []byte(`{"type":"response.failed","error":{"code":"fixture"}}`))
 	s.Finish(101)
 	drain(t, m)
 	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
@@ -314,19 +312,18 @@ func TestWebSocketCompletedTurnReleasesFrameBuffers(t *testing.T) {
 		s.Frame("upstream_response", n, []byte(`{"type":"response.completed"}`))
 		s.Frame("client_response", 0, []byte(`{"type":"response.completed"}`))
 		s.frameMu.Lock()
-		require.Len(t, s.frameStreams, 2)
+		require.Empty(t, s.frameStreams)
 		s.frameMu.Unlock()
 		s.mu.Lock()
-		require.Len(t, s.streams, 2)
+		require.Empty(t, s.streams)
 		s.mu.Unlock()
 	}
 	s.Finish(101)
 	drain(t, m)
 	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.False(t, rows[0].Partial, rows[0].Reason)
-	require.Len(t, rows[0].Parts, 32)
+	require.Empty(t, rows)
+	require.Zero(t, m.Stats().UsedBytes)
 }
 
 func TestFailedCaptureReleasesIdleBusinessConnection(t *testing.T) {
@@ -340,11 +337,50 @@ func TestFailedCaptureReleasesIdleBusinessConnection(t *testing.T) {
 	require.Equal(t, int64(1<<20), m.Stats().BufferBytes)
 	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.True(t, rows[0].Partial)
-	require.Equal(t, "queue_full", rows[0].Reason)
+	require.Empty(t, rows)
+	require.Zero(t, m.Stats().UsedBytes)
 	// The business connection may continue after capture has released its budget.
 	s.Frame("client_response", 0, []byte(`{"delta":"later"}`))
 	s.Finish(101)
 	require.Equal(t, int64(1<<20), m.Stats().BufferBytes)
+}
+
+func TestCamelCaseCredentialsAndWebSocketURLs(t *testing.T) {
+	input := `{"accessToken":"SECRET-1","refreshToken":"SECRET-2","awsSecretAccessKey":"SECRET-3","nested":{"clientSecret":{"value":"SECRET-4"}},"socket":"wss://user:SECRET-5@example.org/path?accessToken=SECRET-6","plainSocket":"ws://user:SECRET-7@example.org/?apiKey=SECRET-8","usage":{"input_tokens":7},"text":"keep business text"}`
+	for _, size := range []int{1, 7, 32, 1000} {
+		f := newBodyFilter("application/json", false)
+		var out bytes.Buffer
+		for start := 0; start < len(input); start += size {
+			_, _ = out.Write(f.Write([]byte(input[start:min(start+size, len(input))])))
+		}
+		tail, reason := f.End()
+		_, _ = out.Write(tail)
+		require.Empty(t, reason)
+		require.True(t, json.Valid(out.Bytes()), out.String())
+		require.NotContains(t, out.String(), "SECRET")
+		require.Contains(t, out.String(), "keep business text")
+		require.Contains(t, out.String(), `"input_tokens":7`)
+	}
+}
+
+func TestSSETerminalMarkerAndUnsupportedFields(t *testing.T) {
+	for _, size := range []int{1, 2, 32} {
+		f := newBodyFilter("text/event-stream", false)
+		input := "data: [DONE]"
+		var out bytes.Buffer
+		for start := 0; start < len(input); start += size {
+			_, _ = out.Write(f.Write([]byte(input[start:min(start+size, len(input))])))
+		}
+		tail, reason := f.End()
+		_, _ = out.Write(tail)
+		require.Empty(t, reason)
+		require.Equal(t, input, out.String())
+	}
+	f := newBodyFilter("text/event-stream", false)
+	out := f.Write([]byte("unknown: sensitive value\n\ndata: [DONE]\n\n"))
+	tail, reason := f.End()
+	out = append(out, tail...)
+	require.Equal(t, "unsupported_sse_field", reason)
+	require.NotContains(t, string(out), "sensitive value")
+	require.Contains(t, string(out), "[DONE]")
 }

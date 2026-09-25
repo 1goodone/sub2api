@@ -40,6 +40,7 @@ type event struct {
 	end     bool
 	targets []string
 	charge  int64
+	final   *Record
 }
 type inputChunk struct {
 	part Part
@@ -55,8 +56,6 @@ type partState struct {
 type recordState struct {
 	Record
 	parts   map[string]*partState
-	indexed bool
-	dirty   bool
 	blocked bool
 }
 type Session struct {
@@ -78,6 +77,7 @@ type Session struct {
 	attempts        []Attempt
 	nextPart        int
 	turn            int
+	turnEnded       bool
 	usage           map[string]int64
 	errorCode       string
 	resultBuffer    []byte
@@ -167,6 +167,19 @@ func (s *Session) MarkPartial(reason string) {
 	}
 	s.mu.Unlock()
 }
+
+// MarkError records a confirmed forwarding failure, not a capture resource error.
+func (s *Session) MarkError(code string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed && !s.turnEnded {
+		s.resultError = true
+		s.errorCode = bounded(code, 128)
+	}
+}
 func (s *Session) RequireClientInput() {
 	if s == nil {
 		return
@@ -206,14 +219,36 @@ func (s *Session) ClientFrame(body []byte) {
 	if s == nil {
 		return
 	}
+	s.frameMu.Lock()
+	defer s.frameMu.Unlock()
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.failed {
 		s.mu.Unlock()
 		return
 	}
 	if gjson.GetBytes(body, "type").String() == "response.create" {
+		if s.turn > 0 && !s.turnEnded {
+			// Pipelined turns cannot be safely attributed. Stop capture only.
+			s.failed = true
+			s.reason = "overlapping_websocket_turns"
+			s.mu.Unlock()
+			s.m.signal()
+			return
+		}
 		s.clientObserved = true
 		s.turn++
+		s.turnEnded = false
+		s.status, s.nextPart = 0, 0
+		s.attempts = nil
+		s.reason, s.errorCode = "", ""
+		s.resultError, s.resultSkip = false, false
+		s.resultBuffer = s.resultBuffer[:0]
+		s.usage = map[string]int64{}
+		for _, t := range s.candidates {
+			if t.task.TargetType == "account" {
+				s.matched[t.task.ID] = false
+			}
+		}
 		s.releaseInputLocked()
 		s.meta.Model = bounded(gjson.GetBytes(body, "model").String(), 256)
 	}
@@ -229,7 +264,7 @@ func (s *Session) BeginAttempt(account int64) int {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed || s.turnEnded {
 		return 0
 	}
 	if len(s.attempts) >= 256 {
@@ -315,12 +350,15 @@ func (s *Session) releaseInputLocked() {
 }
 
 type Stream struct {
-	s         *Session
-	part      Part
-	mu        sync.Mutex
-	buffer    []byte
-	lastFlush time.Time
-	closed    bool
+	s              *Session
+	part           Part
+	mu             sync.Mutex
+	buffer         []byte
+	diagnostic     []byte
+	diagnosticSkip bool
+	charge         int64
+	lastFlush      time.Time
+	closed         bool
 }
 
 func (s *Session) NewStream(stage string, attempt, turn int, ct string, h http.Header) *Stream {
@@ -329,7 +367,7 @@ func (s *Session) NewStream(stage string, attempt, turn int, ct string, h http.H
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || s.failed {
+	if s.closed || s.failed || (s.meta.Protocol == "websocket" && s.turnEnded) {
 		return &Stream{}
 	}
 	s.nextPart++
@@ -358,11 +396,38 @@ func (st *Stream) Write(p []byte) (int, error) {
 		return n, nil
 	}
 	if st.buffer == nil {
-		if !st.s.m.reserve(ChunkSize) {
+		st.charge = ChunkSize
+		if strings.HasSuffix(st.part.Stage, "_response") {
+			st.charge += 16 << 10
+		}
+		if !st.s.m.reserve(st.charge) {
 			st.s.failCapture("buffer_limit")
 			return n, nil
 		}
 		st.buffer = make([]byte, 0, ChunkSize)
+		if st.charge > ChunkSize {
+			st.diagnostic = make([]byte, 0, 16<<10)
+		}
+	}
+	if strings.HasSuffix(st.part.Stage, "_response") {
+		st.s.mu.Lock()
+		if strings.Contains(strings.ToLower(st.part.ContentType), "event-stream") {
+			st.s.observeResultLocked(p, &st.diagnostic, &st.diagnosticSkip)
+		} else if !st.diagnosticSkip {
+			if len(st.diagnostic)+len(p) > 16<<10 {
+				st.diagnostic = st.diagnostic[:0]
+				st.diagnosticSkip = true
+				if st.s.reason == "" {
+					st.s.reason = "diagnostic_limit"
+				}
+			} else {
+				st.diagnostic = append(st.diagnostic, p...)
+				if gjson.ValidBytes(st.diagnostic) {
+					st.s.parseResultLocked(st.diagnostic)
+				}
+			}
+		}
+		st.s.mu.Unlock()
 	}
 	for len(p) > 0 {
 		count := ChunkSize - len(st.buffer)
@@ -394,10 +459,16 @@ func (st *Stream) Close() error {
 		return nil
 	}
 	st.closed = true
+	st.s.mu.Lock()
+	if !st.diagnosticSkip {
+		st.s.parseResultLocked(st.diagnostic)
+	}
+	st.s.mu.Unlock()
 	st.s.send(st.part, st.buffer, true)
 	if st.buffer != nil {
-		st.s.m.buffer.Add(-ChunkSize)
+		st.s.m.buffer.Add(-st.charge)
 		st.buffer = nil
+		st.diagnostic = nil
 	}
 	st.s.mu.Lock()
 	delete(st.s.streams, st)
@@ -409,8 +480,9 @@ func (st *Stream) discard() {
 	defer st.mu.Unlock()
 	st.closed = true
 	if st.buffer != nil {
-		st.s.m.buffer.Add(-ChunkSize)
+		st.s.m.buffer.Add(-st.charge)
 		st.buffer = nil
+		st.diagnostic = nil
 	}
 }
 func (s *Session) failCapture(reason string) {
@@ -480,10 +552,9 @@ func (s *Session) enqueueLocked(part Part, p []byte, end bool, targets []string)
 		}
 	}
 }
-func (s *Session) snapshot(r *Record) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Session) snapshotLocked(r *Record) {
 	r.Meta = s.meta
+	r.Turn = s.turn
 	r.Status = s.status
 	r.IsError = s.status >= 400 || s.resultError
 	r.Attempts = append([]Attempt(nil), s.attempts...)
@@ -513,37 +584,68 @@ func (s *Session) ObserveResult(body []byte) {
 	if s.closed {
 		return
 	}
+	s.observeResultLocked(body, &s.resultBuffer, &s.resultSkip)
+}
+func (s *Session) observeResultLocked(body []byte, buffer *[]byte, skip *bool) {
 	for _, b := range body {
 		if b == '\n' {
-			if !s.resultSkip {
-				s.parseResultLocked(s.resultBuffer)
+			if !*skip {
+				s.parseResultLocked(*buffer)
 			}
-			s.resultBuffer = s.resultBuffer[:0]
-			s.resultSkip = false
+			*buffer = (*buffer)[:0]
+			*skip = false
 			continue
 		}
-		if s.resultSkip {
+		if *skip {
 			continue
 		}
-		if len(s.resultBuffer) == 16<<10 {
-			s.resultBuffer = s.resultBuffer[:0]
-			s.resultSkip = true
+		if len(*buffer) == 16<<10 {
+			*buffer = (*buffer)[:0]
+			*skip = true
+			if s.reason == "" {
+				s.reason = "diagnostic_limit"
+			}
 			continue
 		}
-		s.resultBuffer = append(s.resultBuffer, b)
+		*buffer = append(*buffer, b)
 	}
-	if len(s.resultBuffer) > 0 && gjson.ValidBytes(s.resultBuffer) {
-		s.parseResultLocked(s.resultBuffer)
-		s.resultBuffer = s.resultBuffer[:0]
+	if len(*buffer) > 0 && gjson.ValidBytes(*buffer) {
+		s.parseResultLocked(*buffer)
+		*buffer = (*buffer)[:0]
 	}
 }
 func (s *Session) parseResultLocked(body []byte) {
 	line := strings.TrimSpace(strings.TrimPrefix(string(body), "data:"))
+	if strings.HasPrefix(line, "event:") {
+		event := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		if event == "error" || event == "response.failed" {
+			s.resultError = true
+		}
+		return
+	}
 	if !gjson.Valid(line) {
 		return
 	}
 	event := gjson.Get(line, "type").String()
-	if gjson.Get(line, "error").Exists() || gjson.Get(line, "response.error").Exists() || event == "response.failed" || event == "error" {
+	hasError := func(path string) bool {
+		v := gjson.Get(line, path)
+		switch v.Type {
+		case gjson.True:
+			return true
+		case gjson.String:
+			return v.Str != ""
+		case gjson.JSON:
+			if !v.IsObject() {
+				return false
+			}
+			nonempty := false
+			v.ForEach(func(_, _ gjson.Result) bool { nonempty = true; return false })
+			return nonempty
+		default:
+			return false
+		}
+	}
+	if hasError("error") || hasError("response.error") || event == "response.failed" || event == "error" || gjson.Get(line, "response.status").String() == "failed" {
 		s.resultError = true
 	}
 	for _, prefix := range []string{"error.", "response.error."} {
@@ -561,7 +663,16 @@ func (s *Session) parseResultLocked(body []byte) {
 }
 
 func (m *Manager) process(e event) {
-	defer func() { m.buffer.Add(-e.charge); e.s.pending.Add(-1) }()
+	defer func() {
+		m.buffer.Add(-e.charge)
+		if e.s.pending.Add(-1) == 0 && e.s.done.Load() {
+			m.finish(e.s)
+		}
+	}()
+	if e.final != nil {
+		m.finishTurn(e.s, e.final, e.targets)
+		return
+	}
 	for _, target := range e.targets {
 		if e.s.finishedTargets[target] {
 			continue
@@ -570,48 +681,21 @@ func (m *Manager) process(e event) {
 		t := m.tasks[target]
 		running := t != nil && t.task.Status == "running" && time.Now().Before(t.task.ExpiresAt)
 		m.mu.Unlock()
-		r := e.s.records[target]
+		key := recordKey(target, e.part.Turn)
+		r := e.s.records[key]
 		if !running {
 			if r != nil {
 				r.Partial = true
 				if r.Reason == "" {
 					r.Reason = "task_stopped"
 				}
-				r.dirty = true
 			}
 			continue
 		}
 		if r == nil {
-			r = &recordState{Record: Record{ID: uuid.NewString(), TaskID: target, InstanceID: m.instance, CreatedAt: time.Now().UTC()}, parts: map[string]*partState{}, dirty: true}
-			e.s.snapshot(&r.Record)
-			e.s.records[target] = r
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			m.storageMu.Lock()
-			m.mu.Lock()
-			exists := m.tasks[target] != nil
-			m.mu.Unlock()
-			var err error
-			if exists {
-				err = m.store.SaveRecord(ctx, &r.Record)
-			}
-			m.storageMu.Unlock()
-			cancel()
-			if !exists {
-				continue
-			}
-			if err != nil {
-				r.Partial = true
-				r.Reason = "index_write_failed"
-				r.blocked = true
-				m.unhealthy.Store(true)
-				m.stopAll("index_write_failed")
-				continue
-			}
-			r.indexed = true
-			m.mu.Lock()
-			t.task.Requests++
-			t.dirty = true
-			m.mu.Unlock()
+			r = &recordState{Record: Record{ID: uuid.NewString(), TaskID: target, InstanceID: m.instance, Turn: e.part.Turn, CreatedAt: time.Now().UTC()}, parts: map[string]*partState{}}
+			// Pending bodies have no queryable index. Publish only finalized errors.
+			e.s.records[key] = r
 		}
 		if r.blocked {
 			continue
@@ -654,7 +738,6 @@ func (m *Manager) process(e event) {
 			m.buffer.Add(-(part.charge - 1024))
 			part.charge = 1024
 		}
-		r.dirty = true
 		if r.blocked {
 			m.finishTarget(e.s, t)
 		}
@@ -700,12 +783,6 @@ func (m *Manager) writePart(r *recordState, p *partState, data []byte) error {
 	m.used.Add(int64(n - len(data)))
 	r.Bytes += int64(n)
 	p.part.Bytes += int64(n)
-	m.mu.Lock()
-	if t = m.tasks[r.TaskID]; t != nil {
-		t.task.Bytes += int64(n)
-		t.dirty = true
-	}
-	m.mu.Unlock()
 	if err != nil || closeErr != nil {
 		m.unhealthy.Store(true)
 		m.stopAll("disk_write_failed")
@@ -713,37 +790,124 @@ func (m *Manager) writePart(r *recordState, p *partState, data []byte) error {
 	}
 	return nil
 }
-func (m *Manager) flushRecord(s *Session, r *recordState, finished bool) {
-	s.snapshot(&r.Record)
-	r.Parts = nil
+func recordKey(task string, turn int) string { return fmt.Sprintf("%s:%d", task, turn) }
+
+// Only the worker finalizes records. Successful and unclassified payloads are
+// removed before processing subsequent events; they never receive a DB index.
+func (m *Manager) finishRecord(r *recordState, t *runtimeTask, snapshot *Record) {
+	r.Meta, r.Turn = snapshot.Meta, snapshot.Turn
+	r.Status, r.IsError = snapshot.Status, snapshot.IsError
+	r.Attempts, r.Usage, r.ErrorCode = snapshot.Attempts, snapshot.Usage, snapshot.ErrorCode
+	if snapshot.Partial && r.Reason == "" {
+		r.Partial, r.Reason = true, snapshot.Reason
+	}
+	if !t.active.Load() {
+		r.Partial = true
+		if r.Reason == "" {
+			r.Reason = "task_stopped"
+		}
+	}
 	for _, p := range r.parts {
+		if !p.ended && r.IsError {
+			tail, reason := p.filter.End()
+			p.part.Omitted = reason
+			r.Partial = true
+			if r.Reason == "" {
+				r.Reason = "stream_not_completed"
+			}
+			if t.active.Load() && !r.blocked {
+				if err := m.writePart(r, p, tail); err != nil {
+					r.Reason = err.Error()
+				}
+			}
+		}
+		m.buffer.Add(-p.charge)
+		p.filter = nil
 		r.Parts = append(r.Parts, p.part)
 	}
 	sort.Slice(r.Parts, func(i, j int) bool { return r.Parts[i].Name < r.Parts[j].Name })
-	if finished {
-		now := time.Now().UTC()
-		r.FinishedAt = &now
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if !r.indexed {
+	if !r.IsError {
+		if r.Partial {
+			m.mu.Lock()
+			t.task.Skipped++
+			t.dirty = true
+			m.mu.Unlock()
+		}
+		m.discardRecord(r)
 		return
 	}
+	now := time.Now().UTC()
+	r.FinishedAt = &now
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 	m.storageMu.Lock()
-	defer m.storageMu.Unlock()
 	m.mu.Lock()
 	exists := m.tasks[r.TaskID] != nil
 	m.mu.Unlock()
-	if !exists {
+	var err error
+	if exists {
+		err = m.store.SaveRecord(ctx, &r.Record)
+	}
+	m.storageMu.Unlock()
+	if !exists || err != nil {
+		m.discardRecord(r)
+		if err != nil {
+			m.unhealthy.Store(true)
+			m.stopAll("index_write_failed")
+		}
 		return
 	}
-	if err := m.store.SaveRecord(ctx, &r.Record); err != nil {
+	m.mu.Lock()
+	t.task.Requests++
+	t.task.Bytes += r.Bytes
+	if r.Partial {
+		t.task.Partial++
+	}
+	t.dirty = true
+	m.mu.Unlock()
+}
+
+func (m *Manager) discardRecord(r *recordState) {
+	m.storageMu.Lock()
+	defer m.storageMu.Unlock()
+	if err := os.RemoveAll(filepath.Join(m.dir, r.TaskID, r.ID)); err != nil {
+		// Fail closed. Orphan bodies have no index and are retried on restart.
 		m.unhealthy.Store(true)
-		m.stopAll("index_write_failed")
-	} else {
-		r.dirty = false
+		m.stopAll("privacy_cleanup_failed")
+		return
+	}
+	m.mu.Lock()
+	exists := m.tasks[r.TaskID] != nil
+	m.mu.Unlock()
+	// Delete(task) has already released files belonging to removed tasks.
+	if exists {
+		m.used.Add(-r.Bytes)
 	}
 }
+
+func (m *Manager) finishTurn(s *Session, snapshot *Record, targets []string) {
+	for _, id := range targets {
+		if s.finishedTargets[id] {
+			continue
+		}
+		m.mu.Lock()
+		t := m.tasks[id]
+		m.mu.Unlock()
+		if t == nil {
+			continue
+		}
+		key := recordKey(id, snapshot.Turn)
+		r := s.records[key]
+		if r == nil && snapshot.IsError {
+			r = &recordState{Record: Record{ID: uuid.NewString(), TaskID: id, InstanceID: m.instance, CreatedAt: time.Now().UTC(), Partial: true, Reason: "no_payload_recorded"}, parts: map[string]*partState{}}
+		}
+		if r != nil {
+			m.finishRecord(r, t, snapshot)
+			delete(s.records, key)
+		}
+	}
+}
+
 func (m *Manager) finish(s *Session) {
 	s.mu.Lock()
 	if s.closed || s.pending.Load() != 0 {
@@ -782,51 +946,33 @@ func (m *Manager) finishTarget(s *Session, t *runtimeTask) {
 		return
 	}
 	s.finishedTargets[id] = true
-	hit := s.matched[id]
-	s.mu.Unlock()
-	r := s.records[id]
-	if hit && r == nil {
-		m.mu.Lock()
-		exists := m.tasks[id] != nil
-		m.mu.Unlock()
-		if exists {
-			r = &recordState{Record: Record{ID: uuid.NewString(), TaskID: id, InstanceID: m.instance, CreatedAt: time.Now().UTC(), Partial: true, Reason: "no_payload_recorded"}, parts: map[string]*partState{}, indexed: true, dirty: true}
-			s.snapshot(&r.Record)
-			m.mu.Lock()
-			t.task.Requests++
-			m.mu.Unlock()
+	hit := s.matched[id] && !s.turnEnded
+	snapshot := &Record{}
+	s.snapshotLocked(snapshot)
+	if !s.done.Load() {
+		snapshot.Partial = true
+		if snapshot.Reason == "" {
+			snapshot.Reason = "task_stopped"
 		}
 	}
-	if r != nil {
-		if !s.done.Load() || !t.active.Load() {
-			r.Partial = true
-			if r.Reason == "" {
-				r.Reason = "task_stopped"
-			}
+	s.mu.Unlock()
+	found := false
+	for key, r := range s.records {
+		if r.TaskID != id {
+			continue
 		}
-		for _, p := range r.parts {
-			if !p.ended {
-				tail, reason := p.filter.End()
-				p.part.Omitted = reason
-				r.Partial = true
-				if r.Reason == "" {
-					r.Reason = "stream_not_completed"
-				}
-				if t.active.Load() {
-					if err := m.writePart(r, p, tail); err != nil && r.Reason == "" {
-						r.Reason = err.Error()
-					}
-				}
-			}
-			m.buffer.Add(-p.charge)
+		found = true
+		// A missing turn barrier must not attach a later turn's error to old data.
+		snap := snapshot
+		if r.Turn != snapshot.Turn {
+			snap = &Record{Turn: r.Turn}
 		}
-		m.flushRecord(s, r, true)
-		m.mu.Lock()
-		if r.Partial {
-			t.task.Partial++
-		}
-		m.mu.Unlock()
-		delete(s.records, id)
+		m.finishRecord(r, t, snap)
+		delete(s.records, key)
+	}
+	if hit && !found && snapshot.IsError {
+		r := &recordState{Record: Record{ID: uuid.NewString(), TaskID: id, InstanceID: m.instance, CreatedAt: time.Now().UTC(), Partial: true, Reason: "no_payload_recorded"}, parts: map[string]*partState{}}
+		m.finishRecord(r, t, snapshot)
 	}
 	m.mu.Lock()
 	t.refs--
@@ -847,6 +993,7 @@ func (b *observedBody) Read(p []byte) (int, error) {
 	}
 	if err != nil && err != io.EOF {
 		b.stream.s.MarkPartial("upstream_read_failed")
+		b.stream.s.MarkError("upstream_read_failed")
 	}
 	if err == io.EOF {
 		_ = b.stream.Close()
