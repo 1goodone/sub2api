@@ -905,6 +905,7 @@ describe("admin SettingsView payment visible method controls", () => {
       await input.setValue(original);
     }
     await wrapper.get('#excel-bps-image-body-limit').setValue('128');
+    await wrapper.get('#excel-bps-image-budget').setValue('512');
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
     expect(updateSettings).not.toHaveBeenCalled();

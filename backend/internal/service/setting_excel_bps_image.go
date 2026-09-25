@@ -18,8 +18,8 @@ const (
 	SettingKeyExcelBPSImageMaxRequests  = "excel_bps_image_max_requests"
 
 	DefaultExcelBPSImageBodyLimitMiB = 64
-	DefaultExcelBPSImageBudgetMiB    = 512
-	DefaultExcelBPSImageMaxRequests  = 32
+	DefaultExcelBPSImageBudgetMiB    = 1024
+	DefaultExcelBPSImageMaxRequests  = 128
 )
 
 type ExcelBPSImageRelaySettings struct {

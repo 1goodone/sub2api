@@ -10179,8 +10179,8 @@ const form = reactive<SettingsForm>({
   excel_bps_image_relay_enabled: false,
   excel_bps_image_base_url: '',
   excel_bps_image_body_limit_mib: 64,
-  excel_bps_image_budget_mib: 512,
-  excel_bps_image_max_requests: 32,
+  excel_bps_image_budget_mib: 1024,
+  excel_bps_image_max_requests: 128,
 });
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立

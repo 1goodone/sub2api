@@ -15,10 +15,10 @@ import (
 
 const (
 	bpsImageMaxBodyBytes   = 128 << 20
-	bpsImageBudgetBytes    = 512 << 20
+	bpsImageBudgetBytes    = service.DefaultExcelBPSImageBudgetMiB << 20
 	bpsImageBodyMultiplier = 8
 	bpsImageMinBodyBytes   = 1 << 20
-	bpsImageMaxRequests    = 32
+	bpsImageMaxRequests    = service.DefaultExcelBPSImageMaxRequests
 )
 
 type excelBPSImageSettingsReader interface {

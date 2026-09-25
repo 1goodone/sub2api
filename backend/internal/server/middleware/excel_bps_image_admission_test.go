@@ -64,10 +64,10 @@ func TestExcelBPSImageAdmission200ConcurrentRequests(t *testing.T) {
 		allowed  int
 		settings bpsImageTestSettings
 	}{
-		{"small", 1024, "", 32, bpsImageTestSettings{enabled: true}},
-		{"large", 32 << 20, "", 2, bpsImageTestSettings{enabled: true}},
-		{"scaled small", 1024, "", 128, bpsImageTestSettings{enabled: true, maxRequests: 128}},
-		{"scaled large", 32 << 20, "", 4, bpsImageTestSettings{enabled: true, maxRequests: 128}},
+		{"default small", 1024, "", 128, bpsImageTestSettings{enabled: true}},
+		{"default large", 32 << 20, "", 4, bpsImageTestSettings{enabled: true}},
+		{"scaled small", 1024, "", 128, bpsImageTestSettings{enabled: true, maxRequests: 128, budgetMiB: 512}},
+		{"scaled large", 32 << 20, "", 4, bpsImageTestSettings{enabled: true, maxRequests: 128, budgetMiB: 512}},
 		{"larger configured budget", 32 << 20, "", 8, bpsImageTestSettings{enabled: true, maxRequests: 128, budgetMiB: 2048}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -318,7 +318,7 @@ func TestExcelBPSImageAdmissionReleaseIsIdempotent(t *testing.T) {
 }
 
 func TestExcelBPSImageAdmissionReservationResize(t *testing.T) {
-	budget := &bpsImageAdmissionBudget{}
+	budget := &bpsImageAdmissionBudget{limitBytes: 512 << 20, maxRequests: 32}
 	first, ok := budget.acquire(8 << 20)
 	require.True(t, ok)
 	second, ok := budget.acquire(8 << 20)
@@ -335,7 +335,7 @@ func TestExcelBPSImageAdmissionReservationResize(t *testing.T) {
 }
 
 func TestExcelBPSImageAdmissionUnknownBodyStopsBeforeBudgetOverflow(t *testing.T) {
-	budget := &bpsImageAdmissionBudget{}
+	budget := &bpsImageAdmissionBudget{limitBytes: 512 << 20, maxRequests: 32}
 	first, ok := budget.acquire(504 << 20)
 	require.True(t, ok)
 	defer first.release()
