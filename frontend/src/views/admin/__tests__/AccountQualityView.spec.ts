@@ -15,6 +15,18 @@ vi.mock('@/api/admin/groups', () => ({ getModelAllowlistCandidates: vi.fn().mock
 const mountView = () => mount(AccountQualityView, { global: { plugins: [createPinia()], stubs: { Teleport: true, AppLayout: { template: '<main><slot /></main>' } } } })
 describe('quality operations', () => {
   beforeEach(() => { vi.clearAllMocks(); vi.mocked(listQualityPlans).mockResolvedValue([]); vi.mocked(listQualityOperations).mockResolvedValue({items:[],next_cursor:0}) })
+  it('prefills the test model and submits it for a new rule', async () => {
+    const wrapper = mountView(); await flushPromises()
+    const vm = wrapper.vm as any
+    vm.newPlan(); await flushPromises()
+    expect(wrapper.find('input[placeholder="gpt-6-astra"]').element).toHaveProperty('value', 'gpt-6-astra')
+    vm.selectedAccounts = [1]
+    vm.form.pelican_config.quality.judge = { group_id: 21, model_id: 'test-judge', prompt: 'grade semantically' }
+    vm.form.pelican_config.quality.remove_group_ids = [21]
+    await vm.save()
+    expect(scheduledTests.create).toHaveBeenCalledWith(expect.objectContaining({ account_id: 1, model_id: 'gpt-6-astra' }))
+    wrapper.unmount()
+  })
   it('requires explicit group selection and keeps automatic restoration opt-in', async () => {
     const wrapper = mountView(); await flushPromises()
     const vm = wrapper.vm as any

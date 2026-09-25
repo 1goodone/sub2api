@@ -238,7 +238,7 @@ function resultLabel(result: ScheduledTestResult) {
   return t(result.status === 'success' ? 'qualityOps.passed' : result.error_message === 'answer_mismatch' ? 'qualityOps.wrongAnswer' : result.quality_judgment?.verdict === 'unknown' || result.error_message?.startsWith('judge_') ? 'qualityOps.judgeUnknown' : 'qualityOps.requestError')
 }
 function defaults() {
-  return { model_id: '', cron_expression: '*/30 * * * *', enabled: true, max_results: 100, auto_recover: false,
+  return { model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: true, max_results: 100, auto_recover: false,
     pelican_config: { question_kind: 'candy' as const, prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1,
       quality: { expected_answer: '21', action: 'remove_groups' as 'remove_groups' | 'disable_scheduling', remove_group_ids: [] as number[], auto_restore: false, judge: { group_id: 0, model_id: '', prompt: t('qualityOps.defaultJudgePrompt') } } } }
 }
