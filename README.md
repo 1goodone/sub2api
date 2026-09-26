@@ -205,6 +205,9 @@ Community projects that extend or integrate with Sub2API:
 | Database | PostgreSQL 15+ |
 | Cache/Queue | Redis 7+ |
 
+已经托管账号或完成部署，想在 Codex 中使用？请阅读[新人入门：使用 Sub2API 接入 Codex](docs/新人入门-使用Sub2API.md)，按步骤创建 API Key、配置 Cockpit Tools 并验证调用。
+
+
 ---
 
 ## Nginx Reverse Proxy Note

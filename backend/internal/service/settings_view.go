@@ -331,11 +331,18 @@ type SystemSettings struct {
 	UsageShowLongContextBadge bool
 	UsageShowAverageTPS       bool
 
-	ExcelBPSImageRelayEnabled bool
-	ExcelBPSImageBaseURL      string
-	ExcelBPSImageBodyLimitMiB int
-	ExcelBPSImageBudgetMiB    int
-	ExcelBPSImageMaxRequests  int
+	ExcelBPSImageMode           string
+	ExcelBPSImageRelayEnabled   bool
+	ExcelBPSImageBaseURL        string
+	ExcelBPSImageBodyLimitMiB   int
+	ExcelBPSImageBudgetMiB      int
+	ExcelBPSImageMaxRequests    int
+	ExcelBPSImageMaxImageMiB    int
+	ExcelBPSImageMaxImages      int
+	ExcelBPSImageMaxTotalMiB    int
+	ExcelBPSImageStorageMiB     int
+	ExcelBPSImageStorageEntries int
+	ExcelBPSImageTTLMinutes     int
 }
 
 type DefaultSubscriptionSetting struct {

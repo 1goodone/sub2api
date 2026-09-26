@@ -604,7 +604,7 @@ func (s *OpenAIGatewayService) lookupOpenAICodexTicketLocked(account *Account, m
 		}
 		gateway := controls.TargetGateway
 		if gateway == "" {
-			gateway = "unified-95"
+			gateway = "unified-88"
 		}
 		if mem != nil && (mem.Transport != protocol || !codex780GatewayAllowed(mem.Gateway, gateway)) {
 			mem = nil

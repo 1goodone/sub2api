@@ -486,8 +486,8 @@ func openAIRequestBodyHasTools(body []byte) bool {
 }
 
 // normalizeOpenAIResponsesReasoningContentReplay removes non-portable
-// reasoning.content arrays before history is sent to a real OpenAI Responses
-// endpoint. Compatible providers may return visible reasoning blocks there,
+// reasoning.content arrays and output-only reasoning.status before history
+// is sent to a real OpenAI Responses endpoint. Compatible providers may return visible reasoning blocks there,
 // while OpenAI accepts only an empty array when the item is replayed.
 //
 // Keep the reasoning item and its portable fields (summary, encrypted_content,
@@ -517,7 +517,7 @@ func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, 
 			return true
 		}
 		content := item.Get("content")
-		if content.IsArray() && len(content.Array()) > 0 {
+		if item.Get("status").Exists() || (content.IsArray() && len(content.Array()) > 0) {
 			needsNormalization = true
 			return false
 		}
@@ -540,6 +540,12 @@ func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, 
 		item, ok := rawItem.(map[string]any)
 		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "reasoning" {
 			continue
+		}
+		// Response output metadata is rejected when replayed as reasoning input.
+		// Restrict this to the item itself; message/tool/nested status is meaningful.
+		if _, exists := item["status"]; exists {
+			delete(item, "status")
+			changed = true
 		}
 		content, ok := item["content"].([]any)
 		if !ok || len(content) == 0 {

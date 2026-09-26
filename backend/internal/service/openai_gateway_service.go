@@ -445,6 +445,7 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 type OpenAIGatewayService struct {
 	excelBPSImagesMu      sync.Mutex
 	excelBPSImages        *basispoints.ImageRelay
+	excelBPSAttachments   basispoints.AttachmentCache
 	accountRepo           AccountRepository
 	usageLogRepo          UsageLogRepository
 	usageBillingRepo      UsageBillingRepository
@@ -518,6 +519,7 @@ type OpenAIGatewayService struct {
 	openaiCodexTurnStateWrites  atomic.Uint64
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，按套餐长度校验。
 	openaiCodexTickets             sync.Map
+	codex780Routes                 codex780RouteCache
 	openaiCodexTicketStateMu       sync.Mutex
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketProbeCooldown sync.Map // accountID\x00model -> time.Time
