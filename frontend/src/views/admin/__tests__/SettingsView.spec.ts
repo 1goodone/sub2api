@@ -7,6 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
+import MihomoSettings from "../settings/MihomoSettings.vue";
 
 const {
   getSettings,
@@ -580,6 +581,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        MihomoSettings: true,
         EmailTemplateEditor: true,
       },
     },
@@ -1082,6 +1084,37 @@ describe("admin SettingsView payment visible method controls", () => {
       .toBe("socks5h://user:new-secret@new.example.com:1080");
     expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
     wrapper.unmount();
+  });
+
+  it("shows the Mihomo pool and saves its selected endpoint only on submit", async () => {
+    const existingProxy = "http://user:***@old.example.com:8080";
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: existingProxy,
+      openai_codex_ticket_harvest_proxy_configured: true,
+    });
+    const wrapper = mountView();
+    try {
+      await flushPromises();
+      await openGatewayTab(wrapper);
+      expect(wrapper.get('[data-testid="mihomo-proxy-pool"]').isVisible()).toBe(true);
+      const input = wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy");
+      expect(input.element.value).toBe(existingProxy);
+      expect(updateSettings).not.toHaveBeenCalled();
+
+      wrapper.getComponent(MihomoSettings).vm.$emit("ready", "http://127.0.0.1:3101");
+      await flushPromises();
+      expect(input.element.value).toBe("http://127.0.0.1:3101");
+      expect(updateSettings).not.toHaveBeenCalled();
+
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        openai_codex_ticket_harvest_proxy_url: "http://127.0.0.1:3101",
+      }));
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {
