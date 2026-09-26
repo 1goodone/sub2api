@@ -246,17 +246,17 @@ func TestExcelBPS429PersistsQuotaAndCoolsDownWithoutReplay(t *testing.T) {
 					if tc.writeError {
 						// The existing scheduler trusts persisted cooldowns and fails open
 						// when persistence fails; this integration does not change that policy.
-						require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
+						require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(ctx, account, "gpt-6-astra", false))
 					} else {
 						reloaded := *account
 						reloaded.RateLimitResetAt = &write.resetAt
 						require.False(t, reloaded.IsSchedulable(), "persisted cooldown must prevent scheduling")
-						require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(&reloaded, "gpt-6-astra", false))
+						require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(ctx, &reloaded, "gpt-6-astra", false))
 						// Advance both persisted and runtime cooldowns to verify automatic recovery.
 						expired := time.Now().Add(-time.Second)
 						reloaded.RateLimitResetAt = &expired
 						svc.openaiAccountRuntimeBlockUntil.Store(account.ID, expired)
-						require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(&reloaded, "gpt-6-astra", false))
+						require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(ctx, &reloaded, "gpt-6-astra", false))
 						require.True(t, reloaded.IsSchedulable())
 					}
 				} else {
