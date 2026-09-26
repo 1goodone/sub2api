@@ -2307,30 +2307,6 @@
         </div>
       </div>
 
-        <!-- Codex turn-state engine (OpenAI OAuth / Setup Token parent accounts) -->
-      <div
-        v-if="codexTurnStateModeEligible"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div class="min-w-0">
-              <label for="edit-codex-turn-state-mode" class="input-label mb-0">{{ t('admin.accounts.openai.codexTurnStateMode') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexTurnStateModeDesc') }}
-            </p>
-          </div>
-            <div class="w-full sm:w-52 sm:flex-shrink-0">
-              <Select
-                v-model="codexTurnStateMode"
-                id="edit-codex-turn-state-mode"
-                :aria-label="t('admin.accounts.openai.codexTurnStateMode')"
-              data-testid="edit-codex-turn-state-mode-select"
-              :options="codexTurnStateModeOptions"
-            />
-          </div>
-        </div>
-      </div>
-
       <!-- Codex 门票状态（OpenAI OAuth / Setup Token） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && codexTurnTickets.length"
@@ -3270,13 +3246,6 @@ const groupsForModelLimits = computed(() => {
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
-const codexTurnStateModeEligible = computed(
-  () =>
-    props.account?.platform === 'openai' &&
-    (props.account.type === 'oauth' || props.account.type === 'setup-token') &&
-    !isSparkShadow.value
-)
-
 const codexTurnTickets = computed(() => props.account?.codex_turn_tickets ?? [])
 
 function formatCodexTicketRemaining(seconds: number) {
@@ -3674,8 +3643,6 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
-type CodexTurnStateMode = 'inherit' | 'legacy_ticket' | 'state_pool' | 'native'
-const codexTurnStateMode = ref<CodexTurnStateMode>('inherit')
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
@@ -3714,12 +3681,6 @@ const codexFingerprintModeOptions = computed(() => [
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
   { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
-])
-const codexTurnStateModeOptions = computed(() => [
-  { value: 'inherit' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeInherit') },
-  { value: 'legacy_ticket' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeLegacyTicket') },
-  { value: 'state_pool' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeStatePool') },
-  { value: 'native' as CodexTurnStateMode, label: t('admin.accounts.openai.codexTurnStateModeNative') }
 ])
 
 const openAIWSModeOptions = computed(() => [
@@ -4173,7 +4134,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
-  codexTurnStateMode.value = 'inherit'
   codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
@@ -4235,13 +4195,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
       codexCLIOnlyAppServerEnabled.value =
         extra?.codex_cli_only_allow_app_server === true
-      const storedTurnStateMode = extra?.codex_turn_state_mode
-      codexTurnStateMode.value = (
-        typeof storedTurnStateMode === 'string' &&
-        ['inherit', 'legacy_ticket', 'state_pool', 'native'].includes(storedTurnStateMode)
-          ? storedTurnStateMode
-          : 'inherit'
-      ) as CodexTurnStateMode
     }
     if (newAccount.type === 'oauth') {
       const fpMode = extra?.codex_fingerprint_mode as string | undefined
@@ -5788,11 +5741,6 @@ const handleSubmit = async () => {
       }
 
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
-        if (!isSparkShadow.value) {
-          newExtra.codex_turn_state_mode = codexTurnStateMode.value
-        } else {
-          delete newExtra.codex_turn_state_mode
-        }
         if (codexCLIOnlyEnabled.value) {
           newExtra.codex_cli_only = true
         } else if (hadCodexCLIOnlyEnabled) {
@@ -5820,9 +5768,9 @@ const handleSubmit = async () => {
         }
       }
 
-      delete newExtra.codex_turn_state_probe_cache
-      delete newExtra.codex_turn_state_probe_failures
-      delete newExtra.codex_turn_state_probe_enabled
+      for (const key of Object.keys(newExtra)) {
+        if (key.startsWith('codex_turn_state_')) delete newExtra[key]
+      }
 
       updatePayload.extra = newExtra
     }

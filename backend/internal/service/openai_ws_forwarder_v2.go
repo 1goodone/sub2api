@@ -393,15 +393,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		account,
 		stateStore,
 		groupID,
-		token,
 	); err != nil {
 		return nil, err
 	}
 	payload = s.prepareCodexQuotaOverdraftPayload(ctx, account, payload)
-	outboundPayload, stateObservation, stateErr := s.prepareCodexTurnStateWSFrame(ctx, account, turnStateOwner, token, payloadAsJSONBytes(payload))
-	if stateErr != nil {
-		return nil, wrapOpenAIWSFallback("codex_turn_state", stateErr)
-	}
+	outboundPayload := payloadAsJSONBytes(payload)
 
 	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(outboundPayload), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
@@ -674,7 +670,6 @@ readLoop:
 		if eventType == "" {
 			continue
 		}
-		stateObservation.observeEvent(message, eventType)
 		responseModelObserver.ObserveOpenAI(message, eventType)
 		eventCount++
 		if firstEventType == "" {

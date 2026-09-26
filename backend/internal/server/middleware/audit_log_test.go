@@ -152,46 +152,6 @@ func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *test
 	require.Contains(t, auditBodyOmittedRoutes, route)
 }
 
-func TestCodexStateImportOmitsOpaqueStateAndAuditsCopies(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repository := &auditCaptureRepository{}
-	auditService := service.NewAuditLogService(repository, nil)
-	auditService.Start()
-	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
-	router.POST("/api/v1/admin/accounts/:id/codex-turn-state-probe/import", func(c *gin.Context) {
-		var input struct {
-			State string `json:"state"`
-		}
-		require.NoError(t, c.ShouldBindJSON(&input))
-		require.Equal(t, "opaque-state-canary", input.State)
-		c.Status(http.StatusOK)
-	})
-	router.GET("/api/v1/admin/accounts/:id/codex-turn-state-probe/state", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"state": "opaque-state-canary"})
-	})
-	for _, method := range []string{http.MethodPost, http.MethodGet} {
-		path := "/api/v1/admin/accounts/7/codex-turn-state-probe/state"
-		if method == http.MethodPost {
-			path = "/api/v1/admin/accounts/7/codex-turn-state-probe/import"
-		}
-		request := httptest.NewRequest(method, path, bytes.NewBufferString(`{"state":"opaque-state-canary"}`))
-		request.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-		router.ServeHTTP(recorder, request)
-		require.Equal(t, http.StatusOK, recorder.Code)
-	}
-	auditService.Stop()
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
-	require.Len(t, repository.logs, 2)
-	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)
-	require.Equal(t, "admin.accounts.codex_state.read", repository.logs[1].Action)
-	for _, entry := range repository.logs {
-		require.NotContains(t, entry.RequestBody, "opaque-state-canary")
-	}
-}
-
 // Ollama 会话保存的请求体整体就是浏览器 Cookie 明文，键级脱敏清单曾漏掉裸键
 // "session"，必须走整体不入库路径，防止会话凭证长期留存在 audit_logs。
 func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {

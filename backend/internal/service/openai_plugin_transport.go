@@ -2,7 +2,6 @@ package service
 
 import (
 	"net/http"
-	"strings"
 )
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
@@ -32,19 +31,6 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			s.observeCodexTicketResponse(request, result, account)
 		}
 	}()
-	if s.codexTurnStateOwner(request.Context(), account) == CodexTurnStateModeStatePool {
-		current, stateErr := s.currentCodexTurnStateAccount(request.Context(), account)
-		if stateErr != nil {
-			return nil, stateErr
-		}
-		model, _ := request.Context().Value(codexTurnStateModelContextKey{}).(string)
-		token := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
-		if stateErr := s.applyCodexTurnStateForHTTPRequest(request.Context(), current, model, token, request.Header); stateErr != nil {
-			return nil, stateErr
-		}
-		observation := s.codexTurnStateObservation(request.Context(), current, model)
-		defer func() { observeCodexTurnStateHTTPResponse(result, observation) }()
-	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {

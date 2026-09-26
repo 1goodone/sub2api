@@ -30,7 +30,6 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 	account *Account,
 	stateStore OpenAIWSStateStore,
 	groupID int64,
-	token string,
 ) error {
 	if s == nil {
 		return nil
@@ -78,10 +77,6 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 	}
 	prewarmPayload["generate"] = false
 	prewarmPayloadJSON := payloadAsJSONBytes(prewarmPayload)
-	prewarmPayloadJSON, stateObservation, stateErr := s.prepareCodexTurnStateWSFrame(ctx, account, s.codexTurnStateOwner(ctx, account), token, prewarmPayloadJSON)
-	if stateErr != nil {
-		return wrapOpenAIWSFallback("prewarm_codex_turn_state", stateErr)
-	}
 
 	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(prewarmPayloadJSON), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
@@ -116,7 +111,6 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 		}
 
 		eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(message)
-		stateObservation.observeEvent(message, eventType)
 		if eventType == "" {
 			continue
 		}

@@ -1135,31 +1135,14 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
-  it('OpenAI OAuth 批量编辑可统一选择 Codex Turn-State 引擎', async () => {
+  it('批量编辑不再提供或提交 Turn-State 引擎配置', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
       selectedTypes: ['oauth']
     })
 
-    await wrapper.get('#bulk-edit-openai-codex-turn-state-mode-enabled').setValue(true)
-    await wrapper
-      .get('[data-testid="bulk-edit-openai-codex-turn-state-mode-select"]')
-      .setValue('state_pool')
-    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
-      extra: {
-        codex_turn_state_mode: 'state_pool'
-      }
-    })
-  })
-
-  it('未勾选 Turn-State 引擎时不覆盖账号现值', async () => {
-    const wrapper = mountModal({
-      selectedPlatforms: ['openai'],
-      selectedTypes: ['oauth']
-    })
+    expect(wrapper.find('#bulk-edit-openai-codex-turn-state-mode-enabled').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="bulk-edit-openai-codex-turn-state-mode-select"]').exists()).toBe(false)
 
     await wrapper.get('#bulk-edit-openai-codex-cli-only-enabled').setValue(true)
     await wrapper.get('#bulk-edit-openai-codex-cli-only-toggle').trigger('click')

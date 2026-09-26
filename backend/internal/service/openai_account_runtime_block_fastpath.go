@@ -587,10 +587,6 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(ctx context.
 	if s.openAICodexTicketBlocksAccount(account, outboundModel) {
 		return true
 	}
-	if s.codexTurnStateOwner(ctx, account) == CodexTurnStateModeStatePool &&
-		configuredCodexTurnState(account, outboundModel, account.GetOpenAIAccessToken(), time.Now()) == "" {
-		return true
-	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)
 	if snapshot.blocked {
 		if accountPersistedSchedulingCooldownActive(account) {

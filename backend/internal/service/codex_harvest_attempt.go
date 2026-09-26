@@ -80,7 +80,7 @@ func (s *OpenAIGatewayService) freshHarvestAccount(ctx context.Context, account 
 	if ctx.Err() != nil || account == nil || openAICodexSkipHarvest(account) {
 		return nil, false
 	}
-	if !s.openAICodexTicketEnabledContext(ctx) && s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
+	if !s.openAICodexTicketEnabledContext(ctx) && s.codexTurnStateOwner(ctx, account) != codexTurnStateOwnerLegacyTicket {
 		return nil, false
 	}
 	if s.codexHarvest != nil {

@@ -367,7 +367,7 @@ type OpenAICodexTicketStatus struct {
 }
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time) []OpenAICodexTicketStatus {
-	if !codexTurnStateUsesLegacyTicket(account, cfg.Enabled) {
+	if !isOpenAICodexTicketAccount(account) || !cfg.Enabled {
 		return nil
 	}
 	models := cfg.Models
@@ -754,7 +754,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 	if s == nil || h == nil || !isOpenAICodexTicketAccount(account, model) {
 		return nil
 	}
-	if s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
+	if s.codexTurnStateOwner(ctx, account) != codexTurnStateOwnerLegacyTicket {
 		return nil
 	}
 	model = normalizeOpenAICodexTicketModel(model)
@@ -896,7 +896,7 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 	if s == nil || !isOpenAICodexTicketAccount(account, outboundModel) || !s.openAICodexTicketEnabled() {
 		return false
 	}
-	if s.codexTurnStateOwner(context.Background(), account) != CodexTurnStateModeLegacyTicket {
+	if s.codexTurnStateOwner(context.Background(), account) != codexTurnStateOwnerLegacyTicket {
 		return false
 	}
 	cfg := s.openAICodexTicketConfig()
@@ -1166,7 +1166,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	seen := make(map[int64]bool, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if seen[account.ID] || openAICodexSkipHarvest(&account) || !scope.includes(&account) || !scope.allowsAccount(&account) || !isOpenAICodexTicketAccount(&account) || s.codexTurnStateOwner(ctx, &account) != CodexTurnStateModeLegacyTicket {
+		if seen[account.ID] || openAICodexSkipHarvest(&account) || !scope.includes(&account) || !scope.allowsAccount(&account) || !isOpenAICodexTicketAccount(&account) || s.codexTurnStateOwner(ctx, &account) != codexTurnStateOwnerLegacyTicket {
 			continue
 		}
 		seen[account.ID] = true
@@ -1351,15 +1351,23 @@ func isOpenAICodexTicketAccount(account *Account, upstreamModels ...string) bool
 	return len(upstreamModels) == 0 || !account.isExcelBPSUpstreamModelEnabled(upstreamModels[0])
 }
 
-// IsOpenAICodexTurnStatePrivateExtraKey also covers the retired account-level proxy
-// override, whose credentials may remain in older account records.
+// IsOpenAICodexTurnStatePrivateExtraKey also protects retired State Pool data
+// that may still exist in older account records.
 func IsOpenAICodexTurnStatePrivateExtraKey(key string) bool {
-	return IsOpenAICodexTicketExtraKey(key) || key == "codex_harvest_proxy_url" ||
-		key == CodexTurnStateProbeCacheExtraKey || key == CodexTurnStateProbeFailureExtraKey ||
-		key == CodexTurnStateOutboundIdentityExtraKey || key == CodexTurnStateRoutingCookieExtraKey
+	return IsOpenAICodexTicketExtraKey(key) || key == "codex_harvest_proxy_url" || strings.HasPrefix(key, "codex_turn_state_")
 }
 
-// RedactOpenAICodexTurnStateExtra strips both engines' runtime material from exports
+// StripRetiredCodexTurnStateExtra prevents imports and account updates from
+// persisting configuration or credentials for the removed State Pool engine.
+func StripRetiredCodexTurnStateExtra(extra map[string]any) {
+	for key := range extra {
+		if strings.HasPrefix(key, "codex_turn_state_") {
+			delete(extra, key)
+		}
+	}
+}
+
+// RedactOpenAICodexTurnStateExtra strips ticket and retired State Pool data from exports
 // without changing the source account or unrelated backup fields.
 func RedactOpenAICodexTurnStateExtra(extra map[string]any) map[string]any {
 	redacted := maps.Clone(extra)

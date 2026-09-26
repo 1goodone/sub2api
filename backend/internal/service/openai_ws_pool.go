@@ -72,7 +72,7 @@ type openAIWSAcquireRequest struct {
 	Account *Account
 	WSURL   string
 	Headers http.Header
-	// Pinned owner separates connections created by different turn-state engines.
+	// Pinned policy separates ticket-managed connections from native connections.
 	TurnStateOwner string
 	// HeadersFactory is evaluated inside dialConn. It exists so credentials
 	// whose authorization is per-dial (Agent Identity) are never cached in
@@ -2367,7 +2367,7 @@ func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest) bool {
 
 func (r openAIWSAcquireRequest) handshakeCompatibility() openAIWSHandshakeCompatibilityKey {
 	key := normalizeOpenAIWSHandshakeCompatibility(r.Account, r.Headers)
-	if r.TurnStateOwner != CodexTurnStateModeNative {
+	if r.TurnStateOwner != codexTurnStateOwnerNative {
 		key.turnStateOwner = r.TurnStateOwner
 	}
 	return key

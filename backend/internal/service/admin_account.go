@@ -412,10 +412,7 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
 	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
-	delete(accountExtra, CodexTurnStateProbeCacheExtraKey)
-	delete(accountExtra, CodexTurnStateProbeFailureExtraKey)
-	delete(accountExtra, CodexTurnStateOutboundIdentityExtraKey)
-	delete(accountExtra, CodexTurnStateRoutingCookieExtraKey)
+	StripRetiredCodexTurnStateExtra(accountExtra)
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -491,10 +488,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	accountExtra, err = normalizeOpenAIAutoResetCreditExtra(input.Platform, input.Type, false, accountExtra)
 	if err != nil {
 		return nil, err
-	}
-	accountExtra, err = NormalizeCodexTurnStateProbeExtra(input.Platform, input.Type, false, accountExtra)
-	if err != nil {
-		return nil, infraerrors.BadRequest("INVALID_CODEX_TURN_STATE_MODE", err.Error())
 	}
 	if err := ValidateUpstreamRequestIDHeaderExtra(accountExtra); err != nil {
 		return nil, err
@@ -605,10 +598,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err != nil {
 			return nil, err
 		}
-		normalizedExtra, err = NormalizeCodexTurnStateProbeExtra(account.Platform, effectiveType, account.IsShadow(), normalizedExtra)
-		if err != nil {
-			return nil, infraerrors.BadRequest("INVALID_CODEX_TURN_STATE_MODE", err.Error())
-		}
+		StripRetiredCodexTurnStateExtra(normalizedExtra)
 		if err := ValidateUpstreamRequestIDHeaderExtra(normalizedExtra); err != nil {
 			return nil, err
 		}
@@ -693,10 +683,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		delete(normalizedExtra, CodexQuotaOverdraftEnabledExtraKey)
 		delete(normalizedExtra, CodexQuotaOverdraftProbeExtraKey)
-		delete(normalizedExtra, CodexTurnStateProbeCacheExtraKey)
-		delete(normalizedExtra, CodexTurnStateProbeFailureExtraKey)
-		delete(normalizedExtra, CodexTurnStateOutboundIdentityExtraKey)
-		delete(normalizedExtra, CodexTurnStateRoutingCookieExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -714,10 +700,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			CodexQuotaOverdraftEnabledExtraKey,
 			CodexQuotaOverdraftProbeExtraKey,
 			OpenAIAutoResetCreditStateExtraKey,
-			CodexTurnStateProbeCacheExtraKey,
-			CodexTurnStateProbeFailureExtraKey,
-			CodexTurnStateOutboundIdentityExtraKey,
-			CodexTurnStateRoutingCookieExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
@@ -940,23 +922,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
 	updates = MergeOpenAICodexTicketExtra(updates, nil)
-	delete(updates, CodexTurnStateProbeEnabledExtraKey)
-	delete(updates, CodexTurnStateProbeProxyIDExtraKey)
-	delete(updates, CodexTurnStateProbeModelsExtraKey)
-	delete(updates, CodexTurnStateProbeRetryExtraKey)
-	delete(updates, CodexTurnStateProbeCacheExtraKey)
-	delete(updates, CodexTurnStateProbeFailureExtraKey)
-	delete(updates, CodexTurnStateOutboundIdentityExtraKey)
-	delete(updates, CodexTurnStateRoutingCookieExtraKey)
-	if _, exists := updates[CodexTurnStateModeExtraKey]; exists {
-		account, err := s.accountRepo.GetByID(ctx, id)
-		if err != nil {
-			return err
-		}
-		if _, err := NormalizeCodexTurnStateProbeExtra(account.Platform, account.Type, account.IsShadow(), updates); err != nil {
-			return infraerrors.BadRequest("INVALID_CODEX_TURN_STATE_MODE", err.Error())
-		}
-	}
+	StripRetiredCodexTurnStateExtra(updates)
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)

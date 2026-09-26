@@ -400,7 +400,6 @@ func TestAdminServiceBulkUpdateAccounts_RejectsInvalidOpenAISettingValuesBeforeW
 		{name: "capabilities type", credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: "chat_completions"}, reason: "OPENAI_ENDPOINT_CAPABILITIES_INVALID"},
 		{name: "responses mode", extra: map[string]any{"openai_responses_mode": "sometimes"}, reason: "OPENAI_RESPONSES_MODE_INVALID"},
 		{name: "responses type", extra: map[string]any{"openai_responses_mode": true}, reason: "OPENAI_RESPONSES_MODE_INVALID"},
-		{name: "turn-state mode", extra: map[string]any{CodexTurnStateModeExtraKey: "unknown"}, reason: "INVALID_CODEX_TURN_STATE_MODE"},
 		{
 			name:        "embeddings conflict",
 			credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: []any{"embeddings"}},
@@ -463,14 +462,6 @@ func TestAdminServiceBulkUpdateAccounts_RejectsInvalidOpenAITargetsBeforeWrite(t
 				Extra:      map[string]any{openAILongContextBillingEnabledKey: true},
 			},
 		},
-		{
-			name:     "API-key turn-state mode",
-			accounts: []*Account{{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}},
-			input: &BulkUpdateAccountsInput{
-				AccountIDs: []int64{1},
-				Extra:      map[string]any{CodexTurnStateModeExtraKey: CodexTurnStateModeStatePool},
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -485,7 +476,7 @@ func TestAdminServiceBulkUpdateAccounts_RejectsInvalidOpenAITargetsBeforeWrite(t
 	}
 }
 
-func TestAdminServiceBulkUpdateAccounts_NormalizesCodexTurnStateMode(t *testing.T) {
+func TestAdminServiceBulkUpdateAccounts_StripsRetiredCodexTurnState(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{getByIDsAccounts: []*Account{
 		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
 		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeSetupToken},
@@ -494,12 +485,12 @@ func TestAdminServiceBulkUpdateAccounts_NormalizesCodexTurnStateMode(t *testing.
 
 	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1, 2},
-		Extra:      map[string]any{CodexTurnStateModeExtraKey: " state_pool "},
+		Extra:      map[string]any{"codex_turn_state_mode": "state_pool", "codex_turn_state_probe_cache": "forged", "codex_cli_only": true},
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Success)
-	require.Equal(t, CodexTurnStateModeStatePool, repo.lastBulkUpdate.Extra[CodexTurnStateModeExtraKey])
+	require.Equal(t, map[string]any{"codex_cli_only": true}, repo.lastBulkUpdate.Extra)
 }
 
 func TestAdminServiceBulkUpdateAccounts_ForcedResponsesRequiresChatCapability(t *testing.T) {

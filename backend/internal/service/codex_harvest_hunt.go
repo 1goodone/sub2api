@@ -14,7 +14,7 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 	if s == nil || ctx.Err() != nil || !isOpenAICodexTicketAccount(account, model) || s.httpUpstream == nil {
 		return
 	}
-	if s.codexTurnStateOwner(ctx, account) != CodexTurnStateModeLegacyTicket {
+	if s.codexTurnStateOwner(ctx, account) != codexTurnStateOwnerLegacyTicket {
 		return
 	}
 	key := openAICodexTicketKey(account.ID, model)

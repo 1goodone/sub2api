@@ -14,13 +14,12 @@ type bulkOpenAISettings struct {
 	longContextBilling      bool
 	endpointCapabilities    bool
 	responsesMode           bool
-	codexTurnStateMode      bool
 	capabilitiesIncludeChat bool
 	forcedResponsesMode     bool
 }
 
 func (s bulkOpenAISettings) any() bool {
-	return s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode || s.codexTurnStateMode
+	return s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode
 }
 
 func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISettings, error) {
@@ -61,14 +60,7 @@ func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISett
 		input.Extra[openai_compat.ExtraKeyResponsesMode] = mode
 	}
 
-	if _, exists := input.Extra[CodexTurnStateModeExtraKey]; exists {
-		settings.codexTurnStateMode = true
-		mode, err := codexTurnStateModeFromExtra(input.Extra)
-		if err != nil {
-			return settings, infraerrors.BadRequest("INVALID_CODEX_TURN_STATE_MODE", err.Error())
-		}
-		input.Extra[CodexTurnStateModeExtraKey] = mode
-	}
+	StripRetiredCodexTurnStateExtra(input.Extra)
 
 	if settings.endpointCapabilities && !settings.capabilitiesIncludeChat {
 		if settings.forcedResponsesMode {
@@ -249,10 +241,6 @@ func validateBulkOpenAISettingsTargets(
 			if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
 				return 0, invalidBulkOpenAITarget(accountID, "endpoint capabilities and Responses routing require an OpenAI API-key account")
 			}
-		}
-
-		if settings.codexTurnStateMode && (!account.IsOpenAIOAuthLike() || account.IsShadow()) {
-			return 0, invalidBulkOpenAITarget(accountID, "Codex turn-state mode requires an OpenAI OAuth or setup-token parent account")
 		}
 
 		if settings.forcedResponsesMode && !settings.capabilitiesIncludeChat &&

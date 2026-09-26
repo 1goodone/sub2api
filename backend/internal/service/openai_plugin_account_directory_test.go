@@ -38,7 +38,7 @@ func TestListPluginAccounts_ScopeAndSchedulable(t *testing.T) {
 				OllamaCloudUsageSessionExtraKey:  "ciphertext-secret",
 				codexFingerprintSeedExtraKey:     "11111111-1111-4111-8111-111111111111",
 				"codex_harvest_proxy_url":        "http://user:legacy-proxy-secret@proxy.example.com:8080",
-				CodexTurnStateProbeCacheExtraKey: map[string]any{"state": "pool-secret"},
+				"codex_turn_state_probe_cache":  map[string]any{"state": "pool-secret"},
 			}},
 		// active but temp-unschedulable (paused) — status stays active, must still be
 		// returned, but not schedulable

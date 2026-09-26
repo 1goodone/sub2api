@@ -852,7 +852,6 @@ const adminNavItems = computed((): NavItem[] => {
     // 「仅充值」站点连管理端的「订阅管理」入口也一并收起（路由本身不拦截）。
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/codex-state-pool', label: t('admin.accounts.statePool.title'), icon: GlobeIcon },
     { path: '/admin/smart-ops', label: t('accountOps.smartTitle'), icon: ChartIcon, expandOnly: true, children: [
       { path: '/admin/account-quality', label: t('qualityOps.title'), icon: ChartIcon },
       { path: '/admin/account-ops', label: t('accountOps.title'), icon: BellIcon },

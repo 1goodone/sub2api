@@ -1544,7 +1544,6 @@ func TestOpenAIGatewayService_PrewarmReadHonorsParentContext(t *testing.T) {
 		account,
 		nil,
 		0,
-		"",
 	)
 	elapsed := time.Since(start)
 	require.Error(t, err)

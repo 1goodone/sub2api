@@ -100,11 +100,11 @@ func TestAccountFromServiceShallow_RedactsCodexTurnTicketState(t *testing.T) {
 	src := &service.Account{
 		ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 		Extra: map[string]any{
-			service.CodexTurnStateModeExtraKey: service.CodexTurnStateModeStatePool,
-			service.CodexTurnStateProbeCacheExtraKey: map[string]any{
+			"codex_turn_state_mode": "state_pool",
+			"codex_turn_state_probe_cache": map[string]any{
 				"gpt-6-astra": map[string]any{"state": "pool-secret", "credential_hash": "token-hash"},
 			},
-			service.CodexTurnStateProbeFailureExtraKey: map[string]any{"gpt-6-astra": "probe-failed"},
+			"codex_turn_state_probe_failures": map[string]any{"gpt-6-astra": "probe-failed"},
 			"codex_harvest_proxy_url":                  "http://user:legacy-proxy-secret@proxy.example.com:8080",
 			"codex_turn_ticket:gpt-6-astra": map[string]any{
 				"state":       blob,
@@ -124,10 +124,10 @@ func TestAccountFromServiceShallow_RedactsCodexTurnTicketState(t *testing.T) {
 	require.NotContains(t, string(raw), "legacy-proxy-secret")
 	require.NotContains(t, string(raw), "pool-secret")
 	require.NotContains(t, string(raw), "token-hash")
-	require.NotContains(t, got.Extra, service.CodexTurnStateProbeCacheExtraKey)
-	require.NotContains(t, got.Extra, service.CodexTurnStateProbeFailureExtraKey)
-	require.Equal(t, service.CodexTurnStateModeStatePool, got.Extra[service.CodexTurnStateModeExtraKey])
-	require.Contains(t, src.Extra, service.CodexTurnStateProbeCacheExtraKey)
+	require.NotContains(t, got.Extra, "codex_turn_state_probe_cache")
+	require.NotContains(t, got.Extra, "codex_turn_state_probe_failures")
+	require.NotContains(t, got.Extra, "codex_turn_state_mode")
+	require.Contains(t, src.Extra, "codex_turn_state_probe_cache")
 	require.NotContains(t, got.Extra, "codex_harvest_proxy_url")
 	require.Contains(t, src.Extra, "codex_harvest_proxy_url")
 }

@@ -1873,14 +1873,14 @@ describe('EditAccountModal', () => {
   })
 })
 
-describe('EditAccountModal Codex turn-state mode', () => {
+describe('EditAccountModal retired Codex turn-state settings', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
   })
 
-  it('loads the stored mode, switches engines, and omits backend-managed runtime state', async () => {
+  it('removes retired engine settings and cached state when saving', async () => {
     const account = buildOpenAIOAuthParentAccount()
     account.extra = {
       codex_turn_state_mode: 'state_pool',
@@ -1890,40 +1890,20 @@ describe('EditAccountModal Codex turn-state mode', () => {
     }
     updateAccountMock.mockResolvedValue(account)
     const wrapper = mountModal(account)
-    const select = wrapper.get<HTMLSelectElement>('[data-testid="edit-codex-turn-state-mode-select"]')
-
-    expect(select.element.value).toBe('state_pool')
-    await select.setValue('legacy_ticket')
+    expect(wrapper.find('[data-testid="edit-codex-turn-state-mode-select"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
-    expect(extra?.codex_turn_state_mode).toBe('legacy_ticket')
+    expect(extra).not.toHaveProperty('codex_turn_state_mode')
     expect(extra).not.toHaveProperty('codex_turn_state_probe_cache')
     expect(extra).not.toHaveProperty('codex_turn_state_probe_failures')
     expect(extra).not.toHaveProperty('codex_turn_state_probe_enabled')
     wrapper.unmount()
   })
 
-  it('falls back to inherit for an invalid stored mode', () => {
-    const account = buildOpenAIOAuthParentAccount()
-    account.extra = { codex_turn_state_mode: 'invalid-mode' }
-    const wrapper = mountModal(account)
-
-    expect(
-      wrapper.get<HTMLSelectElement>('[data-testid="edit-codex-turn-state-mode-select"]').element.value
-    ).toBe('inherit')
-    wrapper.unmount()
-  })
-
-  it('shows the selector only for OpenAI OAuth or Setup Token parent accounts', () => {
-    for (const account of [buildOpenAIOAuthParentAccount(), buildOpenAISetupTokenAccount()]) {
-      const wrapper = mountModal(account)
-      expect(wrapper.find('[data-testid="edit-codex-turn-state-mode-select"]').exists()).toBe(true)
-      wrapper.unmount()
-    }
-
-    for (const account of [buildAccount(), buildOpenAISparkShadowAccount()]) {
+  it('does not offer an engine selector for any account type', () => {
+    for (const account of [buildOpenAIOAuthParentAccount(), buildOpenAISetupTokenAccount(), buildAccount(), buildOpenAISparkShadowAccount()]) {
       const wrapper = mountModal(account)
       expect(wrapper.find('[data-testid="edit-codex-turn-state-mode-select"]').exists()).toBe(false)
       wrapper.unmount()

@@ -73,9 +73,6 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_usage_updated_at":                    {},
 	"grok_billing_snapshot":                     {},
 	"session_window_utilization":                {},
-	service.CodexTurnStateProbeCacheExtraKey:    {},
-	service.CodexTurnStateProbeFailureExtraKey:  {},
-	service.CodexTurnStateRoutingCookieExtraKey: {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -665,10 +662,7 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
 			extra -> 'ollama_cloud_usage_snapshot',
-			COALESCE(extra, '{}'::jsonb),
-			platform,
-			type,
-			credentials
+			COALESCE(extra, '{}'::jsonb)
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -695,9 +689,6 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaAutoRefresh     []byte
 		currentOllamaSnapshot        []byte
 		currentExtraJSON             []byte
-		currentPlatform              string
-		currentType                  string
-		currentCredentialsJSON       []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -710,9 +701,6 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
 		&currentExtraJSON,
-		&currentPlatform,
-		&currentType,
-		&currentCredentialsJSON,
 	); err != nil {
 		return nil, err
 	}
@@ -733,28 +721,8 @@ func lockAndMergeAccountProbeExtra(
 			currentExtra = nil
 		}
 	}
-	var currentCredentials map[string]any
-	if len(currentCredentialsJSON) > 0 {
-		if err := json.Unmarshal(currentCredentialsJSON, &currentCredentials); err != nil {
-			logger.LegacyPrintf("repository.account",
-				"[Account] current credentials unmarshal failed, codex state preservation skipped: id=%d err=%v",
-				account.ID, err)
-			currentCredentials = nil
-		}
-	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
-	current := &service.Account{
-		ID:              account.ID,
-		Platform:        currentPlatform,
-		Type:            currentType,
-		Credentials:     currentCredentials,
-		Extra:           currentExtra,
-		ParentAccountID: account.ParentAccountID,
-	}
-	updated := *account
-	updated.Extra = extra
-	service.PreserveCodexTurnStateProbeRuntimeForEdit(&updated, current)
-	extra = updated.Extra
+	service.StripRetiredCodexTurnStateExtra(extra)
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
