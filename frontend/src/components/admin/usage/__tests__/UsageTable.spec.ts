@@ -7,7 +7,7 @@ const ipGeoMocks = vi.hoisted(() => ({
 const appStoreMocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
-  cachedPublicSettings: undefined as { usage_show_long_context_badge?: boolean } | undefined,
+  cachedPublicSettings: undefined as { usage_show_long_context_badge?: boolean; usage_show_average_tps?: boolean } | undefined,
 }))
 
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
@@ -1003,5 +1003,17 @@ describe('admin UsageTable latency TPS', () => {
     expect(tpsCell(wrapper, 'req-tps-empty').text()).toBe('-')
     expect(tpsCell(wrapper, 'req-tps-empty').attributes('title')).toBeUndefined()
     expect(tpsCell(wrapper, 'req-tps-image').text()).toBe('-')
+  })
+
+  it('hides average TPS and its health segment when disabled in public settings', () => {
+    appStoreMocks.cachedPublicSettings = { usage_show_average_tps: false }
+    const wrapper = mountLatency([
+      { request_id: 'req-tps-hidden', output_tokens: 25, duration_ms: 17_000, first_token_ms: 12_000 },
+    ])
+
+    expect(wrapper.find('[data-row="req-tps-hidden"] [data-testid="latency-tps"]').exists()).toBe(false)
+    expect(barClasses(wrapper, 'req-tps-hidden')).toEqual(
+      expect.arrayContaining(['from-amber-400', 'via-emerald-500', 'to-emerald-500']),
+    )
   })
 })

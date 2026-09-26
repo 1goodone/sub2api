@@ -244,6 +244,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
 		SettingKeyUsageShowLongContextBadge,
+		SettingKeyUsageShowAverageTPS,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -382,6 +383,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
 
 		UsageShowLongContextBadge: settings[SettingKeyUsageShowLongContextBadge] != "false",
+		UsageShowAverageTPS:       settings[SettingKeyUsageShowAverageTPS] != "false",
 	}, nil
 }
 
@@ -652,6 +654,7 @@ type PublicSettingsInjectionPayload struct {
 	RiskControlEnabled            bool `json:"risk_control_enabled"`
 	AllowUserViewErrorRequests    bool `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge     bool `json:"usage_show_long_context_badge"`
+	UsageShowAverageTPS           bool `json:"usage_show_average_tps"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -738,6 +741,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:            settings.UsageShowLongContextBadge,
+		UsageShowAverageTPS:                  settings.UsageShowAverageTPS,
 	}, nil
 }
 

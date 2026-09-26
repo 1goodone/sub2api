@@ -329,6 +329,7 @@ type SystemSettings struct {
 	RequestCaptureRetentionDays int
 	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
 	UsageShowLongContextBadge bool
+	UsageShowAverageTPS       bool
 
 	ExcelBPSImageRelayEnabled bool
 	ExcelBPSImageBaseURL      string
@@ -442,6 +443,7 @@ type PublicSettings struct {
 
 	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
 	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
+	UsageShowAverageTPS       bool `json:"usage_show_average_tps"`
 }
 
 type LoginAgreementDocument struct {

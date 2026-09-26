@@ -545,6 +545,8 @@ const baseSettingsResponse = {
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [],
+  usage_show_long_context_badge: true,
+  usage_show_average_tps: true,
   // 平台限额嵌套字段（新后端契约）
   default_platform_quotas: {
     anthropic:   { daily: null, weekly: null, monthly: null },
@@ -1873,6 +1875,22 @@ describe("admin SettingsView payment visible method controls", () => {
     // supported_types should be normalized to an empty array, not null
     expect(Array.isArray(receivedProviders[0].supported_types)).toBe(true);
     expect(receivedProviders[0].supported_types).toEqual([]);
+  });
+
+  it("loads and saves the average TPS visibility setting", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, usage_show_average_tps: false });
+    const wrapper = mountView();
+    await flushPromises();
+
+    const toggle = wrapper.get<HTMLInputElement>('[data-testid="usage-show-average-tps"]');
+    expect(toggle.element.checked).toBe(false);
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ usage_show_average_tps: true }),
+    );
   });
 });
 

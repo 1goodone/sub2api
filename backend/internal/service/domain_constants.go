@@ -778,3 +778,7 @@ const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
 // billing "x2" badge is shown next to the cost in usage tables. Default
 // true (opt-out).
 const SettingKeyUsageShowLongContextBadge = "usage_show_long_context_badge"
+
+// SettingKeyUsageShowAverageTPS controls whether average output TPS is shown
+// in usage tables. Default true (opt-out).
+const SettingKeyUsageShowAverageTPS = "usage_show_average_tps"

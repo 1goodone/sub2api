@@ -1323,6 +1323,10 @@ export default {
         label: 'Show long-context billing badge',
         description: 'When enabled, usage records billed under long-context tiered pricing show an x2 badge next to their cost. Enabled by default.',
       },
+      average_tps: {
+        label: 'Show average TPS',
+        description: 'When enabled, usage records show average output speed as TPS. Enabled by default.',
+      },
       saveSettings: 'Save Settings',
       saving: 'Saving...',
       settingsSaved: 'Settings saved successfully',

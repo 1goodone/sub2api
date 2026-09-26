@@ -125,6 +125,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:  settings.UsageShowLongContextBadge,
+		UsageShowAverageTPS:        settings.UsageShowAverageTPS,
 	})
 }
 

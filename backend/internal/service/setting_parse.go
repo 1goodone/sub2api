@@ -278,6 +278,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyExcelBPSImageBudgetMiB:     strconv.Itoa(DefaultExcelBPSImageBudgetMiB),
 		SettingKeyExcelBPSImageMaxRequests:   strconv.Itoa(DefaultExcelBPSImageMaxRequests),
 		SettingKeyUsageShowLongContextBadge:  "true",
+		SettingKeyUsageShowAverageTPS:        "true",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -1027,6 +1028,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 	result.UsageShowLongContextBadge = settings[SettingKeyUsageShowLongContextBadge] != "false"  // 默认开启
+	result.UsageShowAverageTPS = settings[SettingKeyUsageShowAverageTPS] != "false"              // 默认开启
 	result.RequestCaptureEnabled = settings[SettingKeyRequestCaptureEnabled] == "true"
 	result.RequestCaptureQuotaMiB, _ = strconv.ParseInt(settings[SettingKeyRequestCaptureQuotaMiB], 10, 64)
 	if result.RequestCaptureQuotaMiB <= 0 {

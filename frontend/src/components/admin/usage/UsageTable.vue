@@ -246,15 +246,17 @@
               <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
-              <span
-                v-if="formatUsageOutputTps(row)"
-                data-testid="latency-tps"
-                class="font-medium tabular-nums"
-                :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
-                :title="t('usage.latencyTpsHint')"
-              >{{ formatUsageOutputTps(row) }}</span>
-              <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
+              <template v-if="showAverageTps">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
+                <span
+                  v-if="formatUsageOutputTps(row)"
+                  data-testid="latency-tps"
+                  class="font-medium tabular-nums"
+                  :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
+                  :title="t('usage.latencyTpsHint')"
+                >{{ formatUsageOutputTps(row) }}</span>
+                <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
+              </template>
             </div>
           </div>
         </template>
@@ -632,6 +634,7 @@ const ipGeoBatchLoading = ref(false)
 
 // 长上下文计费 x2 徽标展示开关（公开设置，默认开启；未加载/缺失时按开启处理）
 const showLongContextBadge = computed(() => appStore.cachedPublicSettings?.usage_show_long_context_badge !== false)
+const showAverageTps = computed(() => appStore.cachedPublicSettings?.usage_show_average_tps !== false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 
@@ -754,7 +757,7 @@ const latencyBarClasses = (row: AdminUsageLog): string[] => {
     'bg-gradient-to-b from-30% via-50% to-70%',
     LATENCY_BAR_FROM_CLASSES[row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration],
     LATENCY_BAR_VIA_CLASSES[duration],
-    LATENCY_BAR_TO_CLASSES[tps != null ? tpsSeverity(tps) : duration],
+    LATENCY_BAR_TO_CLASSES[showAverageTps.value && tps != null ? tpsSeverity(tps) : duration],
   ]
 }
 

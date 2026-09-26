@@ -291,6 +291,8 @@ export interface PublicSettings {
   allow_user_view_error_requests?: boolean
   /** Usage 表中长上下文计费 x2 徽标的展示开关（后端默认开启，缺失时按开启处理） */
   usage_show_long_context_badge?: boolean
+  /** Usage table average output TPS visibility (default enabled). */
+  usage_show_average_tps?: boolean
 }
 
 export interface AuthResponse {

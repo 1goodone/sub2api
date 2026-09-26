@@ -394,6 +394,7 @@ type UpdateSettingsRequest struct {
 
 	AllowUserViewErrorRequests  *bool   `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge   *bool   `json:"usage_show_long_context_badge"`
+	UsageShowAverageTPS         *bool   `json:"usage_show_average_tps"`
 	RequestCaptureEnabled       *bool   `json:"request_capture_enabled"`
 	RequestCaptureQuotaMiB      *int64  `json:"request_capture_quota_mib"`
 	RequestCaptureRetentionDays *int    `json:"request_capture_retention_days"`
@@ -1754,6 +1755,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.UsageShowLongContextBadge
 		}(),
+		UsageShowAverageTPS: func() bool {
+			if req.UsageShowAverageTPS != nil {
+				return *req.UsageShowAverageTPS
+			}
+			return previousSettings.UsageShowAverageTPS
+		}(),
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -2551,6 +2558,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:         updatedSettings.UsageShowLongContextBadge,
+		UsageShowAverageTPS:               updatedSettings.UsageShowAverageTPS,
 		RequestCaptureEnabled:             updatedSettings.RequestCaptureEnabled,
 		RequestCaptureQuotaMiB:            updatedSettings.RequestCaptureQuotaMiB,
 		RequestCaptureRetentionDays:       updatedSettings.RequestCaptureRetentionDays,

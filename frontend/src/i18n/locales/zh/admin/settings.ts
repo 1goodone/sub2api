@@ -1317,6 +1317,10 @@ export default {
         label: '展示长上下文计费标识',
         description: '开启后，使用详情中触发长上下文阶梯计费的记录会在费用旁显示 x2 标识；默认开启。',
       },
+      average_tps: {
+        label: '展示平均 TPS',
+        description: '开启后，用量记录中的平均输出速度会显示为 TPS；默认开启。',
+      },
       saveSettings: '保存设置',
       saving: '保存中...',
       settingsSaved: '设置保存成功',

@@ -74,3 +74,59 @@ func TestSettingsUsageLongContextBadgeRoundTripAndOmission(t *testing.T) {
 		})
 	}
 }
+
+func requireUsageAverageTPS(t *testing.T, h *SettingHandler, want bool) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+	h.GetSettings(c)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, want, gjson.Get(rec.Body.String(), "data.usage_show_average_tps").Value())
+
+	public, err := h.settingService.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, public.UsageShowAverageTPS)
+
+	raw, err := h.settingService.GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	payload, ok := raw.(*service.PublicSettingsInjectionPayload)
+	require.True(t, ok)
+	require.Equal(t, want, payload.UsageShowAverageTPS)
+}
+
+func TestSettingsUsageAverageTPSDefaultsAndRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stored map[string]string
+		want   bool
+	}{
+		{name: "missing defaults to enabled", stored: map[string]string{}, want: true},
+		{name: "explicit false", stored: map[string]string{service.SettingKeyUsageShowAverageTPS: "false"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newStepUpSwitchTestHandler(t, tc.stored)
+			requireUsageAverageTPS(t, h, tc.want)
+		})
+	}
+
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	for _, step := range []struct {
+		name   string
+		body   map[string]any
+		want   bool
+		stored string
+	}{
+		{name: "disable", body: map[string]any{"usage_show_average_tps": false}, want: false, stored: "false"},
+		{name: "omit while disabled", body: map[string]any{"site_name": "Hidden TPS"}, want: false, stored: "false"},
+		{name: "enable again", body: map[string]any{"usage_show_average_tps": true}, want: true, stored: "true"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			rec := doUpdateSettings(t, h, step.body, nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.Equal(t, step.want, gjson.Get(rec.Body.String(), "data.usage_show_average_tps").Value())
+			require.Equal(t, step.stored, repo.values[service.SettingKeyUsageShowAverageTPS])
+			requireUsageAverageTPS(t, h, step.want)
+		})
+	}
+}
