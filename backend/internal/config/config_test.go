@@ -404,6 +404,18 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
+func TestLoadPreserveProcessSlotsOnStartup(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			t.Setenv("GATEWAY_SCHEDULING_PRESERVE_PROCESS_SLOTS_ON_STARTUP", fmt.Sprint(enabled))
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.Equal(t, enabled, cfg.Gateway.Scheduling.PreserveProcessSlotsOnStartup)
+		})
+	}
+}
+
 func TestLoadDefaultOpenAIFirstOutputTimeoutsDisabled(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
