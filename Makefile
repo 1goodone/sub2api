@@ -1,6 +1,14 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/api/__tests__/observerUsage.spec.ts \
+	src/views/admin/__tests__/UsageView.spec.ts \
+	src/views/user/__tests__/UsageView.spec.ts \
+	src/views/user/__tests__/UsageEntryView.spec.ts \
+	src/components/admin/usage/__tests__/UsageFilters.spec.ts \
+	src/components/admin/usage/__tests__/UsageTimingDialog.spec.ts \
+	src/views/admin/ops/components/__tests__/OpsErrorDetailModal.spec.ts \
+	src/router/__tests__/feature-access.spec.ts \
 	src/api/admin/__tests__/requestCaptures.spec.ts \
 	src/views/admin/__tests__/RequestCaptureView.spec.ts \
 	src/stores/__tests__/adminSettings.retry.spec.ts \
@@ -9,6 +17,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/tokenRefresh.spec.ts \
 	src/api/__tests__/keys.bulkUpdate.spec.ts \
 	src/components/keys/__tests__/BulkEditKeysModal.spec.ts \
+	src/components/account/__tests__/ExcelBPS403Badge.spec.ts \
+	src/components/admin/user/__tests__/UserEditModal.spec.ts \
 	src/views/user/__tests__/KeysView.spec.ts \
 	src/api/__tests__/channelMonitorV2.spec.ts \
 	src/views/auth/__tests__/LinuxDoCallbackView.spec.ts \

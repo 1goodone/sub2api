@@ -664,6 +664,7 @@ export interface SystemSettings {
   openai_codex_version_auto_sync_enabled: boolean;
   openai_codex_ticket_enabled: boolean;
   openai_codex_ticket_harvest_proxy_url: string;
+  openai_codex_ticket_static_proxy_url?: string;
   openai_codex_ticket_harvest_proxy_configured: boolean;
   openai_codex_ticket_models: string[];
   openai_codex_ticket_harvest_scope: CodexTicketHarvestScope;
@@ -1010,6 +1011,7 @@ export interface UpdateSettingsRequest {
   openai_codex_version_auto_sync_enabled?: boolean;
   openai_codex_ticket_enabled?: boolean;
   openai_codex_ticket_harvest_proxy_url?: string;
+  openai_codex_ticket_use_saved_static_proxy?: boolean;
   openai_codex_ticket_models?: string[];
   openai_codex_ticket_harvest_scope?: CodexTicketHarvestScope;
   // codex_cli_only 加固

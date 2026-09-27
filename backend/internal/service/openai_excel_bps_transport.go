@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -45,6 +46,63 @@ func acquireExcelBPSProxy(ctx context.Context, scope string, excluded ...string)
 		return "", nil, err
 	}
 	return lease.ProxyURL, lease, nil
+}
+
+// excelBPSAcquireFor routes the managed session to the pool the account chose.
+// Both pools share binding/scoring semantics, so callers keep one acquire shape.
+func (s *OpenAIGatewayService) excelBPSAcquireFor(account *Account) excelBPSAcquire {
+	if account.ExcelBPSProxySource() == ExcelBPSProxySourceIPPool {
+		return s.acquireExcelBPSIPPoolProxy
+	}
+	return acquireExcelBPSProxy
+}
+
+// Membership is pushed on demand with a short TTL: the pool machinery keeps its
+// own health state, so this only has to reflect admin proxy CRUD reasonably fast.
+const excelBPSIPPoolRefreshTTL = 15 * time.Second
+
+func (s *OpenAIGatewayService) acquireExcelBPSIPPoolProxy(ctx context.Context, scope string, excluded ...string) (string, excelBPSLease, error) {
+	s.refreshExcelBPSIPPool(ctx)
+	acquire := mihomo.AcquireBPSStaticLease
+	if strings.HasPrefix(scope, "transient:") {
+		acquire = mihomo.AcquireBPSStaticTransientLease
+	}
+	lease, err := acquire(ctx, scope, excluded...)
+	if err != nil {
+		return "", nil, err
+	}
+	return lease.ProxyURL, lease, nil
+}
+
+func (s *OpenAIGatewayService) refreshExcelBPSIPPool(ctx context.Context) {
+	if s.proxyRepo == nil {
+		return
+	}
+	now := time.Now()
+	s.excelBPSIPPoolMu.Lock()
+	fresh := now.Before(s.excelBPSIPPoolSyncedAt.Add(excelBPSIPPoolRefreshTTL))
+	if !fresh {
+		s.excelBPSIPPoolSyncedAt = now
+	}
+	s.excelBPSIPPoolMu.Unlock()
+	if fresh {
+		return
+	}
+	proxies, err := s.proxyRepo.ListActive(ctx)
+	if err != nil {
+		// Keep the last pushed membership on a transient listing error; health
+		// state and cooldowns still gate the exits that remain in the pool.
+		logger.FromContext(ctx).Warn("excel_bps.ip_pool_refresh_failed", zap.Error(err))
+		return
+	}
+	urls := make([]string, 0, len(proxies))
+	for i := range proxies {
+		if proxies[i].IsExpired(now) {
+			continue
+		}
+		urls = append(urls, proxies[i].URL())
+	}
+	mihomo.SetBPSStaticProxies(urls)
 }
 
 // Missing trace is not evidence of safety. Standard net/http emits GetConn

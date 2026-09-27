@@ -73,6 +73,7 @@ type DataAccount struct {
 }
 
 type DataImportRequest struct {
+	GroupIDs             []int64     `json:"group_ids"`
 	Data                 DataPayload `json:"data"`
 	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
 }
@@ -136,6 +137,9 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 		return
 	}
 
+	if _, observer := service.ObserverGroupIDs(ctx); observer {
+		includeProxies = false
+	}
 	var proxies []service.Proxy
 	if includeProxies {
 		proxies, err = h.resolveExportProxies(ctx, accounts)
@@ -230,6 +234,23 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+
+	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer {
+		if err := service.ValidateObserverGroupBindings(c.Request.Context(), req.GroupIDs); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		if len(req.Data.Proxies) > 0 {
+			response.Forbidden(c, "Observers cannot import proxy configurations")
+			return
+		}
+		for _, account := range req.Data.Accounts {
+			if account.ProxyKey != nil && *account.ProxyKey != "" {
+				response.Forbidden(c, "Observers cannot import proxy credentials")
+				return
+			}
+		}
 	}
 
 	if err := validateDataHeader(req.Data); err != nil {
@@ -444,7 +465,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
 			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             nil,
+			GroupIDs:             req.GroupIDs,
 			ExpiresAt:            item.ExpiresAt,
 			AutoPauseOnExpired:   item.AutoPauseOnExpired,
 			SkipDefaultGroupBind: skipDefaultGroupBind,

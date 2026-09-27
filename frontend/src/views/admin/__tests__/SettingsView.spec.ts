@@ -1097,14 +1097,14 @@ describe("admin SettingsView payment visible method controls", () => {
     try {
       await flushPromises();
       await openGatewayTab(wrapper);
+      await wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="mihomo"]').setValue(true);
       expect(wrapper.get('[data-testid="mihomo-proxy-pool"]').isVisible()).toBe(true);
-      const input = wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy");
-      expect(input.element.value).toBe(existingProxy);
+      expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
       expect(updateSettings).not.toHaveBeenCalled();
 
       wrapper.getComponent(MihomoSettings).vm.$emit("ready", "http://127.0.0.1:3101");
       await flushPromises();
-      expect(input.element.value).toBe("http://127.0.0.1:3101");
+      expect(wrapper.text()).toContain("http://127.0.0.1:3101");
       expect(updateSettings).not.toHaveBeenCalled();
 
       await wrapper.find("form").trigger("submit.prevent");
@@ -1115,6 +1115,74 @@ describe("admin SettingsView payment visible method controls", () => {
     } finally {
       wrapper.unmount();
     }
+  });
+
+  it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: "",
+      openai_codex_ticket_harvest_proxy_configured: false,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="mihomo"]')
+      .setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
+      .toBe("");
+    wrapper.unmount();
+  });
+
+  it("saves the IP management pool as the harvest proxy and restores the static address when leaving it", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
+      openai_codex_ticket_harvest_proxy_configured: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]')
+      .setValue(true);
+    expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-ip-pool-hint"]').exists()).toBe(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
+      openai_codex_ticket_use_saved_static_proxy: false,
+    }));
+
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
+      .setValue(true);
+    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
+      .toBe("http://user:***@old.example.com:8080");
+    wrapper.unmount();
+  });
+
+  it("restores the IP management pool mode from saved settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
+      openai_codex_ticket_harvest_proxy_configured: true,
+      openai_codex_ticket_static_proxy_url: "http://user:***@saved.example.com:8080",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]').element.checked)
+      .toBe(true);
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
+      .setValue(true);
+    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
+      .toBe("http://user:***@saved.example.com:8080");
+    wrapper.unmount();
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {

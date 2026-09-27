@@ -2173,6 +2173,28 @@ func (a *Account) IsExcelBPSMihomoEnabled() bool {
 	return enabled
 }
 
+// ExcelBPSProxySourceKey selects the pool behind the BPS session proxy toggle:
+// the managed Mihomo kernel (default) or the admin proxy list (IP 管理).
+const ExcelBPSProxySourceKey = "openai_excel_bps_proxy_source"
+
+const (
+	ExcelBPSProxySourceMihomo = "mihomo"
+	ExcelBPSProxySourceIPPool = "ip_pool"
+)
+
+// ExcelBPSProxySource is meaningful only while the session proxy is enabled;
+// unknown stored values fall back to the Mihomo pool rather than direct.
+func (a *Account) ExcelBPSProxySource() string {
+	if !a.IsExcelBPSMihomoEnabled() {
+		return ""
+	}
+	source, _ := a.Extra[ExcelBPSProxySourceKey].(string)
+	if source == ExcelBPSProxySourceIPPool {
+		return ExcelBPSProxySourceIPPool
+	}
+	return ExcelBPSProxySourceMihomo
+}
+
 // IsExcelBPSCacheCreationAsInputEnabled controls local billing and downstream usage.
 // The setting has no effect unless this account uses the Excel/BPS protocol.
 func (a *Account) IsExcelBPSCacheCreationAsInputEnabled() bool {

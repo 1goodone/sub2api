@@ -4590,7 +4590,77 @@
                   <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}
                   </p>
+                  <div class="mt-3 flex flex-wrap gap-2" role="radiogroup" :aria-label="t('admin.settings.gatewayForwarding.codexTicketProxyMode')">
+                    <label
+                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+                      :class="codexTicketProxyMode === 'mihomo'
+                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
+                    >
+                      <input
+                        class="sr-only"
+                        type="radio"
+                        name="codex-ticket-proxy-mode"
+                        value="mihomo"
+                        :checked="codexTicketProxyMode === 'mihomo'"
+                        @change="selectCodexTicketProxyMode('mihomo')"
+                      />
+                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeMihomo") }}</span>
+                    </label>
+                    <label
+                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+                      :class="codexTicketProxyMode === 'static'
+                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
+                    >
+                      <input
+                        class="sr-only"
+                        type="radio"
+                        name="codex-ticket-proxy-mode"
+                        value="static"
+                        :checked="codexTicketProxyMode === 'static'"
+                        @change="selectCodexTicketProxyMode('static')"
+                      />
+                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeStatic") }}</span>
+                    </label>
+                    <label
+                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+                      :class="codexTicketProxyMode === 'ip_pool'
+                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
+                    >
+                      <input
+                        class="sr-only"
+                        type="radio"
+                        name="codex-ticket-proxy-mode"
+                        value="ip_pool"
+                        :checked="codexTicketProxyMode === 'ip_pool'"
+                        @change="selectCodexTicketProxyMode('ip_pool')"
+                      />
+                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeIPPool") }}</span>
+                    </label>
+                  </div>
+                  <div
+                    v-if="codexTicketProxyMode === 'mihomo'"
+                    data-testid="mihomo-proxy-pool"
+                    class="mt-3 rounded-md border border-primary-200 bg-primary-50/60 px-3 py-2.5 dark:border-primary-800 dark:bg-primary-900/20"
+                  >
+                    <div class="flex flex-wrap items-center gap-2 text-sm text-primary-800 dark:text-primary-200">
+                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyMihomoEndpoint") }}</span>
+                      <code class="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-800/70">{{ CODEX_TICKET_MIHOMO_PROXY_URL }}</code>
+                    </div>
+                    <h4 class="mt-3 text-sm font-semibold">{{ t("admin.settings.gatewayForwarding.mihomoProxyPool") }}</h4>
+                    <MihomoSettings @ready="selectMihomoHarvestProxy" />
+                  </div>
+                  <p
+                    v-else-if="codexTicketProxyMode === 'ip_pool'"
+                    data-testid="codex-ticket-proxy-ip-pool-hint"
+                    class="mt-3 rounded-md border border-primary-200 bg-primary-50/60 px-3 py-2.5 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
+                  >
+                    {{ t("admin.settings.gatewayForwarding.codexTicketProxyIPPoolHint") }}
+                  </p>
                   <input
+                    v-else
                     id="codex-ticket-harvest-proxy"
                     v-model="form.openai_codex_ticket_harvest_proxy_url"
                     type="text"
@@ -4599,19 +4669,11 @@
                     autocomplete="off"
                   />
                   <p
-                    v-if="form.openai_codex_ticket_harvest_proxy_configured"
+                    v-if="form.openai_codex_ticket_harvest_proxy_configured && codexTicketProxyMode === 'static'"
                     class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
                   >
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}
                   </p>
-                  <div class="mt-4" data-testid="mihomo-proxy-pool">
-                    <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
-                      {{ t("admin.settings.gatewayForwarding.mihomoProxyPool") }}
-                    </h4>
-                    <MihomoSettings
-                      @ready="form.openai_codex_ticket_harvest_proxy_url = $event"
-                    />
-                  </div>
                 </div>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
@@ -10201,6 +10263,7 @@ const form = reactive<SettingsForm>({
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_harvest_proxy_url: "",
+  openai_codex_ticket_static_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
   openai_codex_ticket_harvest_scope: { mode: "all", group_ids: [] },
@@ -11212,6 +11275,54 @@ const codexSyncedVersionLabel = computed(() => {
   });
 });
 
+const CODEX_TICKET_MIHOMO_PROXY_URL = "http://127.0.0.1:3101";
+const CODEX_TICKET_IP_POOL_PROXY_URL = "ippool://active";
+type CodexTicketProxyMode = "mihomo" | "static" | "ip_pool";
+const codexTicketProxyMode = ref<CodexTicketProxyMode>("static");
+const codexTicketStaticProxyDraft = ref("");
+
+function isCodexTicketMihomoProxyURL(value: string): boolean {
+  return value.trim().replace(/\/+$/, "") === CODEX_TICKET_MIHOMO_PROXY_URL;
+}
+
+function isCodexTicketIPPoolProxyURL(value: string): boolean {
+  return value.trim() === CODEX_TICKET_IP_POOL_PROXY_URL;
+}
+
+function codexTicketProxyModeOf(value: string): CodexTicketProxyMode {
+  if (isCodexTicketMihomoProxyURL(value)) return "mihomo";
+  if (isCodexTicketIPPoolProxyURL(value)) return "ip_pool";
+  return "static";
+}
+
+function selectMihomoHarvestProxy(endpoint: string): void {
+  form.openai_codex_ticket_harvest_proxy_url = endpoint;
+  appStore.showSuccess(t("admin.settings.gatewayForwarding.codexTicketProxyMihomoSelected"));
+}
+
+function syncCodexTicketProxyMode(): void {
+  const current = form.openai_codex_ticket_harvest_proxy_url;
+  const mode = codexTicketProxyModeOf(current);
+  codexTicketProxyMode.value = mode;
+  codexTicketStaticProxyDraft.value = mode === "static" ? current : form.openai_codex_ticket_static_proxy_url || "";
+}
+
+function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
+  const previous = codexTicketProxyModeOf(form.openai_codex_ticket_harvest_proxy_url);
+  if (previous === "static") {
+    codexTicketStaticProxyDraft.value =
+      form.openai_codex_ticket_harvest_proxy_url;
+  }
+  codexTicketProxyMode.value = mode;
+  if (mode === "ip_pool") {
+    form.openai_codex_ticket_harvest_proxy_url = CODEX_TICKET_IP_POOL_PROXY_URL;
+  } else if (previous !== "static" && previous !== mode) {
+    // Mihomo writes its endpoint only once the kernel reports ready, so until
+    // then the form keeps the static address rather than the pool sentinel.
+    form.openai_codex_ticket_harvest_proxy_url =
+      codexTicketStaticProxyDraft.value;
+  }
+}
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -11232,6 +11343,7 @@ async function loadSettings() {
       "alipay",
       settings.payment_visible_method_alipay_source,
     );
+    syncCodexTicketProxyMode();
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11956,6 +12068,7 @@ async function saveSettings() {
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
+      openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === "static",
       openai_codex_ticket_models: [...form.openai_codex_ticket_models],
       openai_codex_ticket_harvest_scope: normalizeCodexTicketHarvestScope(
         form.openai_codex_ticket_harvest_scope,

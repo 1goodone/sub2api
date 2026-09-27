@@ -74,6 +74,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		c.Header("X-Codex2API-Basispoints-Bypass", reason)
 	}
 
+	if account.IsOpenAIOAuthLike() {
+		stripped, changed, stripErr := stripOpenAICodexUnsupportedWebSearchFields(body)
+		if stripErr != nil {
+			return nil, fmt.Errorf("strip unsupported Codex web search fields: %w", stripErr)
+		}
+		if changed {
+			body = stripped
+		}
+	}
+
 	// The SDK adapter owns Lite declarations, custom tools, replay item IDs,
 	// namespaces and compaction. Do not lower them to generic OpenAI API shapes.
 	if account.IsCopilotSDKEnabled() {

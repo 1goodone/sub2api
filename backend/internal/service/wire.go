@@ -871,6 +871,7 @@ func ProvideOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	codexHarvest *CodexHarvestService,
+	proxyRepo ProxyRepository,
 ) *OpenAIGatewayService {
 	svc := NewOpenAIGatewayService(
 		accountRepo,
@@ -896,6 +897,7 @@ func ProvideOpenAIGatewayService(
 		settingService,
 		userPlatformQuotaRepo,
 	)
+	svc.proxyRepo = proxyRepo
 	svc.SetCodexHarvestService(codexHarvest)
 	svc.StartOpenAICodexTicketHarvester()
 	return svc

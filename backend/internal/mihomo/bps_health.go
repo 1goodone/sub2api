@@ -170,10 +170,14 @@ func (m *Manager) acquireBPSLease(ctx context.Context, scope string, excluded ma
 		}
 		m.bpsMu.Lock()
 		var node string
-		for id, port := range m.bpsPorts {
-			if proxy == fmt.Sprintf("http://127.0.0.1:%d", port) {
-				node = id
-				break
+		if m.bpsStaticMode {
+			node = bpsStaticNodeKey(proxy)
+		} else {
+			for id, port := range m.bpsPorts {
+				if proxy == fmt.Sprintf("http://127.0.0.1:%d", port) {
+					node = id
+					break
+				}
 			}
 		}
 		generation := m.bpsHealthAtLocked(node, time.Now()).generation
@@ -184,7 +188,7 @@ func (m *Manager) acquireBPSLease(ctx context.Context, scope string, excluded ma
 				logger.FromContext(ctx).Info("excel_bps.proxy_rebound",
 					zap.String("session_hash", key[:16]),
 					zap.String("previous_node_hash", previousNode[:min(16, len(previousNode))]),
-					zap.String("node_hash", node[:min(16, len(node))]), zap.String("local_proxy", proxy))
+					zap.String("node_hash", node[:min(16, len(node))]), zap.String("local_proxy", bpsProxyLogValue(m, proxy)))
 			}
 			if previousNode != node {
 				m.bpsMu.Lock()
@@ -194,14 +198,16 @@ func (m *Manager) acquireBPSLease(ctx context.Context, scope string, excluded ma
 				_, modelSamples := health.modelQuality.decayed(now)
 				_, connectSamples := health.connectQuality.decayed(now)
 				source := "subscription"
-				if m.bpsDynamic[node] {
+				if m.bpsStaticMode {
+					source = "ip_pool"
+				} else if m.bpsDynamic[node] {
 					source = "dynamic"
 				}
 				m.bpsMu.Unlock()
 				logger.FromContext(ctx).Info("excel_bps.proxy_selected",
 					zap.String("proxy_source", source), zap.Uint64("observation_generation", generation),
 					zap.String("session_hash", key[:16]), zap.String("node_hash", node[:min(16, len(node))]),
-					zap.String("local_proxy", proxy), zap.Float64("request_success_rate", modelRate),
+					zap.String("local_proxy", bpsProxyLogValue(m, proxy)), zap.Float64("request_success_rate", modelRate),
 					zap.Float64("connectivity_rate", connectRate), zap.Float64("request_samples", modelSamples),
 					zap.Float64("connectivity_samples", connectSamples))
 			}
@@ -221,11 +227,18 @@ func (m *Manager) acquireBPSLease(ctx context.Context, scope string, excluded ma
 func (m *Manager) bpsNodeStillEligible(node string, generation uint64) bool {
 	m.bpsMu.Lock()
 	defer m.bpsMu.Unlock()
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	now := time.Now()
 	h := m.bpsHealthAtLocked(node, now)
-	if m.closed || !m.state.Running || h.generation != generation || !now.Before(h.verifiedUntil) || m.bpsCoolingLocked(node, now) {
+	if h.generation != generation || !now.Before(h.verifiedUntil) || m.bpsCoolingLocked(node, now) {
+		return false
+	}
+	if m.bpsStaticMode {
+		_, ok := m.bpsStatic[node]
+		return ok
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || !m.state.Running {
 		return false
 	}
 	for _, n := range m.saved.Nodes {
@@ -327,7 +340,11 @@ func (m *Manager) checkBPSHealth(ctx context.Context, node, proxy string) error 
 
 		probe := m.bpsProbe
 		if probe == nil {
-			probe = probeBPSHTTPS
+			if m.bpsStaticMode {
+				probe = probeBPSStaticHTTPS
+			} else {
+				probe = probeBPSHTTPS
+			}
 		}
 		successes, failures := 0, 0
 		probeResults := make([]bool, 0, 3)
@@ -349,7 +366,7 @@ func (m *Manager) checkBPSHealth(ctx context.Context, node, proxy string) error 
 			if probeErr != nil {
 				failures++
 				logger.FromContext(ctx).Warn("excel_bps.proxy_probe_failed",
-					zap.String("node_hash", node[:min(16, len(node))]), zap.String("local_proxy", proxy), zap.String("error_kind", transportdiag.Classify(probeErr)),
+					zap.String("node_hash", node[:min(16, len(node))]), zap.String("local_proxy", bpsProxyLogValue(m, proxy)), zap.String("error_kind", transportdiag.Classify(probeErr)),
 					zap.String("error_type", fmt.Sprintf("%T", probeErr)))
 				successes = 0
 				needed = 2

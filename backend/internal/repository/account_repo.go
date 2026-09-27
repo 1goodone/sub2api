@@ -70,9 +70,9 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
-	"codex_usage_updated_at":                    {},
-	"grok_billing_snapshot":                     {},
-	"session_window_utilization":                {},
+	"codex_usage_updated_at":     {},
+	"grok_billing_snapshot":      {},
+	"session_window_utilization": {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -276,7 +276,7 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
-	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
+	m, err := observerAccountQuery(ctx, r.client.Account.Query()).Where(dbaccount.IDEQ(id)).Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
@@ -313,8 +313,7 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		return []*service.Account{}, nil
 	}
 
-	entAccounts, err := r.client.Account.
-		Query().
+	entAccounts, err := observerAccountQuery(ctx, r.client.Account.Query()).
 		Where(dbaccount.IDIn(uniqueIDs...)).
 		WithProxy().
 		All(ctx)
@@ -723,6 +722,7 @@ func lockAndMergeAccountProbeExtra(
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
 	service.StripRetiredCodexTurnStateExtra(extra)
+	extra = service.MergeExcelBPS403Marker(extra, currentExtra)
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -1144,7 +1144,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+	q := observerAccountQuery(ctx, r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode))
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1174,7 +1174,7 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	accounts, err := observerAccountQuery(ctx, r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1973,6 +1973,9 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	if err := service.ValidateObserverGroupBindings(ctx, groupIDs); err != nil {
+		return err
+	}
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
 	if err != nil {
 		return err
@@ -2001,7 +2004,11 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return err
 	}
 
-	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
+	deleteGroups := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID))
+	if allowed, scoped := service.ObserverGroupIDs(ctx); scoped {
+		deleteGroups.Where(dbaccountgroup.GroupIDIn(allowed...))
+	}
+	if _, err := deleteGroups.Exec(ctx); err != nil {
 		return err
 	}
 
@@ -2075,6 +2082,9 @@ func (r *accountRepository) SetGroupAllowedModels(ctx context.Context, accountID
 	}
 	for _, entry := range entries {
 		groupID := entry.GroupID
+		if !service.ObserverCanManageGroup(ctx, groupID) {
+			continue
+		}
 		next := service.NormalizeGroupAllowedModels(allowed[groupID])
 		if slices.Equal(next, current[groupID]) {
 			continue
@@ -3308,6 +3318,10 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			if enabled, exists := updates.Extra["openai_excel_bps"].(bool); exists && !enabled {
 				extraExpression = "(" + extraExpression + ") - 'openai_excel_bps' - 'openai_excel_bps_models' - 'openai_excel_bps_cache_creation_as_input' - 'openai_excel_bps_auto_disable_on_403' - 'openai_excel_bps_auto_move_on_403' - 'openai_excel_bps_403_target_group_id' - 'openai_excel_bps_mihomo'"
 			} else {
+				// Turning the protocol back on acknowledges an automatic 403 shutdown.
+				if enabled {
+					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_403_disabled_at'"
+				}
 				// JSON null is a present scope and would disable every model.
 				// Remove the key to restore the all-models routing contract.
 				if scope, exists := updates.Extra["openai_excel_bps_models"]; exists && scope == nil {
@@ -4232,4 +4246,12 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 		out = append(out, accountEntityToService(m))
 	}
 	return out, nil
+}
+
+// Apply the same predicate before COUNT, pagination and filter-based bulk/export.
+func observerAccountQuery(ctx context.Context, query *dbent.AccountQuery) *dbent.AccountQuery {
+	if ids, scoped := service.ObserverGroupIDs(ctx); scoped {
+		query = query.Where(dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDIn(ids...)))
+	}
+	return query
 }

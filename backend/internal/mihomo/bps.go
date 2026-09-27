@@ -108,22 +108,33 @@ func (m *Manager) acquireBPSSessionExcluding(scope string, now time.Time, exclud
 	key := hex.EncodeToString(digest[:])
 	m.bpsMu.Lock()
 	defer m.bpsMu.Unlock()
-	m.mu.Lock()
-	snapshot := m.saved
-	ready := m.state.Running && !m.closed
-	// Copy only eligible identities while protected; saved maps may be replaced.
 	eligible := make(map[string]bool)
-	for _, n := range snapshot.Nodes {
-		name, _ := n["name"].(string)
-		id := harvestDigest(n)
-		m.bpsHealthAtLocked(id, now)
-		if bpsEligible(snapshot, name) && !excluded[id] && !m.bpsCoolingLocked(id, now) {
-			eligible[id] = true
+	if m.bpsStaticMode {
+		// Static pool: membership is pushed from the admin proxy list; no kernel,
+		// country filter or listener requirement. Cooldown gating is shared.
+		for id := range m.bpsStatic {
+			m.bpsHealthAtLocked(id, now)
+			if !excluded[id] && !m.bpsCoolingLocked(id, now) {
+				eligible[id] = true
+			}
 		}
-	}
-	m.mu.Unlock()
-	if !ready {
-		return "", nil, errors.New("managed Mihomo is not running")
+	} else {
+		m.mu.Lock()
+		snapshot := m.saved
+		ready := m.state.Running && !m.closed
+		// Copy only eligible identities while protected; saved maps may be replaced.
+		for _, n := range snapshot.Nodes {
+			name, _ := n["name"].(string)
+			id := harvestDigest(n)
+			m.bpsHealthAtLocked(id, now)
+			if bpsEligible(snapshot, name) && !excluded[id] && !m.bpsCoolingLocked(id, now) {
+				eligible[id] = true
+			}
+		}
+		m.mu.Unlock()
+		if !ready {
+			return "", nil, errors.New("managed Mihomo is not running")
+		}
 	}
 	if m.bpsSessions == nil {
 		m.bpsSessions = make(map[string]*bpsSession)
@@ -157,7 +168,11 @@ func (m *Manager) acquireBPSSessionExcluding(scope string, now time.Time, exclud
 		node := ""
 		bestScore := -1.0
 		for id := range eligible {
-			if _, ok := m.bpsPorts[id]; !ok {
+			if m.bpsStaticMode {
+				if _, ok := m.bpsStatic[id]; !ok {
+					continue
+				}
+			} else if _, ok := m.bpsPorts[id]; !ok {
 				continue
 			}
 			score := m.bpsQualityScoreLocked(id, activeLoads[id], loads[id], now)
@@ -171,9 +186,19 @@ func (m *Manager) acquireBPSSessionExcluding(scope string, now time.Time, exclud
 		binding = &bpsSession{node: node, generation: m.bpsHealthAtLocked(node, now).generation}
 		m.bpsSessions[key] = binding
 	}
-	port, ok := m.bpsPorts[binding.node]
-	if !ok {
-		return "", nil, errors.New("bound BPS listener unavailable")
+	target := ""
+	if m.bpsStaticMode {
+		staticURL, ok := m.bpsStatic[binding.node]
+		if !ok {
+			return "", nil, errors.New("bound BPS proxy unavailable")
+		}
+		target = staticURL
+	} else {
+		port, ok := m.bpsPorts[binding.node]
+		if !ok {
+			return "", nil, errors.New("bound BPS listener unavailable")
+		}
+		target = fmt.Sprintf("http://127.0.0.1:%d", port)
 	}
 	binding.active++
 	binding.lastUsed = now
@@ -186,5 +211,5 @@ func (m *Manager) acquireBPSSessionExcluding(scope string, now time.Time, exclud
 			binding.lastUsed = time.Now()
 		})
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", port), release, nil
+	return target, release, nil
 }

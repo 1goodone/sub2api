@@ -257,6 +257,7 @@ type SystemSettings struct {
 	OpenAICodexVersionAutoSyncEnabled      bool                    // 是否启用 Codex 客户端版本号自动同步（默认 true）
 	OpenAICodexTicketEnabled               bool                    // Codex 门票总开关；关闭则不打票不注入
 	OpenAICodexTicketHarvestProxyURL       string                  // Codex 门票代理 URL；空则回退 yaml/env
+	OpenAICodexTicketStaticProxyURL        string
 	OpenAICodexTicketHarvestScope          CodexTicketHarvestScope // 后台自动采票范围
 	OpenAICodexTicketModels                []string                // Codex 门票打票模型列表；缺失时回退 yaml/env
 	MinCodexVersion                        string                  // codex_cli_only 最低 Codex 引擎版本；空=不检查

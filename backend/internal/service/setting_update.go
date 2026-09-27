@@ -568,6 +568,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	scopeJSON, _ := json.Marshal(scope)
 	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
+	if settings.OpenAICodexTicketStaticProxyURL != "" {
+		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
+	}
+	if proxy := strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL); proxy != "" && proxy != "http://127.0.0.1:3101" && proxy != OpenAICodexTicketHarvestIPPoolURL {
+		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = proxy
+	}
 	modelsJSON, err := json.Marshal(NormalizeOpenAICodexTicketModels(settings.OpenAICodexTicketModels))
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex ticket models: %w", err)
