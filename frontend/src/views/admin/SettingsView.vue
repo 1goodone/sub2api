@@ -4650,7 +4650,7 @@
                       <code class="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-800/70">{{ CODEX_TICKET_MIHOMO_PROXY_URL }}</code>
                     </div>
                     <h4 class="mt-3 text-sm font-semibold">{{ t("admin.settings.gatewayForwarding.mihomoProxyPool") }}</h4>
-                    <MihomoSettings @ready="selectMihomoHarvestProxy" />
+                    <MihomoProxySelector @ready="selectMihomoHarvestProxy" />
                   </div>
                   <p
                     v-else-if="codexTicketProxyMode === 'ip_pool'"
@@ -9276,7 +9276,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
-import MihomoSettings from "@/views/admin/settings/MihomoSettings.vue";
+import MihomoProxySelector from "@/views/admin/settings/MihomoProxySelector.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import PelicanShowcaseSettings from "@/views/admin/settings/PelicanShowcaseSettings.vue";

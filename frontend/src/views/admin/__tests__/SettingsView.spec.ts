@@ -7,7 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
-import MihomoSettings from "../settings/MihomoSettings.vue";
+import MihomoProxySelector from "../settings/MihomoProxySelector.vue";
 
 const {
   getSettings,
@@ -581,7 +581,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
-        MihomoSettings: true,
+        MihomoProxySelector: true,
         EmailTemplateEditor: true,
       },
     },
@@ -1102,7 +1102,7 @@ describe("admin SettingsView payment visible method controls", () => {
       expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
       expect(updateSettings).not.toHaveBeenCalled();
 
-      wrapper.getComponent(MihomoSettings).vm.$emit("ready", "http://127.0.0.1:3101");
+      wrapper.getComponent(MihomoProxySelector).vm.$emit("ready", "http://127.0.0.1:3101");
       await flushPromises();
       expect(wrapper.text()).toContain("http://127.0.0.1:3101");
       expect(updateSettings).not.toHaveBeenCalled();

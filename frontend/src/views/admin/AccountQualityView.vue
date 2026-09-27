@@ -23,10 +23,10 @@
             <div v-if="!store.rulesLoaded && store.rulesLoading" class="skeleton-stack" role="status" :aria-label="t('qualityOps.loading')"><div v-for="n in 4" :key="n" class="rule-skeleton"><span /><span /><span /></div></div>
             <article v-for="plan in filteredPlans" :key="plan.id" class="rule-card" :class="{ selected: store.selectedPlanId === plan.id }" :data-plan-id="plan.id">
               <div class="rule-card-top"><button class="rule-select" :aria-pressed="store.selectedPlanId === plan.id" @click="store.selectedPlanId = plan.id"><span class="account-avatar">{{ name(plan).slice(0, 1) }}</span><span class="min-w-0"><strong :title="name(plan)">{{ name(plan) }}</strong><span class="rule-meta">#{{ plan.account_id }}<span>·</span>{{ t('qualityOps.rule') }} {{ plan.id }}</span></span></button><button class="state-toggle" :class="plan.enabled ? 'state-enabled' : 'state-paused'" :disabled="!!pending[plan.id]" :title="t(plan.enabled ? 'qualityOps.pause' : 'qualityOps.enable')" @click="toggle(plan)"><span />{{ t(plan.enabled ? 'qualityOps.activeShort' : 'qualityOps.paused') }}</button></div>
-              <div class="rule-model"><code>{{ plan.model_id }}</code><span v-if="running(plan)" class="running-label">{{ t('qualityOps.running') }}</span></div>
+              <div class="rule-model"><code>{{ plan.model_id }}</code><span v-if="isProbePlan(plan)" class="probe-tag" data-testid="quality-probe-tag">{{ t('qualityOps.probeTag') }}</span><span v-if="running(plan)" class="running-label">{{ t('qualityOps.running') }}</span></div>
               <div class="rule-target" :title="planGroups(plan)"><Icon name="users" size="xs" /><span>{{ planGroups(plan) }}</span></div>
               <div class="rule-schedule"><span>{{ t('qualityOps.nextRun') }}</span><time :datetime="plan.next_run_at || undefined">{{ plan.enabled ? date(plan.next_run_at) : '—' }}</time></div>
-              <div v-if="!plan.pelican_config?.quality?.judge" class="rule-warning">{{ t('qualityOps.configureJudge') }}</div>
+              <div v-if="!isProbePlan(plan) && !plan.pelican_config?.quality?.judge" class="rule-warning">{{ t('qualityOps.configureJudge') }}</div>
               <footer class="rule-actions"><button @click="history(plan)"><Icon name="document" size="xs" />{{ t('qualityOps.historyShort') }}</button><button :disabled="!!pending[plan.id]" @click="edit(plan)">{{ t('qualityOps.editShort') }}</button><button :disabled="!!pending[plan.id] || !plan.enabled || running(plan)" @click="run(plan)"><Icon name="play" size="xs" />{{ pending[plan.id] === 'run' ? t('qualityOps.submitting') : t('qualityOps.runShort') }}</button></footer>
             </article>
             <div v-if="store.rulesLoaded && !filteredPlans.length" class="panel-empty"><Icon name="inbox" size="lg" /><p>{{ plans.length ? t('qualityOps.noMatchingRules') : t('qualityOps.empty') }}</p><button v-if="!plans.length" class="btn btn-secondary" @click="newPlan">{{ t('qualityOps.create') }}</button></div>
@@ -60,21 +60,52 @@
       <p v-if="store.groupsError" role="alert" class="editor-error">{{ store.groupsError }} <button class="underline" @click="store.refreshGroups">{{ t('qualityOps.retry') }}</button></p>
             <form id="quality-rule-form" class="quality-editor space-y-5" @submit.prevent="save"><fieldset :disabled="busy" class="space-y-5">
 
-        <div v-if="!editing" class="space-y-2">
-          <label for="quality-account-search" class="block text-sm">{{ t('qualityOps.accounts') }}</label>
-          <div class="flex gap-2"><input id="quality-account-search" v-model="search" class="input" :placeholder="t('qualityOps.search')" @keydown.enter.prevent="searchAccounts(1)" /><button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="searchAccounts(1)">{{ t('qualityOps.search') }}</button></div>
-          <p v-if="accountsLoading" role="status" class="text-sm text-gray-500">{{ t('qualityOps.loading') }}</p>
-          <div class="grid max-h-44 gap-2 overflow-auto rounded border p-3 sm:grid-cols-2 dark:border-dark-600">
-            <label v-for="account in accounts" :key="account.id" class="flex items-center gap-2 text-sm"><input v-model="selectedAccounts" type="checkbox" :value="account.id" :disabled="plans.some(p => p.account_id === account.id)" />{{ account.name }} <span class="text-gray-500">#{{ account.id }}</span></label>
+        <div v-if="!editing" class="space-y-3">
+          <label for="quality-account-search" class="block text-sm font-medium">{{ t('qualityOps.accounts') }}</label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="space-y-1 text-sm"><span>{{ t('qualityOps.accountGroup') }}</span>
+              <select v-model="accountGroup" class="input" data-testid="quality-account-group" @change="searchAccounts(1)">
+                <option value="">{{ t('qualityOps.allAccountGroups') }}</option>
+                <option value="ungrouped">{{ t('qualityOps.ungroupedAccounts') }}</option>
+                <option v-for="group in groups" :key="group.id" :value="String(group.id)">{{ group.name }} #{{ group.id }}</option>
+              </select>
+            </label>
+            <label class="space-y-1 text-sm"><span>{{ t('qualityOps.accountType') }}</span>
+              <select v-model="accountType" class="input" data-testid="quality-account-type" @change="searchAccounts(1)">
+                <option value="">{{ t('qualityOps.allAccountTypes') }}</option>
+                <option value="oauth">{{ t('qualityOps.oauthAccounts') }}</option>
+                <option value="apikey">{{ t('qualityOps.apiKeyAccounts') }}</option>
+              </select>
+            </label>
           </div>
-          <div class="flex items-center gap-3 text-sm"><button type="button" :disabled="accountPage <= 1" @click="searchAccounts(accountPage - 1)">←</button><span>{{ accountPage }} / {{ accountPages }}</span><button type="button" :disabled="accountPage >= accountPages" @click="searchAccounts(accountPage + 1)">→</button><span>{{ t('qualityOps.selected', { count: selectedAccounts.length }) }}</span></div>
+          <div class="flex gap-2"><input id="quality-account-search" v-model="search" class="input min-w-0" :placeholder="t('qualityOps.search')" @keydown.enter.prevent="searchAccounts(1)" /><button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="searchAccounts(1)">{{ t('qualityOps.search') }}</button></div>
+          <div class="flex flex-wrap items-center gap-3 text-sm">
+            <button type="button" class="text-primary-600 disabled:opacity-50" data-testid="quality-select-page" :disabled="accountsLoading || selectingAccounts || !selectableAccounts.length" @click="selectCurrentPage">{{ t('qualityOps.selectAccountPage') }}</button>
+            <button type="button" class="text-primary-600 disabled:opacity-50" data-testid="quality-select-all" :disabled="accountsLoading || selectingAccounts || !accounts.length" @click="selectMatchingAccounts">{{ t(selectingAccounts ? 'qualityOps.selectingAccounts' : 'qualityOps.selectMatchingAccounts') }}</button>
+            <button type="button" class="text-gray-500 disabled:opacity-50" data-testid="quality-clear-selection" :disabled="!selectedAccounts.length && !selectingAccounts" @click="clearAccountSelection">{{ t('qualityOps.clearAccountSelection') }}</button>
+          </div>
+          <p class="text-xs text-gray-500">{{ t('qualityOps.accountSelectionHint') }}</p>
+          <p v-if="accountsError" role="alert" class="text-sm text-red-600">{{ accountsError }}</p>
+          <p v-if="accountsLoading" role="status" class="text-sm text-gray-500">{{ t('qualityOps.loading') }}</p>
+          <div class="grid max-h-52 gap-2 overflow-auto rounded border p-3 sm:grid-cols-2 dark:border-dark-600" :aria-busy="accountsLoading || selectingAccounts">
+            <label v-for="account in accounts" :key="account.id" class="flex items-center gap-2 text-sm"><input v-model="selectedAccounts" type="checkbox" :value="account.id" :disabled="selectingAccounts || existingAccountIds.has(account.id)" /><span class="min-w-0 break-all">{{ account.name }} <span class="text-gray-500">#{{ account.id }}</span><span v-if="existingAccountIds.has(account.id)" class="ml-1 text-xs text-gray-500">{{ t('qualityOps.accountHasRule') }}</span></span></label>
+            <p v-if="!accountsLoading && !accounts.length" class="text-sm text-gray-500 sm:col-span-2">{{ t('qualityOps.noMatchingAccounts') }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 text-sm"><button type="button" :aria-label="t('qualityOps.previousAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage <= 1" @click="searchAccounts(accountPage - 1)">←</button><span>{{ accountPage }} / {{ accountPages }}</span><button type="button" :aria-label="t('qualityOps.nextAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage >= accountPages" @click="searchAccounts(accountPage + 1)">→</button><span aria-live="polite">{{ t('qualityOps.selected', { count: selectedAccounts.length }) }}</span></div>
+        </div>
+        <div class="space-y-2">
+          <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
+          <p v-if="isProbe" class="text-sm text-gray-500" data-testid="quality-probe-hint">{{ t('qualityOps.probeHint') }}</p>
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <label class="space-y-1"><span>{{ t('qualityOps.model') }}</span><input v-model.trim="form.model_id" required maxlength="100" class="input" placeholder="gpt-6-astra" /></label>
           <label class="space-y-1"><span>{{ t('qualityOps.cron') }}</span><input v-model.trim="form.cron_expression" required class="input" placeholder="*/30 * * * *" /></label>
-          <label class="space-y-1"><span>{{ t('qualityOps.effort') }}</span><select v-model="form.pelican_config.reasoning_effort" class="input"><option v-for="effort in ['minimal', 'low', 'medium', 'high', 'xhigh']" :key="effort">{{ effort }}</option></select></label>
-          <label class="space-y-1"><span>{{ t('qualityOps.parallel') }}</span><input v-model.number="form.pelican_config.parallel_count" type="number" min="1" max="8" required class="input" /></label>
+          <template v-if="!isProbe">
+            <label class="space-y-1"><span>{{ t('qualityOps.effort') }}</span><select v-model="form.pelican_config.reasoning_effort" class="input"><option v-for="effort in ['minimal', 'low', 'medium', 'high', 'xhigh']" :key="effort">{{ effort }}</option></select></label>
+            <label class="space-y-1"><span>{{ t('qualityOps.parallel') }}</span><input v-model.number="form.pelican_config.parallel_count" type="number" min="1" max="8" required class="input" /></label>
+          </template>
         </div>
+        <template v-if="!isProbe">
         <div><div class="mb-2 flex items-center justify-between"><label for="quality-prompt">{{ t('qualityOps.prompt') }}</label><button type="button" class="text-sm text-primary-600" @click="useCandy">{{ t('qualityOps.candy') }}</button></div><textarea id="quality-prompt" v-model="form.pelican_config.prompt" required maxlength="32000" rows="5" class="input text-sm" /></div>
         <label class="block space-y-1"><span>{{ t('qualityOps.answer') }}</span><input v-model="form.pelican_config.quality.expected_answer" required maxlength="4000" class="input" /></label>
         <fieldset class="space-y-3 rounded-lg border p-4 dark:border-dark-600">
@@ -94,8 +125,9 @@
           <label class="block space-y-1"><span>{{ t('qualityOps.judgePrompt') }}</span><textarea v-model="form.pelican_config.quality.judge.prompt" required maxlength="16000" rows="3" class="input text-sm" /></label>
           <p class="text-sm text-gray-500">{{ t('qualityOps.grading') }}</p>
         </fieldset>
+        </template>
         <fieldset class="space-y-3 rounded-lg border p-4 dark:border-dark-600">
-          <legend class="px-2 font-medium">{{ t('qualityOps.failureAction') }}</legend>
+          <legend class="px-2 font-medium">{{ t(isProbe ? 'qualityOps.probeFailureAction' : 'qualityOps.failureAction') }}</legend>
           <label class="flex items-center gap-2"><input v-model="form.pelican_config.quality.action" type="radio" value="remove_groups" />{{ t('qualityOps.removeGroups') }}</label>
           <div v-if="form.pelican_config.quality.action === 'remove_groups'" class="grid max-h-40 gap-2 overflow-auto pl-6 sm:grid-cols-2">
             <label v-for="group in groups" :key="group.id" class="flex items-center gap-2 text-sm"><input v-model="form.pelican_config.quality.remove_group_ids" type="checkbox" :value="group.id" />{{ group.name }} #{{ group.id }}</label>
@@ -106,7 +138,7 @@
         <p class="text-sm text-gray-500">{{ t('qualityOps.restoreHelp') }}</p>
         <label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('qualityOps.enabled') }}</label>
       </fieldset></form>
-      <template #footer><div class="editor-footer"><button v-if="editing" type="button" class="delete-rule" :disabled="busy" @click="deleteTarget = plans.find(p => p.id === editing) || null">{{ t('qualityOps.delete') }}</button><span class="flex-1" /><button class="btn btn-secondary" :disabled="busy" @click="closeForm">{{ t('qualityOps.cancel') }}</button><button form="quality-rule-form" type="submit" class="btn btn-primary" :disabled="busy || (!editing && !selectedAccounts.length)">{{ busy ? t('qualityOps.saving') : t('qualityOps.save') }}</button></div></template>
+      <template #footer><div class="editor-footer"><button v-if="editing" type="button" class="delete-rule" :disabled="busy" @click="deleteTarget = plans.find(p => p.id === editing) || null">{{ t('qualityOps.delete') }}</button><span class="flex-1" /><button class="btn btn-secondary" :disabled="busy" @click="closeForm">{{ t('qualityOps.cancel') }}</button><button form="quality-rule-form" type="submit" class="btn btn-primary" :disabled="busy || selectingAccounts || (!editing && !selectedAccounts.length)">{{ busy ? t('qualityOps.saving') : t('qualityOps.save') }}</button></div></template>
     </BaseDialog>
     <BaseDialog :show="!!historyPlan" :title="detailOperation ? t('qualityOps.roundDetail') : t('qualityOps.history')" placement="right" width="extra-wide" close-on-click-outside @close="closeDetails">
       <template v-if="historyPlan">
@@ -118,14 +150,14 @@
         <div v-if="detailsError" class="panel-error" role="alert">{{ detailsError }}<button @click="retryDetails">{{ t('qualityOps.retry') }}</button></div>
         <div v-if="detailsLoading" class="detail-loading" role="status"><span class="cell-skeleton" /><span class="cell-skeleton" />{{ t('qualityOps.loading') }}</div>
         <div v-else class="detail-grid">
-          <nav class="result-navigation" :aria-label="t('qualityOps.probes')"><p>{{ t('qualityOps.probes') }}<span>{{ results.length }}</span></p><button v-for="(result, index) in results" :key="result.id" :class="{ selected: selectedResultId === result.id }" :aria-pressed="selectedResultId === result.id" @click="selectResult(result)"><span>{{ detailOperation ? t('qualityOps.probeNumber', { n: index + 1 }) : date(result.started_at) }}</span><span :class="result.status === 'success' ? 'text-emerald-600' : result.status ? 'text-rose-600' : 'text-gray-400'">{{ resultLabel(result) }}</span></button></nav>
+          <nav class="result-navigation" :aria-label="t('qualityOps.probes')"><p>{{ t('qualityOps.probes') }}<span>{{ results.length }}</span></p><button v-for="(result, index) in results" :key="result.id" :class="{ selected: selectedResultId === result.id }" :aria-pressed="selectedResultId === result.id" @click="selectResult(result)"><span>{{ detailOperation ? t('qualityOps.probeNumber', { n: index + 1 }) : date(result.started_at) }}</span><span :class="resultTextClass(result)">{{ resultLabel(result) }}</span></button></nav>
           <section class="answer-detail" :aria-busy="answerLoading">
             <div v-if="answerLoading" class="detail-loading" role="status"><span class="cell-skeleton" /><span class="cell-skeleton" />{{ t('qualityOps.loadingAnswer') }}</div>
-            <template v-else-if="selectedResult"><header class="answer-heading"><h4>{{ t('qualityOps.answerAndVerdict') }}</h4><span class="outcome-badge" :class="selectedResult.status === 'success' ? 'tone-success' : 'tone-danger'">{{ resultLabel(selectedResult) }}</span></header>
-              <div class="answer-reference"><span>{{ t('qualityOps.answer') }}</span><p>{{ selectedResult.pelican_config?.quality?.expected_answer || detailOperation?.pelican_config?.quality?.expected_answer || '—' }}</p></div>
-              <div class="response-heading">{{ t('qualityOps.actualAnswer') }}<span v-if="selectedResult.latency_ms">{{ (selectedResult.latency_ms / 1000).toFixed(1) }}s</span></div>
+            <template v-else-if="selectedResult"><header class="answer-heading"><h4>{{ t(isProbeResult(selectedResult) ? 'qualityOps.probeVerdictTitle' : 'qualityOps.answerAndVerdict') }}</h4><span class="outcome-badge" :class="resultTone(selectedResult)" data-testid="quality-result-badge">{{ resultLabel(selectedResult) }}</span></header>
+              <div v-if="!isProbeResult(selectedResult)" class="answer-reference"><span>{{ t('qualityOps.answer') }}</span><p>{{ selectedResult.pelican_config?.quality?.expected_answer || detailOperation?.pelican_config?.quality?.expected_answer || '—' }}</p></div>
+              <div class="response-heading">{{ t(isProbeResult(selectedResult) ? 'qualityOps.probeDetail' : 'qualityOps.actualAnswer') }}<span v-if="selectedResult.latency_ms">{{ (selectedResult.latency_ms / 1000).toFixed(1) }}s</span></div>
               <pre class="response-content">{{ selectedResult.response_text || selectedResult.error_message || t('qualityOps.noAnswer') }}</pre>
-              <div v-if="selectedResult.quality_judgment" class="judge-reason"><h5>{{ t('qualityOps.judgeReason') }}</h5><p>{{ selectedResult.quality_judgment.reason || '—' }}</p><span>{{ selectedResult.quality_judgment.model_id || '—' }} · {{ groupNames[selectedResult.quality_judgment.group_id || 0] || selectedResult.quality_judgment.group_id || '—' }}</span></div>
+              <div v-if="selectedResult.quality_judgment && !isProbeResult(selectedResult)" class="judge-reason"><h5>{{ t('qualityOps.judgeReason') }}</h5><p>{{ selectedResult.quality_judgment.reason || '—' }}</p><span>{{ selectedResult.quality_judgment.model_id || '—' }} · {{ groupNames[selectedResult.quality_judgment.group_id || 0] || selectedResult.quality_judgment.group_id || '—' }}</span></div>
             </template><div v-else-if="!detailsError" class="panel-empty">{{ t('qualityOps.noResults') }}</div>
           </section>
         </div>
@@ -151,7 +183,7 @@ import { runQualityPlan, type QualityOperation } from '@/api/admin/accountQualit
 import scheduledTests from '@/api/admin/scheduledTests'
 import * as accountsAPI from '@/api/admin/accounts'
 import * as groupsAPI from '@/api/admin/groups'
-import { CANDY_PROMPT } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import type { AccountListItem, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
 const { t, te } = useI18n()
@@ -167,8 +199,22 @@ const accountNames = computed(() => {
 })
 const accounts = ref<AccountListItem[]>([]), accountsLoading = ref(false)
 const search = ref(''), accountPage = ref(1), accountPages = ref(1)
+const accountGroup = ref(''), accountType = ref(''), accountsError = ref(''), selectingAccounts = ref(false)
+const existingAccountIds = computed(() => new Set(plans.value.map(plan => plan.account_id)))
+const selectableAccounts = computed(() => accounts.value.filter(account => !existingAccountIds.value.has(account.id)))
+let accountSelectionRequest = 0
+const accountFilters = () => ({ search: search.value.trim(), group: accountGroup.value || undefined, type: accountType.value || undefined, lite: 'true', sort_by: 'id', sort_order: 'asc' as const })
+function invalidateAccountRequests() {
+  accountRequest++; accountSelectionRequest++
+  accountsLoading.value = selectingAccounts.value = false
+  accounts.value = []; accountPage.value = accountPages.value = 1; accountsError.value = ''
+}
+watch([search, accountGroup, accountType], invalidateAccountRequests, { flush: 'sync' })
+function showAccountPicker() { return showForm.value && !editing.value }
+
 const selectedAccounts = ref<number[]>([]), editing = ref<number | null>(null)
 const busy = ref(false), error = ref(''), notice = ref(''), showForm = ref(false)
+watch(showAccountPicker, (show) => { if (!show) invalidateAccountRequests() }, { flush: 'sync' })
 const pending = ref<Record<number, string>>({}), deleteTarget = ref<ScheduledTestPlan | null>(null), deleting = ref(false)
 const discardPrompt = ref(false), initialForm = ref('')
 const judgeModels = ref<string[]>([])
@@ -233,32 +279,78 @@ function actionExplanation(action: string) {
   const key = `qualityOps.actionHelp.${action}`
   return te(key) ? t(key) : t('qualityOps.actionHelp.no_change')
 }
+const probeLabels: Record<StateProbeVerdict, string> = { healthy: 'qualityOps.probeHealthy', degraded: 'qualityOps.probeDegraded', inconclusive: 'qualityOps.probeInconclusive' }
+function isProbePlan(plan: ScheduledTestPlan) { return plan.pelican_config?.question_kind === STATE_PROBE_QUESTION }
+function isProbeResult(result: ScheduledTestResult) { return result.pelican_config?.question_kind === STATE_PROBE_QUESTION }
 function resultLabel(result: ScheduledTestResult) {
   if (!result.status) return t('qualityOps.notLoaded')
+  const verdict = stateProbeVerdict(result)
+  if (verdict) return t(probeLabels[verdict])
   return t(result.status === 'success' ? 'qualityOps.passed' : result.error_message === 'answer_mismatch' ? 'qualityOps.wrongAnswer' : result.quality_judgment?.verdict === 'unknown' || result.error_message?.startsWith('judge_') ? 'qualityOps.judgeUnknown' : 'qualityOps.requestError')
+}
+// 探针「无法判断」不是账号问题，用中性色，避免和降智混在一起。
+function resultTextClass(result: ScheduledTestResult) {
+  if (!result.status) return 'text-gray-400'
+  if (stateProbeVerdict(result) === 'inconclusive') return 'text-gray-500'
+  return result.status === 'success' ? 'text-emerald-600' : 'text-rose-600'
+}
+function resultTone(result: ScheduledTestResult) {
+  if (stateProbeVerdict(result) === 'inconclusive') return 'tone-neutral'
+  return result.status === 'success' ? 'tone-success' : 'tone-danger'
 }
 function defaults() {
   return { model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: true, max_results: 100, auto_recover: false,
-    pelican_config: { question_kind: 'candy' as const, prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1,
+    pelican_config: { question_kind: 'candy' as 'candy' | typeof STATE_PROBE_QUESTION, prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1,
       quality: { expected_answer: '21', action: 'remove_groups' as 'remove_groups' | 'disable_scheduling', remove_group_ids: [] as number[], auto_restore: false, judge: { group_id: 0, model_id: '', prompt: t('qualityOps.defaultJudgePrompt') } } } }
 }
 const form = ref(defaults())
+const isProbe = computed(() => form.value.pelican_config.question_kind === STATE_PROBE_QUESTION)
 const formSnapshot = () => JSON.stringify([form.value, selectedAccounts.value])
 function message(e: unknown) { const err = e as { response?: { data?: { message?: string; error?: string } }; message?: string }; return err.response?.data?.message || err.response?.data?.error || err.message || t('qualityOps.error') }
 async function load() { await store.refresh() }
 async function refreshOperations() { await store.refreshOperations() }
 async function moreOperations() { await store.refreshOperations(true) }
 async function searchAccounts(page = 1) {
+  accountSelectionRequest++; selectingAccounts.value = false
   const request = ++accountRequest
-  accountsLoading.value = true
+  accountsLoading.value = true; accountsError.value = ''; accounts.value = []
   try {
-    const data = await accountsAPI.list(page, 50, { search: search.value, lite: 'true' })
+    const data = await accountsAPI.list(page, 50, accountFilters())
     if (!alive || request !== accountRequest) return
     accounts.value = data.items; accountPage.value = page; accountPages.value = Math.max(1, Math.ceil(data.total / 50))
-  } catch (e) { if (alive && request === accountRequest) error.value = message(e) }
+  } catch (e) { if (alive && request === accountRequest) accountsError.value = message(e) }
   finally { if (request === accountRequest) accountsLoading.value = false }
 }
-function newPlan() { closeDetails(); error.value = ''; editing.value = null; form.value = defaults(); selectedAccounts.value = []; search.value = ''; showForm.value = true; initialForm.value = formSnapshot(); void searchAccounts(); if (!groups.value.length) void store.refreshGroups() }
+function selectCurrentPage() {
+  if (accountsLoading.value || selectingAccounts.value) return
+  selectedAccounts.value = [...new Set([...selectedAccounts.value, ...selectableAccounts.value.map(account => account.id)])]
+}
+function clearAccountSelection() {
+  accountSelectionRequest++; selectingAccounts.value = false; selectedAccounts.value = []
+}
+async function selectMatchingAccounts() {
+  if (accountsLoading.value || selectingAccounts.value || busy.value) return
+  const request = ++accountSelectionRequest, filters = accountFilters()
+  selectingAccounts.value = true; accountsError.value = ''
+  const ids = new Set<number>()
+  try {
+    // Collect every matching page before changing selection so a failed page never leaves a partial batch.
+    for (let page = 1, pages = 1; page <= pages; page++) {
+      const data = await accountsAPI.list(page, 50, filters)
+      if (!alive || request !== accountSelectionRequest) return
+      pages = Math.max(1, Math.ceil(data.total / 50))
+      for (const account of data.items) ids.add(account.id)
+    }
+    selectedAccounts.value = [...new Set([...selectedAccounts.value, ...ids])].filter(id => !existingAccountIds.value.has(id))
+  } catch (e) { if (alive && request === accountSelectionRequest) accountsError.value = message(e) }
+  finally { if (request === accountSelectionRequest) selectingAccounts.value = false }
+}
+function newPlan() {
+  closeDetails(); invalidateAccountRequests(); error.value = ''; editing.value = null; form.value = defaults()
+  selectedAccounts.value = []; search.value = ''; accountGroup.value = ''; accountType.value = ''
+  showForm.value = true; initialForm.value = formSnapshot(); void searchAccounts()
+  if (!groups.value.length) void store.refreshGroups()
+}
 function edit(plan: ScheduledTestPlan) {
   closeDetails(); error.value = ''; editing.value = plan.id; selectedAccounts.value = []
   form.value = { ...defaults(), model_id: plan.model_id, cron_expression: plan.cron_expression, enabled: plan.enabled, max_results: plan.max_results, pelican_config: { ...defaults().pelican_config, ...JSON.parse(JSON.stringify(plan.pelican_config || {})) } }
@@ -271,18 +363,33 @@ function closeForm() {
   showForm.value = false
 }
 function useCandy() { form.value.pelican_config.prompt = CANDY_PROMPT; form.value.pelican_config.quality.expected_answer = '21' }
+function selectQuestionKind() {
+  const config = form.value.pelican_config
+  if (config.question_kind === STATE_PROBE_QUESTION) { config.parallel_count = 1; return }
+  config.quality.judge ||= defaults().pelican_config.quality.judge
+  if (!config.prompt.trim()) useCandy()
+}
+// 探针规则不发题目、不走判题模型：提交前去掉题目、参考答案和判题配置，并行固定为 1。
+function payload() {
+  if (!isProbe.value) return form.value
+  const { action, remove_group_ids, auto_restore } = form.value.pelican_config.quality
+  return { ...form.value, pelican_config: { ...form.value.pelican_config, prompt: '', parallel_count: 1,
+    quality: { expected_answer: '', action, remove_group_ids: [...remove_group_ids], auto_restore } } }
+}
 async function save() {
-  if (busy.value) return
+  if (busy.value || selectingAccounts.value) return
   busy.value = true; error.value = ''; notice.value = ''
   const scope = identity()
   let changed = false
   try {
-    if (!form.value.pelican_config.quality.judge.group_id || !form.value.pelican_config.quality.judge.model_id.trim() || !form.value.pelican_config.quality.judge.prompt.trim()) throw new Error(t('qualityOps.configureJudge'))
+    const judge = form.value.pelican_config.quality.judge
+    if (!isProbe.value && (!judge.group_id || !judge.model_id.trim() || !judge.prompt.trim())) throw new Error(t('qualityOps.configureJudge'))
     if (form.value.pelican_config.quality.action === 'remove_groups' && !form.value.pelican_config.quality.remove_group_ids.length) throw new Error(t('qualityOps.selectGroups'))
-    if (editing.value) { await scheduledTests.update(editing.value, form.value); changed = true }
+    const body = payload()
+    if (editing.value) { await scheduledTests.update(editing.value, body); changed = true }
     else {
       for (const id of [...selectedAccounts.value]) {
-        await scheduledTests.create({ ...form.value, account_id: id }); changed = true
+        await scheduledTests.create({ ...body, account_id: id }); changed = true
         if (!alive || scope !== identity()) return
         selectedAccounts.value = selectedAccounts.value.filter(value => value !== id)
       }
@@ -369,7 +476,7 @@ onMounted(() => {
   void load()
   poll = setInterval(() => { if (document.visibilityState === 'visible' && !refreshing.value) { void store.refreshRules(); void store.refreshOperations() } }, 30_000)
 })
-onBeforeUnmount(() => { alive = false; detailRequest++; answerRequest++; accountRequest++; judgeModelsRequest++; if (poll) clearInterval(poll); loadedAnswers.clear() })
+onBeforeUnmount(() => { alive = false; accountSelectionRequest++; detailRequest++; answerRequest++; accountRequest++; judgeModelsRequest++; if (poll) clearInterval(poll); loadedAnswers.clear() })
 </script>
 
 <style scoped>
@@ -421,6 +528,7 @@ onBeforeUnmount(() => { alive = false; detailRequest++; answerRequest++; account
 .rule-model { @apply mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400; }
 .rule-model code { @apply rounded bg-gray-100 px-1.5 py-0.5 dark:bg-dark-800; }
 .running-label { @apply text-primary-600; }
+.probe-tag { @apply rounded bg-violet-50 px-1.5 py-0.5 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300; }
 .rule-target { @apply mt-2 flex min-w-0 items-center gap-1.5 text-[11px] text-gray-500; }
 .rule-target span { @apply truncate; }
 .rule-schedule { @apply mt-3 flex justify-between gap-2 text-[11px] tabular-nums text-gray-400; }

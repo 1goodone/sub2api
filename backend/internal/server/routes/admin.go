@@ -716,6 +716,7 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		system.POST("/restart", h.Admin.System.RestartService)
 		system.GET("/mihomo", h.Admin.System.GetMihomo)
 		system.POST("/mihomo", h.Admin.System.ManageMihomo)
+		system.PUT("/mihomo/download-mode", h.Admin.System.SetMihomoDownloadMode)
 	}
 }
 
@@ -775,6 +776,9 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.GET("/account-ops/token-guard/status", h.Admin.AccountTokenGuard.Status)
 	admin.PUT("/account-ops/token-guard/config", h.Admin.AccountTokenGuard.SaveConfig)
 	admin.POST("/account-ops/token-guard/run", h.Admin.AccountTokenGuard.Run)
+	admin.POST("/account-ops/token-guard/run/start", h.Admin.AccountTokenGuard.StartRun)
+	admin.GET("/account-ops/token-guard/jobs/:id", h.Admin.AccountTokenGuard.Job)
+	admin.POST("/account-ops/token-guard/jobs/:id/cancel", h.Admin.AccountTokenGuard.Cancel)
 	admin.GET("/account-ops/token-guard/events", h.Admin.AccountTokenGuard.Events)
 	admin.POST("/account-ops/token-guard/accounts/:id/relogin", h.Admin.AccountTokenGuard.Relogin)
 	admin.GET("/account-quality-results", h.Admin.ScheduledTest.ListQualityHistory)
