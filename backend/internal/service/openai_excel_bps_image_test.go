@@ -128,8 +128,11 @@ func TestExcelBPS429ImageAndCompactKeepCodexSchedulable(t *testing.T) {
 
 				_, err := svc.Forward(context.Background(), c, account, body)
 
-				require.EqualError(t, err, "excel BPS: basispoints_rate_limited")
-				require.Equal(t, http.StatusTooManyRequests, rec.Code)
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+				require.False(t, c.Writer.Written())
+				require.Empty(t, rec.Body.String())
 				require.Len(t, upstream.requests, 1)
 				require.NotContains(t, string(upstream.lastBody), "data:image")
 				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")

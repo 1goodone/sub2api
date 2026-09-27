@@ -580,6 +580,9 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(ctx context.
 	if s == nil {
 		return false
 	}
+	if bps, _ := ctx.Value(excelBPSSchedulingKey{}).(bool); bps && s.isExcelBPSRateLimited(account, requestedModel) {
+		return true
+	}
 	if !s.codexTurnStateOwnerCompatible(ctx, account) {
 		return true
 	}

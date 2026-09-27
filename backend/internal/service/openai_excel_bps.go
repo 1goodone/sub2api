@@ -27,6 +27,54 @@ import (
 var excelBPSReplay basispoints.ReplayCache
 var excelBPSCatalog basispoints.CatalogCache
 
+type excelBPSSchedulingKey struct{}
+
+// WithExcelBPSScheduling keeps BPS cooldowns out of native-only routes and
+// requests whose capabilities require the native Codex fallback.
+func WithExcelBPSScheduling(ctx context.Context, body []byte) context.Context {
+	return context.WithValue(ctx, excelBPSSchedulingKey{}, basispoints.NativeFallbackReason(body) == "")
+}
+
+func (s *OpenAIGatewayService) coolDownExcelBPS(ctx context.Context, account *Account, headers http.Header) {
+	cooldown := time.Duration(defaultRateLimit429CooldownSeconds) * time.Second
+	if s.rateLimitService != nil {
+		var enabled bool
+		cooldown, enabled = s.rateLimitService.get429FallbackCooldown(ctx, account)
+		if !enabled {
+			return
+		}
+	}
+	now := time.Now()
+	if reset := parseRetryAfterResetTime(headers, now); reset != nil && reset.After(now) {
+		cooldown = min(reset.Sub(now), time.Duration(maxRateLimit429CooldownSeconds)*time.Second)
+	}
+	until := now.Add(cooldown)
+	for {
+		old, loaded := s.excelBPSRateLimitedUntil.LoadOrStore(account.ID, until)
+		if !loaded || !until.After(old.(time.Time)) {
+			return
+		}
+		if s.excelBPSRateLimitedUntil.CompareAndSwap(account.ID, old, until) {
+			return
+		}
+	}
+}
+
+func (s *OpenAIGatewayService) isExcelBPSRateLimited(account *Account, model string) bool {
+	if !account.IsExcelBPSEnabledForModel(model) {
+		return false
+	}
+	value, ok := s.excelBPSRateLimitedUntil.Load(account.ID)
+	if !ok {
+		return false
+	}
+	if time.Now().Before(value.(time.Time)) {
+		return true
+	}
+	s.excelBPSRateLimitedUntil.CompareAndDelete(account.ID, value)
+	return false
+}
+
 // BPS uses the account's OAuth credentials, so authentication failures must
 // update the same scheduling state as ordinary OpenAI requests. Keep arbitrary
 // BPS error text (which may echo request data) out of persisted account reasons.
@@ -374,8 +422,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			lease.ReportUpstreamFailure()
 		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
-		// BPS throttles its own endpoint. A BPS 429 must not write Codex
-		// quota/cooldown state or trigger account failover.
+		if err := ctx.Err(); resp.StatusCode == http.StatusTooManyRequests && err != nil {
+			return nil, err
+		}
+		// BPS throttles its own endpoint; never write Codex quota/cooldown state.
 		// Preserve the original rejection for Ops without exposing it to clients.
 		// BPS errors can echo request fields, so redact before storing diagnostics.
 		upstreamMessage := fmt.Sprintf("Excel BPS returned HTTP %d", resp.StatusCode)
@@ -392,11 +442,15 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMessage, upstreamDetail)
+		kind := "http_error"
+		if resp.StatusCode == http.StatusTooManyRequests {
+			kind = "failover"
+		}
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
-			UpstreamURL: basispoints.ResponsesURL, Kind: "http_error",
+			UpstreamURL: basispoints.ResponsesURL, Kind: kind,
 			Message: upstreamMessage, Detail: upstreamDetail, UpstreamResponseBody: upstreamDetail,
 		})
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -414,8 +468,18 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			message = "Excel BPS could not verify encrypted conversation state; resend the original plaintext history or start a new conversation"
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			errorCode = "basispoints_rate_limited"
-			message = "Excel BPS rate limit exceeded; Codex account scheduling was not changed"
+			s.coolDownExcelBPS(ctx, account, resp.Header)
+			// The request was rejected before any output. Leave the response open
+			// so the handler can try another account within its existing budget.
+			failover := newOpenAIUpstreamFailoverError(
+				http.StatusTooManyRequests,
+				resp.Header,
+				[]byte(`{"error":{"type":"rate_limit_error","code":"basispoints_rate_limited","message":"Excel BPS rate limit exceeded"}}`),
+				"Excel BPS rate limit exceeded",
+				false,
+			)
+			failover.SuppressScheduleFailure = true
+			return nil, failover
 		}
 		if resp.StatusCode == http.StatusForbidden {
 			// Apply group routing before the independent protocol switch is disabled.
