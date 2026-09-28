@@ -47,12 +47,15 @@ export interface TokenGuardV2Account {
   latest_task?: TokenGuardV2Task
 }
 
-export interface TokenGuardV2Status {
-  accounts: TokenGuardV2Account[]
+export interface TokenGuardV2Rules {
   probe_interval_seconds: number
   retry_interval_seconds: number
   relogin_cooldown_seconds: number
   fail_streak_threshold: number
+}
+
+export interface TokenGuardV2Status extends TokenGuardV2Rules {
+  accounts: TokenGuardV2Account[]
 }
 
 export interface SaveTokenGuardV2Account {
@@ -72,6 +75,10 @@ export interface SaveTokenGuardV2Account {
 
 export async function listTokenGuardV2Accounts(): Promise<TokenGuardV2Status> {
   return (await apiClient.get('/admin/account-ops/token-guard-v2/accounts')).data
+}
+
+export async function saveTokenGuardV2Rules(input: TokenGuardV2Rules): Promise<TokenGuardV2Rules> {
+  return (await apiClient.put('/admin/account-ops/token-guard-v2/rules', input)).data
 }
 
 export async function createTokenGuardV2Account(input: SaveTokenGuardV2Account): Promise<TokenGuardV2Account> {

@@ -45,16 +45,16 @@ V2 与上面的 V1 独立存在，页面位于 `/admin/token-guard-v2`。管理�
 - `邮箱 + 密码 + 可选 TOTP 密钥`
 - `邮箱 + OTP 邮箱 API URL`
 
-V2 默认每 30 分钟巡检一次；鉴权失败后 5 分钟复检，连续 2 次鉴权失败才创建 durable 重登任务，同一账号有活跃任务时不会重复创建。巡检使用数据库租约和 `FOR UPDATE SKIP LOCKED`，可在多实例部署中运行。
+V2 默认每 30 分钟巡检一次；鉴权失败后 5 分钟复检，连续 2 次鉴权失败才创建 durable 重登任务，同一账号有活跃任务时不会重复创建。管理员可在「巡检规则」页配置正常巡检、失败复检、失败阈值和重登冷却时间；配置保存在现有 `settings` 表，保存后已启用账号立即重新排期。巡检使用数据库租约和 `FOR UPDATE SKIP LOCKED`，可在多实例部署中运行。
 
 密码、TOTP 密钥和邮箱 URL 使用现有 `SecretEncryptor` 加密保存，管理接口只返回“是否已配置”和脱敏 URL。部署前必须设置固定的 TOTP 加密密钥，并为 worker 配置至少 32 字符的 `OPENAI_REAUTH_WORKER_TOKEN`。
 
 ### Worker 运行要求
 
 - 邮箱链接模式：继续使用 `CODEX_PROTOCOL_ROOT` / `TURB_ROOT` 指向 Turb 协议目录。
-- 密码/TOTP 模式：额外设置 `TOSUB2_ROOT`，指向包含 `src/protocol-login.mjs` 的 [toSub2](https://github.com/poxiao33/toSub2) checkout，并使用 Node.js 20 或更高版本。
+- 密码/TOTP 模式：Worker Docker 镜像在构建时内置固定版本的 [toSub2](https://github.com/poxiao33/toSub2)，并设置 `TOSUB2_ROOT=/opt/tosub2`；非 Docker 启动仍需显式提供 checkout 路径，并使用 Node.js 20 或更高版本。
 - Windows 启动脚本可传 `-ToSub2Root C:\path\to\toSub2`。私网邮箱 API 必须使用 HTTPS，并通过 `-TrustedOtpHosts mail.internal` 精确放行主机名；未配置时仍拒绝所有非公网解析结果。
-- Docker 运行时将 toSub2 checkout 只读挂载到容器，并设置 `TOSUB2_ROOT` 指向挂载目录；现有 worker 镜像已包含 Node.js 20。
+- Docker 构建必须同时提供 Turb 和 toSub2 上下文：`docker build --build-context turb=/path/to/turb --build-context tosub2=/path/to/toSub2 -f tools/Dockerfile.openai-oauth-reauth-worker .`。镜像已包含 Node.js 20，不再依赖服务器宿主机挂载。
 - 重登出口可跟随账号代理、选择 IP 管理中的静态代理，或使用 Mihomo 托管节点池。静态代理会保留原协议，`socks5h://` 不会降级为本地 DNS 的 `socks5://`。
 - Mihomo 节点监听在 API 容器的 `127.0.0.1`。独立 worker 容器必须共享 API 容器网络命名空间，例如 `docker run --network container:sub2api ...`；Compose 使用 `network_mode: "service:sub2api"`。不要发布整个 Mihomo 监听端口范围。
 

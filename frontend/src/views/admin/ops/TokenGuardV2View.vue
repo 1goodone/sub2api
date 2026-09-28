@@ -58,7 +58,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in filteredAccounts" :key="item.account_id">
+              <tr v-for="item in pagedAccounts" :key="item.account_id">
                 <td><strong>{{ item.account_name || `#${item.account_id}` }}</strong><small>#{{ item.account_id }} · {{ item.account_status }}</small></td>
                 <td>{{ modeLabel(item.login_config?.credential_mode) }}<small>{{ item.login_config?.login_email || '-' }}</small></td>
                 <td><span class="badge" :class="item.login_config?.configured ? 'ok' : 'danger'">{{ item.login_config?.configured ? t('tokenGuardV2.configured') : t('tokenGuardV2.incomplete') }}</span><small>{{ configurationDetail(item) }}</small></td>
@@ -84,19 +84,31 @@
             <p>{{ t(accounts.length ? 'tokenGuardV2.noResultsHint' : 'tokenGuardV2.emptyHint') }}</p>
           </div>
         </div>
+        <Pagination
+          v-if="filteredAccounts.length"
+          :total="filteredAccounts.length"
+          :page="accountPage"
+          :page-size="accountPageSize"
+          :page-size-options="[10, 20, 50]"
+          @update:page="accountPage = $event"
+          @update:pageSize="handleAccountPageSize"
+        />
       </section>
 
       <section v-else class="rules-card">
         <div class="rules-heading">
           <div><h3>{{ t('tokenGuardV2.rulesTitle') }}</h3><p>{{ t('tokenGuardV2.rulesDescription') }}</p></div>
-          <span class="badge ok">{{ t('tokenGuardV2.rulesFixed') }}</span>
+          <span class="badge" :class="{ ok: !rulesDirty }">{{ t(rulesDirty ? 'tokenGuardV2.rulesUnsaved' : 'tokenGuardV2.rulesConfigurable') }}</span>
         </div>
-        <div class="rule-metrics">
-          <article><span>{{ t('tokenGuardV2.ruleProbeInterval') }}</span><strong>{{ minutes(status.probe_interval_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
-          <article><span>{{ t('tokenGuardV2.ruleRetryInterval') }}</span><strong>{{ minutes(status.retry_interval_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
-          <article><span>{{ t('tokenGuardV2.ruleFailureThreshold') }}</span><strong>{{ status.fail_streak_threshold }}</strong><small>{{ t('tokenGuardV2.times') }}</small></article>
-          <article><span>{{ t('tokenGuardV2.ruleCooldown') }}</span><strong>{{ minutes(status.relogin_cooldown_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
-        </div>
+        <form id="token-guard-v2-rules" class="rules-form" @submit.prevent="saveRulesConfig">
+          <div class="rule-metrics">
+            <label><span>{{ t('tokenGuardV2.ruleProbeInterval') }}</span><input id="token-guard-v2-rule-probe" v-model.number="rulesDraft.probe_interval_minutes" class="input" type="number" min="1" max="1440" required @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleRetryInterval') }}</span><input id="token-guard-v2-rule-retry" v-model.number="rulesDraft.retry_interval_minutes" class="input" type="number" min="1" max="1440" required @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleFailureThreshold') }}</span><input id="token-guard-v2-rule-threshold" v-model.number="rulesDraft.fail_streak_threshold" class="input" type="number" min="1" max="10" required @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.times') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleCooldown') }}</span><input id="token-guard-v2-rule-cooldown" v-model.number="rulesDraft.relogin_cooldown_minutes" class="input" type="number" min="1" max="10080" required @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+          </div>
+          <div class="rules-actions"><button type="submit" class="btn btn-primary" :disabled="rulesSaving || !rulesDirty">{{ rulesSaving ? t('tokenGuardV2.saving') : t('tokenGuardV2.saveRules') }}</button></div>
+        </form>
         <div class="rule-list">
           <article><span>1</span><div><strong>{{ t('tokenGuardV2.ruleScopeTitle') }}</strong><p>{{ t('tokenGuardV2.ruleScopeHint') }}</p></div></article>
           <article><span>2</span><div><strong>{{ t('tokenGuardV2.ruleHealthyTitle') }}</strong><p>{{ t('tokenGuardV2.ruleHealthyHint') }}</p></div></article>
@@ -165,12 +177,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { BaseDialog } from '@/components/common'
+import { BaseDialog, Pagination } from '@/components/common'
 import { list as listAccounts } from '@/api/admin/accounts'
 import { getByPlatform as listGroups } from '@/api/admin/groups'
 import { getAllWithCount as listProxies } from '@/api/admin/proxies'
@@ -182,11 +194,13 @@ import {
   listTokenGuardV2Accounts,
   probeTokenGuardV2Account,
   reloginTokenGuardV2Account,
+  saveTokenGuardV2Rules,
   updateTokenGuardV2Account,
   type SaveTokenGuardV2Account,
   type TokenGuardV2Account,
   type TokenGuardV2CredentialMode,
   type TokenGuardV2ProxySource,
+  type TokenGuardV2Rules,
   type TokenGuardV2Status,
   type TokenGuardV2Task
 } from '@/api/admin/accountTokenGuardV2'
@@ -210,6 +224,10 @@ const editing = ref<TokenGuardV2Account | null>(null)
 const activeSection = ref<'accounts' | 'rules'>('accounts')
 const accountFilter = ref<'all' | 'healthy' | 'attention' | 'paused'>('all')
 const searchQuery = ref('')
+const accountPage = ref(1)
+const accountPageSize = ref(20)
+const rulesSaving = ref(false)
+const rulesDirty = ref(false)
 const error = ref(''), notice = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 
@@ -227,6 +245,12 @@ const blankDraft = (): SaveTokenGuardV2Account => ({
   auto_relogin_enabled: true
 })
 const draft = reactive<SaveTokenGuardV2Account>(blankDraft())
+const rulesDraft = reactive({
+  probe_interval_minutes: 30,
+  retry_interval_minutes: 5,
+  relogin_cooldown_minutes: 30,
+  fail_streak_threshold: 2
+})
 
 const accountEmail = (account?: AccountListItem) => {
   const email = account?.extra?.email_address || account?.extra?.email || account?.credentials?.email
@@ -272,6 +296,10 @@ const filteredAccounts = computed(() => {
     ].some(value => String(value || '').toLowerCase().includes(query))
   })
 })
+const pagedAccounts = computed(() => {
+  const start = (accountPage.value - 1) * accountPageSize.value
+  return filteredAccounts.value.slice(start, start + accountPageSize.value)
+})
 const matchesAccountGroup = (account: AccountListItem) => {
   if (!accountGroup.value) return true
   if (accountGroup.value === 'ungrouped') return !account.group_ids?.length
@@ -290,7 +318,6 @@ const selectableAccounts = computed(() => {
 
 const message = (value: unknown) => (value as { message?: string })?.message || t('tokenGuardV2.error')
 const date = (value?: string) => value ? new Date(value).toLocaleString() : '-'
-const minutes = (seconds: number) => Math.round(seconds / 60)
 const modeLabel = (mode?: TokenGuardV2CredentialMode) => !mode ? '-' : mode === 'password_totp' ? t('tokenGuardV2.passwordMode') : t('tokenGuardV2.mailboxMode')
 const proxyChoice = computed({
   get: () => draft.proxy_source === 'managed_proxy' && draft.proxy_id ? `proxy:${draft.proxy_id}` : draft.proxy_source,
@@ -323,6 +350,15 @@ const configurationDetail = (item: TokenGuardV2Account) => {
 }
 
 function resetDraft() { Object.assign(draft, blankDraft()) }
+function syncRulesDraft(rules: TokenGuardV2Rules) {
+  Object.assign(rulesDraft, {
+    probe_interval_minutes: Math.round(rules.probe_interval_seconds / 60),
+    retry_interval_minutes: Math.round(rules.retry_interval_seconds / 60),
+    relogin_cooldown_minutes: Math.round(rules.relogin_cooldown_seconds / 60),
+    fail_streak_threshold: rules.fail_streak_threshold
+  })
+}
+function handleAccountPageSize(size: number) { accountPageSize.value = size; accountPage.value = 1 }
 function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; accountSearch.value = ''; resetDraft(); editorOpen.value = true }
 function selectAccount(account: AccountListItem) { draft.account_id = account.id; draft.login_email = accountEmail(account) }
 function openEdit(item: TokenGuardV2Account) {
@@ -353,6 +389,7 @@ async function load(silent = false) {
       listGroups('openai')
     ])
     Object.assign(status, guard)
+    if (!rulesDirty.value) syncRulesDraft(guard)
     candidates.value = accountPage.items.filter(item => !item.parent_account_id)
     proxies.value = managedProxies
     groups.value = openAIGroups
@@ -360,6 +397,27 @@ async function load(silent = false) {
     if (!silent) error.value = message(value)
   } finally {
     loading.value = false
+  }
+}
+
+async function saveRulesConfig() {
+  if (rulesSaving.value || !rulesDirty.value) return
+  rulesSaving.value = true; error.value = ''; notice.value = ''
+  try {
+    const saved = await saveTokenGuardV2Rules({
+      probe_interval_seconds: rulesDraft.probe_interval_minutes * 60,
+      retry_interval_seconds: rulesDraft.retry_interval_minutes * 60,
+      relogin_cooldown_seconds: rulesDraft.relogin_cooldown_minutes * 60,
+      fail_streak_threshold: rulesDraft.fail_streak_threshold
+    })
+    Object.assign(status, saved)
+    syncRulesDraft(saved)
+    rulesDirty.value = false
+    notice.value = t('tokenGuardV2.rulesSaved')
+  } catch (value) {
+    error.value = message(value)
+  } finally {
+    rulesSaving.value = false
   }
 }
 
@@ -409,6 +467,11 @@ const remove = async (item: TokenGuardV2Account) => {
   await act(item, () => deleteTokenGuardV2Account(item.account_id), 'tokenGuardV2.removedNotice')
 }
 
+watch([accountFilter, searchQuery], () => { accountPage.value = 1 })
+watch(() => filteredAccounts.value.length, (total) => {
+  accountPage.value = Math.min(accountPage.value, Math.max(1, Math.ceil(total / accountPageSize.value)))
+})
+
 onMounted(() => {
   void load()
   timer = setInterval(() => { if (document.visibilityState === 'visible' && !editorOpen.value) void load(true) }, 30_000)
@@ -438,7 +501,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .filter-tabs button.active,.group-tabs button.active { @apply border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/30 dark:text-primary-300; }
 .search-box { @apply flex min-w-64 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-gray-400 focus-within:border-primary-400 dark:border-dark-600 dark:bg-dark-900; }
 .search-box input { @apply min-w-0 flex-1 border-0 bg-transparent py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100; }
-.table-wrap { @apply overflow-auto overscroll-contain; scrollbar-gutter:stable; }
+.table-wrap { max-height:65vh; @apply overflow-auto overscroll-contain; scrollbar-gutter:stable; }
 table { min-width:1180px; @apply w-full text-left text-xs; }
 thead { @apply sticky top-0 z-10 bg-white text-gray-400 dark:bg-dark-900; }
 th { @apply whitespace-nowrap px-4 py-3 font-medium; }
@@ -460,10 +523,11 @@ tbody tr:hover { @apply bg-gray-50/70 dark:bg-dark-800/50; }
 .rules-heading h3 { @apply text-base font-semibold; }
 .rules-heading p { @apply mt-1 max-w-3xl text-xs leading-5 text-gray-500 dark:text-gray-400; }
 .rule-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); @apply mt-5 gap-3; }
-.rule-metrics article { @apply rounded-xl border border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/60; }
+.rule-metrics label { @apply rounded-xl border border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/60; }
 .rule-metrics span { @apply block text-xs text-gray-400; }
-.rule-metrics strong { @apply mt-2 inline-block text-2xl font-semibold tabular-nums; }
+.rule-metrics input { @apply mt-2 inline-block w-28 text-lg font-semibold tabular-nums; }
 .rule-metrics small { @apply ml-1 text-xs text-gray-400; }
+.rules-actions { @apply mt-4 flex justify-end; }
 .rule-list { @apply mt-5 space-y-3; }
 .rule-list article { @apply flex gap-3 rounded-xl border border-gray-100 p-4 dark:border-dark-700; }
 .rule-list article > span { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300; }

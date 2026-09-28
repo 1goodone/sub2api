@@ -13,7 +13,7 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY tools/openai_oauth_reauth_worker.py /app/openai_oauth_reauth_worker.py
 
-# Build with: docker build --build-context turb=/path/to/turb ...
+# Build with: docker build --build-context turb=/path/to/turb --build-context tosub2=/path/to/toSub2 ...
 COPY --from=turb config /opt/turb/config
 COPY --from=turb core/__init__.py /opt/turb/core/__init__.py
 COPY --from=turb core/codex_oauth.py /opt/turb/core/codex_oauth.py
@@ -25,16 +25,16 @@ COPY --from=turb core/session.py /opt/turb/core/session.py
 COPY --from=turb core/sms_provider.py /opt/turb/core/sms_provider.py
 COPY --from=turb sentinel /opt/turb/sentinel
 COPY --from=turb LICENSE /opt/turb/LICENSE
+COPY --from=tosub2 src /opt/tosub2/src
+COPY --from=tosub2 LICENSE /opt/tosub2/LICENSE
 
 RUN useradd --create-home --uid 10001 worker \
-    && chown -R worker:worker /app /opt/turb
+    && chown -R worker:worker /app /opt/turb /opt/tosub2
 
 USER worker
 ENV CODEX_PROTOCOL_ROOT=/opt/turb \
+    TOSUB2_ROOT=/opt/tosub2 \
     NODE_EXECUTABLE=node \
     PYTHONUNBUFFERED=1
-
-# Password/TOTP jobs additionally require a read-only toSub2 checkout mounted
-# into the container and TOSUB2_ROOT pointed at that mount.
 
 ENTRYPOINT ["python", "/app/openai_oauth_reauth_worker.py"]

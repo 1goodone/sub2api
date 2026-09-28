@@ -60,6 +60,11 @@ func parseTokenGuardV2AccountID(c *gin.Context) (int64, bool) {
 }
 
 func (h *AccountTokenGuardV2Handler) List(c *gin.Context) {
+	rules, err := h.service.GetRules(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	accounts, err := h.service.ListAccounts(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -67,11 +72,25 @@ func (h *AccountTokenGuardV2Handler) List(c *gin.Context) {
 	}
 	response.Success(c, gin.H{
 		"accounts":                 accounts,
-		"probe_interval_seconds":   int(service.AccountTokenGuardV2ProbeInterval.Seconds()),
-		"retry_interval_seconds":   int(service.AccountTokenGuardV2RetryInterval.Seconds()),
-		"relogin_cooldown_seconds": int(service.AccountTokenGuardV2ReloginCooldown.Seconds()),
-		"fail_streak_threshold":    service.AccountTokenGuardV2FailThreshold,
+		"probe_interval_seconds":   rules.ProbeIntervalSeconds,
+		"retry_interval_seconds":   rules.RetryIntervalSeconds,
+		"relogin_cooldown_seconds": rules.ReloginCooldownSeconds,
+		"fail_streak_threshold":    rules.FailStreakThreshold,
 	})
+}
+
+func (h *AccountTokenGuardV2Handler) SaveRules(c *gin.Context) {
+	var rules service.AccountTokenGuardV2Rules
+	if err := c.ShouldBindJSON(&rules); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+	saved, err := h.service.SaveRules(c.Request.Context(), rules)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, saved)
 }
 
 func (h *AccountTokenGuardV2Handler) Create(c *gin.Context) {

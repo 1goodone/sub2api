@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   deleteGuard: vi.fn(),
   probeGuard: vi.fn(),
   reloginGuard: vi.fn(),
+  saveRules: vi.fn(),
   listAccounts: vi.fn(),
   listGroups: vi.fn(),
   listProxies: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@/api/admin/accountTokenGuardV2', () => ({
   deleteTokenGuardV2Account: api.deleteGuard,
   probeTokenGuardV2Account: api.probeGuard,
   reloginTokenGuardV2Account: api.reloginGuard,
+  saveTokenGuardV2Rules: api.saveRules,
 }))
 vi.mock('@/api/admin/accounts', () => ({ list: api.listAccounts, default: { list: api.listAccounts } }))
 vi.mock('@/api/admin/groups', () => ({ getByPlatform: api.listGroups, default: { getByPlatform: api.listGroups } }))
@@ -85,6 +87,12 @@ beforeEach(() => {
     { id: 8, name: 'Singapore', protocol: 'http', host: '198.51.100.8', port: 8080 },
   ])
   api.updateGuard.mockResolvedValue({})
+  api.saveRules.mockResolvedValue({
+    probe_interval_seconds: 1800,
+    retry_interval_seconds: 300,
+    relogin_cooldown_seconds: 1800,
+    fail_streak_threshold: 2,
+  })
 })
 
 afterEach(() => {
@@ -282,5 +290,102 @@ describe('TokenGuardV2View', () => {
     expect(wrapper.text()).toContain('tokenGuardV2.ruleProbeInterval')
     expect(wrapper.text()).toContain('tokenGuardV2.ruleRetryInterval')
     expect(wrapper.text()).toContain('tokenGuardV2.ruleCooldown')
+  })
+
+  it('saves configurable rules in seconds and keeps dirty values during refresh', async () => {
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: {
+            props: ['show'],
+            template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="guard-tab-rules"]').trigger('click')
+    await wrapper.get('#token-guard-v2-rule-probe').setValue('15')
+
+    api.listGuard.mockResolvedValueOnce({
+      probe_interval_seconds: 3600,
+      retry_interval_seconds: 600,
+      relogin_cooldown_seconds: 3600,
+      fail_streak_threshold: 4,
+      accounts: [],
+    })
+    await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.refresh')!.trigger('click')
+    await flushPromises()
+    expect((wrapper.get('#token-guard-v2-rule-probe').element as HTMLInputElement).value).toBe('15')
+
+    await wrapper.get('#token-guard-v2-rule-retry').setValue('2')
+    await wrapper.get('#token-guard-v2-rule-threshold').setValue('3')
+    await wrapper.get('#token-guard-v2-rule-cooldown').setValue('120')
+    api.saveRules.mockResolvedValueOnce({
+      probe_interval_seconds: 900,
+      retry_interval_seconds: 120,
+      relogin_cooldown_seconds: 7200,
+      fail_streak_threshold: 3,
+    })
+    await wrapper.get('#token-guard-v2-rules').trigger('submit')
+    await flushPromises()
+
+    expect(api.saveRules).toHaveBeenCalledWith({
+      probe_interval_seconds: 900,
+      retry_interval_seconds: 120,
+      relogin_cooldown_seconds: 7200,
+      fail_streak_threshold: 3,
+    })
+    expect(wrapper.text()).toContain('tokenGuardV2.rulesSaved')
+  })
+
+  it('paginates monitored accounts and resets to page one after searching', async () => {
+    api.listGuard.mockResolvedValueOnce({
+      probe_interval_seconds: 1800,
+      retry_interval_seconds: 300,
+      relogin_cooldown_seconds: 1800,
+      fail_streak_threshold: 2,
+      accounts: Array.from({ length: 25 }, (_, index) => ({
+        account_id: index + 1,
+        account_name: `Account ${index + 1}`,
+        account_status: 'active',
+        schedulable: true,
+        enabled: true,
+        auto_relogin_enabled: false,
+        probe_state: 'ok',
+        probe_detail: 'credential accepted',
+        fail_streak: 0,
+        next_probe_at: '2026-09-28T10:00:00Z',
+        login_config: { account_id: index + 1, login_email: `user${index + 1}@example.com`, credential_mode: 'password_totp', proxy_source: 'account', password_configured: true, totp_configured: false, configured: true },
+      })),
+    })
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: true,
+          Pagination: {
+            props: ['page'],
+            emits: ['update:page'],
+            template: '<button data-testid="next-page" @click="$emit(\'update:page\', page + 1)">next</button>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(5)
+    expect(wrapper.get('tbody').text()).toContain('Account 25')
+
+    await wrapper.get('#token-guard-v2-search').setValue('Account 2')
+    expect(wrapper.get('tbody').text()).toContain('Account 2')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(7)
   })
 })

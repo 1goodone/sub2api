@@ -164,6 +164,15 @@ func (r *accountTokenGuardV2Repository) MarkReauthRequested(ctx context.Context,
 	return err
 }
 
+func (r *accountTokenGuardV2Repository) RescheduleEnabled(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE account_token_guard_v2_accounts
+		SET next_probe_at = NOW(), updated_at = NOW()
+		WHERE enabled = TRUE
+	`)
+	return err
+}
+
 const accountTokenGuardV2Select = `
 	SELECT account_id, enabled, auto_relogin_enabled,
 		probe_state, probe_detail, fail_streak,

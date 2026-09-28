@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,7 +27,41 @@ const (
 	accountTokenGuardV2LeaseDuration   = 2 * time.Minute
 	AccountTokenGuardV2ReloginCooldown = 30 * time.Minute
 	AccountTokenGuardV2FailThreshold   = 2
+
+	accountTokenGuardV2RulesSettingKey = "account_token_guard_v2_rules"
 )
+
+type AccountTokenGuardV2Rules struct {
+	ProbeIntervalSeconds   int `json:"probe_interval_seconds"`
+	RetryIntervalSeconds   int `json:"retry_interval_seconds"`
+	ReloginCooldownSeconds int `json:"relogin_cooldown_seconds"`
+	FailStreakThreshold    int `json:"fail_streak_threshold"`
+}
+
+func defaultAccountTokenGuardV2Rules() AccountTokenGuardV2Rules {
+	return AccountTokenGuardV2Rules{
+		ProbeIntervalSeconds:   int(AccountTokenGuardV2ProbeInterval.Seconds()),
+		RetryIntervalSeconds:   int(AccountTokenGuardV2RetryInterval.Seconds()),
+		ReloginCooldownSeconds: int(AccountTokenGuardV2ReloginCooldown.Seconds()),
+		FailStreakThreshold:    AccountTokenGuardV2FailThreshold,
+	}
+}
+
+func ValidateAccountTokenGuardV2Rules(rules AccountTokenGuardV2Rules) error {
+	if rules.ProbeIntervalSeconds < 60 || rules.ProbeIntervalSeconds > 86400 {
+		return errors.New("probe_interval_seconds must be between 60 and 86400")
+	}
+	if rules.RetryIntervalSeconds < 30 || rules.RetryIntervalSeconds > 86400 {
+		return errors.New("retry_interval_seconds must be between 30 and 86400")
+	}
+	if rules.ReloginCooldownSeconds < 60 || rules.ReloginCooldownSeconds > 604800 {
+		return errors.New("relogin_cooldown_seconds must be between 60 and 604800")
+	}
+	if rules.FailStreakThreshold < 1 || rules.FailStreakThreshold > 10 {
+		return errors.New("fail_streak_threshold must be between 1 and 10")
+	}
+	return nil
+}
 
 type AccountTokenGuardV2Record struct {
 	AccountID          int64
@@ -66,6 +101,12 @@ type AccountTokenGuardV2Repository interface {
 	ClaimAccount(ctx context.Context, accountID int64, owner string, leaseDuration time.Duration) (*AccountTokenGuardV2Record, error)
 	CompleteProbe(ctx context.Context, accountID int64, owner string, result AccountTokenGuardV2ProbeCompletion) error
 	MarkReauthRequested(ctx context.Context, accountID int64, requestedAt, cooldownUntil time.Time) error
+	RescheduleEnabled(ctx context.Context) error
+}
+
+type AccountTokenGuardV2Settings interface {
+	GetValue(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string) error
 }
 
 type AccountTokenGuardV2AccountReader interface {
@@ -112,6 +153,7 @@ type AccountTokenGuardV2Account struct {
 
 type AccountTokenGuardV2Service struct {
 	repo     AccountTokenGuardV2Repository
+	settings AccountTokenGuardV2Settings
 	accounts AccountTokenGuardV2AccountReader
 	prober   AccountTokenGuardV2Prober
 	reauth   *OpenAIOAuthReauthService
@@ -122,13 +164,53 @@ type AccountTokenGuardV2Service struct {
 	doneCh     chan struct{}
 }
 
-func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, accounts AccountTokenGuardV2AccountReader, prober AccountTokenGuardV2Prober, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
+func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings AccountTokenGuardV2Settings, accounts AccountTokenGuardV2AccountReader, prober AccountTokenGuardV2Prober, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
 	host, _ := os.Hostname()
 	return &AccountTokenGuardV2Service{
-		repo: repo, accounts: accounts, prober: prober, reauth: reauth,
+		repo: repo, settings: settings, accounts: accounts, prober: prober, reauth: reauth,
 		leaseOwner: fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.NewString()),
 		stopCh:     make(chan struct{}), doneCh: make(chan struct{}),
 	}
+}
+
+func (s *AccountTokenGuardV2Service) GetRules(ctx context.Context) (AccountTokenGuardV2Rules, error) {
+	rules := defaultAccountTokenGuardV2Rules()
+	if s == nil || s.settings == nil {
+		return rules, nil
+	}
+	raw, err := s.settings.GetValue(ctx, accountTokenGuardV2RulesSettingKey)
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return rules, err
+	}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &rules); err != nil {
+			return rules, err
+		}
+	}
+	if err := ValidateAccountTokenGuardV2Rules(rules); err != nil {
+		return rules, err
+	}
+	return rules, nil
+}
+
+func (s *AccountTokenGuardV2Service) SaveRules(ctx context.Context, rules AccountTokenGuardV2Rules) (AccountTokenGuardV2Rules, error) {
+	if err := ValidateAccountTokenGuardV2Rules(rules); err != nil {
+		return rules, infraerrors.BadRequest("TOKEN_GUARD_V2_RULES_INVALID", err.Error())
+	}
+	if s == nil || s.settings == nil {
+		return rules, infraerrors.New(http.StatusInternalServerError, "TOKEN_GUARD_V2_RULES_SAVE_FAILED", "settings repository is unavailable")
+	}
+	raw, err := json.Marshal(rules)
+	if err != nil {
+		return rules, err
+	}
+	if err := s.settings.Set(ctx, accountTokenGuardV2RulesSettingKey, string(raw)); err != nil {
+		return rules, infraerrors.New(http.StatusInternalServerError, "TOKEN_GUARD_V2_RULES_SAVE_FAILED", "failed to save inspection rules")
+	}
+	if err := s.repo.RescheduleEnabled(ctx); err != nil {
+		return rules, infraerrors.New(http.StatusInternalServerError, "TOKEN_GUARD_V2_RULES_RESCHEDULE_FAILED", "rules were saved but enabled accounts could not be rescheduled")
+	}
+	return rules, nil
 }
 
 func (s *AccountTokenGuardV2Service) Start() {
@@ -283,20 +365,29 @@ func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID i
 	if record, err := s.repo.GetAccount(ctx, accountID); err != nil || record == nil {
 		return nil, infraerrors.New(http.StatusNotFound, "TOKEN_GUARD_V2_NOT_FOUND", "monitored account not found")
 	}
+	rules, err := s.GetRules(ctx)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "TOKEN_GUARD_V2_RULES_READ_FAILED", "failed to read inspection rules")
+	}
 	task, err := s.reauth.CreateTask(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(AccountTokenGuardV2ReloginCooldown))
+	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(time.Duration(rules.ReloginCooldownSeconds)*time.Second))
 	return task, nil
 }
 
 func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record AccountTokenGuardV2Record) {
+	rules, err := s.GetRules(ctx)
+	if err != nil {
+		slog.Warn("account_token_guard_v2_rules_read_failed", "error", err)
+		rules = defaultAccountTokenGuardV2Rules()
+	}
 	now := time.Now()
 	completion := AccountTokenGuardV2ProbeCompletion{
 		ProbeState: AccountTokenGuardV2ProbeTransient, ProbeDetail: "inspection failed",
-		FailStreak: record.FailStreak, LastProbeAt: now, NextProbeAt: now.Add(AccountTokenGuardV2ProbeInterval),
+		FailStreak: record.FailStreak, LastProbeAt: now, NextProbeAt: now.Add(time.Duration(rules.ProbeIntervalSeconds) * time.Second),
 		CooldownUntil: record.CooldownUntil,
 	}
 	account, err := s.accounts.GetAccount(ctx, record.AccountID)
@@ -318,13 +409,13 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 		completion.CooldownUntil = nil
 	case AccountTokenGuardV2ProbeAuth:
 		completion.FailStreak++
-		completion.NextProbeAt = now.Add(AccountTokenGuardV2RetryInterval)
+		completion.NextProbeAt = now.Add(time.Duration(rules.RetryIntervalSeconds) * time.Second)
 		cooldownActive := record.CooldownUntil != nil && record.CooldownUntil.After(now)
-		if record.AutoReloginEnabled && completion.FailStreak >= AccountTokenGuardV2FailThreshold && !cooldownActive {
+		if record.AutoReloginEnabled && completion.FailStreak >= rules.FailStreakThreshold && !cooldownActive {
 			task, taskErr := s.reauth.CreateTask(ctx, record.AccountID)
 			if taskErr == nil && task != nil {
 				completion.LastReauthAt = &now
-				cooldown := now.Add(AccountTokenGuardV2ReloginCooldown)
+				cooldown := now.Add(time.Duration(rules.ReloginCooldownSeconds) * time.Second)
 				completion.CooldownUntil = &cooldown
 				completion.ProbeDetail = detail + "; automatic re-login queued"
 			} else if infraerrors.Code(taskErr) == http.StatusConflict {

@@ -1185,9 +1185,9 @@ func ProvideAccountTokenGuardService(settings SettingRepository, repo AccountTok
 	return svc
 }
 
-func ProvideAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, admin AdminService,
+func ProvideAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings SettingRepository, admin AdminService,
 	openAIGateway *OpenAIGatewayService, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
-	svc := NewAccountTokenGuardV2Service(repo, admin, openAIGateway, reauth)
+	svc := NewAccountTokenGuardV2Service(repo, settings, admin, openAIGateway, reauth)
 	svc.Start()
 	return svc
 }
