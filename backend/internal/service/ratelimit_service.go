@@ -85,7 +85,7 @@ const (
 	openAIImageCapabilityLossReason     = "openai_image_capability_lost"
 )
 
-var openAIImageTryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
+var openAITryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
 
 var openCodeGoUsageLimitResetPattern = regexp.MustCompile(`(?i)\bresets\s+in\s+`)
 
@@ -2419,7 +2419,7 @@ func openAIImageRateLimitResetAt(headers http.Header, body []byte) time.Time {
 			return resetAt
 		}
 	}
-	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
+	if cooldown := parseOpenAITryAgainCooldown(body); cooldown > 0 {
 		return now.Add(cooldown)
 	}
 	return now.Add(openAIImageRateLimitDefaultCooldown)
@@ -2443,11 +2443,11 @@ func parseRetryAfterResetTime(headers http.Header, now time.Time) *time.Time {
 	return nil
 }
 
-func parseOpenAIImageTryAgainCooldown(body []byte) time.Duration {
+func parseOpenAITryAgainCooldown(body []byte) time.Duration {
 	if len(body) == 0 {
 		return 0
 	}
-	match := openAIImageTryAgainPattern.FindSubmatch(body)
+	match := openAITryAgainPattern.FindSubmatch(body)
 	if len(match) != 3 {
 		return 0
 	}

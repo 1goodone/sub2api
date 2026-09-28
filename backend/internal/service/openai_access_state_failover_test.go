@@ -410,15 +410,26 @@ func TestOpenAIStreamOAuthLike429GetsDeadlineWithoutImmediateRuntimeBlock(t *tes
 		t.Run(accountType, func(t *testing.T) {
 			svc := &OpenAIGatewayService{}
 			account := &Account{ID: 920, Platform: PlatformOpenAI, Type: accountType}
-			payload := []byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`)
-			status, disabled := svc.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, "slow down", nil)
-			err := svc.newOpenAIAccountFailoverError(account, status, nil, payload, "slow down", disabled, false)
+			payload := []byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"Please try again in 143ms."}}`)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			err := svc.newOpenAIStreamFailoverError(c, account, false, "req_stream_429", payload, "Please try again in 143ms.")
 
-			require.Equal(t, http.StatusTooManyRequests, status)
-			require.False(t, disabled)
+			require.Equal(t, http.StatusTooManyRequests, err.StatusCode)
 			require.True(t, err.RetryableOnSameAccount)
 			require.False(t, err.SameAccountRetryDeadline.IsZero())
+			require.Equal(t, 158*time.Millisecond, err.SameAccountRetryDelay)
 			require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			require.False(t, c.Writer.Written())
 		})
 	}
+}
+
+func TestOpenAI429RetryDelayHonorsBodyHintAndRetryAfter(t *testing.T) {
+	deadline := time.Now().Add(openAIOAuth429RetryWindow)
+	body := []byte(`{"error":{"message":"Please try again in 143ms."}}`)
+	require.Equal(t, openAIOAuth429RetryDelay, openAIOAuth429SameAccountRetryDelay(nil, nil, deadline))
+	require.Equal(t, 158*time.Millisecond, openAIOAuth429SameAccountRetryDelay(nil, body, deadline))
+	require.Equal(t, time.Second, openAIOAuth429SameAccountRetryDelay(http.Header{"Retry-After": []string{"1"}}, body, deadline))
+	require.Equal(t, openAIOAuth429MaxRetryDelay, openAIOAuth429SameAccountRetryDelay(http.Header{"Retry-After": []string{"90"}}, body, deadline))
 }
