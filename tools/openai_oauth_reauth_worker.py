@@ -503,14 +503,21 @@ def load_protocol(root: Path) -> SimpleNamespace:
     from core.codex_oauth import (
         _bootstrap_authorize,
         _extract_code,
+        _follow_until_callback,
+        _is_redirect_uri,
         _post_json,
+        _resp_json,
         _select_workspace_and_get_callback,
-        _submit_email_otp,
         build_sentinel_header,
         network_preflight,
         request_sentinel_token,
     )
-    from core.openai_auth import AccountUnusableError, send_email_otp
+    from core.openai_auth import (
+        AccountUnusableError,
+        _extract_error_code,
+        detect_account_unusable_response_body,
+        send_email_otp,
+    )
     # Turb keeps this class name for historical reasons; it is a curl_cffi
     # HTTP session and never launches a browser.
     from core.session import BrowserSession as ProtocolSession
@@ -534,6 +541,68 @@ def load_protocol(root: Path) -> SimpleNamespace:
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    def submit_email_otp(session: Any, code: str) -> None:
+        sentinel = request_sentinel_token(session, "authorize_continue")
+        sentinel_header, so_header = build_sentinel_header(session, sentinel, "authorize_continue")
+        response = _post_json(
+            session,
+            "https://auth.openai.com/api/accounts/email-otp/validate",
+            {"code": code},
+            referer="https://auth.openai.com/email-verification",
+            sentinel_header=sentinel_header,
+            so_header=so_header,
+        )
+        if response.status_code != 200:
+            error_code = _extract_error_code(response)
+            if error_code in ("account_deactivated", "account_deleted", "account_banned"):
+                raise AccountUnusableError(
+                    f"[Codex] 账号已废（{error_code}）status={response.status_code}: {(response.text or '')[:200]}",
+                    error_code=error_code,
+                )
+            body_error_code = detect_account_unusable_response_body(response.text or "")
+            if body_error_code:
+                raise AccountUnusableError(
+                    f"[Codex] 账号已废（{body_error_code}）status={response.status_code}: {(response.text or '')[:200]}",
+                    error_code=body_error_code,
+                )
+            raise RuntimeError(
+                f"[Codex] 邮箱 OTP 验证失败 status={response.status_code}: {(response.text or '')[:300]}"
+            )
+        # OpenAI can return workspaces in the OTP JSON without setting the
+        # oai-client-auth-session cookie expected by Turb's next step.
+        workspace_id = _workspace_id_from_auth_payload(_resp_json(response))
+        if workspace_id:
+            session._sub2api_workspace_id = workspace_id
+
+    def select_workspace_and_get_callback(session: Any, state: str) -> str:
+        workspace_id = str(getattr(session, "_sub2api_workspace_id", "") or "").strip()
+        if not workspace_id:
+            return _select_workspace_and_get_callback(session, state)
+        response = _post_json(
+            session,
+            "https://auth.openai.com/api/accounts/workspace/select",
+            {"workspace_id": workspace_id},
+            referer="https://auth.openai.com/sign-in-with-chatgpt/codex/consent",
+        )
+        location = response.headers.get("location") or response.headers.get("Location")
+        if location and _is_redirect_uri(location):
+            return location
+        data = _resp_json(response)
+        next_url = ""
+        for key in ("redirect_url", "continue_url", "url", "next", "location"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                next_url = value
+                break
+        if not next_url and location:
+            next_url = location
+        if not next_url:
+            raise RuntimeError(
+                f"[Codex] workspace/select 后找不到下一跳 URL: status={response.status_code}, "
+                f"body={(response.text or '')[:300]}"
+            )
+        return _follow_until_callback(session, next_url, state)
+
     return SimpleNamespace(
         ProtocolSession=ProtocolSession,
         AccountUnusableError=AccountUnusableError,
@@ -547,8 +616,8 @@ def load_protocol(root: Path) -> SimpleNamespace:
         submit_email=submit_email,
         start_passwordless_login=_start_passwordless_login,
         resend_email_otp=send_email_otp,
-        submit_email_otp=_submit_email_otp,
-        select_workspace_and_get_callback=_select_workspace_and_get_callback,
+        submit_email_otp=submit_email_otp,
+        select_workspace_and_get_callback=select_workspace_and_get_callback,
         extract_code=_extract_code,
     )
 
@@ -602,6 +671,23 @@ def _auth_session_flow(session: Any) -> dict[str, Any]:
         for key in ("email_verification_mode", "passwordless_disabled", "signup_mode")
         if key in payload
     }
+
+
+def _workspace_id_from_auth_payload(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    auth_session = payload.get("oai-client-auth-session")
+    if not isinstance(auth_session, dict):
+        return ""
+    workspaces = auth_session.get("workspaces")
+    if not isinstance(workspaces, list):
+        return ""
+    for workspace in workspaces:
+        if isinstance(workspace, dict):
+            workspace_id = str(workspace.get("id") or "").strip()
+            if workspace_id:
+                return workspace_id
+    return ""
 
 
 def _email_submission_state(payload: Any) -> tuple[str, str]:

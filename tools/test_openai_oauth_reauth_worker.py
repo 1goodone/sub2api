@@ -22,6 +22,7 @@ from tools.openai_oauth_reauth_worker import (
     _start_passwordless_login,
     _is_local_codex_callback,
     _safe_openai_endpoint,
+    _workspace_id_from_auth_payload,
     process_claim,
     _wait_for_otp,
     extract_otp,
@@ -44,6 +45,23 @@ class OTPHandler(BaseHTTPRequestHandler):
 
 
 class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
+    def test_workspace_id_from_auth_payload(self):
+        self.assertEqual(
+            _workspace_id_from_auth_payload(
+                {"oai-client-auth-session": {"workspaces": [{"id": "org-test"}]}}
+            ),
+            "org-test",
+        )
+        invalid_payloads = (
+            None,
+            {},
+            {"oai-client-auth-session": {}},
+            {"oai-client-auth-session": {"workspaces": [{}]}},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                self.assertEqual(_workspace_id_from_auth_payload(payload), "")
+
     def test_bootstrap_reports_safe_endpoint_instead_of_circuit_cooldown(self):
         self.assertEqual(
             _safe_openai_endpoint("https://example.com/secret?state=secret"),
