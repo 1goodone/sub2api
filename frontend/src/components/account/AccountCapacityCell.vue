@@ -7,6 +7,8 @@
       </svg>
     </CapacityBadge>
 
+    <AccountConcurrencyProgress :account="account" />
+
     <!-- 5h窗口费用限制 -->
     <CapacityBadge v-if="showWindowCost" :color-class="windowCostClass" :tooltip="windowCostTooltip" :current="'$' + formatCost(currentWindowCost)" :max="'$' + formatCost(account.window_cost_limit)">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -39,6 +41,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
+import AccountConcurrencyProgress from './AccountConcurrencyProgress.vue'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
 

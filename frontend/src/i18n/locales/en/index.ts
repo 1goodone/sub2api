@@ -13,7 +13,10 @@ import keyPackages from './keyPackages'
 import admin from './admin'
 import misc from './misc'
 
+import autoConfig from './autoConfig'
+
 export default {
+  autoConfig,
   qualityOps,
   accountOps,
   tokenGuard,

@@ -487,6 +487,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := s.ApplyOAuthAutoConfig(ctx, input); err != nil {
+		return nil, err
+	}
 	if err := ValidateObserverGroupBindings(ctx, input.GroupIDs); err != nil {
 		return nil, err
 	}
