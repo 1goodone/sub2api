@@ -45,6 +45,27 @@ func waitTwoFALogin(t *testing.T, svc *AccountTokenGuardService, id string) *Ope
 	return job
 }
 
+func TestTwoFALoginForOperationsDoesNotSaveLegacyCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "{\"credential\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"id\"}}")
+	}))
+	defer server.Close()
+	svc := newTwoFATestService(t, server)
+	settings, ok := svc.settings.(*twoFALoginSettings)
+	require.True(t, ok)
+	before := settings.raw
+	entry := AccountTokenGuardReloginAccount{Email: "operations@example.com", Password: "test-password", MFASecret: "test-secret"}
+	job, err := svc.StartTwoFALoginForOperations(context.Background(), entry)
+	require.NoError(t, err)
+	result := waitTwoFALogin(t, svc, job.ID)
+	require.Equal(t, "succeeded", result.Status)
+	require.Equal(t, before, settings.raw)
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), entry.Password)
+	require.NotContains(t, string(raw), entry.MFASecret)
+}
+
 func TestTwoFALoginInitialLoginWithoutExistingAccount(t *testing.T) {
 	requests := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

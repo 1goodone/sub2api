@@ -175,6 +175,10 @@ type accountTokenGuardAccounts interface {
 	SetSchedulable(ctx context.Context, id int64, schedulable bool) error
 }
 
+type accountTokenGuardOperationsAccounts interface {
+	ListCredentialOperationsAccountIDs(ctx context.Context) ([]int64, error)
+}
+
 // AccountTokenGuardProbeResult 是单个账号的探活结果。
 type AccountTokenGuardProbeResult struct {
 	State      string
@@ -578,6 +582,17 @@ func (s *AccountTokenGuardService) Status(ctx context.Context) (AccountTokenGuar
 	if err != nil {
 		return AccountTokenGuardStatus{}, err
 	}
+	managed, err := s.credentialOperationsAccounts(ctx)
+	if err != nil {
+		return AccountTokenGuardStatus{}, err
+	}
+	visible := states[:0]
+	for _, state := range states {
+		if !managed[state.AccountID] {
+			visible = append(visible, state)
+		}
+	}
+	states = visible
 	events, err := s.repo.ListEvents(ctx, 0, 100)
 	if err != nil {
 		return AccountTokenGuardStatus{}, err
@@ -846,10 +861,14 @@ func (s *AccountTokenGuardService) finishCycle(started time.Time, stats AccountT
 }
 
 func (s *AccountTokenGuardService) listAccounts(ctx context.Context, cfg AccountTokenGuardConfig) ([]Account, error) {
+	managed, err := s.credentialOperationsAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[int64]bool{}
 	out := make([]Account, 0, 32)
 	appendAccount := func(account Account) {
-		if seen[account.ID] || !account.IsOAuth() || account.Platform != PlatformOpenAI || account.IsShadow() ||
+		if seen[account.ID] || managed[account.ID] || !account.IsOAuth() || account.Platform != PlatformOpenAI || account.IsShadow() ||
 			(account.Status != StatusActive && account.Status != StatusError) {
 			return
 		}
@@ -967,6 +986,13 @@ func newGuardStoreContext() (context.Context, context.CancelFunc) {
 
 // ReloginAccount 供页面手动触发单个账号重登。
 func (s *AccountTokenGuardService) ReloginAccount(ctx context.Context, accountID int64) (string, error) {
+	managed, err := s.credentialOperationsAccounts(ctx)
+	if err != nil {
+		return "", err
+	}
+	if managed[accountID] {
+		return "", errors.New("账号已加入凭证运营，请在凭证运营中重登")
+	}
 	cfg := s.currentConfig()
 	account, err := s.accounts.GetByID(ctx, accountID)
 	if err != nil || account == nil {
@@ -995,6 +1021,22 @@ func (s *AccountTokenGuardService) ReloginAccount(ctx context.Context, accountID
 	_ = s.repo.UpsertState(ctx, state)
 	s.recordEvent(ctx, account, AccountTokenGuardEventReloginOK, "手动重登: "+action, 0)
 	return action, nil
+}
+
+func (s *AccountTokenGuardService) credentialOperationsAccounts(ctx context.Context) (map[int64]bool, error) {
+	managed := make(map[int64]bool)
+	reader, ok := s.accounts.(accountTokenGuardOperationsAccounts)
+	if !ok {
+		return managed, nil
+	}
+	ids, err := reader.ListCredentialOperationsAccountIDs(ctx)
+	if err != nil {
+		return nil, errors.New("无法读取凭证运营账号范围，已暂停旧守护操作")
+	}
+	for _, id := range ids {
+		managed[id] = true
+	}
+	return managed, nil
 }
 
 func markGuardStateRecovered(state *AccountTokenGuardState, cfg AccountTokenGuardConfig) {

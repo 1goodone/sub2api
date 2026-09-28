@@ -29,6 +29,13 @@ func ValidateOpenAITwoFALogin(entry AccountTokenGuardReloginAccount) error {
 	return nil
 }
 
+// Operations imports save their login method through the encrypted per-account
+// API after identity deduplication returns the account ID. Do not also enroll
+// them in the legacy guard's plaintext settings.
+func (s *AccountTokenGuardService) StartTwoFALoginForOperations(ctx context.Context, entry AccountTokenGuardReloginAccount) (*OpenAITwoFALoginJob, error) {
+	return s.StartTwoFALogin(ctx, entry)
+}
+
 func (s *AccountTokenGuardService) StartTwoFALogin(ctx context.Context, entry AccountTokenGuardReloginAccount) (*OpenAITwoFALoginJob, error) {
 	if err := ValidateOpenAITwoFALogin(entry); err != nil {
 		return nil, err

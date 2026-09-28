@@ -3908,6 +3908,8 @@
 
 <script setup lang="ts">
 import OpenAITwoFAImport from './OpenAITwoFAImport.vue'
+import { createTokenGuardV2Account } from '@/api/admin/accountTokenGuardV2'
+import type { TokenGuardReloginAccount } from '@/api/admin/accountTokenGuard'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -6456,7 +6458,7 @@ const isAgentIdentityImportContent = (content: string) => {
 }
 
 // Reuse Session import normalization and identity deduplication after 2FA login.
-const importTwoFACredential = async (credential: Record<string, unknown>, email: string): Promise<'created' | 'skipped'> => {
+const importTwoFACredential = async (credential: Record<string, unknown>, email: string, login: TokenGuardReloginAccount): Promise<'created' | 'skipped'> => {
   const credentialExtras = buildOpenAICodexImportCredentialExtras()
   if (credentialExtras === null) throw new Error('invalid_account_settings')
   const result = await adminAPI.accounts.importCodexSession({
@@ -6477,6 +6479,19 @@ const importTwoFACredential = async (credential: Record<string, unknown>, email:
     skip_existing: true
   })
   if (result.failed > 0) throw new Error('import_failed')
+  const accountIds = [...new Set((result.items ?? [])
+    .filter(item => item.action === 'created' || item.action === 'skipped')
+    .map(item => item.account_id)
+    .filter((id): id is number => typeof id === 'number' && id > 0))]
+  if (!accountIds.length) throw new Error('import_missing_account_id')
+  for (const accountId of accountIds) {
+    await createTokenGuardV2Account({
+      account_id: accountId, login_email: login.email,
+      credential_mode: 'password_totp', proxy_source: 'account',
+      password: login.password, totp_secret: login.mfa_secret,
+      enabled: true, auto_relogin_enabled: true
+    })
+  }
   if (result.created > 0) {
     emit('created')
     return 'created'

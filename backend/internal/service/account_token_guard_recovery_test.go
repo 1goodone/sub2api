@@ -23,6 +23,42 @@ type guardRecoveryAccounts struct {
 	items []Account
 }
 
+type guardManagedAccounts struct {
+	guardRecoveryAccounts
+	ids []int64
+	err error
+}
+
+func (a *guardManagedAccounts) ListCredentialOperationsAccountIDs(context.Context) ([]int64, error) {
+	return a.ids, a.err
+}
+
+func TestTokenGuardRecoveryExcludesCredentialOperations(t *testing.T) {
+	accounts := &guardManagedAccounts{guardRecoveryAccounts: guardRecoveryAccounts{items: []Account{
+		guardRecoveryAccount(1, StatusError), guardRecoveryAccount(2, StatusActive),
+	}}, ids: []int64{1}}
+	repo := &guardMemoryRepo{states: []AccountTokenGuardState{{AccountID: 1}, {AccountID: 2}}}
+	raw, err := json.Marshal(defaultAccountTokenGuardConfig())
+	require.NoError(t, err)
+	svc := NewAccountTokenGuardService(&twoFALoginSettings{raw: string(raw)}, repo, accounts, nil, nil)
+	got, err := svc.listAccounts(context.Background(), defaultAccountTokenGuardConfig())
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, int64(2), got[0].ID)
+	_, err = svc.ReloginAccount(context.Background(), 1)
+	require.ErrorContains(t, err, "账号已加入凭证运营")
+	status, err := svc.Status(context.Background())
+	require.NoError(t, err)
+	require.Len(t, status.Accounts, 1)
+	require.Equal(t, int64(2), status.Accounts[0].AccountID)
+	accounts.err = fmt.Errorf("private storage error")
+	_, err = svc.listAccounts(context.Background(), defaultAccountTokenGuardConfig())
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "private storage error")
+	_, err = svc.ReloginAccount(context.Background(), 1)
+	require.Error(t, err)
+}
+
 func (a *guardRecoveryAccounts) GetByID(_ context.Context, id int64) (*Account, error) {
 	for i := range a.items {
 		if a.items[i].ID == id {

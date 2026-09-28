@@ -45,11 +45,15 @@ func TestTokenGuardRecoveryRealRepositoryScope(t *testing.T) {
 			deleted := create("deleted@example.com", service.StatusError)
 			require.NoError(t, client.Account.UpdateOneID(deleted.ID).SetDeletedAt(time.Now()).Exec(ctx))
 			outside := create("outside@example.com", service.StatusError)
+			managed := create("operations@example.com", service.StatusError)
+			_, err = tx.ExecContext(ctx, "INSERT INTO account_token_guard_v2_accounts(account_id,enabled,auto_relogin_enabled) VALUES($1,false,true)", managed.ID)
+			require.NoError(t, err)
+			mustBindAccountToGroup(t, client, managed.ID, group1.ID, 1)
 			for _, account := range []*service.Account{active, failed, disabled, deleted} {
 				mustBindAccountToGroup(t, client, account.ID, group1.ID, 1)
 				mustBindAccountToGroup(t, client, account.ID, group2.ID, 1)
 			}
-			ids := []int64{active.ID, failed.ID, disabled.ID, deleted.ID, outside.ID}
+			ids := []int64{active.ID, failed.ID, disabled.ID, deleted.ID, outside.ID, managed.ID}
 			t.Cleanup(func() {
 				_, cleanupErr := integrationDB.ExecContext(context.Background(), "DELETE FROM account_token_guard_states WHERE account_id = ANY($1)", pq.Array(ids))
 				require.NoError(t, cleanupErr)

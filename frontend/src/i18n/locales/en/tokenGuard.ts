@@ -2,7 +2,7 @@ export default {
   "twoFA": {
   "title": "2FA login and import",
   "label": "Initial login with email, password and 2FA",
-  "hint": "One email----password----2FA per line (commas also supported), up to 100 entries. Uses the saved Credential Guard relogin endpoint and headers, even when inspection is off. Passwords and 2FA secrets are used only for this login and are not saved to accounts or guard settings.",
+  "hint": "One email----password----2FA per line (commas also supported), up to 100 entries. Initial login uses the configured login service. Imported accounts join Credential Operations by default with encrypted password/2FA storage, inspection and automatic re-login enabled. Subsequent logins use the local Worker. Configure the encryption key and Worker first.",
   "settings": "View relogin service settings",
   "credentials": "Login credentials",
   "placeholder": "email----password----2FA secret",
@@ -15,11 +15,11 @@ export default {
   "states": {
     "pending": "Pending",
     "login": "Logging in…",
-    "importing": "Importing…",
-    "created": "Imported",
-    "skipped": "Account exists, skipped",
-    "failed": "Login incomplete; retry or check credentials and service",
-    "importFailed": "Logged in, import failed; retry import"
+    "importing": "Importing and enrolling in Credential Operations…",
+    "created": "Imported and enrolled in Credential Operations",
+    "skipped": "Existing account enrolled in Credential Operations",
+    "failed": "Login incomplete; retry or check credentials and the initial login service",
+    "importFailed": "Logged in; import or Credential Operations enrollment incomplete. Check encryption settings and retry"
   }
 },
   "title": "Credential Guard",
