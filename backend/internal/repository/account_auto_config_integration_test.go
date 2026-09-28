@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -16,8 +17,30 @@ import (
 
 func TestAutoConfigConcurrentResultsAndPreservedFields(t *testing.T) {
 	ctx := context.Background()
+	var accountID int64
+	// Registered first so this check runs after all fixture cleanup, including
+	// the committed outbox events needed by the concurrent transactions.
+	t.Cleanup(func() {
+		if accountID == 0 {
+			return
+		}
+		var count int
+		require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id=$1", accountID).Scan(&count))
+		require.Zero(t, count, "automatic configuration fixtures must not leak scheduler events into later tests")
+	})
 	group := mustCreateGroup(t, integrationEntClient, &service.Group{Name: fmt.Sprintf("auto-config-%d", time.Now().UnixNano()), Platform: service.PlatformOpenAI})
+	t.Cleanup(func() {
+		require.NoError(t, integrationEntClient.Group.DeleteOneID(group.ID).Exec(ctx))
+	})
 	a := mustCreateAccount(t, integrationEntClient, &service.Account{Name: "auto-config-account", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Concurrency: 3, Schedulable: true, Extra: map[string]any{"keep": "value"}})
+	accountID = a.ID
+	t.Cleanup(func() {
+		require.NoError(t, integrationEntClient.Account.DeleteOneID(a.ID).Exec(ctx))
+	})
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id=$1", a.ID)
+		require.NoError(t, err)
+	})
 	repo := newAccountRepositoryWithSQL(integrationEntClient, integrationDB, nil)
 	require.NoError(t, repo.BindGroups(ctx, a.ID, []int64{group.ID}))
 	cfg := service.DefaultOAuthAutoConfig()
@@ -28,18 +51,22 @@ func TestAutoConfigConcurrentResultsAndPreservedFields(t *testing.T) {
 	cfg.MaxConcurrency = 100
 	var prior string
 	priorErr := integrationDB.QueryRowContext(ctx, "SELECT value FROM settings WHERE key=$1", service.SettingKeyOAuthAutoConfig).Scan(&prior)
-	raw, _ := json.Marshal(cfg)
-	_, err := integrationDB.ExecContext(ctx, "INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", service.SettingKeyOAuthAutoConfig, string(raw))
-	require.NoError(t, err)
+	if priorErr != nil {
+		require.ErrorIs(t, priorErr, sql.ErrNoRows)
+	}
 	t.Cleanup(func() {
+		var err error
 		if priorErr == nil {
-			_, _ = integrationDB.ExecContext(ctx, "UPDATE settings SET value=$2 WHERE key=$1", service.SettingKeyOAuthAutoConfig, prior)
+			_, err = integrationDB.ExecContext(ctx, "UPDATE settings SET value=$2 WHERE key=$1", service.SettingKeyOAuthAutoConfig, prior)
 		} else {
-			_, _ = integrationDB.ExecContext(ctx, "DELETE FROM settings WHERE key=$1", service.SettingKeyOAuthAutoConfig)
+			_, err = integrationDB.ExecContext(ctx, "DELETE FROM settings WHERE key=$1", service.SettingKeyOAuthAutoConfig)
 		}
-		_ = integrationEntClient.Account.DeleteOneID(a.ID).Exec(ctx)
-		_ = integrationEntClient.Group.DeleteOneID(group.ID).Exec(ctx)
+		require.NoError(t, err)
 	})
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, "INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", service.SettingKeyOAuthAutoConfig, string(raw))
+	require.NoError(t, err)
 	var wg sync.WaitGroup
 	errs := make(chan error, 40)
 	started := time.Now()
