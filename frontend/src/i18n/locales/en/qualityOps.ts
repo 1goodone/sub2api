@@ -1,7 +1,7 @@
 export default {
   "conflictChecks": "Which checks can prevent restoration?",
   "title": "Quality operations",
-  "description": "Test account answers on a schedule, then remove selected groups, disable scheduling or enable the BPS protocol on a wrong (degraded) answer. One rule per account.",
+  "description": "Test account answers on a schedule, then remove selected groups, disable scheduling or enable the BPS protocol on a wrong (degraded) answer. Each account can have one group/scheduling rule and one independent BPS rule.",
   "refresh": "Refresh",
   "create": "Create test rule",
   "edit": "Edit rule",
@@ -18,8 +18,8 @@ export default {
   "selectMatchingAccounts": "Select all matching accounts",
   "selectingAccounts": "Selecting all matches…",
   "clearAccountSelection": "Clear selection",
-  "accountSelectionHint": "Combine group, type and search filters. Select all includes every matching page and skips accounts with existing rules. Changing filters keeps your selection.",
-  "accountHasRule": "Rule exists",
+  "accountSelectionHint": "Combine group, type and search filters. Select all includes every matching page and skips accounts with existing rules of the selected type. Changing filters keeps your selection.",
+  "accountHasRule": "Rule of this type exists",
   "noMatchingAccounts": "No matching accounts",
   "previousAccountPage": "Previous account page",
   "nextAccountPage": "Next account page",
@@ -72,6 +72,7 @@ export default {
   "queued": "Queued for testing, expected to start within one minute.",
   "deleteConfirm": "Delete this rule and its history? Removed memberships, disabled scheduling or BPS enabled by this rule will not be restored. Resolve them on the Accounts page first.",
   "outcomes": {
+    "action_conflict": "Waiting for another rule to restore",
     "no_change": "No account changes",
     "inconclusive": "Testing or grading inconclusive; no action",
     "already_quarantined": "Still quarantined",
@@ -184,6 +185,7 @@ export default {
   "discard": "Discard changes",
   "disableSchedulingShort": "Disable scheduling, keep groups",
   "actionHelp": {
+    "action_conflict": "Another rule changed action types but still owns a pending restoration in this scope. Restore or resolve that rule first; this round did not overwrite its settings.",
     "no_change": "This round did not modify the account.",
     "inconclusive": "The request or grading was inconclusive. No account action was taken.",
     "already_quarantined": "This rule had already isolated the account. No additional membership or scheduling change was made.",
