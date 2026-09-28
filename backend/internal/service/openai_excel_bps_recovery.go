@@ -45,7 +45,14 @@ func (a *Account) ExcelBPS403RecoveryDue(now time.Time) bool {
 	if !a.IsExcelBPS403RecoveryPending() || (a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt)) {
 		return false
 	}
-	disabledAt, _ := time.Parse(time.RFC3339Nano, a.Extra[ExcelBPS403DisabledAtKey].(string))
+	disabledAtText, ok := a.Extra[ExcelBPS403DisabledAtKey].(string)
+	if !ok {
+		return false
+	}
+	disabledAt, err := time.Parse(time.RFC3339Nano, disabledAtText)
+	if err != nil {
+		return false
+	}
 	last := disabledAt
 	if raw, exists := a.Extra[ExcelBPS403LastProbeAtKey]; exists {
 		text, ok := raw.(string)
@@ -264,7 +271,7 @@ func (s *OpenAIGatewayService) probeExcelBPS403Recovery(ctx context.Context, acc
 	}
 	resp, err := s.httpUpstream.Do(req, proxy, account.ID, account.Concurrency)
 	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err != nil {
 		return err
