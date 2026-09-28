@@ -1862,6 +1862,9 @@
         </div>
       </div>
 
+      <AccountAutoBPSSection v-if="autoBPSSupported" v-model:draft="autoBPS.draft.value" :groups="groups"
+        :loading="autoBPS.loading.value" :load-error="autoBPS.loadError.value" :has-rule="!!autoBPS.rule.value" />
+
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
@@ -3179,6 +3182,7 @@ import { useAuthStore } from '@/stores/auth'
 
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
+import { useAccountAutoBPS } from '@/composables/useAccountAutoBPS'
 import type {
   Account,
   Proxy,
@@ -3204,6 +3208,7 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import AccountGroupModelLimits from '@/components/account/AccountGroupModelLimits.vue'
+import AccountAutoBPSSection from '@/components/account/AccountAutoBPSSection.vue'
 import {
   buildGroupAllowedModelsPayload,
   groupAllowedModelsFromAccount,
@@ -3315,6 +3320,21 @@ const groupsForModelLimits = computed(() => {
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
+// 「降智后自动开启 BPS」与后端 QualityBPSEligible 一致：只有普通 ChatGPT OAuth 母账号（不含 PAT、Agent Identity）。
+const autoBPS = useAccountAutoBPS()
+const autoBPSSupported = computed(() => {
+  const account = props.account
+  if (account?.platform !== 'openai' || account.type !== 'oauth' || isSparkShadow.value) return false
+  const credentials = (account.credentials ?? {}) as Record<string, unknown>
+  const modes = [credentials.auth_mode, credentials.openai_auth_mode].map(mode => String(mode ?? '').trim().toLowerCase())
+  return !modes.some(mode => mode === 'agentidentity' || mode === 'personalaccesstoken' || mode === 'personal_access_token')
+})
+watch(() => [props.show, props.account?.id, autoBPSSupported.value] as const, ([show, id, supported]) => {
+  if (show && id && supported) void autoBPS.load(id)
+  else autoBPS.reset()
+}, { immediate: true })
+
 const codexTurnTickets = computed(() => props.account?.codex_turn_tickets ?? [])
 
 function formatCodexTicketRemaining(seconds: number) {
@@ -5160,12 +5180,22 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
   return updatedAccount
 }
 
+// 账号已保存后再同步自动开启 BPS 规则；规则失败只提示，不影响账号本身的保存结果。
+const saveAutoBPSRule = async (accountID: number) => {
+  try {
+    await autoBPS.saveFor(accountID)
+  } catch (error) {
+    appStore.showWarning(t('admin.accounts.openai.autoBPSSaveFailed', { error: extractApiErrorMessage(error, t('common.error')) }), 8000)
+  }
+}
+
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
     let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
+    if (autoBPSSupported.value) await saveAutoBPSRule(accountID)
     emit('updated', updatedAccount)
     handleClose()
   } catch (error: any) {
@@ -5195,6 +5225,11 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
       return
     }
+  }
+  const autoBPSError = autoBPSSupported.value ? autoBPS.validate() : ''
+  if (autoBPSError) {
+    appStore.showError(t(autoBPSError))
+    return
   }
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
