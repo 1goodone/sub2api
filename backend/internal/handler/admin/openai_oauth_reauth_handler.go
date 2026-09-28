@@ -94,6 +94,12 @@ type reauthWorkerCallbackRequest struct {
 	CallbackURL string `json:"callback_url" binding:"required"`
 }
 
+type reauthWorkerCredentialsRequest struct {
+	WorkerID    string         `json:"worker_id"`
+	Credentials map[string]any `json:"credentials" binding:"required"`
+	Extra       map[string]any `json:"extra"`
+}
+
 type reauthWorkerFailureRequest struct {
 	WorkerID string `json:"worker_id"`
 	Reason   string `json:"reason"`
@@ -171,6 +177,28 @@ func (h *OpenAIOAuthReauthHandler) Callback(c *gin.Context) {
 		return
 	}
 	task, err := h.service.SubmitCallback(c.Request.Context(), taskID, req.WorkerID, req.CallbackURL)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, task)
+}
+
+func (h *OpenAIOAuthReauthHandler) Credentials(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(c.Param("task_id")), 10, 64)
+	if err != nil || taskID <= 0 {
+		response.BadRequest(c, "Invalid task ID")
+		return
+	}
+	var req reauthWorkerCredentialsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid worker request")
+		return
+	}
+	task, err := h.service.SubmitCredentials(c.Request.Context(), taskID, req.WorkerID, req.Credentials, req.Extra)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

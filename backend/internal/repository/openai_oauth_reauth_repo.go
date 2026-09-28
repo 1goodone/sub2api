@@ -21,30 +21,50 @@ func NewOpenAIOAuthReauthRepository(db *sql.DB) service.OpenAIOAuthReauthReposit
 	return &openAIOAuthReauthRepository{db: db}
 }
 
-func (r *openAIOAuthReauthRepository) UpsertConfig(ctx context.Context, accountID int64, loginEmail, otpURLCiphertext string) error {
+func (r *openAIOAuthReauthRepository) UpsertConfig(ctx context.Context, config *service.OpenAIOAuthReauthStoredConfig) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO openai_oauth_reauth_configs (account_id, login_email, otp_url_ciphertext)
-		VALUES ($1, $2, $3)
+		INSERT INTO openai_oauth_reauth_configs (
+			account_id, login_email, credential_mode, proxy_id,
+			password_ciphertext, totp_secret_ciphertext, otp_url_ciphertext
+		)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
 		ON CONFLICT (account_id) DO UPDATE
 		SET login_email = EXCLUDED.login_email,
+			credential_mode = EXCLUDED.credential_mode,
+			proxy_id = EXCLUDED.proxy_id,
+			password_ciphertext = EXCLUDED.password_ciphertext,
+			totp_secret_ciphertext = EXCLUDED.totp_secret_ciphertext,
 			otp_url_ciphertext = EXCLUDED.otp_url_ciphertext,
 			updated_at = NOW()
-	`, accountID, loginEmail, otpURLCiphertext)
+	`, config.AccountID, config.LoginEmail, config.CredentialMode, config.ProxyID,
+		config.PasswordCiphertext, config.TOTPSecretCiphertext, config.OTPURLCiphertext)
 	return err
 }
 
 func (r *openAIOAuthReauthRepository) GetConfig(ctx context.Context, accountID int64) (*service.OpenAIOAuthReauthStoredConfig, error) {
 	var cfg service.OpenAIOAuthReauthStoredConfig
+	var proxyID sql.NullInt64
+	var passwordCiphertext, totpSecretCiphertext, otpURLCiphertext sql.NullString
 	err := r.db.QueryRowContext(ctx, `
-		SELECT account_id, login_email, otp_url_ciphertext, updated_at
+		SELECT account_id, login_email, credential_mode, proxy_id,
+			password_ciphertext, totp_secret_ciphertext, otp_url_ciphertext, updated_at
 		FROM openai_oauth_reauth_configs
 		WHERE account_id = $1
-	`, accountID).Scan(&cfg.AccountID, &cfg.LoginEmail, &cfg.OTPURLCiphertext, &cfg.UpdatedAt)
+	`, accountID).Scan(
+		&cfg.AccountID, &cfg.LoginEmail, &cfg.CredentialMode, &proxyID,
+		&passwordCiphertext, &totpSecretCiphertext, &otpURLCiphertext, &cfg.UpdatedAt,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	cfg.PasswordCiphertext = passwordCiphertext.String
+	cfg.TOTPSecretCiphertext = totpSecretCiphertext.String
+	cfg.OTPURLCiphertext = otpURLCiphertext.String
+	if proxyID.Valid {
+		cfg.ProxyID = &proxyID.Int64
 	}
 	return &cfg, nil
 }
@@ -213,6 +233,36 @@ func (r *openAIOAuthReauthRepository) BeginCallback(ctx context.Context, taskID 
 		return existing, false, nil
 	}
 	return nil, false, fmt.Errorf("task is not owned by worker or has no auth session")
+}
+
+func (r *openAIOAuthReauthRepository) BeginDirectCallback(ctx context.Context, taskID int64, workerID string) (*service.OpenAIOAuthReauthTaskRecord, bool, error) {
+	row := r.db.QueryRowContext(ctx, `
+		UPDATE openai_oauth_reauth_tasks
+		SET status = $3,
+			stage = $4,
+			updated_at = NOW()
+		WHERE id = $1 AND worker_id = $2 AND status = $5
+		RETURNING id, account_id, status, stage, COALESCE(worker_id, ''),
+			COALESCE(auth_session_id, ''), expected_credentials_hash,
+			COALESCE(error_message, ''), attempt,
+			created_at, updated_at, finished_at
+	`, taskID, workerID, service.OpenAIOAuthReauthStatusCallbackProcessing,
+		service.OpenAIOAuthReauthStageExchangingToken, service.OpenAIOAuthReauthStatusRunning)
+	record, err := scanOpenAIOAuthReauthTask(row)
+	if err == nil {
+		return record, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, err
+	}
+	existing, getErr := r.GetTask(ctx, taskID)
+	if getErr != nil {
+		return nil, false, getErr
+	}
+	if existing != nil && (existing.Status == service.OpenAIOAuthReauthStatusSucceeded || existing.Status == service.OpenAIOAuthReauthStatusFailed) {
+		return existing, false, nil
+	}
+	return nil, false, fmt.Errorf("task is not owned by worker")
 }
 
 func (r *openAIOAuthReauthRepository) MarkSucceeded(ctx context.Context, taskID int64, workerID string) error {

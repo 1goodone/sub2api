@@ -1010,6 +1010,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpsScheduledReportService,
 	ProvideAccountOpsService,
 	ProvideAccountTokenGuardService,
+	ProvideAccountTokenGuardV2Service,
 	NewEmailService,
 	NewNotificationEmailService,
 	ProvideEmailQueueService,
@@ -1180,6 +1181,13 @@ func ProvideAccountOpsService(settings SettingRepository, repo AccountOpsReposit
 func ProvideAccountTokenGuardService(settings SettingRepository, repo AccountTokenGuardRepository,
 	accounts AccountRepository, admin AdminService, invalidator TokenCacheInvalidator) *AccountTokenGuardService {
 	svc := NewAccountTokenGuardService(settings, repo, accounts, admin, invalidator)
+	svc.Start()
+	return svc
+}
+
+func ProvideAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, admin AdminService,
+	openAIGateway *OpenAIGatewayService, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
+	svc := NewAccountTokenGuardV2Service(repo, admin, openAIGateway, reauth)
 	svc.Start()
 	return svc
 }

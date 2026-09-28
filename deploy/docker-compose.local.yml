@@ -113,6 +113,7 @@ services:
       # with 2FA).
       # Generate a secure key: openssl rand -hex 32
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
+      - OPENAI_REAUTH_WORKER_TOKEN=${OPENAI_REAUTH_WORKER_TOKEN:-}
 
       # =======================================================================
       # Timezone Configuration

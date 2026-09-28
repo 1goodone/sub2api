@@ -45,15 +45,26 @@ func (r *reauthTestAccountReader) GetProxy(context.Context, int64) (*Proxy, erro
 	return r.proxy, r.proxyErr
 }
 
+type reauthTestProxyRepo struct {
+	ProxyRepository
+	reader *reauthTestAccountReader
+}
+
+func (r *reauthTestProxyRepo) GetByID(ctx context.Context, id int64) (*Proxy, error) {
+	return r.reader.GetProxy(ctx, id)
+}
+
 type reauthTestOAuthClient struct {
 	accountID string
 	userID    string
 	email     string
 	exchanges int
+	proxyURL  string
 }
 
-func (c *reauthTestOAuthClient) ExchangeCode(context.Context, string, string, string, string, string) (*openai.TokenResponse, error) {
+func (c *reauthTestOAuthClient) ExchangeCode(_ context.Context, _, _, _, proxyURL, _ string) (*openai.TokenResponse, error) {
 	c.exchanges++
+	c.proxyURL = proxyURL
 	return &openai.TokenResponse{
 		AccessToken:  "new-access",
 		RefreshToken: "new-refresh",
@@ -78,16 +89,30 @@ type reauthTestRepo struct {
 	config        *OpenAIOAuthReauthStoredConfig
 	task          *OpenAIOAuthReauthTaskRecord
 	markSucceeded int
+	createCalls   int
+	createErr     error
 }
 
-func (r *reauthTestRepo) UpsertConfig(_ context.Context, accountID int64, email, ciphertext string) error {
-	r.config = &OpenAIOAuthReauthStoredConfig{AccountID: accountID, LoginEmail: email, OTPURLCiphertext: ciphertext, UpdatedAt: time.Now()}
+func (r *reauthTestRepo) UpsertConfig(_ context.Context, config *OpenAIOAuthReauthStoredConfig) error {
+	copy := *config
+	r.config = &copy
 	return nil
+}
+
+func reauthEmailConfig(accountID int64, email, ciphertext string) *OpenAIOAuthReauthStoredConfig {
+	return &OpenAIOAuthReauthStoredConfig{
+		AccountID: accountID, LoginEmail: email, CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+		OTPURLCiphertext: ciphertext, UpdatedAt: time.Now(),
+	}
 }
 func (r *reauthTestRepo) GetConfig(context.Context, int64) (*OpenAIOAuthReauthStoredConfig, error) {
 	return r.config, nil
 }
 func (r *reauthTestRepo) CreateTask(_ context.Context, accountID int64, hash string) (*OpenAIOAuthReauthTaskRecord, error) {
+	r.createCalls++
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
 	r.task = &OpenAIOAuthReauthTaskRecord{ID: 71, AccountID: accountID, Status: OpenAIOAuthReauthStatusQueued, Stage: OpenAIOAuthReauthStageQueued, ExpectedCredentialsHash: hash, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	return r.task, nil
 }
@@ -126,6 +151,14 @@ func (r *reauthTestRepo) BeginCallback(_ context.Context, _ int64, workerID stri
 		return nil, false, errors.New("task not active")
 	}
 	r.task.Status = OpenAIOAuthReauthStatusCallbackProcessing
+	return r.task, true, nil
+}
+func (r *reauthTestRepo) BeginDirectCallback(_ context.Context, _ int64, workerID string) (*OpenAIOAuthReauthTaskRecord, bool, error) {
+	if r.task == nil || r.task.WorkerID != workerID || r.task.Status != OpenAIOAuthReauthStatusRunning {
+		return nil, false, errors.New("task not active")
+	}
+	r.task.Status = OpenAIOAuthReauthStatusCallbackProcessing
+	r.task.Stage = OpenAIOAuthReauthStageExchangingToken
 	return r.task, true, nil
 }
 func (r *reauthTestRepo) MarkSucceeded(_ context.Context, _ int64, workerID string) error {
@@ -203,10 +236,140 @@ func TestOpenAIOAuthReauthProtocolFlowAppliesTokensAndFinalizesAtomically(t *tes
 	require.Equal(t, "old-access", reader.account.Credentials["access_token"], "the test reader retains the pre-login snapshot")
 }
 
+func TestOpenAIOAuthReauthPasswordConfigPreservesSecretsAndClearsOnModeSwitch(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+
+	config, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "User@Example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		Password: "password-secret", TOTPSecret: "totp-secret",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "user@example.com", config.LoginEmail)
+	require.True(t, config.PasswordConfigured)
+	require.True(t, config.TOTPConfigured)
+	passwordCiphertext := repo.config.PasswordCiphertext
+	totpCiphertext := repo.config.TOTPSecretCiphertext
+
+	config, err = svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+	})
+	require.NoError(t, err)
+	require.Equal(t, passwordCiphertext, repo.config.PasswordCiphertext)
+	require.Equal(t, totpCiphertext, repo.config.TOTPSecretCiphertext)
+	require.True(t, config.PasswordConfigured)
+	require.True(t, config.TOTPConfigured)
+
+	config, err = svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+		OTPURL: "https://mail.example.com/latest?token=secret",
+	})
+	require.NoError(t, err)
+	require.Empty(t, repo.config.PasswordCiphertext)
+	require.Empty(t, repo.config.TOTPSecretCiphertext)
+	require.NotEmpty(t, repo.config.OTPURLCiphertext)
+	require.Equal(t, "https://mail.example.com", config.URLMasked)
+}
+
+func TestOpenAIOAuthReauthAdminStatusRedactsPasswordSecretsButWorkerClaimReceivesThem(t *testing.T) {
+	svc, _, _, _, _, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	_, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		Password: "password-secret", TOTPSecret: "totp-secret",
+	})
+	require.NoError(t, err)
+
+	status, err := svc.GetStatus(ctx, 42)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(status)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "password-secret")
+	require.NotContains(t, string(encoded), "totp-secret")
+	require.True(t, status.Config.PasswordConfigured)
+	require.True(t, status.Config.TOTPConfigured)
+
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(ctx, "worker-a")
+	require.NoError(t, err)
+	require.Equal(t, "password-secret", claim.Password)
+	require.Equal(t, "totp-secret", claim.TOTPSecret)
+	require.Empty(t, claim.OTPURL)
+	require.Empty(t, claim.AuthURL)
+}
+
+func TestOpenAIOAuthReauthDirectCredentialsApplyWithIdentityAndCASChecks(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		svc, _, repo, updater, _, runtimeBlocker := newReauthTestService("acct-1")
+		ctx := context.Background()
+		savePasswordReauthConfig(t, svc)
+		_, err := svc.CreateTask(ctx, 42)
+		require.NoError(t, err)
+		claim, err := svc.ClaimTask(ctx, "worker-a")
+		require.NoError(t, err)
+
+		task, err := svc.SubmitCredentials(ctx, claim.TaskID, "worker-a", directReauthCredentials("acct-1", "user-1", "user@example.com"), nil)
+		require.NoError(t, err)
+		require.Equal(t, OpenAIOAuthReauthStatusSucceeded, task.Status)
+		require.True(t, updater.applied)
+		require.Equal(t, "new-access", updater.credentials["access_token"])
+		require.Equal(t, 0, repo.markSucceeded)
+		require.Equal(t, int64(42), runtimeBlocker.clearedAccountID)
+	})
+
+	t.Run("credential snapshot changed", func(t *testing.T) {
+		svc, reader, repo, updater, _, _ := newReauthTestService("acct-1")
+		ctx := context.Background()
+		savePasswordReauthConfig(t, svc)
+		_, err := svc.CreateTask(ctx, 42)
+		require.NoError(t, err)
+		claim, err := svc.ClaimTask(ctx, "worker-a")
+		require.NoError(t, err)
+		reader.account.Credentials["access_token"] = "concurrent-update"
+
+		_, err = svc.SubmitCredentials(ctx, claim.TaskID, "worker-a", directReauthCredentials("acct-1", "user-1", "user@example.com"), nil)
+		require.Error(t, err)
+		require.Equal(t, OpenAIOAuthReauthStatusFailed, repo.task.Status)
+		require.False(t, updater.applied)
+	})
+
+	t.Run("identity mismatch", func(t *testing.T) {
+		svc, _, repo, updater, _, _ := newReauthTestService("acct-1")
+		ctx := context.Background()
+		savePasswordReauthConfig(t, svc)
+		_, err := svc.CreateTask(ctx, 42)
+		require.NoError(t, err)
+		claim, err := svc.ClaimTask(ctx, "worker-a")
+		require.NoError(t, err)
+
+		_, err = svc.SubmitCredentials(ctx, claim.TaskID, "worker-a", directReauthCredentials("other-account", "user-1", "user@example.com"), nil)
+		require.Error(t, err)
+		require.Equal(t, http.StatusConflict, infraerrors.Code(err))
+		require.Equal(t, OpenAIOAuthReauthStatusFailed, repo.task.Status)
+		require.False(t, updater.applied)
+	})
+
+	t.Run("email mode rejects direct credentials", func(t *testing.T) {
+		svc, _, repo, updater, _, _ := newReauthTestService("acct-1")
+		ctx := context.Background()
+		require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
+		_, err := svc.CreateTask(ctx, 42)
+		require.NoError(t, err)
+		claim, err := svc.ClaimTask(ctx, "worker-a")
+		require.NoError(t, err)
+
+		_, err = svc.SubmitCredentials(ctx, claim.TaskID, "worker-a", directReauthCredentials("acct-1", "user-1", "user@example.com"), nil)
+		require.Error(t, err)
+		require.Equal(t, OpenAIOAuthReauthStatusFailed, repo.task.Status)
+		require.False(t, updater.applied)
+	})
+}
+
 func TestOpenAIOAuthReauthRejectsConcurrentCredentialChange(t *testing.T) {
 	svc, reader, repo, updater, oauthClient, runtimeBlocker := newReauthTestService("acct-1")
 	ctx := context.Background()
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err := svc.CreateTask(ctx, 42)
 	require.NoError(t, err)
 	claim, err := svc.ClaimTask(ctx, "worker-a")
@@ -225,7 +388,7 @@ func TestOpenAIOAuthReauthRejectsConcurrentCredentialChange(t *testing.T) {
 func TestOpenAIOAuthReauthRejectsDifferentOpenAIIdentity(t *testing.T) {
 	svc, _, repo, updater, oauthClient, runtimeBlocker := newReauthTestService("different-account")
 	ctx := context.Background()
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err := svc.CreateTask(ctx, 42)
 	require.NoError(t, err)
 	claim, err := svc.ClaimTask(ctx, "worker-a")
@@ -244,7 +407,7 @@ func TestOpenAIOAuthReauthRejectsDifferentUserInSameWorkspace(t *testing.T) {
 	svc, _, repo, updater, oauthClient, runtimeBlocker := newReauthTestService("acct-1")
 	oauthClient.userID = "user-2"
 	ctx := context.Background()
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err := svc.CreateTask(ctx, 42)
 	require.NoError(t, err)
 	claim, err := svc.ClaimTask(ctx, "worker-a")
@@ -264,7 +427,7 @@ func TestOpenAIOAuthReauthDoesNotBypassMissingConfiguredProxy(t *testing.T) {
 	ctx := context.Background()
 	proxyID := int64(9)
 	reader.account.ProxyID = &proxyID
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err := svc.CreateTask(ctx, 42)
 	require.NoError(t, err)
 
@@ -275,10 +438,53 @@ func TestOpenAIOAuthReauthDoesNotBypassMissingConfiguredProxy(t *testing.T) {
 	require.Equal(t, "configured account proxy is unavailable", repo.task.Error)
 }
 
+func TestOpenAIOAuthReauthUsesManagedProxyOverrideForWorkerAndTokenExchange(t *testing.T) {
+	svc, reader, _, _, oauthClient, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	accountProxyID := int64(4)
+	overrideProxyID := int64(9)
+	reader.account.ProxyID = &accountProxyID
+	reader.proxy = &Proxy{ID: overrideProxyID, Name: "login-proxy", Protocol: "http", Host: "203.0.113.9", Port: 8080, Status: StatusActive}
+
+	config, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+		ProxyID: &overrideProxyID, OTPURL: "https://mail.example.com/code",
+	})
+	require.NoError(t, err)
+	require.Equal(t, overrideProxyID, *config.ProxyID)
+	config, err = svc.SaveConfig(ctx, 42, "user@example.com", "https://mail.example.com/code")
+	require.NoError(t, err)
+	require.Equal(t, overrideProxyID, *config.ProxyID, "legacy mailbox edits must preserve the V2 proxy override")
+
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(ctx, "worker-a")
+	require.NoError(t, err)
+	require.Equal(t, "http://203.0.113.9:8080", claim.ProxyURL)
+
+	state := reauthStateFromURL(t, claim.AuthURL)
+	_, err = svc.SubmitCallback(ctx, claim.TaskID, "worker-a", "http://localhost:1455/auth/callback?code=test-code&state="+url.QueryEscape(state))
+	require.NoError(t, err)
+	require.Equal(t, claim.ProxyURL, oauthClient.proxyURL)
+}
+
+func TestOpenAIOAuthReauthRejectsInactiveManagedProxyOverride(t *testing.T) {
+	svc, reader, _, _, _, _ := newReauthTestService("acct-1")
+	proxyID := int64(9)
+	reader.proxy = &Proxy{ID: proxyID, Protocol: "http", Host: "203.0.113.9", Port: 8080, Status: "disabled"}
+
+	_, err := svc.SaveCredentialConfig(context.Background(), 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+		ProxyID: &proxyID, OTPURL: "https://mail.example.com/code",
+	})
+	require.Error(t, err)
+	require.Equal(t, "OPENAI_REAUTH_PROXY_INVALID", infraerrors.Reason(err))
+}
+
 func TestOpenAIOAuthReauthWorkerCannotSetBackendOwnedStage(t *testing.T) {
 	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
 	ctx := context.Background()
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err := svc.CreateTask(ctx, 42)
 	require.NoError(t, err)
 	_, err = svc.ClaimTask(ctx, "worker-a")
@@ -299,7 +505,7 @@ func TestOpenAIOAuthReauthRequiresFixedEncryptionKey(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_REAUTH_ENCRYPTION_KEY_REQUIRED", infraerrors.Reason(err))
 
-	require.NoError(t, repo.UpsertConfig(ctx, 42, "user@example.com", "encrypted:https://mail.example.com/code"))
+	require.NoError(t, repo.UpsertConfig(ctx, reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
 	_, err = svc.CreateTask(ctx, 42)
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_REAUTH_ENCRYPTION_KEY_REQUIRED", infraerrors.Reason(err))
@@ -371,8 +577,29 @@ func newReauthTestService(tokenAccountID string) (*OpenAIOAuthReauthService, *re
 	updater := &reauthTestUpdater{repo: repo}
 	oauthClient := &reauthTestOAuthClient{accountID: tokenAccountID, userID: "user-1", email: "user@example.com"}
 	runtimeBlocker := &reauthTestRuntimeBlocker{}
-	oauthService := NewOpenAIOAuthService(nil, oauthClient)
+	oauthService := NewOpenAIOAuthService(&reauthTestProxyRepo{reader: reader}, oauthClient)
 	return NewOpenAIOAuthReauthService(repo, reader, updater, oauthService, reauthTestEncryptor{}, true, nil, runtimeBlocker), reader, repo, updater, oauthClient, runtimeBlocker
+}
+
+func savePasswordReauthConfig(t *testing.T, svc *OpenAIOAuthReauthService) {
+	t.Helper()
+	_, err := svc.SaveCredentialConfig(context.Background(), 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		Password: "password-secret", TOTPSecret: "totp-secret",
+	})
+	require.NoError(t, err)
+}
+
+func directReauthCredentials(accountID, userID, email string) map[string]any {
+	return map[string]any{
+		"access_token": "new-access", "refresh_token": "new-refresh",
+		"id_token": reauthTestJWT(map[string]any{
+			"email": email, "sid": accountID, "exp": time.Now().Add(time.Hour).Unix(),
+			"https://api.openai.com/auth": map[string]any{
+				"user_id": userID,
+			},
+		}),
+	}
 }
 
 func reauthStateFromURL(t *testing.T, raw string) string {

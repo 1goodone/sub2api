@@ -476,6 +476,7 @@ func registerOpenAIOAuthReauthWorkerRoutes(v1 *gin.RouterGroup, h *handler.Handl
 		worker.POST("/claim", h.Admin.OpenAIOAuthReauth.Claim)
 		worker.POST("/:task_id/progress", h.Admin.OpenAIOAuthReauth.Progress)
 		worker.POST("/:task_id/callback", h.Admin.OpenAIOAuthReauth.Callback)
+		worker.POST("/:task_id/credentials", h.Admin.OpenAIOAuthReauth.Credentials)
 		worker.POST("/:task_id/fail", h.Admin.OpenAIOAuthReauth.Fail)
 	}
 }
@@ -781,6 +782,12 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.POST("/account-ops/token-guard/jobs/:id/cancel", h.Admin.AccountTokenGuard.Cancel)
 	admin.GET("/account-ops/token-guard/events", h.Admin.AccountTokenGuard.Events)
 	admin.POST("/account-ops/token-guard/accounts/:id/relogin", h.Admin.AccountTokenGuard.Relogin)
+	admin.GET("/account-ops/token-guard-v2/accounts", h.Admin.AccountTokenGuardV2.List)
+	admin.POST("/account-ops/token-guard-v2/accounts", h.Admin.AccountTokenGuardV2.Create)
+	admin.PUT("/account-ops/token-guard-v2/accounts/:id", h.Admin.AccountTokenGuardV2.Update)
+	admin.DELETE("/account-ops/token-guard-v2/accounts/:id", h.Admin.AccountTokenGuardV2.Delete)
+	admin.POST("/account-ops/token-guard-v2/accounts/:id/probe", h.Admin.AccountTokenGuardV2.Probe)
+	admin.POST("/account-ops/token-guard-v2/accounts/:id/relogin", h.Admin.AccountTokenGuardV2.Relogin)
 	admin.GET("/account-quality-results", h.Admin.ScheduledTest.ListQualityHistory)
 	admin.GET("/account-quality-plans", h.Admin.ScheduledTest.ListQualityPlans)
 	admin.POST("/account-quality-plans/:id/run", h.Admin.ScheduledTest.TriggerQuality)

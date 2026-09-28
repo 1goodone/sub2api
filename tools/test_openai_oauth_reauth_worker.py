@@ -1,10 +1,12 @@
 import json
 import os
+import tempfile
 import threading
 import time
 import unittest
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -89,6 +91,10 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
             ProtocolSession = lambda **_kwargs: FakeSession()
 
             @staticmethod
+            def network_preflight(session):
+                events.append(("preflight", session.number))
+
+            @staticmethod
             def bootstrap_authorize(session, _state, auth_url=None):
                 events.append(("bootstrap", session.number))
                 if session.number == 1:
@@ -119,7 +125,10 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
         ):
             process_claim(FakeAPI(), FakeProtocol, claim)
 
+        self.assertEqual([event for event in events if event[0] == "preflight"], [("preflight", 1), ("preflight", 2)])
         self.assertEqual([event for event in events if event[0] == "bootstrap"], [("bootstrap", 1), ("bootstrap", 2)])
+        self.assertLess(events.index(("preflight", 1)), events.index(("bootstrap", 1)))
+        self.assertLess(events.index(("preflight", 2)), events.index(("bootstrap", 2)))
         self.assertEqual([event for event in events if event[0] == "email"], [("email", 2)])
         self.assertEqual([event for event in events if event[0] == "close"], [("close", 1), ("close", 2)])
 
@@ -211,7 +220,7 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
         self.assertEqual(calls[1][2]["content-type"], "application/json")
         self.assertFalse(calls[1][3])
 
-    def test_process_claim_uses_codex_protocol_flow_without_chatgpt_preflight(self):
+    def test_process_claim_preflights_before_codex_protocol_flow(self):
         events = []
 
         class FakeSession:
@@ -226,7 +235,7 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
 
             @staticmethod
             def network_preflight(_session):
-                raise AssertionError("ChatGPT preflight must not run for OAuth re-login")
+                events.append("preflight")
 
             @staticmethod
             def bootstrap_authorize(_session, state, auth_url=None):
@@ -273,6 +282,7 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
             process_claim(FakeAPI(), FakeProtocol, claim)
 
         names = [item[0] if isinstance(item, tuple) else item for item in events]
+        self.assertLess(names.index("preflight"), names.index("bootstrap"))
         self.assertLess(names.index("bootstrap"), names.index("email"))
         self.assertLess(names.index("email"), names.index("otp"))
         self.assertLess(names.index("otp"), names.index("workspace"))
@@ -368,6 +378,63 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
 
         self.assertEqual(events, ["passwordless", "otp"])
 
+    def test_process_claim_uses_tosub2_for_password_totp_without_logging_secrets(self):
+        events = []
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / "src").mkdir()
+            (root / "src" / "protocol-login.mjs").write_text("// test", encoding="utf-8")
+
+            class FakeAPI:
+                config = SimpleNamespace(tosub2_root=root)
+
+                def progress(self, task_id, stage):
+                    events.append(("progress", task_id, stage))
+
+                def credentials(self, task_id, credentials, extra):
+                    events.append(("credentials", task_id, credentials, extra))
+                    return {"status": "succeeded"}
+
+            def fake_run(command, **kwargs):
+                self.assertEqual(kwargs["env"]["CHATGPT_LOGIN_PASSWORD"], "password-secret")
+                self.assertEqual(kwargs["env"]["CHATGPT_TOTP_SECRET"], "totp-secret")
+                output_path = Path(command[command.index("--sub2api-out") + 1])
+                output_path.write_text(
+                    json.dumps(
+                        {
+                            "accounts": [
+                                {
+                                    "credentials": {
+                                        "access_token": "access-secret",
+                                        "refresh_token": "refresh-secret",
+                                        "id_token": "id-secret",
+                                    },
+                                    "extra": {"client_id": "client-id"},
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            claim = {
+                "task_id": 8,
+                "account_id": 43,
+                "credential_mode": "password_totp",
+                "login_email": "mail@example.com",
+                "password": "password-secret",
+                "totp_secret": "totp-secret",
+            }
+            with patch("tools.openai_oauth_reauth_worker.subprocess.run", side_effect=fake_run):
+                process_claim(FakeAPI(), None, claim)
+
+        stages = [event[2] for event in events if event[0] == "progress"]
+        self.assertEqual(stages, ["starting", "protocol_connecting", "password_submitted", "mfa_submitted"])
+        credential_event = next(event for event in events if event[0] == "credentials")
+        self.assertEqual(credential_event[2]["access_token"], "access-secret")
+        self.assertEqual(credential_event[3]["client_id"], "client-id")
+
     def test_extracts_structured_and_html_otp(self):
         self.assertEqual(extract_otp('{"verification_code":"123456"}'), "123456")
         self.assertEqual(extract_otp("<p>Your ChatGPT verification code is <b>654321</b></p>"), "654321")
@@ -418,10 +485,23 @@ class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
             os.environ.update(previous)
 
     def test_rejects_private_https_and_non_loopback_http_mailboxes(self):
-        with self.assertRaises(WorkerError):
-            validate_otp_url("https://127.0.0.1/code")
-        with self.assertRaises(WorkerError):
-            validate_otp_url("http://192.168.1.10/code")
+        with patch.dict(os.environ, {"OPENAI_REAUTH_TRUSTED_OTP_HOSTS": ""}):
+            with self.assertRaises(WorkerError):
+                validate_otp_url("https://127.0.0.1/code")
+            with self.assertRaises(WorkerError):
+                validate_otp_url("http://192.168.1.10/code")
+
+    def test_allows_private_https_only_for_explicitly_trusted_mailbox_host(self):
+        private_address = [(None, None, None, None, ("192.168.1.10", 443))]
+        with patch.dict(os.environ, {"OPENAI_REAUTH_TRUSTED_OTP_HOSTS": "mail.internal"}), patch(
+            "tools.openai_oauth_reauth_worker.socket.getaddrinfo",
+            return_value=private_address,
+        ):
+            validate_otp_url("https://mail.internal/code")
+            with self.assertRaises(WorkerError):
+                validate_otp_url("https://other.internal/code")
+            with self.assertRaises(WorkerError):
+                validate_otp_url("http://mail.internal/code")
 
     def test_rejects_plain_http_remote_control_api(self):
         previous = dict(os.environ)

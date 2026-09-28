@@ -37,3 +37,23 @@
 - 巡检只读取账号已有的 `access_token`，不会主动修改账号凭据。
 - 仅在「令牌失效且开启自动重登」时写回新凭据，并保留账号既有配置字段。
 - 重登凭据保存在管理员设置中，请只在自建环境填写；对外共享数据库前建议先清空该字段。
+
+## 凭证守护 V2
+
+V2 与上面的 V1 独立存在，页面位于 `/admin/token-guard-v2`。管理员从现有 OpenAI OAuth 母账号中选择需要巡检的账号，并为每个账号单独配置一种登录方式：
+
+- `邮箱 + 密码 + 可选 TOTP 密钥`
+- `邮箱 + OTP 邮箱 API URL`
+
+V2 默认每 30 分钟巡检一次；鉴权失败后 5 分钟复检，连续 2 次鉴权失败才创建 durable 重登任务，同一账号有活跃任务时不会重复创建。巡检使用数据库租约和 `FOR UPDATE SKIP LOCKED`，可在多实例部署中运行。
+
+密码、TOTP 密钥和邮箱 URL 使用现有 `SecretEncryptor` 加密保存，管理接口只返回“是否已配置”和脱敏 URL。部署前必须设置固定的 TOTP 加密密钥，并为 worker 配置至少 32 字符的 `OPENAI_REAUTH_WORKER_TOKEN`。
+
+### Worker 运行要求
+
+- 邮箱链接模式：继续使用 `CODEX_PROTOCOL_ROOT` / `TURB_ROOT` 指向 Turb 协议目录。
+- 密码/TOTP 模式：额外设置 `TOSUB2_ROOT`，指向包含 `src/protocol-login.mjs` 的 [toSub2](https://github.com/poxiao33/toSub2) checkout，并使用 Node.js 20 或更高版本。
+- Windows 启动脚本可传 `-ToSub2Root C:\path\to\toSub2`。私网邮箱 API 必须使用 HTTPS，并通过 `-TrustedOtpHosts mail.internal` 精确放行主机名；未配置时仍拒绝所有非公网解析结果。
+- Docker 运行时将 toSub2 checkout 只读挂载到容器，并设置 `TOSUB2_ROOT` 指向挂载目录；现有 worker 镜像已包含 Node.js 20。
+
+账密和 TOTP 只通过子进程环境变量传给 toSub2，不出现在命令行参数或管理 API 响应中。toSub2 生成的临时 OAuth 文件在任务结束后随临时目录删除；后端仍执行账号身份匹配、旧凭据 CAS 和原子写回。

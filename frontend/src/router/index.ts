@@ -569,6 +569,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/admin/smart-ops', redirect: '/admin/account-quality', meta: { requiresAuth: true, requiresAdmin: true } },
   { path: '/admin/token-guard', name: 'AdminTokenGuard', component: () => import('@/views/admin/ops/TokenGuardView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Credential Guard', titleKey: 'tokenGuard.title', descriptionKey: 'tokenGuard.description' } },
+  { path: '/admin/token-guard-v2', name: 'AdminTokenGuardV2', component: () => import('@/views/admin/ops/TokenGuardV2View.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Credential Guard V2', titleKey: 'tokenGuardV2.title', descriptionKey: 'tokenGuardV2.description' } },
   { path: '/admin/account-ops', name: 'AdminAccountOps', component: () => import('@/views/admin/AccountOpsView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Account operations', titleKey: 'accountOps.title', descriptionKey: 'accountOps.description' } },
   {
     path: '/admin/account-quality',

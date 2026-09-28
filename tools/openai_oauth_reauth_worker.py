@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Run queued sub2api OpenAI OAuth re-login jobs with Turb's HTTP protocol flow.
+"""Run queued sub2api OpenAI OAuth re-login jobs.
 
-The worker deliberately does not start a browser.  Turb is used only as a
-protocol implementation: curl_cffi keeps the HTTP session/cookies stable and
-the local Sentinel runner produces the request proof required by OpenAI.
+Email-link jobs use Turb's HTTP protocol flow. Password/TOTP jobs use a local
+toSub2 checkout selected by TOSUB2_ROOT. The worker never starts a browser.
 """
 
 from __future__ import annotations
@@ -18,7 +17,9 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -183,9 +184,17 @@ def _positive_float(raw: str | None, default: float) -> float:
     return value if value > 0 else default
 
 
+def _trusted_otp_hosts() -> set[str]:
+    return {
+        host.strip().lower().rstrip(".")
+        for host in os.getenv("OPENAI_REAUTH_TRUSTED_OTP_HOSTS", "").split(",")
+        if host.strip()
+    }
+
+
 def validate_otp_url(url: str) -> None:
     parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
     if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password or parsed.fragment:
         raise WorkerError("OTP mailbox URL is invalid")
     loopback_name = host == "localhost"
@@ -200,11 +209,12 @@ def validate_otp_url(url: str) -> None:
         addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))}
     except OSError:
         raise WorkerError("OTP mailbox hostname could not be resolved") from None
+    trusted_private_host = host in _trusted_otp_hosts()
     for address in addresses:
         ip = ipaddress.ip_address(address)
         if loopback_name and ip.is_loopback:
             continue
-        if not ip.is_global:
+        if not ip.is_global and not trusted_private_host:
             raise WorkerError("OTP mailbox hostname resolves to a non-public address")
 
 
@@ -214,6 +224,7 @@ class WorkerConfig:
     worker_token: str
     worker_id: str
     protocol_root: Path
+    tosub2_root: Path | None = None
     poll_seconds: float = 5.0
     request_timeout: float = 30.0
 
@@ -250,11 +261,22 @@ class WorkerConfig:
                 "CODEX_PROTOCOL_ROOT/TURB_ROOT must point to a Turb project with the pure protocol and Sentinel assets"
             )
 
+        tosub2_raw = os.getenv("TOSUB2_ROOT", "").strip()
+        tosub2_root = Path(tosub2_raw).expanduser().resolve() if tosub2_raw else None
+        if tosub2_root is not None:
+            required_tosub2 = (
+                tosub2_root / "src" / "protocol-login.mjs",
+                tosub2_root / "src" / "tls-transport.mjs",
+            )
+            if not all(path.is_file() for path in required_tosub2):
+                raise WorkerError("TOSUB2_ROOT must point to a toSub2 checkout containing src/protocol-login.mjs")
+
         return cls(
             base_url=base_url,
             worker_token=worker_token,
             worker_id=worker_id,
             protocol_root=protocol_root,
+            tosub2_root=tosub2_root,
             poll_seconds=_positive_float(os.getenv("OPENAI_REAUTH_POLL_SECONDS"), 5.0),
             request_timeout=_positive_float(os.getenv("OPENAI_REAUTH_REQUEST_TIMEOUT"), 30.0),
         )
@@ -315,6 +337,22 @@ class WorkerAPI:
         data = self._post(
             f"/api/v1/internal/openai-reauth/{task_id}/callback",
             {"worker_id": self.config.worker_id, "callback_url": callback_url},
+        )
+        return data if isinstance(data, dict) else None
+
+    def credentials(
+        self,
+        task_id: int,
+        credentials: dict[str, Any],
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        data = self._post(
+            f"/api/v1/internal/openai-reauth/{task_id}/credentials",
+            {
+                "worker_id": self.config.worker_id,
+                "credentials": credentials,
+                "extra": extra or {},
+            },
         )
         return data if isinstance(data, dict) else None
 
@@ -469,6 +507,7 @@ def load_protocol(root: Path) -> SimpleNamespace:
         _select_workspace_and_get_callback,
         _submit_email_otp,
         build_sentinel_header,
+        network_preflight,
         request_sentinel_token,
     )
     from core.openai_auth import AccountUnusableError, send_email_otp
@@ -498,6 +537,7 @@ def load_protocol(root: Path) -> SimpleNamespace:
     return SimpleNamespace(
         ProtocolSession=ProtocolSession,
         AccountUnusableError=AccountUnusableError,
+        network_preflight=network_preflight,
         bootstrap_authorize=lambda session, state, auth_url=None: _checked_bootstrap_authorize(
             session,
             _bootstrap_authorize,
@@ -647,6 +687,13 @@ def _wait_for_otp(
 
 
 def process_claim(api: WorkerAPI, protocol: SimpleNamespace, claim: dict[str, Any]) -> None:
+    mode = str(claim.get("credential_mode") or "email_otp_url").strip()
+    if mode == "password_totp":
+        process_password_claim(api, claim)
+        return
+    if mode != "email_otp_url":
+        raise WorkerError("claimed task has an unsupported credential mode")
+
     task_id = int(claim.get("task_id") or 0)
     account_id = int(claim.get("account_id") or 0)
     email = str(claim.get("login_email") or "").strip()
@@ -674,6 +721,7 @@ def process_claim(api: WorkerAPI, protocol: SimpleNamespace, claim: dict[str, An
                 use_exit_geo_cache=False,
             )
             try:
+                protocol.network_preflight(session)
                 protocol.bootstrap_authorize(session, state, auth_url=auth_url)
                 break
             except ProtocolHTTPError as exc:
@@ -750,6 +798,90 @@ def process_claim(api: WorkerAPI, protocol: SimpleNamespace, claim: dict[str, An
                 _close_protocol_session(session)
             except Exception as exc:
                 LOGGER.warning("task=%s protocol session cleanup failed: %s", task_id, sanitize_error(str(exc)))
+
+
+def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
+    task_id = int(claim.get("task_id") or 0)
+    account_id = int(claim.get("account_id") or 0)
+    email = str(claim.get("login_email") or "").strip()
+    password = str(claim.get("password") or "")
+    totp_secret = str(claim.get("totp_secret") or "").strip()
+    proxy_url = str(claim.get("proxy_url") or "").strip()
+    root = getattr(getattr(api, "config", None), "tosub2_root", None)
+    if task_id <= 0 or account_id <= 0 or not email or not password:
+        raise WorkerError("claimed password task is missing required fields")
+    if root is None:
+        raise WorkerError("TOSUB2_ROOT is required for password/TOTP re-login")
+
+    node_executable = os.getenv("NODE_EXECUTABLE", "node").strip()
+    if not node_executable or shutil.which(node_executable) is None:
+        raise WorkerError("Node.js is required for password/TOTP re-login")
+    script = root / "src" / "protocol-login.mjs"
+    if not script.is_file():
+        raise WorkerError("toSub2 protocol-login.mjs is unavailable")
+
+    LOGGER.info("task=%s account=%s started (password protocol)", task_id, account_id)
+    _best_effort_progress(api, task_id, "starting")
+    _best_effort_progress(api, task_id, "protocol_connecting")
+    _best_effort_progress(api, task_id, "password_submitted")
+    with tempfile.TemporaryDirectory(prefix="sub2api-reauth-") as temp_dir:
+        output_path = Path(temp_dir) / "oauth.json"
+        command = [
+            node_executable,
+            str(script),
+            "--email",
+            email,
+            "--output-mode",
+            "sub2api",
+            "--sub2api-out",
+            str(output_path),
+            "--sub2api-name",
+            f"credential-guard-{account_id}",
+        ]
+        if proxy_url:
+            command.extend(("--proxy", proxy_url))
+        child_env = os.environ.copy()
+        child_env["CHATGPT_LOGIN_PASSWORD"] = password
+        if totp_secret:
+            child_env["CHATGPT_TOTP_SECRET"] = totp_secret
+        else:
+            child_env.pop("CHATGPT_TOTP_SECRET", None)
+        try:
+            result = subprocess.run(
+                command,
+                cwd=root,
+                env=child_env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=25 * 60,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise WorkerError("password/TOTP protocol timed out") from None
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "password/TOTP protocol failed")[-4000:]
+            raise WorkerError(sanitize_error(detail))
+        if totp_secret:
+            _best_effort_progress(api, task_id, "mfa_submitted")
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            raise WorkerError("password/TOTP protocol did not produce valid OAuth credentials") from None
+
+    accounts = payload.get("accounts") if isinstance(payload, dict) else None
+    account = accounts[0] if isinstance(accounts, list) and len(accounts) == 1 else None
+    credentials = account.get("credentials") if isinstance(account, dict) else None
+    extra = account.get("extra") if isinstance(account, dict) else None
+    if not isinstance(credentials, dict) or not all(
+        str(credentials.get(key) or "").strip()
+        for key in ("access_token", "refresh_token", "id_token")
+    ):
+        raise WorkerError("password/TOTP protocol returned incomplete OAuth credentials")
+    result = api.credentials(task_id, credentials, extra if isinstance(extra, dict) else {})
+    if not result or result.get("status") != "succeeded":
+        raise WorkerError(str((result or {}).get("error") or "credentials were not accepted"))
+    LOGGER.info("task=%s account=%s succeeded", task_id, account_id)
 
 
 def run_once(api: WorkerAPI, protocol: SimpleNamespace) -> bool:
