@@ -1223,6 +1223,9 @@ export default {
       priority: '优先级',
       priorityHint: '优先级越小的账号优先使用',
       billingRateMultiplier: '账号计费倍率',
+      costMultiplier: '成本倍率',
+      costMultiplierHint: '默认 0.1。利润估算成本＝账号统计定价或基础费用 × 成本倍率；0 表示零成本。独立于账号计费和用户扣费，修改后按新倍率重估近期利润，不改历史账单。',
+      costMultiplierInvalid: '成本倍率必须是 0 到 1000000 之间的有效数字。',
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
 
       groupBillingRateMultiplier: '分组计费倍率',

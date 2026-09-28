@@ -14,6 +14,7 @@ func priorityCandidate(id int64, rate float64, load int) openAIAccountCandidateS
 	account := upstreamCostTestAccount(id, UpstreamBillingProbeStatusOK, rate, time.Now(), time.Hour)
 	account.Name = "test"
 	account.Concurrency = 10
+	account.Extra = map[string]any{AccountCostMultiplierExtraKey: rate}
 	return openAIAccountCandidateScore{account: account, loadKnown: true, loadInfo: &AccountLoadInfo{AccountID: id, LoadRate: load, CurrentConcurrency: load / 10}}
 }
 func TestPriorityScoringExperienceAndCost(t *testing.T) {
@@ -268,7 +269,7 @@ func TestPriorityOAuthProfitUsesUserChargeAndTheoreticalCost(t *testing.T) {
 	c.Mode = "profit"
 	a := priorityCandidate(1, 0.001, 0)
 	a.account.Type = AccountTypeOAuth
-	signal := PrioritySchedulingSignal{Samples: 20, P90TTFTMs: 500, QualityPassed: 10, QualitySamples: 10, ProfitSamples: 10, Revenue: 10, TheoreticalCost: 6}
+	signal := PrioritySchedulingSignal{Samples: 20, P90TTFTMs: 500, QualityPassed: 10, QualitySamples: 10, ProfitSamples: 10, Revenue: 10, BaseCost: 6000}
 	score := scorePriorityCandidate(c, a, signal, time.Now())
 	require.Equal(t, "usage", score.EconomicsSource)
 	require.Equal(t, 4.0, *score.Profit)
@@ -276,7 +277,7 @@ func TestPriorityOAuthProfitUsesUserChargeAndTheoreticalCost(t *testing.T) {
 	differentRate := 10.0
 	a.account.RateMultiplier = &differentRate
 	require.Equal(t, score.Score, scorePriorityCandidate(c, a, signal, time.Now()).Score, "OAuth profit must not be inferred from current account multiplier")
-	signal.TheoreticalCost = 12
+	signal.BaseCost = 12000
 	loss := scorePriorityCandidate(c, a, signal, time.Now())
 	require.Equal(t, -2.0, *loss.Profit)
 	require.Equal(t, "degraded", loss.Tier)

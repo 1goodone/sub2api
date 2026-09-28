@@ -1153,6 +1153,9 @@ export default {
       priority: 'Priority',
       priorityHint: 'Lower value accounts are used first',
       billingRateMultiplier: 'Billing Rate Multiplier',
+      costMultiplier: 'Cost multiplier',
+      costMultiplierHint: 'Default 0.1. Estimated cost = account statistics price or base cost × cost multiplier; 0 means zero cost. Independent of account and user billing. Changes re-estimate recent profit without rewriting usage logs.',
+      costMultiplierInvalid: 'Cost multiplier must be a finite number between 0 and 1000000.',
       billingRateMultiplierHint: '0 = free, affects account billing only',
 
       groupBillingRateMultiplier: 'Group Billing Multiplier',

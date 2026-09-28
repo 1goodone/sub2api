@@ -25,7 +25,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
 	rows, err := r.sql.QueryContext(ctx, `
  WITH base_usage AS (
   SELECT account_id, stream, first_token_ms, actual_cost,
-   COALESCE(account_stats_cost,total_cost) * COALESCE(account_rate_multiplier,1) AS theoretical_cost
+   COALESCE(account_stats_cost,total_cost) AS base_cost
   FROM usage_logs
   WHERE account_id=ANY($1) AND created_at >= $3 AND created_at <= NOW()
    AND COALESCE(NULLIF(requested_model,''),model)=$2
@@ -36,9 +36,9 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
   SELECT account_id,
    COUNT(*) FILTER (WHERE stream AND first_token_ms>0) AS samples,
    percentile_cont(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms>0) AS p90,
-   COUNT(*) FILTER (WHERE actual_cost>=0 AND theoretical_cost>=0 AND actual_cost+theoretical_cost>0) AS profit_samples,
-   SUM(actual_cost) FILTER (WHERE actual_cost>=0 AND theoretical_cost>=0 AND actual_cost+theoretical_cost>0) AS revenue,
-   SUM(theoretical_cost) FILTER (WHERE actual_cost>=0 AND theoretical_cost>=0 AND actual_cost+theoretical_cost>0) AS theoretical_cost
+   COUNT(*) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS profit_samples,
+   SUM(actual_cost) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS revenue,
+   SUM(base_cost) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS base_cost
   FROM base_usage GROUP BY account_id
  ), rounds AS (
   SELECT p.account_id, r.quality_round_id,
@@ -79,7 +79,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
   GROUP BY w.account_id,w.start_at,w.end_at
  )
  SELECT ids.id, COALESCE(u.samples,0),COALESCE(u.p90,0),COALESCE(q.passed,0),COALESCE(q.samples,0),
- COALESCE(u.profit_samples,0),COALESCE(u.revenue,0),COALESCE(u.theoretical_cost,0),COALESCE(t.revenue,0),t.start_at,t.end_at
+ COALESCE(u.profit_samples,0),COALESCE(u.revenue,0),COALESCE(u.base_cost,0),COALESCE(t.revenue,0),t.start_at,t.end_at
  FROM unnest($1::bigint[]) ids(id)
  LEFT JOIN usage u ON u.account_id=ids.id LEFT JOIN quality q ON q.account_id=ids.id
  LEFT JOIN teams_usage t ON t.account_id=ids.id
@@ -92,7 +92,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
 	for rows.Next() {
 		var id int64
 		var signal service.PrioritySchedulingSignal
-		if err := rows.Scan(&id, &signal.Samples, &signal.P90TTFTMs, &signal.QualityPassed, &signal.QualitySamples, &signal.ProfitSamples, &signal.Revenue, &signal.TheoreticalCost, &signal.TeamsRevenue, &signal.TeamsWindowStart, &signal.TeamsWindowEnd); err != nil {
+		if err := rows.Scan(&id, &signal.Samples, &signal.P90TTFTMs, &signal.QualityPassed, &signal.QualitySamples, &signal.ProfitSamples, &signal.Revenue, &signal.BaseCost, &signal.TeamsRevenue, &signal.TeamsWindowStart, &signal.TeamsWindowEnd); err != nil {
 			return nil, err
 		}
 		out[id] = signal

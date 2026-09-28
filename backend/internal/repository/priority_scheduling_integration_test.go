@@ -62,7 +62,7 @@ func TestPrioritySchedulingSignalsSeparateModelsAndCompletedRounds(t *testing.T)
 	require.Equal(t, 2, got[account.ID].Samples)
 	require.Equal(t, 3, got[account.ID].ProfitSamples, "nonstreaming and missing TTFT still contribute financial records")
 	require.InDelta(t, 3, got[account.ID].Revenue, 0.0001)
-	require.InDelta(t, 3, got[account.ID].TheoreticalCost, 0.0001, "stored cost override multiplied once by historical rate")
+	require.InDelta(t, 6, got[account.ID].BaseCost, 0.0001, "account statistics price is aggregated before any billing or cost multiplier")
 	groupID := int64(999999)
 	differentGroup, err := repo.ReadPrioritySchedulingSignals(ctx, service.PrioritySchedulingQuery{AccountIDs: []int64{account.ID}, Model: "gpt-test", GroupID: &groupID, UsageSince: time.Now().Add(-time.Hour), QualitySince: time.Now().Add(-time.Hour)})
 	require.NoError(t, err)
@@ -112,4 +112,22 @@ func TestPriorityTeamsFirstUseAnchorSurvivesUsageRetention(t *testing.T) {
 	require.NoError(t, err)
 	require.WithinDuration(t, first, *signals[account.ID].TeamsWindowStart, time.Millisecond, "retention must not start a new four-hour purchase")
 	require.WithinDuration(t, first.Add(4*time.Hour), *signals[account.ID].TeamsWindowEnd, time.Millisecond)
+}
+func TestPriorityAccountCostMultiplierRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	billing := 1.0
+	account := mustCreateAccount(t, tx.Client(), &service.Account{Name: "cost-roundtrip", Platform: service.PlatformOpenAI, RateMultiplier: &billing, Extra: map[string]any{"untouched": true}})
+	require.NoError(t, repo.Update(ctx, account))
+	require.Equal(t, 0.1, account.CostMultiplier())
+	for _, cost := range []float64{0.25, 0} {
+		require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{service.AccountCostMultiplierExtraKey: cost}))
+		loaded, err := repo.GetByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, cost, loaded.CostMultiplier())
+		require.Equal(t, billing, loaded.BillingRateMultiplier())
+		require.Equal(t, true, loaded.Extra["untouched"])
+	}
+	require.True(t, shouldEnqueueSchedulerOutboxForExtraUpdates(map[string]any{service.AccountCostMultiplierExtraKey: 0.1}), "cost edits invalidate cached scheduler accounts")
 }

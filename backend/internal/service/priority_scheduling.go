@@ -185,7 +185,7 @@ type PrioritySchedulingSignal struct {
 	TeamsWindowStart *time.Time `json:"-"`
 	TeamsWindowEnd   *time.Time `json:"-"`
 	Revenue          float64    `json:"revenue"`
-	TheoreticalCost  float64    `json:"theoretical_cost"`
+	BaseCost         float64    `json:"-"`
 	ProfitSamples    int        `json:"profit_samples"`
 	Samples          int        `json:"samples"`
 	P90TTFTMs        float64    `json:"p90_ttft_ms"`
@@ -222,6 +222,7 @@ type prioritySchedulingState struct {
 
 type PrioritySchedulingScore struct {
 	TeamsRecovery   *PriorityTeamsRecovery `json:"teams_recovery"`
+	TheoreticalCost float64                `json:"theoretical_cost"`
 	Profit          *float64               `json:"profit"`
 	Margin          *float64               `json:"margin"`
 	EconomicsSource string                 `json:"economics_source"`
@@ -339,8 +340,10 @@ func scorePriorityCandidate(c PrioritySchedulingConfig, item openAIAccountCandid
 	return scorePriorityCandidateWithOAuthRate(c, item, signal, now, defaultOpenAIOAuthSchedulingRateMultiplier)
 }
 
-func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAIAccountCandidateScore, signal PrioritySchedulingSignal, now time.Time, oauthSchedulingRateMultiplier float64) PrioritySchedulingScore {
-	out := PrioritySchedulingScore{AccountID: item.account.ID, AccountName: item.account.Name, Priority: openAIAccountSchedulingPriority(item.account), Concurrency: item.account.Concurrency, LoadFactor: item.account.EffectiveLoadFactor(), Tier: "eligible", Reasons: []string{}, PrioritySchedulingSignal: signal, Waiting: item.loadInfo.WaitingCount}
+func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAIAccountCandidateScore, signal PrioritySchedulingSignal, now time.Time, _ float64) PrioritySchedulingScore {
+	rate := item.account.CostMultiplier()
+	theoreticalCost := signal.BaseCost * rate
+	out := PrioritySchedulingScore{Rate: &rate, TheoreticalCost: theoreticalCost, AccountID: item.account.ID, AccountName: item.account.Name, Priority: openAIAccountSchedulingPriority(item.account), Concurrency: item.account.Concurrency, LoadFactor: item.account.EffectiveLoadFactor(), Tier: "eligible", Reasons: []string{}, PrioritySchedulingSignal: signal, Waiting: item.loadInfo.WaitingCount}
 	quality, latency, load, cost := 0.5, 0.5, 0.5, 0.0
 	degraded, unknown := false, false
 	if signal.QualitySamples > 0 {
@@ -378,9 +381,7 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 		unknown = true
 		out.Reasons = append(out.Reasons, "load_unknown")
 	}
-	if rate, ok := openAISchedulingRate(item.account, now, oauthSchedulingRateMultiplier); ok && rate >= 0 {
-		out.Rate = &rate
-	}
+
 	if c.Teams.Enabled && isPriorityTeamsAccount(item.account) {
 		out.TeamsRecovery = scorePriorityTeams(c.Teams, signal, now)
 		if recovery := out.TeamsRecovery; recovery != nil {
@@ -401,8 +402,8 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 			out.EconomicsSource = "unknown"
 			out.Reasons = append(out.Reasons, "teams_window_unavailable")
 		}
-	} else if signal.ProfitSamples >= c.MinSamples && signal.Revenue >= 0 && signal.TheoreticalCost >= 0 && signal.Revenue+signal.TheoreticalCost > 0 {
-		profit := signal.Revenue - signal.TheoreticalCost
+	} else if signal.ProfitSamples >= c.MinSamples && signal.Revenue >= 0 && theoreticalCost >= 0 && signal.Revenue+theoreticalCost > 0 {
+		profit := signal.Revenue - theoreticalCost
 		out.Profit = &profit
 		if signal.Revenue > 0 {
 			margin := profit / signal.Revenue
@@ -411,7 +412,7 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 		// Revenue/(revenue+cost) maps break-even to 0.5 and zero-cost
 		// revenue to 1, retaining loss information without unstable division
 		// by a near-zero margin. Use sums, not a mean of per-request margins.
-		cost = signal.Revenue / (signal.Revenue + signal.TheoreticalCost)
+		cost = signal.Revenue / (signal.Revenue + theoreticalCost)
 		out.EconomicsSource = "usage"
 		if profit < 0 {
 			degraded = true
