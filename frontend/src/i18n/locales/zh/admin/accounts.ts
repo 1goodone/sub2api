@@ -1087,8 +1087,8 @@ export default {
 	    hint: '仅在实际用量达到阈值时使用最早到期的可用卡；默认关闭。无卡或失败时账号保持暂停。',
 	    threshold5h: '5h 自动用卡阈值(%)',
 	    threshold7d: '7d 自动用卡阈值(%)',
-	    thresholdHint: '两个窗口独立判断，任一达到自身阈值即触发。可填写 0.1–100，默认均为 100。',
-	    thresholdInvalid: '自动使用重置卡阈值必须在 0.1% 到 100% 之间。'
+	    thresholdHint: '填 0 表示忽略该窗口；启用的窗口任一达到自身阈值即触发。可填写 0 或 0.1–100，默认均为 100。例如 5h 填 0、7d 填 90，仅在 7d 用量达到 90% 时用卡。普通自动暂停规则不受影响。',
+	    thresholdInvalid: '自动使用重置卡阈值必须为 0（忽略该窗口），或在 0.1% 到 100% 之间。'
 	  },
       // Quota control (Anthropic OAuth/SetupToken only)
       quotaControl: {
