@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 FROM node:20-bookworm-slim AS node
 
+RUN npm install --prefix /opt/tosub2-runtime \
+    --omit=dev --ignore-scripts --no-audit --no-fund \
+    jsdom@26.1.0
+
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
@@ -9,6 +13,7 @@ RUN apt-get update \
     && pip install --no-cache-dir curl_cffi==0.16.0
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /opt/tosub2-runtime/node_modules /opt/tosub2/node_modules
 
 WORKDIR /app
 COPY tools/openai_oauth_reauth_worker.py /app/openai_oauth_reauth_worker.py
@@ -27,6 +32,8 @@ COPY --from=turb sentinel /opt/turb/sentinel
 COPY --from=turb LICENSE /opt/turb/LICENSE
 COPY --from=tosub2 src /opt/tosub2/src
 COPY --from=tosub2 LICENSE /opt/tosub2/LICENSE
+
+RUN node -e "require('/opt/tosub2/node_modules/jsdom')"
 
 RUN useradd --create-home --uid 10001 worker \
     && chown -R worker:worker /app /opt/turb /opt/tosub2
