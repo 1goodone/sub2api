@@ -927,6 +927,7 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         if proxy_url:
             command.extend(("--proxy", proxy_url))
         child_env = os.environ.copy()
+        child_env.pop("OPENAI_REAUTH_WORKER_TOKEN", None)
         child_env["CHATGPT_LOGIN_PASSWORD"] = password
         if totp_secret:
             child_env["CHATGPT_TOTP_SECRET"] = totp_secret
@@ -946,8 +947,8 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         except subprocess.TimeoutExpired:
             raise WorkerError("password/TOTP protocol timed out") from None
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "password/TOTP protocol failed")[-4000:]
-            raise WorkerError(sanitize_error(detail))
+            # The external runner may echo unlabeled secrets that regexes cannot redact.
+            raise WorkerError(f"password/TOTP protocol failed (exit {result.returncode})")
         if totp_secret:
             _best_effort_progress(api, task_id, "mfa_submitted")
         try:

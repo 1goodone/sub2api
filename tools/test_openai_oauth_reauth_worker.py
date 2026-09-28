@@ -24,6 +24,7 @@ from tools.openai_oauth_reauth_worker import (
     _safe_openai_endpoint,
     _workspace_id_from_auth_payload,
     process_claim,
+    process_password_claim,
     _wait_for_otp,
     extract_otp,
     sanitize_error,
@@ -45,6 +46,27 @@ class OTPHandler(BaseHTTPRequestHandler):
 
 
 class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
+    def test_password_runner_does_not_inherit_worker_token_or_expose_output(self):
+        api = SimpleNamespace(
+            config=SimpleNamespace(tosub2_root=Path("synthetic-tosub2")),
+            progress=lambda *_args: None,
+        )
+        result = SimpleNamespace(returncode=1, stdout="synthetic-secret", stderr="synthetic-secret")
+        with patch.dict(os.environ, {"OPENAI_REAUTH_WORKER_TOKEN": "synthetic-worker-token"}), patch(
+            "tools.openai_oauth_reauth_worker.shutil.which", return_value="node"
+        ), patch.object(Path, "is_file", return_value=True), patch(
+            "tools.openai_oauth_reauth_worker.subprocess.run", return_value=result
+        ) as runner:
+            with self.assertRaises(WorkerError) as raised:
+                process_password_claim(api, {
+                    "task_id": 7, "account_id": 42, "login_email": "demo@example.com",
+                    "password": "synthetic-secret", "totp_secret": "synthetic-totp",
+                })
+        self.assertEqual(str(raised.exception), "password/TOTP protocol failed (exit 1)")
+        self.assertNotIn("OPENAI_REAUTH_WORKER_TOKEN", runner.call_args.kwargs["env"])
+        self.assertEqual(runner.call_args.kwargs["env"]["CHATGPT_LOGIN_PASSWORD"], "synthetic-secret")
+        self.assertNotIn("synthetic-secret", runner.call_args.args[0])
+
     def test_workspace_id_from_auth_payload(self):
         self.assertEqual(
             _workspace_id_from_auth_payload(
