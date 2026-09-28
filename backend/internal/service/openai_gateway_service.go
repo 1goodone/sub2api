@@ -443,6 +443,11 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	excelBPSRecoveryMu      sync.Mutex
+	excelBPSRecoveryCancel  context.CancelFunc
+	excelBPSRecoveryDone    chan struct{}
+	excelBPSRecoveryStopped bool
+
 	excelBPSWarmMu         sync.Mutex
 	excelBPSWarmCancel     context.CancelFunc
 	excelBPSWarmDone       chan struct{}

@@ -23,7 +23,7 @@
     <div class="space-y-3">
       <div><p class="font-medium">{{ t('qualityOps.bpsOptions') }}</p><p class="text-xs text-gray-500">{{ t('qualityOps.bpsOptionsHint') }}</p></div>
       <div v-for="[key, label] in bpsToggles" :key="key">
-        <label class="flex items-center gap-2"><input v-model="bps[key]" type="checkbox" :data-testid="`quality-bps-${key}`" />{{ t(`admin.accounts.openai.excelBPS${label}`) }}</label>
+        <label class="flex items-center gap-2"><input v-model="bps[key]" type="checkbox" :disabled="key === 'auto_recover_on_403' && !bps.auto_disable_on_403" :data-testid="`quality-bps-${key}`" />{{ t(`admin.accounts.openai.excelBPS${label}`) }}</label>
         <p class="mt-1 pl-6 text-xs text-gray-500">{{ t(`admin.accounts.openai.excelBPS${label}Desc`) }}</p>
       </div>
       <div>
@@ -67,5 +67,5 @@ withDefaults(defineProps<{ targetGroups: { id: number; name: string }[]; showAut
 const bps = defineModel<QualityBPSPolicy>('bps', { required: true })
 const autoRestore = defineModel<boolean>('autoRestore', { default: false })
 const { t } = useI18n()
-const bpsToggles = [['omit_unsupported_tools', 'OmitUnsupportedTools'], ['ignore_images', 'IgnoreImages'], ['ignore_encrypted_content', 'IgnoreEncryptedContent'], ['auto_disable_on_403', 'AutoDisableOn403']] as const
+const bpsToggles = [['omit_unsupported_tools', 'OmitUnsupportedTools'], ['ignore_images', 'IgnoreImages'], ['ignore_encrypted_content', 'IgnoreEncryptedContent'], ['auto_disable_on_403', 'AutoDisableOn403'], ['auto_recover_on_403', 'AutoRecoverOn403']] as const
 </script>

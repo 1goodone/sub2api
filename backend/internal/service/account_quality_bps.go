@@ -29,6 +29,7 @@ type QualityBPSPolicy struct {
 	IgnoreImages           bool     `json:"ignore_images"`
 	IgnoreEncryptedContent bool     `json:"ignore_encrypted_content"`
 	AutoDisableOn403       bool     `json:"auto_disable_on_403"`
+	AutoRecoverOn403       bool     `json:"auto_recover_on_403"`
 	AutoMoveOn403          bool     `json:"auto_move_on_403"`
 	TargetGroupID          int64    `json:"target_group_id"`
 	SessionProxy           bool     `json:"session_proxy"`
@@ -45,6 +46,7 @@ var QualityBPSManagedKeys = []string{
 	ExcelBPSIgnoreImagesKey,
 	ExcelBPSIgnoreEncryptedContentKey,
 	"openai_excel_bps_auto_disable_on_403",
+	ExcelBPSAutoRecoverOn403Key,
 	ExcelBPSAutoMoveOn403Key,
 	ExcelBPS403TargetGroupIDKey,
 	"openai_excel_bps_mihomo",
@@ -122,6 +124,7 @@ func QualityBPSExtra(b *QualityBPSPolicy) map[string]any {
 		ExcelBPSIgnoreImagesKey:                    b.IgnoreImages,
 		ExcelBPSIgnoreEncryptedContentKey:          b.IgnoreEncryptedContent,
 		"openai_excel_bps_auto_disable_on_403":     b.AutoDisableOn403,
+		ExcelBPSAutoRecoverOn403Key:                b.AutoDisableOn403 && b.AutoRecoverOn403,
 		ExcelBPSAutoMoveOn403Key:                   b.AutoMoveOn403,
 		ExcelBPS403TargetGroupIDKey:                nil,
 		"openai_excel_bps_mihomo":                  b.SessionProxy,

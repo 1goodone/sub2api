@@ -96,7 +96,7 @@ func applyQualityBPSOutcome(ctx context.Context, tx *sql.Tx, plan *service.Sched
 	case !service.QualityBPSEligible(account):
 		action = "bps_unsupported"
 	case account.Extra[service.ExcelBPS403DisabledAtKey] != nil:
-		// BPS 曾因 403 被自动关闭（疑似 Excel 封禁），管理员手动重新开启前不再自动打开。
+		// BPS 曾因 403 被自动关闭（疑似 Excel 封禁），由管理员或独立的每小时恢复探测重新开启前，本规则不再自动打开。
 		action = "bps_blocked_403"
 	case account.Extra["openai_excel_bps"] == true:
 		// 已由管理员开着 BPS：不接管、不覆盖他的选项，也不会在恢复时替他关掉。
@@ -230,7 +230,7 @@ func qualityBPSDefaultJSON(key string) json.RawMessage {
 	switch key {
 	case "openai_excel_bps", service.ExcelBPSOmitUnsupportedToolsKey,
 		service.ExcelBPSIgnoreImagesKey, service.ExcelBPSIgnoreEncryptedContentKey,
-		"openai_excel_bps_auto_disable_on_403", service.ExcelBPSAutoMoveOn403Key,
+		"openai_excel_bps_auto_disable_on_403", service.ExcelBPSAutoRecoverOn403Key, service.ExcelBPSAutoMoveOn403Key,
 		"openai_excel_bps_mihomo", "openai_excel_bps_cache_creation_as_input":
 		return json.RawMessage(`false`)
 	case service.ExcelBPSProxySourceKey:
