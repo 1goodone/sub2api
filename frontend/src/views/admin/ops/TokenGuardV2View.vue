@@ -73,10 +73,17 @@
       <BaseDialog :show="editorOpen" :title="editing ? t('tokenGuardV2.editTitle') : t('tokenGuardV2.addTitle')" width="wide" @close="closeEditor">
         <form id="token-guard-v2-editor" class="editor-form" @submit.prevent="save">
           <p v-if="error" role="alert" class="error-banner">{{ error }}</p>
+          <label v-if="!editing" class="field-label">{{ t('tokenGuardV2.accountGroup') }}
+            <select id="token-guard-v2-account-group" v-model="accountGroup" class="input w-full" @change="filterAccountSelection">
+              <option value="">{{ t('tokenGuardV2.allGroups') }}</option>
+              <option value="ungrouped">{{ t('tokenGuardV2.ungrouped') }}</option>
+              <option v-for="group in groups" :key="group.id" :value="String(group.id)">{{ group.name }}</option>
+            </select>
+          </label>
           <label class="field-label">{{ t('tokenGuardV2.account') }}
-            <select v-model.number="draft.account_id" class="input w-full" :disabled="Boolean(editing)" required @change="fillLoginEmail">
+            <select id="token-guard-v2-account" v-model.number="draft.account_id" class="input w-full" :disabled="Boolean(editing)" required @change="fillLoginEmail">
               <option :value="0" disabled>{{ t('tokenGuardV2.selectAccount') }}</option>
-              <option v-for="account in selectableAccounts" :key="account.id" :value="account.id">{{ account.name }} (#{{ account.id }})</option>
+              <option v-for="account in selectableAccounts" :key="account.id" :value="account.id">{{ accountOptionLabel(account) }}</option>
             </select>
           </label>
           <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<input v-model.trim="draft.login_email" class="input w-full" type="email" required /></label>
@@ -123,8 +130,10 @@ import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { BaseDialog } from '@/components/common'
 import { list as listAccounts } from '@/api/admin/accounts'
+import { getByPlatform as listGroups } from '@/api/admin/groups'
 import { getAllWithCount as listProxies } from '@/api/admin/proxies'
-import type { AccountListItem, Proxy } from '@/types'
+import { openAIPlanTypeLabel } from '@/utils/planType'
+import type { AccountListItem, AdminGroup, Proxy } from '@/types'
 import {
   createTokenGuardV2Account,
   deleteTokenGuardV2Account,
@@ -144,6 +153,8 @@ const { t } = useI18n()
 const emptyStatus = (): TokenGuardV2Status => ({ accounts: [], probe_interval_seconds: 1800, fail_streak_threshold: 2 })
 const status = reactive<TokenGuardV2Status>(emptyStatus())
 const candidates = ref<AccountListItem[]>([])
+const groups = ref<AdminGroup[]>([])
+const accountGroup = ref('')
 const proxies = ref<Proxy[]>([])
 const loading = ref(false), saving = ref(false), busyId = ref(0), editorOpen = ref(false)
 const editing = ref<TokenGuardV2Account | null>(null)
@@ -170,9 +181,15 @@ const enabledCount = computed(() => accounts.value.filter(item => item.enabled).
 const healthyCount = computed(() => accounts.value.filter(item => item.probe_state === 'ok').length)
 const issueCount = computed(() => accounts.value.filter(item => item.probe_state === 'auth' || item.blocked_reason).length)
 const activeTaskCount = computed(() => accounts.value.filter(item => ['queued', 'running', 'callback_processing'].includes(item.latest_task?.status || '')).length)
+const matchesAccountGroup = (account: AccountListItem) => {
+  if (!accountGroup.value) return true
+  if (accountGroup.value === 'ungrouped') return !account.group_ids?.length
+  return account.group_ids?.includes(Number(accountGroup.value)) ?? false
+}
 const selectableAccounts = computed(() => {
+  if (editing.value) return candidates.value
   const monitored = new Set(accounts.value.map(item => item.account_id))
-  return editing.value ? candidates.value : candidates.value.filter(item => !monitored.has(item.id))
+  return candidates.value.filter(item => !monitored.has(item.id)).filter(matchesAccountGroup)
 })
 
 const message = (value: unknown) => (value as { message?: string })?.message || t('tokenGuardV2.error')
@@ -211,9 +228,19 @@ const accountEmail = (account?: AccountListItem) => {
   const email = account?.extra?.email_address || account?.extra?.email || account?.credentials?.email
   return typeof email === 'string' ? email.trim() : ''
 }
+const accountOptionLabel = (account: AccountListItem) => {
+  const rawPlan = account.credentials?.plan_type
+  const plan = typeof rawPlan === 'string' ? openAIPlanTypeLabel(rawPlan) || rawPlan.trim() : ''
+  return `${account.name} (#${account.id})${plan ? ` · ${plan}` : ''}`
+}
 
 function resetDraft() { Object.assign(draft, blankDraft()) }
-function openCreate() { error.value = ''; notice.value = ''; editing.value = null; resetDraft(); editorOpen.value = true }
+function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; resetDraft(); editorOpen.value = true }
+function filterAccountSelection() {
+  if (selectableAccounts.value.some(item => item.id === draft.account_id)) return
+  draft.account_id = 0
+  draft.login_email = ''
+}
 function fillLoginEmail() { draft.login_email = accountEmail(candidates.value.find(item => item.id === draft.account_id)) }
 function openEdit(item: TokenGuardV2Account) {
   error.value = ''; notice.value = ''
@@ -236,14 +263,16 @@ async function load(silent = false) {
   loading.value = true
   if (!silent) error.value = ''
   try {
-    const [guard, accountPage, managedProxies] = await Promise.all([
+    const [guard, accountPage, managedProxies, openAIGroups] = await Promise.all([
       listTokenGuardV2Accounts(),
       listAccounts(1, 200, { platform: 'openai', type: 'oauth', lite: '1' }),
-      listProxies()
+      listProxies(),
+      listGroups('openai')
     ])
     Object.assign(status, guard)
     candidates.value = accountPage.items.filter(item => !item.parent_account_id)
     proxies.value = managedProxies
+    groups.value = openAIGroups
   } catch (value) {
     if (!silent) error.value = message(value)
   } finally {

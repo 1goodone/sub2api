@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   probeGuard: vi.fn(),
   reloginGuard: vi.fn(),
   listAccounts: vi.fn(),
+  listGroups: vi.fn(),
   listProxies: vi.fn(),
 }))
 
@@ -23,6 +24,7 @@ vi.mock('@/api/admin/accountTokenGuardV2', () => ({
   reloginTokenGuardV2Account: api.reloginGuard,
 }))
 vi.mock('@/api/admin/accounts', () => ({ list: api.listAccounts, default: { list: api.listAccounts } }))
+vi.mock('@/api/admin/groups', () => ({ getByPlatform: api.listGroups, default: { getByPlatform: api.listGroups } }))
 vi.mock('@/api/admin/proxies', () => ({
   getAllWithCount: api.listProxies,
   default: { getAllWithCount: api.listProxies },
@@ -68,9 +70,14 @@ beforeEach(() => {
     }],
   })
   api.listAccounts.mockResolvedValue({ items: [
-    { id: 42, name: 'Primary' },
-    { id: 43, name: 'Backup', extra: { email_address: 'backup@example.com' } },
+    { id: 42, name: 'Primary', group_ids: [1], credentials: { plan_type: 'plus' } },
+    { id: 43, name: 'Backup', group_ids: [2], credentials: { plan_type: 'free' }, extra: { email_address: 'backup@example.com' } },
+    { id: 44, name: 'Secondary', group_ids: [1], credentials: { plan_type: 'plus' } },
   ] })
+  api.listGroups.mockResolvedValue([
+    { id: 1, name: 'Main pool' },
+    { id: 2, name: 'Backup pool' },
+  ])
   api.listProxies.mockResolvedValue([
     { id: 7, name: 'Tokyo', protocol: 'socks5h', host: '203.0.113.7', port: 1080 },
     { id: 8, name: 'Singapore', protocol: 'http', host: '198.51.100.8', port: 8080 },
@@ -168,8 +175,38 @@ describe('TokenGuardV2View', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.addAccount')!.trigger('click')
-    await wrapper.get('select').setValue('43')
+    await wrapper.get('#token-guard-v2-account').setValue('43')
 
     expect((wrapper.get('input[type="email"]').element as HTMLInputElement).value).toBe('backup@example.com')
+  })
+
+  it('filters available accounts by group and shows their plan labels', async () => {
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: {
+            props: ['show'],
+            template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.addAccount')!.trigger('click')
+    expect(api.listGroups).toHaveBeenCalledWith('openai')
+
+    const accountSelect = wrapper.get('#token-guard-v2-account')
+    expect(accountSelect.text()).toContain('Backup (#43) · Free')
+    expect(accountSelect.text()).toContain('Secondary (#44) · Plus')
+    expect(accountSelect.text()).not.toContain('Primary (#42)')
+
+    await wrapper.get('#token-guard-v2-account-group').setValue('1')
+    expect(accountSelect.text()).toContain('Secondary (#44) · Plus')
+    expect(accountSelect.text()).not.toContain('Backup (#43) · Free')
+    expect(accountSelect.text()).not.toContain('Primary (#42)')
   })
 })
