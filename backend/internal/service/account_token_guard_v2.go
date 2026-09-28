@@ -80,6 +80,7 @@ type AccountTokenGuardV2Prober interface {
 type AccountTokenGuardV2AccountInput struct {
 	LoginEmail         string `json:"login_email"`
 	CredentialMode     string `json:"credential_mode"`
+	ProxySource        string `json:"proxy_source"`
 	ProxyID            *int64 `json:"proxy_id"`
 	Password           string `json:"password"`
 	TOTPSecret         string `json:"totp_secret"`
@@ -174,7 +175,7 @@ func (s *AccountTokenGuardV2Service) SaveAccount(ctx context.Context, accountID 
 	}
 	if _, err := s.reauth.SaveCredentialConfig(ctx, accountID, OpenAIOAuthReauthConfigInput{
 		LoginEmail: input.LoginEmail, CredentialMode: input.CredentialMode,
-		ProxyID:  input.ProxyID,
+		ProxySource: input.ProxySource, ProxyID: input.ProxyID,
 		Password: input.Password, TOTPSecret: input.TOTPSecret, OTPURL: input.OTPURL,
 		ClearPassword: input.ClearPassword, ClearTOTP: input.ClearTOTP,
 	}); err != nil {

@@ -1,11 +1,13 @@
 import { apiClient } from '../client'
 
 export type TokenGuardV2CredentialMode = 'email_otp_url' | 'password_totp'
+export type TokenGuardV2ProxySource = 'account' | 'managed_proxy' | 'mihomo'
 
 export interface TokenGuardV2LoginConfig {
   account_id: number
   login_email: string
   credential_mode: TokenGuardV2CredentialMode
+  proxy_source: TokenGuardV2ProxySource
   proxy_id?: number
   otp_url_masked?: string
   password_configured: boolean
@@ -55,6 +57,7 @@ export interface SaveTokenGuardV2Account {
   account_id?: number
   login_email: string
   credential_mode: TokenGuardV2CredentialMode
+  proxy_source: TokenGuardV2ProxySource
   proxy_id?: number | null
   password?: string
   totp_secret?: string

@@ -59,6 +59,7 @@ beforeEach(() => {
         account_id: 42,
         login_email: 'user@example.com',
         credential_mode: 'password_totp',
+        proxy_source: 'managed_proxy',
         proxy_id: 7,
         password_configured: true,
         totp_configured: true,
@@ -71,8 +72,8 @@ beforeEach(() => {
     { id: 43, name: 'Backup', extra: { email_address: 'backup@example.com' } },
   ] })
   api.listProxies.mockResolvedValue([
-    { id: 7, name: 'Tokyo', host: '203.0.113.7', port: 1080 },
-    { id: 8, name: 'Singapore', host: '198.51.100.8', port: 8080 },
+    { id: 7, name: 'Tokyo', protocol: 'socks5h', host: '203.0.113.7', port: 1080 },
+    { id: 8, name: 'Singapore', protocol: 'http', host: '198.51.100.8', port: 8080 },
   ])
   api.updateGuard.mockResolvedValue({})
 })
@@ -107,7 +108,8 @@ describe('TokenGuardV2View', () => {
     expect(modes).toEqual(['password_totp', 'email_otp_url'])
     expect(wrapper.findAll('input[type="password"]').map(input => input.element.value)).toEqual(['', ''])
 
-    await wrapper.findAll('select')[1].setValue('8')
+    expect(wrapper.text()).toContain('SOCKS5H')
+    await wrapper.findAll('select')[1].setValue('proxy:8')
 
     const saveButton = wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.save')!
     expect(saveButton.attributes()).toMatchObject({ type: 'submit', form: 'token-guard-v2-editor' })
@@ -115,9 +117,37 @@ describe('TokenGuardV2View', () => {
     await flushPromises()
     expect(api.updateGuard).toHaveBeenCalledWith(42, expect.objectContaining({
       credential_mode: 'password_totp',
+      proxy_source: 'managed_proxy',
       proxy_id: 8,
       password: '',
       totp_secret: '',
+    }))
+  })
+
+  it('saves the managed Mihomo pool without a proxy id', async () => {
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: {
+            props: ['show'],
+            template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.edit')!.trigger('click')
+    await wrapper.findAll('select')[1].setValue('mihomo')
+    await wrapper.get('#token-guard-v2-editor').trigger('submit')
+    await flushPromises()
+
+    expect(api.updateGuard).toHaveBeenCalledWith(42, expect.objectContaining({
+      proxy_source: 'mihomo',
+      proxy_id: null,
     }))
   })
 

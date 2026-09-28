@@ -55,5 +55,7 @@ V2 默认每 30 分钟巡检一次；鉴权失败后 5 分钟复检，连续 2 �
 - 密码/TOTP 模式：额外设置 `TOSUB2_ROOT`，指向包含 `src/protocol-login.mjs` 的 [toSub2](https://github.com/poxiao33/toSub2) checkout，并使用 Node.js 20 或更高版本。
 - Windows 启动脚本可传 `-ToSub2Root C:\path\to\toSub2`。私网邮箱 API 必须使用 HTTPS，并通过 `-TrustedOtpHosts mail.internal` 精确放行主机名；未配置时仍拒绝所有非公网解析结果。
 - Docker 运行时将 toSub2 checkout 只读挂载到容器，并设置 `TOSUB2_ROOT` 指向挂载目录；现有 worker 镜像已包含 Node.js 20。
+- 重登出口可跟随账号代理、选择 IP 管理中的静态代理，或使用 Mihomo 托管节点池。静态代理会保留原协议，`socks5h://` 不会降级为本地 DNS 的 `socks5://`。
+- Mihomo 节点监听在 API 容器的 `127.0.0.1`。独立 worker 容器必须共享 API 容器网络命名空间，例如 `docker run --network container:sub2api ...`；Compose 使用 `network_mode: "service:sub2api"`。不要发布整个 Mihomo 监听端口范围。
 
 账密和 TOTP 只通过子进程环境变量传给 toSub2，不出现在命令行参数或管理 API 响应中。toSub2 生成的临时 OAuth 文件在任务结束后随临时目录删除；后端仍执行账号身份匹配、旧凭据 CAS 和原子写回。

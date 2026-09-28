@@ -21,6 +21,7 @@ type accountTokenGuardV2SaveRequest struct {
 	AccountID          int64  `json:"account_id"`
 	LoginEmail         string `json:"login_email" binding:"required"`
 	CredentialMode     string `json:"credential_mode" binding:"required"`
+	ProxySource        string `json:"proxy_source"`
 	ProxyID            *int64 `json:"proxy_id"`
 	Password           string `json:"password"`
 	TOTPSecret         string `json:"totp_secret"`
@@ -42,7 +43,7 @@ func (r accountTokenGuardV2SaveRequest) input() service.AccountTokenGuardV2Accou
 	}
 	return service.AccountTokenGuardV2AccountInput{
 		LoginEmail: r.LoginEmail, CredentialMode: r.CredentialMode,
-		ProxyID:  r.ProxyID,
+		ProxySource: r.ProxySource, ProxyID: r.ProxyID,
 		Password: r.Password, TOTPSecret: r.TOTPSecret, OTPURL: r.OTPURL,
 		ClearPassword: r.ClearPassword, ClearTOTP: r.ClearTOTP,
 		Enabled: enabled, AutoReloginEnabled: autoRelogin,

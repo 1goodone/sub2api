@@ -24,19 +24,20 @@ func NewOpenAIOAuthReauthRepository(db *sql.DB) service.OpenAIOAuthReauthReposit
 func (r *openAIOAuthReauthRepository) UpsertConfig(ctx context.Context, config *service.OpenAIOAuthReauthStoredConfig) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO openai_oauth_reauth_configs (
-			account_id, login_email, credential_mode, proxy_id,
+			account_id, login_email, credential_mode, proxy_source, proxy_id,
 			password_ciphertext, totp_secret_ciphertext, otp_url_ciphertext
 		)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''))
 		ON CONFLICT (account_id) DO UPDATE
 		SET login_email = EXCLUDED.login_email,
 			credential_mode = EXCLUDED.credential_mode,
+			proxy_source = EXCLUDED.proxy_source,
 			proxy_id = EXCLUDED.proxy_id,
 			password_ciphertext = EXCLUDED.password_ciphertext,
 			totp_secret_ciphertext = EXCLUDED.totp_secret_ciphertext,
 			otp_url_ciphertext = EXCLUDED.otp_url_ciphertext,
 			updated_at = NOW()
-	`, config.AccountID, config.LoginEmail, config.CredentialMode, config.ProxyID,
+	`, config.AccountID, config.LoginEmail, config.CredentialMode, config.ProxySource, config.ProxyID,
 		config.PasswordCiphertext, config.TOTPSecretCiphertext, config.OTPURLCiphertext)
 	return err
 }
@@ -46,12 +47,12 @@ func (r *openAIOAuthReauthRepository) GetConfig(ctx context.Context, accountID i
 	var proxyID sql.NullInt64
 	var passwordCiphertext, totpSecretCiphertext, otpURLCiphertext sql.NullString
 	err := r.db.QueryRowContext(ctx, `
-		SELECT account_id, login_email, credential_mode, proxy_id,
+		SELECT account_id, login_email, credential_mode, proxy_source, proxy_id,
 			password_ciphertext, totp_secret_ciphertext, otp_url_ciphertext, updated_at
 		FROM openai_oauth_reauth_configs
 		WHERE account_id = $1
 	`, accountID).Scan(
-		&cfg.AccountID, &cfg.LoginEmail, &cfg.CredentialMode, &proxyID,
+		&cfg.AccountID, &cfg.LoginEmail, &cfg.CredentialMode, &cfg.ProxySource, &proxyID,
 		&passwordCiphertext, &totpSecretCiphertext, &otpURLCiphertext, &cfg.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

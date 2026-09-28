@@ -13,8 +13,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
@@ -47,6 +49,12 @@ const (
 )
 
 const (
+	OpenAIOAuthReauthProxySourceAccount      = "account"
+	OpenAIOAuthReauthProxySourceManagedProxy = "managed_proxy"
+	OpenAIOAuthReauthProxySourceMihomo       = "mihomo"
+)
+
+const (
 	openAIOAuthReauthStaleAfter = 30 * time.Minute
 	maxOpenAIOAuthReauthURL     = 4096
 	maxOpenAIOAuthReauthError   = 500
@@ -59,6 +67,7 @@ type OpenAIOAuthReauthConfig struct {
 	AccountID          int64     `json:"account_id"`
 	LoginEmail         string    `json:"login_email"`
 	CredentialMode     string    `json:"credential_mode"`
+	ProxySource        string    `json:"proxy_source"`
 	ProxyID            *int64    `json:"proxy_id,omitempty"`
 	URLMasked          string    `json:"otp_url_masked,omitempty"`
 	PasswordConfigured bool      `json:"password_configured"`
@@ -70,6 +79,7 @@ type OpenAIOAuthReauthConfig struct {
 type OpenAIOAuthReauthConfigInput struct {
 	LoginEmail     string
 	CredentialMode string
+	ProxySource    string
 	ProxyID        *int64
 	Password       string
 	TOTPSecret     string
@@ -120,6 +130,7 @@ type OpenAIOAuthReauthStoredConfig struct {
 	AccountID            int64
 	LoginEmail           string
 	CredentialMode       string
+	ProxySource          string
 	ProxyID              *int64
 	PasswordCiphertext   string
 	TOTPSecretCiphertext string
@@ -165,6 +176,9 @@ type OpenAIOAuthReauthService struct {
 	encryptionKeyConfigured bool
 	tokenCacheInvalidator   TokenCacheInvalidator
 	runtimeBlocker          AccountRuntimeBlocker
+	acquireMihomoProxy      func(context.Context, string) (string, func(), error)
+	mihomoLeaseMu           sync.Mutex
+	mihomoLeases            map[int64]func()
 }
 
 func NewOpenAIOAuthReauthService(
@@ -186,7 +200,62 @@ func NewOpenAIOAuthReauthService(
 		encryptionKeyConfigured: encryptionKeyConfigured,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 		runtimeBlocker:          runtimeBlocker,
+		mihomoLeases:            make(map[int64]func()),
+		acquireMihomoProxy: func(ctx context.Context, scope string) (string, func(), error) {
+			lease, err := mihomo.AcquireBPSTransientLease(ctx, scope)
+			if err != nil {
+				return "", nil, err
+			}
+			return lease.ProxyURL, lease.Release, nil
+		},
 	}
+}
+
+func (s *OpenAIOAuthReauthService) replaceMihomoLease(taskID int64, release func()) {
+	if release == nil {
+		return
+	}
+	s.mihomoLeaseMu.Lock()
+	previous := s.mihomoLeases[taskID]
+	s.mihomoLeases[taskID] = release
+	s.mihomoLeaseMu.Unlock()
+	if previous != nil {
+		previous()
+	}
+}
+
+func (s *OpenAIOAuthReauthService) releaseMihomoLease(taskID int64) {
+	s.mihomoLeaseMu.Lock()
+	release := s.mihomoLeases[taskID]
+	delete(s.mihomoLeases, taskID)
+	s.mihomoLeaseMu.Unlock()
+	if release != nil {
+		release()
+	}
+}
+
+func normalizeReauthProxySource(source string, proxyID *int64) (string, error) {
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "" {
+		if proxyID != nil {
+			source = OpenAIOAuthReauthProxySourceManagedProxy
+		} else {
+			source = OpenAIOAuthReauthProxySourceAccount
+		}
+	}
+	switch source {
+	case OpenAIOAuthReauthProxySourceAccount, OpenAIOAuthReauthProxySourceMihomo:
+		if proxyID != nil {
+			return "", errors.New("proxy id is only valid for managed_proxy")
+		}
+	case OpenAIOAuthReauthProxySourceManagedProxy:
+		if proxyID == nil || *proxyID <= 0 {
+			return "", errors.New("managed_proxy requires a proxy id")
+		}
+	default:
+		return "", errors.New("invalid proxy source")
+	}
+	return source, nil
 }
 
 func normalizeReauthEmail(raw string) (string, error) {
@@ -295,11 +364,22 @@ func (s *OpenAIOAuthReauthService) SaveCredentialConfig(ctx context.Context, acc
 	if err != nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_CONFIG_READ_FAILED", "failed to read re-login configuration")
 	}
+	proxySource := input.ProxySource
 	proxyID := input.ProxyID
-	if input.PreserveProxy && proxyID == nil && existing != nil {
+	if input.PreserveProxy && strings.TrimSpace(proxySource) == "" && proxyID == nil && existing != nil {
+		proxySource = existing.ProxySource
 		proxyID = existing.ProxyID
 	}
-	if _, err := s.reauthProxyURL(ctx, proxyID); err != nil {
+	proxySource, err = normalizeReauthProxySource(proxySource, proxyID)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_PROXY_SOURCE_INVALID", "invalid re-login proxy source")
+	}
+	if proxySource == OpenAIOAuthReauthProxySourceManagedProxy {
+		if _, err := s.reauthProxyURL(ctx, proxyID); err != nil {
+			return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_PROXY_INVALID", "selected re-login proxy is unavailable")
+		}
+	}
+	if proxySource == OpenAIOAuthReauthProxySourceMihomo && s.acquireMihomoProxy == nil {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_PROXY_INVALID", "selected re-login proxy is unavailable")
 	}
 	email, err := normalizeReauthEmail(input.LoginEmail)
@@ -313,7 +393,7 @@ func (s *OpenAIOAuthReauthService) SaveCredentialConfig(ctx context.Context, acc
 	if mode != OpenAIOAuthReauthModeEmailOTPURL && mode != OpenAIOAuthReauthModePasswordTOTP {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_MODE_INVALID", "invalid OpenAI re-login credential mode")
 	}
-	stored := &OpenAIOAuthReauthStoredConfig{AccountID: accountID, LoginEmail: email, CredentialMode: mode, ProxyID: proxyID, UpdatedAt: time.Now()}
+	stored := &OpenAIOAuthReauthStoredConfig{AccountID: accountID, LoginEmail: email, CredentialMode: mode, ProxySource: proxySource, ProxyID: proxyID, UpdatedAt: time.Now()}
 	if existing != nil && existing.CredentialMode == mode {
 		stored.PasswordCiphertext = existing.PasswordCiphertext
 		stored.TOTPSecretCiphertext = existing.TOTPSecretCiphertext
@@ -375,8 +455,13 @@ func (s *OpenAIOAuthReauthService) configView(_ context.Context, stored *OpenAIO
 	if mode == "" {
 		mode = OpenAIOAuthReauthModeEmailOTPURL
 	}
+	proxySource, err := normalizeReauthProxySource(stored.ProxySource, stored.ProxyID)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_PROXY_SOURCE_INVALID", "saved re-login proxy source is invalid")
+	}
 	view := &OpenAIOAuthReauthConfig{
-		AccountID: stored.AccountID, LoginEmail: stored.LoginEmail, CredentialMode: mode, ProxyID: stored.ProxyID, UpdatedAt: stored.UpdatedAt,
+		AccountID: stored.AccountID, LoginEmail: stored.LoginEmail, CredentialMode: mode,
+		ProxySource: proxySource, ProxyID: stored.ProxyID, UpdatedAt: stored.UpdatedAt,
 	}
 	switch mode {
 	case OpenAIOAuthReauthModeEmailOTPURL:
@@ -511,6 +596,9 @@ func (s *OpenAIOAuthReauthService) ClaimTask(ctx context.Context, workerID strin
 	if record == nil {
 		return nil, nil
 	}
+	// A stale task may be reclaimed by another worker. Release the previous
+	// in-memory lease before resolving a fresh egress for the new attempt.
+	s.releaseMihomoLease(record.ID)
 	account, err := s.accountFor(ctx, record.AccountID)
 	if err != nil {
 		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "account is no longer eligible for OpenAI OAuth re-login")
@@ -525,13 +613,38 @@ func (s *OpenAIOAuthReauthService) ClaimTask(ctx context.Context, workerID strin
 	if mode == "" {
 		mode = OpenAIOAuthReauthModeEmailOTPURL
 	}
+	proxySource, proxyErr := normalizeReauthProxySource(stored.ProxySource, stored.ProxyID)
+	if proxyErr != nil {
+		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "configured re-login proxy source is invalid")
+		return nil, nil
+	}
 	proxyID := stored.ProxyID
 	proxyError := "configured re-login proxy is unavailable"
-	if proxyID == nil {
+	var proxyURL string
+	var release func()
+	switch proxySource {
+	case OpenAIOAuthReauthProxySourceAccount:
 		proxyID = account.ProxyID
 		proxyError = "configured account proxy is unavailable"
+		proxyURL, proxyErr = s.reauthProxyURL(ctx, proxyID)
+	case OpenAIOAuthReauthProxySourceManagedProxy:
+		proxyURL, proxyErr = s.reauthProxyURL(ctx, proxyID)
+	case OpenAIOAuthReauthProxySourceMihomo:
+		proxyError = "managed Mihomo proxy is unavailable"
+		if s.acquireMihomoProxy == nil {
+			proxyErr = errors.New("managed Mihomo proxy is unavailable")
+		} else {
+			proxyURL, release, proxyErr = s.acquireMihomoProxy(ctx, fmt.Sprintf("openai-reauth-task:%d", record.ID))
+		}
 	}
-	proxyURL, proxyErr := s.reauthProxyURL(ctx, proxyID)
+	leaseStored := false
+	if release != nil {
+		defer func() {
+			if !leaseStored {
+				release()
+			}
+		}()
+	}
 	if proxyErr != nil {
 		_ = s.repo.MarkFailed(ctx, record.ID, workerID, proxyError)
 		return nil, nil
@@ -551,7 +664,13 @@ func (s *OpenAIOAuthReauthService) ClaimTask(ctx context.Context, workerID strin
 			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "OTP mailbox URL is invalid")
 			return nil, nil
 		}
-		auth, authErr := s.oauth.GenerateAuthURL(ctx, proxyID, "", PlatformOpenAI)
+		var auth *OpenAIAuthURLResult
+		var authErr error
+		if proxySource == OpenAIOAuthReauthProxySourceMihomo {
+			auth, authErr = s.oauth.GenerateAuthURLWithProxyURL(ctx, proxyURL, "", PlatformOpenAI)
+		} else {
+			auth, authErr = s.oauth.GenerateAuthURL(ctx, proxyID, "", PlatformOpenAI)
+		}
 		if authErr != nil {
 			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "failed to create OpenAI authorization session")
 			return nil, nil
@@ -577,6 +696,10 @@ func (s *OpenAIOAuthReauthService) ClaimTask(ctx context.Context, workerID strin
 	default:
 		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "re-login credential mode is invalid")
 		return nil, nil
+	}
+	if release != nil {
+		s.replaceMihomoLease(record.ID, release)
+		leaseStored = true
 	}
 	return claim, nil
 }
@@ -626,6 +749,7 @@ func (s *OpenAIOAuthReauthService) SubmitCallback(ctx context.Context, taskID in
 	if !started {
 		return safeReauthTask(record), nil
 	}
+	defer s.releaseMihomoLease(taskID)
 	account, err := s.accountFor(ctx, record.AccountID)
 	if err != nil {
 		return s.failCallback(ctx, taskID, "account is no longer eligible for OpenAI OAuth re-login", err)
@@ -661,6 +785,7 @@ func (s *OpenAIOAuthReauthService) SubmitCredentials(ctx context.Context, taskID
 	if !started {
 		return safeReauthTask(record), nil
 	}
+	defer s.releaseMihomoLease(taskID)
 	stored, configErr := s.repo.GetConfig(ctx, record.AccountID)
 	if configErr != nil || stored == nil || strings.TrimSpace(stored.CredentialMode) != OpenAIOAuthReauthModePasswordTOTP {
 		return s.failCallback(ctx, taskID, "re-login task does not accept direct credentials", errors.New("direct credentials require password/TOTP mode"))
@@ -830,6 +955,7 @@ func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, w
 	if err := s.repo.MarkFailed(ctx, taskID, strings.TrimSpace(workerID), reason); err != nil {
 		return infraerrors.New(http.StatusConflict, "OPENAI_REAUTH_TASK_NOT_ACTIVE", "re-login task is no longer active")
 	}
+	s.releaseMihomoLease(taskID)
 	return nil
 }
 

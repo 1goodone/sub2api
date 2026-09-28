@@ -81,9 +81,10 @@
           </label>
           <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<input v-model.trim="draft.login_email" class="input w-full" type="email" required /></label>
           <label class="field-label">{{ t('tokenGuardV2.loginProxy') }}
-            <select v-model="draft.proxy_id" class="input w-full">
-              <option :value="null">{{ t('tokenGuardV2.accountProxyDefault') }}</option>
-              <option v-for="proxy in proxies" :key="proxy.id" :value="proxy.id">{{ proxyOptionLabel(proxy) }}</option>
+            <select v-model="proxyChoice" class="input w-full">
+              <option value="account">{{ t('tokenGuardV2.accountProxyDefault') }}</option>
+              <option value="mihomo">{{ t('tokenGuardV2.mihomoManagedPool') }}</option>
+              <option v-for="proxy in proxies" :key="proxy.id" :value="`proxy:${proxy.id}`">{{ proxyOptionLabel(proxy) }}</option>
             </select>
             <small class="field-hint">{{ t('tokenGuardV2.loginProxyHint') }}</small>
           </label>
@@ -134,6 +135,7 @@ import {
   type SaveTokenGuardV2Account,
   type TokenGuardV2Account,
   type TokenGuardV2CredentialMode,
+  type TokenGuardV2ProxySource,
   type TokenGuardV2Status,
   type TokenGuardV2Task
 } from '@/api/admin/accountTokenGuardV2'
@@ -152,6 +154,7 @@ const blankDraft = (): SaveTokenGuardV2Account => ({
   account_id: 0,
   login_email: '',
   credential_mode: 'password_totp',
+  proxy_source: 'account',
   proxy_id: null,
   password: '',
   totp_secret: '',
@@ -175,9 +178,22 @@ const selectableAccounts = computed(() => {
 const message = (value: unknown) => (value as { message?: string })?.message || t('tokenGuardV2.error')
 const date = (value?: string) => value ? new Date(value).toLocaleString() : '-'
 const modeLabel = (mode?: TokenGuardV2CredentialMode) => !mode ? '-' : mode === 'password_totp' ? t('tokenGuardV2.passwordMode') : t('tokenGuardV2.mailboxMode')
-const proxyOptionLabel = (proxy: Proxy) => `${proxy.name} · ${proxy.host}:${proxy.port}`
-const proxyLabel = (proxyId?: number) => {
-  if (!proxyId) return t('tokenGuardV2.accountProxyDefault')
+const proxyChoice = computed({
+  get: () => draft.proxy_source === 'managed_proxy' && draft.proxy_id ? `proxy:${draft.proxy_id}` : draft.proxy_source,
+  set: (value: string) => {
+    if (value.startsWith('proxy:')) {
+      draft.proxy_source = 'managed_proxy'
+      draft.proxy_id = Number(value.slice(6))
+      return
+    }
+    draft.proxy_source = value as TokenGuardV2ProxySource
+    draft.proxy_id = null
+  }
+})
+const proxyOptionLabel = (proxy: Proxy) => `${proxy.protocol.toUpperCase()} · ${proxy.name} · ${proxy.host}:${proxy.port}`
+const proxyLabel = (source: TokenGuardV2ProxySource = 'account', proxyId?: number) => {
+  if (source === 'mihomo') return t('tokenGuardV2.mihomoManagedPool')
+  if (source !== 'managed_proxy' || !proxyId) return t('tokenGuardV2.accountProxyDefault')
   const proxy = proxies.value.find(item => item.id === proxyId)
   return proxy ? proxyOptionLabel(proxy) : `#${proxyId}`
 }
@@ -189,7 +205,7 @@ const configurationDetail = (item: TokenGuardV2Account) => {
   const credentials = config.credential_mode === 'email_otp_url'
     ? config.otp_url_masked || '-'
     : [config.password_configured ? t('tokenGuardV2.passwordSaved') : '', config.totp_configured ? t('tokenGuardV2.totpSaved') : ''].filter(Boolean).join(' · ') || '-'
-  return `${credentials} · ${t('tokenGuardV2.loginProxy')}: ${proxyLabel(config.proxy_id)}`
+  return `${credentials} · ${t('tokenGuardV2.loginProxy')}: ${proxyLabel(config.proxy_source, config.proxy_id)}`
 }
 const accountEmail = (account?: AccountListItem) => {
   const email = account?.extra?.email_address || account?.extra?.email || account?.credentials?.email
@@ -206,6 +222,7 @@ function openEdit(item: TokenGuardV2Account) {
     account_id: item.account_id,
     login_email: item.login_config?.login_email || '',
     credential_mode: item.login_config?.credential_mode || 'password_totp',
+    proxy_source: item.login_config?.proxy_source || (item.login_config?.proxy_id ? 'managed_proxy' : 'account'),
     proxy_id: item.login_config?.proxy_id ?? null,
     enabled: item.enabled,
     auto_relogin_enabled: item.auto_relogin_enabled
@@ -270,6 +287,7 @@ const relogin = (item: TokenGuardV2Account) => act(item, () => reloginTokenGuard
 const toggle = (item: TokenGuardV2Account) => act(item, () => updateTokenGuardV2Account(item.account_id, {
   login_email: item.login_config?.login_email || '',
   credential_mode: item.login_config?.credential_mode || 'password_totp',
+  proxy_source: item.login_config?.proxy_source || (item.login_config?.proxy_id ? 'managed_proxy' : 'account'),
   proxy_id: item.login_config?.proxy_id ?? null,
   enabled: !item.enabled,
   auto_relogin_enabled: item.auto_relogin_enabled

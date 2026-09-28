@@ -55,14 +55,18 @@ func (r *reauthTestProxyRepo) GetByID(ctx context.Context, id int64) (*Proxy, er
 }
 
 type reauthTestOAuthClient struct {
-	accountID string
-	userID    string
-	email     string
-	exchanges int
-	proxyURL  string
+	accountID  string
+	userID     string
+	email      string
+	exchanges  int
+	proxyURL   string
+	onExchange func()
 }
 
 func (c *reauthTestOAuthClient) ExchangeCode(_ context.Context, _, _, _, proxyURL, _ string) (*openai.TokenResponse, error) {
+	if c.onExchange != nil {
+		c.onExchange()
+	}
 	c.exchanges++
 	c.proxyURL = proxyURL
 	return &openai.TokenResponse{
@@ -444,14 +448,15 @@ func TestOpenAIOAuthReauthUsesManagedProxyOverrideForWorkerAndTokenExchange(t *t
 	accountProxyID := int64(4)
 	overrideProxyID := int64(9)
 	reader.account.ProxyID = &accountProxyID
-	reader.proxy = &Proxy{ID: overrideProxyID, Name: "login-proxy", Protocol: "http", Host: "203.0.113.9", Port: 8080, Status: StatusActive}
+	reader.proxy = &Proxy{ID: overrideProxyID, Name: "login-proxy", Protocol: "socks5h", Host: "203.0.113.9", Port: 1080, Status: StatusActive}
 
 	config, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
 		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
-		ProxyID: &overrideProxyID, OTPURL: "https://mail.example.com/code",
+		ProxySource: OpenAIOAuthReauthProxySourceManagedProxy, ProxyID: &overrideProxyID, OTPURL: "https://mail.example.com/code",
 	})
 	require.NoError(t, err)
 	require.Equal(t, overrideProxyID, *config.ProxyID)
+	require.Equal(t, OpenAIOAuthReauthProxySourceManagedProxy, config.ProxySource)
 	config, err = svc.SaveConfig(ctx, 42, "user@example.com", "https://mail.example.com/code")
 	require.NoError(t, err)
 	require.Equal(t, overrideProxyID, *config.ProxyID, "legacy mailbox edits must preserve the V2 proxy override")
@@ -460,12 +465,112 @@ func TestOpenAIOAuthReauthUsesManagedProxyOverrideForWorkerAndTokenExchange(t *t
 	require.NoError(t, err)
 	claim, err := svc.ClaimTask(ctx, "worker-a")
 	require.NoError(t, err)
-	require.Equal(t, "http://203.0.113.9:8080", claim.ProxyURL)
+	require.Equal(t, "socks5h://203.0.113.9:1080", claim.ProxyURL)
 
 	state := reauthStateFromURL(t, claim.AuthURL)
 	_, err = svc.SubmitCallback(ctx, claim.TaskID, "worker-a", "http://localhost:1455/auth/callback?code=test-code&state="+url.QueryEscape(state))
 	require.NoError(t, err)
 	require.Equal(t, claim.ProxyURL, oauthClient.proxyURL)
+}
+
+func TestOpenAIOAuthReauthUsesMihomoProxyForWorkerAndTokenExchange(t *testing.T) {
+	svc, _, _, _, oauthClient, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	released := false
+	svc.acquireMihomoProxy = func(context.Context, string) (string, func(), error) {
+		return "http://127.0.0.1:19017", func() { released = true }, nil
+	}
+
+	config, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+		ProxySource: OpenAIOAuthReauthProxySourceMihomo, OTPURL: "https://mail.example.com/code",
+	})
+	require.NoError(t, err)
+	require.Equal(t, OpenAIOAuthReauthProxySourceMihomo, config.ProxySource)
+	require.Nil(t, config.ProxyID)
+
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(ctx, "worker-a")
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:19017", claim.ProxyURL)
+	require.False(t, released)
+	oauthClient.onExchange = func() { require.False(t, released) }
+
+	state := reauthStateFromURL(t, claim.AuthURL)
+	_, err = svc.SubmitCallback(ctx, claim.TaskID, "worker-a", "http://localhost:1455/auth/callback?code=test-code&state="+url.QueryEscape(state))
+	require.NoError(t, err)
+	require.True(t, released)
+	require.Equal(t, claim.ProxyURL, oauthClient.proxyURL)
+}
+
+func TestOpenAIOAuthReauthKeepsMihomoProxyUntilDirectCredentialsComplete(t *testing.T) {
+	svc, _, _, _, _, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	released := false
+	svc.acquireMihomoProxy = func(context.Context, string) (string, func(), error) {
+		return "http://127.0.0.1:19018", func() { released = true }, nil
+	}
+	_, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		ProxySource: OpenAIOAuthReauthProxySourceMihomo, Password: "password-secret", TOTPSecret: "totp-secret",
+	})
+	require.NoError(t, err)
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(ctx, "worker-a")
+	require.NoError(t, err)
+	require.False(t, released)
+
+	_, err = svc.SubmitCredentials(ctx, claim.TaskID, "worker-a", directReauthCredentials("acct-1", "user-1", "user@example.com"), nil)
+	require.NoError(t, err)
+	require.True(t, released)
+}
+
+func TestOpenAIOAuthReauthReleasesMihomoProxyWhenWorkerFails(t *testing.T) {
+	svc, _, _, _, _, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	released := false
+	svc.acquireMihomoProxy = func(context.Context, string) (string, func(), error) {
+		return "http://127.0.0.1:19019", func() { released = true }, nil
+	}
+	_, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		ProxySource: OpenAIOAuthReauthProxySourceMihomo, Password: "password-secret", TOTPSecret: "totp-secret",
+	})
+	require.NoError(t, err)
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(ctx, "worker-a")
+	require.NoError(t, err)
+	require.False(t, released)
+
+	require.NoError(t, svc.FailTask(ctx, claim.TaskID, "worker-a", "worker timeout"))
+	require.True(t, released)
+}
+
+func TestOpenAIOAuthReauthRejectsInvalidProxySourceCombinations(t *testing.T) {
+	proxyID := int64(9)
+	for _, tt := range []struct {
+		name   string
+		source string
+		id     *int64
+	}{
+		{name: "account with proxy id", source: OpenAIOAuthReauthProxySourceAccount, id: &proxyID},
+		{name: "mihomo with proxy id", source: OpenAIOAuthReauthProxySourceMihomo, id: &proxyID},
+		{name: "managed proxy without id", source: OpenAIOAuthReauthProxySourceManagedProxy},
+		{name: "unknown source", source: "other"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _, _, _, _, _ := newReauthTestService("acct-1")
+			_, err := svc.SaveCredentialConfig(context.Background(), 42, OpenAIOAuthReauthConfigInput{
+				LoginEmail: "user@example.com", CredentialMode: OpenAIOAuthReauthModeEmailOTPURL,
+				ProxySource: tt.source, ProxyID: tt.id, OTPURL: "https://mail.example.com/code",
+			})
+			require.Error(t, err)
+			require.Equal(t, "OPENAI_REAUTH_PROXY_SOURCE_INVALID", infraerrors.Reason(err))
+		})
+	}
 }
 
 func TestOpenAIOAuthReauthRejectsInactiveManagedProxyOverride(t *testing.T) {
