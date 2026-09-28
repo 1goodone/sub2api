@@ -362,13 +362,22 @@ describe('quality operations', () => {
     expect(scheduledTests.create).not.toHaveBeenCalled()
     expect(wrapper.find('[role="alert"]').text()).toContain('qualityOps.bpsTargetGroupRequired')
     await wrapper.find('[data-testid="quality-bps-target-group"]').setValue('21')
+    await wrapper.find('[data-testid="quality-bps-auto_disable_on_403"]').setValue(true)
+    await wrapper.find('[data-testid="quality-bps-auto_recover_on_403"]').setValue(true)
+    const interval = wrapper.get<HTMLInputElement>('[data-testid="quality-bps-recovery-interval"]')
+    expect(interval.element.value).toBe('60')
+    await interval.setValue('0')
+    await vm.save()
+    expect(scheduledTests.create).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').text()).toContain('admin.accounts.openai.excelBPS403RecoveryIntervalInvalid')
+    await interval.setValue('360')
     vm.form.pelican_config.quality.remove_group_ids = [21]
     await vm.save()
     const request = vi.mocked(scheduledTests.create).mock.calls[0][0] as any
     expect(request.pelican_config.quality).toEqual({ expected_answer: '', action: 'enable_bps', remove_group_ids: [], auto_restore: true, bps: {
       failure_threshold: 3, usage_percent: 80, require_all: true, all_models: false, models: ['gpt-6-astra'],
-      omit_unsupported_tools: true, ignore_images: true, ignore_encrypted_content: true, auto_disable_on_403: false,
-      auto_recover_on_403: false,
+      omit_unsupported_tools: true, ignore_images: true, ignore_encrypted_content: true, auto_disable_on_403: true,
+      auto_recover_on_403: true, recovery_interval_minutes: 360,
       auto_move_on_403: true, target_group_id: 21, session_proxy: false, proxy_source: '', cache_creation_as_input: false,
       pass_threshold: 3, hold_on_usage: false } })
     wrapper.unmount()

@@ -554,7 +554,7 @@ describe('EditAccountModal', () => {
     wrapper.unmount()
   })
 
-  it('persists hourly 403 recovery and clears it when auto-disable is turned off', async () => {
+  it.each([30, 360])('persists a %i minute recovery interval and disables recovery with auto-disable', async (minutes) => {
     const account = buildAccount()
     account.type = 'oauth'
     account.extra = { openai_excel_bps: true }
@@ -566,11 +566,16 @@ describe('EditAccountModal', () => {
     expect(wrapper.get<HTMLInputElement>(recovery).element.disabled).toBe(true)
     await wrapper.get('[data-testid="excel-bps-auto-disable-on-403"]').setValue(true)
     await wrapper.get(recovery).setValue(true)
+    const interval = wrapper.get<HTMLInputElement>('[data-testid="excel-bps-recovery-interval"]')
+    expect(interval.element.value).toBe('60')
+    await interval.setValue(String(minutes))
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
     expect(extra.openai_excel_bps_auto_recover_on_403).toBe(true)
+    expect(extra.openai_excel_bps_403_recovery_interval_minutes).toBe(minutes)
     await wrapper.setProps({ account: { ...account, extra } })
+    expect(wrapper.get<HTMLInputElement>('[data-testid="excel-bps-recovery-interval"]').element.value).toBe(String(minutes))
     expect(wrapper.get<HTMLInputElement>(recovery).element.checked).toBe(true)
     await wrapper.get('[data-testid="excel-bps-auto-disable-on-403"]').setValue(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
@@ -578,10 +583,24 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[1]?.[1]?.extra.openai_excel_bps_auto_recover_on_403).toBeUndefined()
   })
 
+  it.each(['', '0', '-1', '1.5', '10081'])('rejects an invalid recovery interval: %s', async (value) => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.extra = { openai_excel_bps: true, openai_excel_bps_auto_disable_on_403: true, openai_excel_bps_auto_recover_on_403: true }
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="excel-bps-recovery-interval"]').setValue(value)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('can enable and stop recovery on a 403-disabled account without losing hidden BPS options', async () => {
     const account = buildAccount()
     account.type = 'oauth'
     const options = {
+      openai_excel_bps_403_recovery_interval_minutes: 360,
       openai_excel_bps_models: ['gpt-6-astra'], openai_excel_bps_mihomo: true,
       openai_excel_bps_proxy_source: 'ip_pool', openai_excel_bps_ignore_images: true,
       openai_excel_bps_ignore_encrypted_content: true, openai_excel_bps_cache_creation_as_input: true,
