@@ -48,7 +48,7 @@ func (r *accountTokenGuardV2Repository) ListAccounts(ctx context.Context) ([]ser
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := make([]service.AccountTokenGuardV2Record, 0)
 	for rows.Next() {
 		record, scanErr := scanAccountTokenGuardV2(rows)
@@ -91,7 +91,7 @@ func (r *accountTokenGuardV2Repository) ClaimDue(ctx context.Context, owner stri
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := make([]service.AccountTokenGuardV2Record, 0, limit)
 	for rows.Next() {
 		record, scanErr := scanAccountTokenGuardV2(rows)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -306,7 +307,8 @@ func ValidateOpenAIOAuthReauthURL(raw string) (*url.URL, error) {
 	}
 	scheme := strings.ToLower(u.Scheme)
 	host := strings.ToLower(u.Hostname())
-	if scheme != "https" && !(scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1")) {
+	allowLocalHTTP := scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1")
+	if scheme != "https" && !allowLocalHTTP {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_OTP_URL_INVALID", "OTP API URL must use HTTPS (HTTP is allowed only for localhost tests)")
 	}
 	return u, nil
@@ -961,6 +963,7 @@ func (s *OpenAIOAuthReauthService) applyReauthTokenInfo(ctx context.Context, rec
 		if err := s.tokenCacheInvalidator.InvalidateToken(ctx, &updatedAccount); err != nil {
 			// Credentials are already durable; cache invalidation is retried by the
 			// normal token path and must not make a successful login look failed.
+			slog.Warn("openai_oauth_reauth_token_cache_invalidation_failed", "account_id", account.ID, "task_id", taskID)
 		}
 	}
 	if s.runtimeBlocker != nil {
