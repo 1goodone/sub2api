@@ -14,6 +14,10 @@
     </div>
     <p v-if="loading" class="mt-2 text-xs text-gray-500" data-testid="account-auto-bps-loading">{{ t('admin.accounts.openai.autoBPSLoading') }}</p>
     <p v-else-if="loadError" class="mt-2 text-xs text-red-600 dark:text-red-400" data-testid="account-auto-bps-load-error">{{ t('admin.accounts.openai.autoBPSLoadFailed', { error: loadError }) }}</p>
+    <p v-else-if="conflictingRuleId != null" class="mt-2 text-xs text-amber-700 dark:text-amber-400" data-testid="account-auto-bps-conflict">
+      {{ t('admin.accounts.openai.autoBPSRuleConflict', { id: conflictingRuleId }) }}
+      <a href="/admin/account-quality" class="underline">{{ t('admin.accounts.openai.autoBPSManageRules') }}</a>
+    </p>
     <p v-else-if="hasRule" class="mt-2 text-xs text-gray-500 dark:text-gray-400" data-testid="account-auto-bps-pause-hint">{{ t('admin.accounts.openai.autoBPSPauseHint') }}</p>
     <QualityBPSSettings v-if="draft.enabled && !locked" v-model:bps="draft.bps" v-model:auto-restore="draft.autoRestore" class="mt-3" :target-groups="targetGroups" />
   </div>
@@ -28,13 +32,13 @@ import { useAuthStore } from '@/stores/auth'
 import type { AdminGroup } from '@/types'
 import type { AutoBPSDraft } from '@/utils/accountAutoBPS'
 
-const props = withDefaults(defineProps<{ groups: AdminGroup[]; loading?: boolean; loadError?: string; hasRule?: boolean }>(), {
-  loading: false, loadError: '', hasRule: false
+const props = withDefaults(defineProps<{ groups: AdminGroup[]; loading?: boolean; loadError?: string; hasRule?: boolean; conflictingRuleId?: number | null }>(), {
+  loading: false, loadError: '', hasRule: false, conflictingRuleId: null
 })
 const draft = defineModel<AutoBPSDraft>('draft', { required: true })
 const { t } = useI18n()
 const authStore = useAuthStore()
 // 规则没读出来前不让改，免得保存时拿不准该建还是该改。
-const locked = computed(() => props.loading || !!props.loadError)
+const locked = computed(() => props.loading || !!props.loadError || props.conflictingRuleId != null)
 const targetGroups = computed(() => props.groups.filter(group => group.platform === 'openai' || (!authStore.isSimpleMode && group.platform === 'composite')))
 </script>

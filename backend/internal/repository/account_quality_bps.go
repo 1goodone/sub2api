@@ -200,15 +200,23 @@ func qualityBPSSnapshot(extra map[string]json.RawMessage) map[string]json.RawMes
 	return snapshot
 }
 
-// 按值比较而非按字节：状态存进 JSONB 后空白与键序会被规范化。
+// 按设置语义比较：账号编辑页会省略 false 开关和默认代理来源。
+// 模型范围等没有等价缺省值的字段仍严格比较，避免覆盖真正的手动改动。
 func qualityBPSSnapshotEqual(a, b map[string]json.RawMessage) bool {
-	if len(a) != len(b) {
-		return false
+	keys := make(map[string]struct{}, len(a)+len(b))
+	for key := range a {
+		keys[key] = struct{}{}
 	}
-	for key, left := range a {
-		right, ok := b[key]
-		if !ok {
-			return false
+	for key := range b {
+		keys[key] = struct{}{}
+	}
+	for key := range keys {
+		left, right := a[key], b[key]
+		if left == nil {
+			left = qualityBPSDefaultJSON(key)
+		}
+		if right == nil {
+			right = qualityBPSDefaultJSON(key)
 		}
 		var x, y any
 		if json.Unmarshal(left, &x) != nil || json.Unmarshal(right, &y) != nil || !reflect.DeepEqual(x, y) {
@@ -216,6 +224,20 @@ func qualityBPSSnapshotEqual(a, b map[string]json.RawMessage) bool {
 		}
 	}
 	return true
+}
+
+func qualityBPSDefaultJSON(key string) json.RawMessage {
+	switch key {
+	case "openai_excel_bps", service.ExcelBPSOmitUnsupportedToolsKey,
+		service.ExcelBPSIgnoreImagesKey, service.ExcelBPSIgnoreEncryptedContentKey,
+		"openai_excel_bps_auto_disable_on_403", service.ExcelBPSAutoMoveOn403Key,
+		"openai_excel_bps_mihomo", "openai_excel_bps_cache_creation_as_input":
+		return json.RawMessage(`false`)
+	case service.ExcelBPSProxySourceKey:
+		return json.RawMessage(`"mihomo"`)
+	default:
+		return nil
+	}
 }
 
 func qualityBPSPatchExtra(ctx context.Context, tx *sql.Tx, accountID int64, set map[string]json.RawMessage, remove []string) error {

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
@@ -194,4 +196,65 @@ func TestStateProbeQualityBPSRuleProbesPastBPS(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "failed", result.Status)
 	require.Contains(t, result.ErrorMessage, openAICodexStateInconclusiveErrPrefix)
+}
+
+type bpsRecoveryPlanRepo struct {
+	qualityPlanRepo
+	ownsBPS bool
+}
+
+func (r *bpsRecoveryPlanRepo) ClaimPelican(ctx context.Context, plan *ScheduledTestPlan, now, until, next time.Time) (bool, error) {
+	claimed, err := r.pelicanPlanRepo.ClaimPelican(ctx, plan, now, until, next)
+	if claimed {
+		plan.PelicanConfig.BPSRecoveryPending = r.ownsBPS
+	}
+	return claimed, err
+}
+
+func TestQualityBPSRecoveryProbeAfterActionChange(t *testing.T) {
+	for _, action := range []string{"disable_scheduling", "remove_groups"} {
+		for _, owned := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/owned=%t", action, owned), func(t *testing.T) {
+				account := stateProbeAccount()
+				account.Extra = map[string]any{"openai_excel_bps": true}
+				upstream := &stateProbeUpstream{replies: []stateProbeReply{
+					stateProbeMint("recovery-ticket"),
+					{status: http.StatusOK, body: stateProbeCompletedStream},
+				}}
+				svc := stateProbeTestService(upstream)
+				svc.accountRepo = &stateProbeAccountRepo{account: account}
+				plans := &bpsRecoveryPlanRepo{ownsBPS: owned}
+				results := &pelicanResults{}
+				runner := &ScheduledTestRunnerService{planRepo: plans, scheduledSvc: NewScheduledTestService(plans, results), runPelican: svc.RunPelicanBackground}
+				plan := pelicanPlan()
+				plan.AccountID = account.ID
+				plan.PelicanConfig = stateProbePlanConfig()
+				plan.PelicanConfig.Quality = &QualityPolicy{Action: action, AutoRestore: true, RemoveGroupIDs: []int64{3}}
+				runner.runOnePlan(context.Background(), plan)
+				require.True(t, plans.finished)
+				require.Len(t, results.results, 1)
+				if owned {
+					require.Equal(t, []string{"passed"}, plans.outcomes)
+					require.Len(t, upstream.calls, 2)
+				} else {
+					require.Equal(t, []string{"inconclusive"}, plans.outcomes, "manual BPS remains unsupported")
+					require.Empty(t, upstream.calls)
+				}
+			})
+		}
+	}
+}
+
+func TestQualityBPSRecoveryOwnershipIsRuntimeOnly(t *testing.T) {
+	config := stateProbePlanConfig()
+	config.BPSRecoveryPending = true
+	data, err := json.Marshal(config)
+	require.NoError(t, err)
+	var decoded PelicanTestConfig
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.False(t, decoded.BPSRecoveryPending)
+	data, err = json.Marshal(map[string]any{"BPSRecoveryPending": true, "bps_recovery_pending": true})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.False(t, decoded.BPSRecoveryPending)
 }

@@ -101,7 +101,7 @@ describe('EditAccountModal auto BPS switch', () => {
   })
 
   it('shows the running rule and pauses it when switched off', async () => {
-    mocks.listByAccount.mockResolvedValue([buildRule({ id: 30, pelican_config: { question_kind: 'pelican', quality: { action: 'enable_bps' } } }), buildRule()])
+    mocks.listByAccount.mockResolvedValue([buildRule({ id: 30, pelican_config: { question_kind: 'pelican' } }), buildRule()])
     const wrapper = mountModal()
     await flushPromises()
     expect(mocks.listByAccount).toHaveBeenCalledWith(7)
@@ -116,6 +116,25 @@ describe('EditAccountModal auto BPS switch', () => {
     expect(mocks.updateAccount).toHaveBeenCalledTimes(1)
     expect(mocks.updatePlan).toHaveBeenCalledWith(31, { enabled: false })
     expect(mocks.createPlan).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toHaveLength(1)
+  })
+
+  it.each([true, false])('blocks a conflicting quality rule, enabled=%s, without blocking the account save', async (enabled) => {
+    mocks.listByAccount.mockResolvedValue([buildRule({ enabled, pelican_config: {
+      question_kind: 'state_probe', prompt: '', parallel_count: 1,
+      quality: { expected_answer: '', action: 'disable_scheduling', remove_group_ids: [], auto_restore: true }
+    } })])
+    const wrapper = mountModal()
+    await flushPromises()
+    expect(wrapper.get(toggleSelector).attributes('disabled')).toBeDefined()
+    expect(wrapper.get(toggleSelector).attributes('aria-checked')).toBe('false')
+    const conflict = wrapper.get('[data-testid="account-auto-bps-conflict"]')
+    expect(conflict.text()).toContain('admin.accounts.openai.autoBPSRuleConflict')
+    expect(conflict.get('a').attributes('href')).toBe('/admin/account-quality')
+    await submit(wrapper)
+    expect(mocks.updateAccount).toHaveBeenCalledTimes(1)
+    expect(mocks.createPlan).not.toHaveBeenCalled()
+    expect(mocks.updatePlan).not.toHaveBeenCalled()
     expect(wrapper.emitted('updated')).toHaveLength(1)
   })
 

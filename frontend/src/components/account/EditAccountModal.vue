@@ -1863,7 +1863,8 @@
       </div>
 
       <AccountAutoBPSSection v-if="autoBPSSupported" v-model:draft="autoBPS.draft.value" :groups="groups"
-        :loading="autoBPS.loading.value" :load-error="autoBPS.loadError.value" :has-rule="!!autoBPS.rule.value" />
+        :loading="autoBPS.loading.value" :load-error="autoBPS.loadError.value" :has-rule="!!autoBPS.rule.value"
+        :conflicting-rule-id="autoBPS.conflictingRule.value?.id" />
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div

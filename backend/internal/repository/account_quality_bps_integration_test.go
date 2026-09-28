@@ -181,6 +181,7 @@ func TestQualityEnableBPSStateSurvivesActionChange(t *testing.T) {
 		Action: service.QualityActionEnableBPS, AutoRestore: true,
 		BPS: &service.QualityBPSPolicy{FailureThreshold: 3, AllModels: true},
 	})
+	require.False(t, f.plan.PelicanConfig.BPSRecoveryPending)
 	require.Equal(t, "failure_counted:1/3", f.apply("failed"))
 
 	// 规则改成停调度后丢掉残留的连续次数：改回来要重新计数，也不挡住停调度写状态。
@@ -200,9 +201,13 @@ func TestQualityEnableBPSStateSurvivesActionChange(t *testing.T) {
 	require.NotContains(t, f.extra(), "openai_excel_bps_models", "all models = no scope key")
 	f.exec(`UPDATE scheduled_test_plans SET pelican_config=jsonb_set(pelican_config,'{quality,action}','"disable_scheduling"') #- '{quality,bps}', running_until=NULL, updated_at=NOW() WHERE account_id=$1`)
 	f.claim()
+	require.True(t, f.plan.PelicanConfig.BPSRecoveryPending, "claim retains BPS ownership after the configured action changes")
 	require.Equal(t, "already_quarantined", f.apply("failed"))
 	require.Equal(t, "restored", f.apply("passed"))
 	require.NotContains(t, f.extra(), "openai_excel_bps")
+	require.NoError(t, f.plans.FinishPelican(context.Background(), f.plan.ID, f.until, time.Now()))
+	f.claim()
+	require.False(t, f.plan.PelicanConfig.BPSRecoveryPending, "restored ownership must not leak into future runs")
 }
 
 func TestQualityEnableBPSRestoreWithoutUsageHold(t *testing.T) {
@@ -225,4 +230,27 @@ func TestQualityEnableBPSRestoreWithoutUsageHold(t *testing.T) {
 	require.Equal(t, "restored", f.apply("passed"))
 	require.NotContains(t, f.extra(), "openai_excel_bps")
 	require.Equal(t, "bps_enabled_usage", f.apply("passed"))
+}
+
+func TestQualityEnableBPSRestoreAfterAccountEditorSave(t *testing.T) {
+	f := newQualityBPSFixture(t, `{}`, &service.QualityPolicy{
+		Action: service.QualityActionEnableBPS, AutoRestore: true,
+		BPS: &service.QualityBPSPolicy{FailureThreshold: 1, PassThreshold: 1, AllModels: true, OmitUnsupportedTools: true, IgnoreEncryptedContent: true},
+	})
+	require.Equal(t, "bps_enabled", f.apply("failed"))
+	repo := newAccountRepositoryWithSQL(testEntClient(t), integrationDB, nil)
+	account, err := repo.GetByID(context.Background(), f.account)
+	require.NoError(t, err)
+	// EditAccountModal emits absent keys for unchecked options and the default
+	// proxy source even when the operator only changes the account's name.
+	account.Name = "renamed without changing BPS settings"
+	for key, value := range account.Extra {
+		if value == false {
+			delete(account.Extra, key)
+		}
+	}
+	delete(account.Extra, service.ExcelBPSProxySourceKey)
+	require.True(t, account.IsExcelBPSEnabledForModel("gpt-6-astra"))
+	require.NoError(t, repo.Update(context.Background(), account))
+	require.Equal(t, "restored", f.apply("passed"))
 }
