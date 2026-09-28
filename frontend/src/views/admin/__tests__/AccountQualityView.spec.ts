@@ -342,6 +342,8 @@ describe('quality operations', () => {
     expect(wrapper.find('[data-testid="quality-auto-restore"]').exists()).toBe(false)
     const checked = (id: string) => (wrapper.find(`[data-testid="quality-bps-${id}"]`).element as HTMLInputElement).checked
     expect([checked('omit_unsupported_tools'), checked('ignore_images'), checked('ignore_encrypted_content'), checked('auto_disable_on_403')]).toEqual([true, false, true, false])
+    expect(checked('auto_recover_on_403')).toBe(false)
+    expect((wrapper.find('[data-testid="quality-bps-auto_recover_on_403"]').element as HTMLInputElement).disabled).toBe(true)
     expect(wrapper.find('[data-testid="model-selector"]').text()).toBe('gpt-6-astra,gpt-5.6-sol,gpt-5.6-terra')
     expect(wrapper.find('[data-testid="quality-bps-require-all"]').exists()).toBe(false)
     expect((wrapper.find('[data-testid="quality-bps-pass-threshold"]').element as HTMLInputElement).value).toBe('2')
@@ -366,6 +368,7 @@ describe('quality operations', () => {
     expect(request.pelican_config.quality).toEqual({ expected_answer: '', action: 'enable_bps', remove_group_ids: [], auto_restore: true, bps: {
       failure_threshold: 3, usage_percent: 80, require_all: true, all_models: false, models: ['gpt-6-astra'],
       omit_unsupported_tools: true, ignore_images: true, ignore_encrypted_content: true, auto_disable_on_403: false,
+      auto_recover_on_403: false,
       auto_move_on_403: true, target_group_id: 21, session_proxy: false, proxy_source: '', cache_creation_as_input: false,
       pass_threshold: 3, hold_on_usage: false } })
     wrapper.unmount()
