@@ -219,7 +219,7 @@ type SystemSettings struct {
 	OpenAICodexVersionAutoSyncEnabled       bool                            `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAICodexTicketEnabled                bool                            `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL        string                          `json:"openai_codex_ticket_harvest_proxy_url"`
-	OpenAICodexTicketStaticProxyURL         string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
+	OpenAICodexTicketStaticProxyURL         string                          `json:"openai_codex_ticket_static_proxy_url,omitempty"`
 	OpenAICodexTicketHarvestProxyConfigured bool                            `json:"openai_codex_ticket_harvest_proxy_configured"`
 	OpenAICodexTicketHarvestScope           service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
 	OpenAICodexTicketModels                 []string                        `json:"openai_codex_ticket_models"`
@@ -359,24 +359,27 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests  bool   `json:"allow_user_view_error_requests"`
-	UsageShowLongContextBadge   bool   `json:"usage_show_long_context_badge"`
-	UsageShowAverageTPS         bool   `json:"usage_show_average_tps"`
-	RequestCaptureEnabled       bool   `json:"request_capture_enabled"`
-	RequestCaptureQuotaMiB      int64  `json:"request_capture_quota_mib"`
-	RequestCaptureRetentionDays int    `json:"request_capture_retention_days"`
-	ExcelBPSImageMode           string `json:"excel_bps_image_mode"`
-	ExcelBPSImageRelayEnabled   bool   `json:"excel_bps_image_relay_enabled"`
-	ExcelBPSImageBaseURL        string `json:"excel_bps_image_base_url"`
-	ExcelBPSImageBodyLimitMiB   int    `json:"excel_bps_image_body_limit_mib"`
-	ExcelBPSImageBudgetMiB      int    `json:"excel_bps_image_budget_mib"`
-	ExcelBPSImageMaxRequests    int    `json:"excel_bps_image_max_requests"`
-	ExcelBPSImageMaxImageMiB    int    `json:"excel_bps_image_max_image_mib"`
-	ExcelBPSImageMaxImages      int    `json:"excel_bps_image_max_images"`
-	ExcelBPSImageMaxTotalMiB    int    `json:"excel_bps_image_max_total_mib"`
-	ExcelBPSImageStorageMiB     int    `json:"excel_bps_image_storage_mib"`
-	ExcelBPSImageStorageEntries int    `json:"excel_bps_image_storage_entries"`
-	ExcelBPSImageTTLMinutes     int    `json:"excel_bps_image_ttl_minutes"`
+	AllowUserViewErrorRequests    bool   `json:"allow_user_view_error_requests"`
+	UsageShowLongContextBadge     bool   `json:"usage_show_long_context_badge"`
+	UsageShowAverageTPS           bool   `json:"usage_show_average_tps"`
+	RequestCaptureEnabled         bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB        int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays   int    `json:"request_capture_retention_days"`
+	ExcelBPSImageMode             string `json:"excel_bps_image_mode"`
+	ExcelBPSImageRelayEnabled     bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL          string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageBodyLimitMiB     int    `json:"excel_bps_image_body_limit_mib"`
+	ExcelBPSImageBudgetMiB        int    `json:"excel_bps_image_budget_mib"`
+	ExcelBPSImageMaxRequests      int    `json:"excel_bps_image_max_requests"`
+	ExcelBPSImageMaxImageMiB      int    `json:"excel_bps_image_max_image_mib"`
+	ExcelBPSImageMaxImages        int    `json:"excel_bps_image_max_images"`
+	ExcelBPSImageLimitPolicy      string `json:"excel_bps_image_limit_policy"`
+	ExcelBPSImageWarningRemaining int    `json:"excel_bps_image_warning_remaining"`
+	ExcelBPSImageCompactReserve   int    `json:"excel_bps_image_compact_reserve"`
+	ExcelBPSImageMaxTotalMiB      int    `json:"excel_bps_image_max_total_mib"`
+	ExcelBPSImageStorageMiB       int    `json:"excel_bps_image_storage_mib"`
+	ExcelBPSImageStorageEntries   int    `json:"excel_bps_image_storage_entries"`
+	ExcelBPSImageTTLMinutes       int    `json:"excel_bps_image_ttl_minutes"`
 }
 
 type DefaultSubscriptionSetting struct {
