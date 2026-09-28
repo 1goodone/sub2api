@@ -77,6 +77,23 @@ func requireNoExcelBPSQuotaWrite(t *testing.T, repo *excelBPSQuotaRepo) {
 	}
 }
 
+func nextExcelBPSRateLimitWrite(t *testing.T, repo *excelBPSQuotaRepo) excelBPSQuotaWrite {
+	t.Helper()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case write := <-repo.writes:
+			if !write.resetAt.IsZero() {
+				return write
+			}
+		case <-timer.C:
+			t.Fatal("expected an account rate-limit update")
+			return excelBPSQuotaWrite{}
+		}
+	}
+}
+
 func excelBPSQuotaHeaders(used5h, used7d string) http.Header {
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", used7d)
@@ -160,17 +177,19 @@ func (r *excelBPSCancelReader) Read(p []byte) (int, error) {
 	return r.Reader.Read(p)
 }
 
-func TestExcelBPS429FailsOverWithoutChangingCodexQuota(t *testing.T) {
+func TestExcelBPS429ClassifiesQuotaAndTransientLimits(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		headers      http.Header
-		raw          string
-		cancelOnRead bool
+		name             string
+		headers          http.Header
+		raw              string
+		cancelOnRead     bool
+		wantAccountBlock bool
 	}{
-		{name: "quota headers", headers: excelBPSQuotaHeaders("100", "100")},
+		{name: "five hour quota", headers: excelBPSQuotaHeaders("100", "20"), wantAccountBlock: true},
+		{name: "seven day quota", headers: excelBPSQuotaHeaders("20", "100"), wantAccountBlock: true},
+		{name: "body reset timestamp", raw: fmt.Sprintf(`{"error":{"type":"usage_limit_reached","resets_at":%d}}`, time.Now().Add(2*time.Hour).Unix()), wantAccountBlock: true},
+		{name: "body reset duration", raw: `{"error":{"type":"usage_limit_reached","resets_in_seconds":7200}}`, wantAccountBlock: true},
 		{name: "unexhausted headers", headers: excelBPSQuotaHeaders("30", "20")},
-		{name: "body reset timestamp", raw: fmt.Sprintf(`{"error":{"type":"usage_limit_reached","resets_at":%d}}`, time.Now().Add(2*time.Hour).Unix())},
-		{name: "body reset duration", raw: `{"error":{"type":"usage_limit_reached","resets_in_seconds":7200}}`},
 		{name: "generic rate limit"},
 		{name: "retry after", headers: http.Header{"Retry-After": {"23"}}},
 		{name: "malformed body", raw: "not json"},
@@ -216,6 +235,7 @@ func TestExcelBPS429FailsOverWithoutChangingCodexQuota(t *testing.T) {
 					require.True(t, failover.ShouldRetryNextAccount())
 					require.False(t, failover.RetryableOnSameAccount)
 					require.False(t, failover.ShouldReportAccountScheduleFailure())
+					require.True(t, failover.SkipOAuth429AttemptLimit)
 					require.NotContains(t, string(failover.ResponseBody), "PRIVATE_UPSTREAM")
 					require.Equal(t, tc.headers.Get("Retry-After"), failover.ResponseHeaders.Get("Retry-After"))
 				}
@@ -223,15 +243,25 @@ func TestExcelBPS429FailsOverWithoutChangingCodexQuota(t *testing.T) {
 				require.False(t, c.Writer.Written())
 				require.Empty(t, rec.Body.String())
 				require.Len(t, upstream.requests, 1)
-				requireNoExcelBPSQuotaWrite(t, repo)
-				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 				require.True(t, account.IsSchedulable())
 				require.True(t, account.IsExcelBPSEnabled())
-				require.Nil(t, account.RateLimitResetAt)
-				require.Equal(t, !tc.cancelOnRead, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
-				retryState, ok := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
-				require.True(t, ok)
-				require.Equal(t, retryStarted, retryState)
+
+				if tc.wantAccountBlock {
+					write := nextExcelBPSRateLimitWrite(t, repo)
+					require.Equal(t, account.ID, write.accountID)
+					require.Greater(t, time.Until(write.resetAt), time.Hour)
+					require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+					require.False(t, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
+					_, retryExists := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
+					require.False(t, retryExists)
+				} else {
+					requireNoExcelBPSQuotaWrite(t, repo)
+					require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+					require.Equal(t, !tc.cancelOnRead, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
+					retryState, ok := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
+					require.True(t, ok)
+					require.Equal(t, retryStarted, retryState)
+				}
 			})
 		}
 	}
@@ -242,7 +272,7 @@ func TestExcelBPSCooldownIsScopedAndExpires(t *testing.T) {
 	account := excelAccount()
 	account.Extra["openai_excel_bps_models"] = []string{"gpt-6-astra"}
 	account.Credentials["model_mapping"] = map[string]any{"alias": "gpt-6-astra"}
-	svc.coolDownExcelBPS(context.Background(), account, http.Header{"Retry-After": {"60"}})
+	svc.coolDownExcelBPS(context.Background(), account, http.Header{"Retry-After": {"60"}}, nil)
 	bps := WithExcelBPSScheduling(context.Background(), []byte(`{"input":"hello"}`))
 	native := WithExcelBPSScheduling(context.Background(), []byte(`{"tools":[{"type":"image_generation"}]}`))
 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "gpt-6-astra", false))
@@ -254,7 +284,7 @@ func TestExcelBPSCooldownIsScopedAndExpires(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "gpt-6-astra", false))
 	account.Extra["openai_excel_bps"] = true
 	before, _ := svc.excelBPSRateLimitedUntil.Load(account.ID)
-	svc.coolDownExcelBPS(context.Background(), account, http.Header{"Retry-After": {"1"}})
+	svc.coolDownExcelBPS(context.Background(), account, http.Header{"Retry-After": {"1"}}, nil)
 	after, _ := svc.excelBPSRateLimitedUntil.Load(account.ID)
 	require.Equal(t, before, after, "concurrent shorter limits must not release a longer cooldown")
 	svc.excelBPSRateLimitedUntil.Store(account.ID, time.Now().Add(-time.Second))
@@ -270,7 +300,8 @@ func TestExcelBPSCooldownHonorsSettingsAndRetryAfter(t *testing.T) {
 	}{
 		{"default", "", "", 5 * time.Second},
 		{"configured", "", `{"enabled":true,"cooldown_seconds":11}`, 11 * time.Second},
-		{"disabled", "60", `{"enabled":false,"cooldown_seconds":11}`, 0},
+		{"disabled default", "", `{"enabled":false,"cooldown_seconds":11}`, 5 * time.Second},
+		{"disabled retry after", "60", `{"enabled":false,"cooldown_seconds":11}`, time.Minute},
 		{"retry after seconds", "23", "", 23 * time.Second},
 		{"retry after date", time.Now().Add(time.Minute).UTC().Format(http.TimeFormat), "", time.Minute},
 		{"invalid", "invalid", "", 5 * time.Second},
@@ -284,7 +315,7 @@ func TestExcelBPSCooldownHonorsSettingsAndRetryAfter(t *testing.T) {
 			}
 			a := excelAccount()
 			now := time.Now()
-			svc.coolDownExcelBPS(context.Background(), a, http.Header{"Retry-After": {tc.retryAfter}})
+			svc.coolDownExcelBPS(context.Background(), a, http.Header{"Retry-After": {tc.retryAfter}}, nil)
 			until, exists := svc.excelBPSRateLimitedUntil.Load(a.ID)
 			require.Equal(t, tc.want > 0, exists)
 			if exists {

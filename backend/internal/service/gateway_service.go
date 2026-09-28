@@ -695,6 +695,7 @@ type UpstreamFailoverError struct {
 	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
 	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
 	SuppressScheduleFailure  bool          // 独立子协议已有专用冷却时，不得污染通用账号健康评分
+	SkipOAuth429AttemptLimit bool          // 独立子协议已逐账号冷却时，可使用 handler 的完整切号预算
 	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
 	Stage                    GatewayFailureStage
 	Scope                    GatewayFailureScope

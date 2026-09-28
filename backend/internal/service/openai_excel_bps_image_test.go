@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
@@ -104,42 +105,58 @@ func TestExcelBPSImageCapabilityRedactedFromUpstreamError(t *testing.T) {
 	require.Contains(t, out, "/api/bps-images/[redacted]")
 }
 
-func TestExcelBPS429ImageAndCompactKeepCodexSchedulable(t *testing.T) {
+func TestExcelBPS429ImageAndCompactClassifiesQuota(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 	var pngBytes bytes.Buffer
 	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))))
 	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes())
-	for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
-		for _, stream := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/stream=%t", path, stream), func(t *testing.T) {
-				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusTooManyRequests, Header: excelBPSQuotaHeaders("100", "100"), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"PRIVATE_UPSTREAM"}}`))}}
-				svc := openAIClientToolsTestService(upstream)
-				t.Cleanup(func() { require.NoError(t, svc.CloseExcelBPSImages()) })
-				svc.settingService = NewSettingService(&excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageBaseURL: "https://images.example"}}, svc.cfg)
-				repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
-				svc.accountRepo = repo
-				svc.rateLimitService = NewRateLimitService(repo, nil, svc.cfg, nil, nil)
-				svc.rateLimitService.SetAccountRuntimeBlocker(svc)
-				body := []byte(fmt.Sprintf(`{"model":"gpt-6-astra","stream":%t,"input":[{"role":"user","content":[{"type":"input_image","image_url":%q}]}]}`, stream, dataURL))
-				rec := httptest.NewRecorder()
-				c, _ := gin.CreateTestContext(rec)
-				c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-				account := excelAccount()
+	for _, tc := range []struct {
+		name             string
+		headers          http.Header
+		wantAccountBlock bool
+	}{
+		{name: "quota exhausted", headers: excelBPSQuotaHeaders("100", "100"), wantAccountBlock: true},
+		{name: "transient", headers: http.Header{"Retry-After": {"23"}}},
+	} {
+		for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
+			for _, stream := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/stream=%t", tc.name, path, stream), func(t *testing.T) {
+					upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusTooManyRequests, Header: tc.headers, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"PRIVATE_UPSTREAM"}}`))}}
+					svc := openAIClientToolsTestService(upstream)
+					t.Cleanup(func() { require.NoError(t, svc.CloseExcelBPSImages()) })
+					svc.settingService = NewSettingService(&excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageBaseURL: "https://images.example"}}, svc.cfg)
+					repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
+					svc.accountRepo = repo
+					svc.rateLimitService = NewRateLimitService(repo, nil, svc.cfg, nil, nil)
+					svc.rateLimitService.SetAccountRuntimeBlocker(svc)
+					body := []byte(fmt.Sprintf(`{"model":"gpt-6-astra","stream":%t,"input":[{"role":"user","content":[{"type":"input_image","image_url":%q}]}]}`, stream, dataURL))
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+					account := excelAccount()
 
-				_, err := svc.Forward(context.Background(), c, account, body)
+					_, err := svc.Forward(context.Background(), c, account, body)
 
-				var failover *UpstreamFailoverError
-				require.ErrorAs(t, err, &failover)
-				require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
-				require.False(t, c.Writer.Written())
-				require.Empty(t, rec.Body.String())
-				require.Len(t, upstream.requests, 1)
-				require.NotContains(t, string(upstream.lastBody), "data:image")
-				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
-				requireNoExcelBPSQuotaWrite(t, repo)
-				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
-				require.True(t, account.IsSchedulable())
-			})
+					var failover *UpstreamFailoverError
+					require.ErrorAs(t, err, &failover)
+					require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+					require.True(t, failover.SkipOAuth429AttemptLimit)
+					require.False(t, c.Writer.Written())
+					require.Empty(t, rec.Body.String())
+					require.Len(t, upstream.requests, 1)
+					require.NotContains(t, string(upstream.lastBody), "data:image")
+					require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
+					if tc.wantAccountBlock {
+						write := nextExcelBPSRateLimitWrite(t, repo)
+						require.Greater(t, time.Until(write.resetAt), time.Hour)
+						require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+					} else {
+						requireNoExcelBPSQuotaWrite(t, repo)
+						require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+						require.True(t, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
+					}
+				})
+			}
 		}
 	}
 }

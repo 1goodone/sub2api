@@ -35,13 +35,20 @@ func WithExcelBPSScheduling(ctx context.Context, body []byte) context.Context {
 	return context.WithValue(ctx, excelBPSSchedulingKey{}, basispoints.NativeFallbackReason(body) == "")
 }
 
-func (s *OpenAIGatewayService) coolDownExcelBPS(ctx context.Context, account *Account, headers http.Header) {
+func (s *OpenAIGatewayService) coolDownExcelBPS(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+	disposition, _ := classifyOpenAIOAuth429(headers, responseBody)
+	if disposition != openAIOAuth429Transient && s.rateLimitService != nil {
+		stateCtx, cancel := openAIAccountStateContext(ctx)
+		defer cancel()
+		s.rateLimitService.handle429Cooldown(stateCtx, account, headers, responseBody)
+		s.openaiOAuth429RetryStartedAt.Delete(account.ID)
+		return
+	}
+
 	cooldown := time.Duration(defaultRateLimit429CooldownSeconds) * time.Second
 	if s.rateLimitService != nil {
-		var enabled bool
-		cooldown, enabled = s.rateLimitService.get429FallbackCooldown(ctx, account)
-		if !enabled {
-			return
+		if configured, enabled := s.rateLimitService.get429FallbackCooldown(ctx, account); enabled {
+			cooldown = configured
 		}
 	}
 	now := time.Now()
@@ -523,7 +530,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			message = "Excel BPS could not verify encrypted conversation state; resend the original plaintext history or start a new conversation"
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.coolDownExcelBPS(ctx, account, resp.Header)
+			s.coolDownExcelBPS(ctx, account, resp.Header, raw)
 			// The request was rejected before any output. Leave the response open
 			// so the handler can try another account within its existing budget.
 			failover := newOpenAIUpstreamFailoverError(
@@ -534,6 +541,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				false,
 			)
 			failover.SuppressScheduleFailure = true
+			failover.SkipOAuth429AttemptLimit = true
 			return nil, failover
 		}
 		if resp.StatusCode == http.StatusForbidden {

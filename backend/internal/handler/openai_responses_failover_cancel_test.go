@@ -5,6 +5,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,30 +51,25 @@ func (u *openAIResponsesFailoverCancelUpstream) calls() []int64 {
 }
 
 func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUpstream, configure ...func([]service.Account)) *OpenAIGatewayHandler {
+	return newOpenAIResponsesFailoverTestHandlerWithAccountCount(t, upstream, 2, configure...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithAccountCount(t *testing.T, upstream service.HTTPUpstream, accountCount int, configure ...func([]service.Account)) *OpenAIGatewayHandler {
 	t.Helper()
-	accounts := []service.Account{
-		{
-			ID:          1,
-			Name:        "responses-account-1",
+	accounts := make([]service.Account, accountCount)
+	for i := range accounts {
+		id := int64(i + 1)
+		accounts[i] = service.Account{
+			ID:          id,
+			Name:        fmt.Sprintf("responses-account-%d", id),
 			Platform:    service.PlatformOpenAI,
 			Type:        service.AccountTypeOAuth,
 			Status:      service.StatusActive,
 			Schedulable: true,
 			Concurrency: 0,
-			Priority:    0,
-			Credentials: map[string]any{"access_token": "token-1"},
-		},
-		{
-			ID:          2,
-			Name:        "responses-account-2",
-			Platform:    service.PlatformOpenAI,
-			Type:        service.AccountTypeOAuth,
-			Status:      service.StatusActive,
-			Schedulable: true,
-			Concurrency: 0,
-			Priority:    1,
-			Credentials: map[string]any{"access_token": "token-2"},
-		},
+			Priority:    i,
+			Credentials: map[string]any{"access_token": fmt.Sprintf("token-%d", id)},
+		}
 	}
 	for _, apply := range configure {
 		apply(accounts)

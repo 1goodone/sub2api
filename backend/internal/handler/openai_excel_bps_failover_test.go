@@ -80,7 +80,7 @@ func TestExcelBPS429HandlerStopsWhenExhaustedOrCanceled(t *testing.T) {
 			if canceled {
 				upstream.cancel = cancel
 			}
-			h := newOpenAIResponsesFailoverTestHandler(t, upstream, enableExcelBPSFailoverAccounts)
+			h := newOpenAIResponsesFailoverTestHandlerWithAccountCount(t, upstream, 4, enableExcelBPSFailoverAccounts)
 			c, rec := newOpenAIResponsesFailoverTestContext(t, ctx)
 			c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader("{\"model\":\"gpt-6-astra\",\"input\":\"hello\"}")).WithContext(ctx)
 			h.Responses(c)
@@ -89,7 +89,7 @@ func TestExcelBPS429HandlerStopsWhenExhaustedOrCanceled(t *testing.T) {
 				require.Equal(t, statusClientClosedRequest, c.Writer.Status())
 				require.Empty(t, rec.Body.String())
 			} else {
-				require.Equal(t, []int64{1, 2}, upstream.ids)
+				require.Equal(t, []int64{1, 2, 3, 4}, upstream.ids)
 				require.Equal(t, http.StatusTooManyRequests, rec.Code)
 				require.Equal(t, "60", rec.Header().Get("Retry-After"))
 				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
