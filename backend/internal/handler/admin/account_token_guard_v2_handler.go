@@ -66,9 +66,11 @@ func (h *AccountTokenGuardV2Handler) List(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{
-		"accounts":               accounts,
-		"probe_interval_seconds": int((30 * 60)),
-		"fail_streak_threshold":  2,
+		"accounts":                 accounts,
+		"probe_interval_seconds":   int(service.AccountTokenGuardV2ProbeInterval.Seconds()),
+		"retry_interval_seconds":   int(service.AccountTokenGuardV2RetryInterval.Seconds()),
+		"relogin_cooldown_seconds": int(service.AccountTokenGuardV2ReloginCooldown.Seconds()),
+		"fail_streak_threshold":    service.AccountTokenGuardV2FailThreshold,
 	})
 }
 

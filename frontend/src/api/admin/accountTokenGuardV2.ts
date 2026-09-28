@@ -50,6 +50,8 @@ export interface TokenGuardV2Account {
 export interface TokenGuardV2Status {
   accounts: TokenGuardV2Account[]
   probe_interval_seconds: number
+  retry_interval_seconds: number
+  relogin_cooldown_seconds: number
   fail_streak_threshold: number
 }
 

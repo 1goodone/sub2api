@@ -26,7 +26,23 @@
         <article class="summary-card"><span>{{ t('tokenGuardV2.activeTasks') }}</span><strong>{{ activeTaskCount }}</strong><small>{{ t('tokenGuardV2.workerHint') }}</small></article>
       </section>
 
-      <section class="table-card">
+      <nav class="section-tabs" :aria-label="t('tokenGuardV2.pageTabs')">
+        <button type="button" role="tab" data-testid="guard-tab-accounts" :aria-selected="activeSection === 'accounts'" :class="{ active: activeSection === 'accounts' }" @click="activeSection = 'accounts'">{{ t('tokenGuardV2.accountsTab') }}</button>
+        <button type="button" role="tab" data-testid="guard-tab-rules" :aria-selected="activeSection === 'rules'" :class="{ active: activeSection === 'rules' }" @click="activeSection = 'rules'">{{ t('tokenGuardV2.rulesTab') }}</button>
+      </nav>
+
+      <section v-if="activeSection === 'accounts'" class="table-card">
+        <div class="list-toolbar">
+          <div class="filter-tabs" role="tablist" :aria-label="t('tokenGuardV2.statusFilter')">
+            <button v-for="filter in accountFilters" :key="filter.value" type="button" role="tab" :aria-selected="accountFilter === filter.value" :data-filter="filter.value" :class="{ active: accountFilter === filter.value }" @click="accountFilter = filter.value">
+              {{ t(filter.label) }} <span>{{ filter.count }}</span>
+            </button>
+          </div>
+          <label class="search-box">
+            <Icon name="search" size="sm" />
+            <input id="token-guard-v2-search" v-model.trim="searchQuery" type="search" :placeholder="t('tokenGuardV2.searchPlaceholder')" />
+          </label>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -42,7 +58,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in accounts" :key="item.account_id">
+              <tr v-for="item in filteredAccounts" :key="item.account_id">
                 <td><strong>{{ item.account_name || `#${item.account_id}` }}</strong><small>#{{ item.account_id }} · {{ item.account_status }}</small></td>
                 <td>{{ modeLabel(item.login_config?.credential_mode) }}<small>{{ item.login_config?.login_email || '-' }}</small></td>
                 <td><span class="badge" :class="item.login_config?.configured ? 'ok' : 'danger'">{{ item.login_config?.configured ? t('tokenGuardV2.configured') : t('tokenGuardV2.incomplete') }}</span><small>{{ configurationDetail(item) }}</small></td>
@@ -62,33 +78,59 @@
               </tr>
             </tbody>
           </table>
-          <div v-if="!loading && !accounts.length" class="empty-state">
+          <div v-if="!loading && !filteredAccounts.length" class="empty-state">
             <Icon name="shield" size="xl" />
-            <h3>{{ t('tokenGuardV2.emptyTitle') }}</h3>
-            <p>{{ t('tokenGuardV2.emptyHint') }}</p>
+            <h3>{{ t(accounts.length ? 'tokenGuardV2.noResultsTitle' : 'tokenGuardV2.emptyTitle') }}</h3>
+            <p>{{ t(accounts.length ? 'tokenGuardV2.noResultsHint' : 'tokenGuardV2.emptyHint') }}</p>
           </div>
+        </div>
+      </section>
+
+      <section v-else class="rules-card">
+        <div class="rules-heading">
+          <div><h3>{{ t('tokenGuardV2.rulesTitle') }}</h3><p>{{ t('tokenGuardV2.rulesDescription') }}</p></div>
+          <span class="badge ok">{{ t('tokenGuardV2.rulesFixed') }}</span>
+        </div>
+        <div class="rule-metrics">
+          <article><span>{{ t('tokenGuardV2.ruleProbeInterval') }}</span><strong>{{ minutes(status.probe_interval_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
+          <article><span>{{ t('tokenGuardV2.ruleRetryInterval') }}</span><strong>{{ minutes(status.retry_interval_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
+          <article><span>{{ t('tokenGuardV2.ruleFailureThreshold') }}</span><strong>{{ status.fail_streak_threshold }}</strong><small>{{ t('tokenGuardV2.times') }}</small></article>
+          <article><span>{{ t('tokenGuardV2.ruleCooldown') }}</span><strong>{{ minutes(status.relogin_cooldown_seconds) }}</strong><small>{{ t('tokenGuardV2.minutes') }}</small></article>
+        </div>
+        <div class="rule-list">
+          <article><span>1</span><div><strong>{{ t('tokenGuardV2.ruleScopeTitle') }}</strong><p>{{ t('tokenGuardV2.ruleScopeHint') }}</p></div></article>
+          <article><span>2</span><div><strong>{{ t('tokenGuardV2.ruleHealthyTitle') }}</strong><p>{{ t('tokenGuardV2.ruleHealthyHint') }}</p></div></article>
+          <article><span>3</span><div><strong>{{ t('tokenGuardV2.ruleAuthTitle') }}</strong><p>{{ t('tokenGuardV2.ruleAuthHint') }}</p></div></article>
+          <article><span>4</span><div><strong>{{ t('tokenGuardV2.ruleTransientTitle') }}</strong><p>{{ t('tokenGuardV2.ruleTransientHint') }}</p></div></article>
+          <article><span>5</span><div><strong>{{ t('tokenGuardV2.ruleReloginTitle') }}</strong><p>{{ t('tokenGuardV2.ruleReloginHint', { count: status.fail_streak_threshold }) }}</p></div></article>
         </div>
       </section>
 
       <BaseDialog :show="editorOpen" :title="editing ? t('tokenGuardV2.editTitle') : t('tokenGuardV2.addTitle')" width="wide" @close="closeEditor">
         <form id="token-guard-v2-editor" class="editor-form" @submit.prevent="save">
           <p v-if="error" role="alert" class="error-banner">{{ error }}</p>
-          <label v-if="!editing" class="field-label">{{ t('tokenGuardV2.accountGroup') }}
-            <select id="token-guard-v2-account-group" v-model="accountGroup" class="input w-full" @change="filterAccountSelection">
-              <option value="">{{ t('tokenGuardV2.allGroups') }}</option>
-              <option value="ungrouped">{{ t('tokenGuardV2.ungrouped') }}</option>
-              <option v-for="group in groups" :key="group.id" :value="String(group.id)">{{ group.name }}</option>
-            </select>
-          </label>
-          <label class="field-label">{{ t('tokenGuardV2.account') }}
-            <select id="token-guard-v2-account" v-model.number="draft.account_id" class="input w-full" :disabled="Boolean(editing)" required @change="fillLoginEmail">
-              <option :value="0" disabled>{{ t('tokenGuardV2.selectAccount') }}</option>
-              <option v-for="account in selectableAccounts" :key="account.id" :value="account.id">{{ accountOptionLabel(account) }}</option>
-            </select>
-          </label>
+          <div v-if="!editing" class="account-picker">
+            <label class="search-box picker-search">
+              <Icon name="search" size="sm" />
+              <input id="token-guard-v2-account-search" v-model.trim="accountSearch" type="search" :placeholder="t('tokenGuardV2.accountSearchPlaceholder')" />
+            </label>
+            <div class="group-tabs" role="tablist" :aria-label="t('tokenGuardV2.accountGroup')">
+              <button type="button" role="tab" data-group-id="all" :aria-selected="!accountGroup" :class="{ active: !accountGroup }" @click="accountGroup = ''">{{ t('tokenGuardV2.allGroups') }}</button>
+              <button type="button" role="tab" data-group-id="ungrouped" :aria-selected="accountGroup === 'ungrouped'" :class="{ active: accountGroup === 'ungrouped' }" @click="accountGroup = 'ungrouped'">{{ t('tokenGuardV2.ungrouped') }}</button>
+              <button v-for="group in groups" :key="group.id" type="button" role="tab" :data-group-id="group.id" :aria-selected="accountGroup === String(group.id)" :class="{ active: accountGroup === String(group.id) }" @click="accountGroup = String(group.id)">{{ group.name }}</button>
+            </div>
+            <div class="account-picker-list" role="listbox" :aria-label="t('tokenGuardV2.selectAccount')">
+              <button v-for="account in selectableAccounts" :key="account.id" type="button" role="option" :data-account-id="account.id" :aria-selected="draft.account_id === account.id" :class="{ selected: draft.account_id === account.id }" @click="selectAccount(account)">
+                <span><strong>{{ account.name }}</strong><small>#{{ account.id }} · {{ accountEmail(account) || '-' }}</small></span>
+                <span v-if="accountPlanLabel(account)" class="plan-badge">{{ accountPlanLabel(account) }}</span>
+              </button>
+              <p v-if="!selectableAccounts.length" class="picker-empty">{{ t('tokenGuardV2.noSelectableAccounts') }}</p>
+            </div>
+          </div>
+          <div v-else class="selected-account"><span>{{ t('tokenGuardV2.account') }}</span><strong>{{ editing.account_name }} (#{{ editing.account_id }})</strong></div>
           <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<input v-model.trim="draft.login_email" class="input w-full" type="email" required /></label>
           <label class="field-label">{{ t('tokenGuardV2.loginProxy') }}
-            <select v-model="proxyChoice" class="input w-full">
+            <select id="token-guard-v2-proxy" v-model="proxyChoice" class="input w-full">
               <option value="account">{{ t('tokenGuardV2.accountProxyDefault') }}</option>
               <option value="mihomo">{{ t('tokenGuardV2.mihomoManagedPool') }}</option>
               <option v-for="proxy in proxies" :key="proxy.id" :value="`proxy:${proxy.id}`">{{ proxyOptionLabel(proxy) }}</option>
@@ -150,14 +192,24 @@ import {
 } from '@/api/admin/accountTokenGuardV2'
 
 const { t } = useI18n()
-const emptyStatus = (): TokenGuardV2Status => ({ accounts: [], probe_interval_seconds: 1800, fail_streak_threshold: 2 })
+const emptyStatus = (): TokenGuardV2Status => ({
+  accounts: [],
+  probe_interval_seconds: 1800,
+  retry_interval_seconds: 300,
+  relogin_cooldown_seconds: 1800,
+  fail_streak_threshold: 2
+})
 const status = reactive<TokenGuardV2Status>(emptyStatus())
 const candidates = ref<AccountListItem[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountGroup = ref('')
+const accountSearch = ref('')
 const proxies = ref<Proxy[]>([])
 const loading = ref(false), saving = ref(false), busyId = ref(0), editorOpen = ref(false)
 const editing = ref<TokenGuardV2Account | null>(null)
+const activeSection = ref<'accounts' | 'rules'>('accounts')
+const accountFilter = ref<'all' | 'healthy' | 'attention' | 'paused'>('all')
+const searchQuery = ref('')
 const error = ref(''), notice = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 
@@ -176,11 +228,50 @@ const blankDraft = (): SaveTokenGuardV2Account => ({
 })
 const draft = reactive<SaveTokenGuardV2Account>(blankDraft())
 
+const accountEmail = (account?: AccountListItem) => {
+  const email = account?.extra?.email_address || account?.extra?.email || account?.credentials?.email
+  return typeof email === 'string' ? email.trim() : ''
+}
+const accountPlanLabel = (account?: AccountListItem) => {
+  const rawPlan = account?.credentials?.plan_type
+  return typeof rawPlan === 'string' ? openAIPlanTypeLabel(rawPlan) || rawPlan.trim() : ''
+}
+const accountGroupNames = (account: AccountListItem) => groups.value
+  .filter(group => account.group_ids?.includes(group.id))
+  .map(group => group.name)
+  .join(' ')
 const accounts = computed(() => status.accounts)
 const enabledCount = computed(() => accounts.value.filter(item => item.enabled).length)
 const healthyCount = computed(() => accounts.value.filter(item => item.probe_state === 'ok').length)
 const issueCount = computed(() => accounts.value.filter(item => item.probe_state === 'auth' || item.blocked_reason).length)
 const activeTaskCount = computed(() => accounts.value.filter(item => ['queued', 'running', 'callback_processing'].includes(item.latest_task?.status || '')).length)
+const isHealthy = (item: TokenGuardV2Account) => item.enabled && item.probe_state === 'ok' && item.login_config?.configured && !item.blocked_reason
+const needsAttention = (item: TokenGuardV2Account) => Boolean(item.blocked_reason || !item.login_config?.configured || ['auth', 'transient'].includes(item.probe_state))
+const accountFilters = computed(() => [
+  { value: 'all' as const, label: 'tokenGuardV2.filterAll', count: accounts.value.length },
+  { value: 'healthy' as const, label: 'tokenGuardV2.filterHealthy', count: accounts.value.filter(isHealthy).length },
+  { value: 'attention' as const, label: 'tokenGuardV2.filterAttention', count: accounts.value.filter(needsAttention).length },
+  { value: 'paused' as const, label: 'tokenGuardV2.filterPaused', count: accounts.value.filter(item => !item.enabled).length }
+])
+const filteredAccounts = computed(() => {
+  const query = searchQuery.value.toLowerCase()
+  return accounts.value.filter(item => {
+    if (accountFilter.value === 'healthy' && !isHealthy(item)) return false
+    if (accountFilter.value === 'attention' && !needsAttention(item)) return false
+    if (accountFilter.value === 'paused' && item.enabled) return false
+    if (!query) return true
+    const candidate = candidates.value.find(account => account.id === item.account_id)
+    return [
+      item.account_name,
+      item.account_id,
+      item.account_status,
+      item.login_config?.login_email,
+      item.probe_detail,
+      item.blocked_reason,
+      accountPlanLabel(candidate)
+    ].some(value => String(value || '').toLowerCase().includes(query))
+  })
+})
 const matchesAccountGroup = (account: AccountListItem) => {
   if (!accountGroup.value) return true
   if (accountGroup.value === 'ungrouped') return !account.group_ids?.length
@@ -189,11 +280,17 @@ const matchesAccountGroup = (account: AccountListItem) => {
 const selectableAccounts = computed(() => {
   if (editing.value) return candidates.value
   const monitored = new Set(accounts.value.map(item => item.account_id))
-  return candidates.value.filter(item => !monitored.has(item.id)).filter(matchesAccountGroup)
+  const query = accountSearch.value.toLowerCase()
+  return candidates.value
+    .filter(item => !monitored.has(item.id))
+    .filter(matchesAccountGroup)
+    .filter(item => !query || [item.name, item.id, accountEmail(item), accountPlanLabel(item), accountGroupNames(item)]
+      .some(value => String(value || '').toLowerCase().includes(query)))
 })
 
 const message = (value: unknown) => (value as { message?: string })?.message || t('tokenGuardV2.error')
 const date = (value?: string) => value ? new Date(value).toLocaleString() : '-'
+const minutes = (seconds: number) => Math.round(seconds / 60)
 const modeLabel = (mode?: TokenGuardV2CredentialMode) => !mode ? '-' : mode === 'password_totp' ? t('tokenGuardV2.passwordMode') : t('tokenGuardV2.mailboxMode')
 const proxyChoice = computed({
   get: () => draft.proxy_source === 'managed_proxy' && draft.proxy_id ? `proxy:${draft.proxy_id}` : draft.proxy_source,
@@ -224,24 +321,10 @@ const configurationDetail = (item: TokenGuardV2Account) => {
     : [config.password_configured ? t('tokenGuardV2.passwordSaved') : '', config.totp_configured ? t('tokenGuardV2.totpSaved') : ''].filter(Boolean).join(' · ') || '-'
   return `${credentials} · ${t('tokenGuardV2.loginProxy')}: ${proxyLabel(config.proxy_source, config.proxy_id)}`
 }
-const accountEmail = (account?: AccountListItem) => {
-  const email = account?.extra?.email_address || account?.extra?.email || account?.credentials?.email
-  return typeof email === 'string' ? email.trim() : ''
-}
-const accountOptionLabel = (account: AccountListItem) => {
-  const rawPlan = account.credentials?.plan_type
-  const plan = typeof rawPlan === 'string' ? openAIPlanTypeLabel(rawPlan) || rawPlan.trim() : ''
-  return `${account.name} (#${account.id})${plan ? ` · ${plan}` : ''}`
-}
 
 function resetDraft() { Object.assign(draft, blankDraft()) }
-function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; resetDraft(); editorOpen.value = true }
-function filterAccountSelection() {
-  if (selectableAccounts.value.some(item => item.id === draft.account_id)) return
-  draft.account_id = 0
-  draft.login_email = ''
-}
-function fillLoginEmail() { draft.login_email = accountEmail(candidates.value.find(item => item.id === draft.account_id)) }
+function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; accountSearch.value = ''; resetDraft(); editorOpen.value = true }
+function selectAccount(account: AccountListItem) { draft.account_id = account.id; draft.login_email = accountEmail(account) }
 function openEdit(item: TokenGuardV2Account) {
   error.value = ''; notice.value = ''
   editing.value = item
@@ -340,11 +423,21 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .page-heading h2 { @apply text-2xl font-semibold tracking-tight; }
 .subtitle { @apply mt-2 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400; }
 .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:20px; @apply mb-5; }
-.summary-card,.table-card { @apply overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900; }
+.summary-card,.table-card,.rules-card { @apply overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900; }
 .summary-card { @apply p-5; }
 .summary-card span { @apply block text-xs font-medium text-gray-400; }
 .summary-card strong { @apply mt-2 block text-2xl font-semibold tabular-nums; }
 .summary-card small { @apply mt-2 block truncate text-xs text-gray-400; }
+.section-tabs { @apply mb-4 flex w-fit gap-1 rounded-xl bg-gray-100 p-1 dark:bg-dark-800; }
+.section-tabs button { @apply rounded-lg px-4 py-2 text-xs font-medium text-gray-500 transition-colors dark:text-gray-400; }
+.section-tabs button.active { @apply bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white; }
+.list-toolbar { @apply flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4 dark:border-dark-800; }
+.filter-tabs,.group-tabs { @apply flex max-w-full gap-1 overflow-x-auto; }
+.filter-tabs button,.group-tabs button { @apply whitespace-nowrap rounded-lg border border-transparent px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-800; }
+.filter-tabs button span { @apply ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-dark-700; }
+.filter-tabs button.active,.group-tabs button.active { @apply border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/30 dark:text-primary-300; }
+.search-box { @apply flex min-w-64 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-gray-400 focus-within:border-primary-400 dark:border-dark-600 dark:bg-dark-900; }
+.search-box input { @apply min-w-0 flex-1 border-0 bg-transparent py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100; }
 .table-wrap { @apply overflow-auto overscroll-contain; scrollbar-gutter:stable; }
 table { min-width:1180px; @apply w-full text-left text-xs; }
 thead { @apply sticky top-0 z-10 bg-white text-gray-400 dark:bg-dark-900; }
@@ -362,10 +455,36 @@ tbody tr:hover { @apply bg-gray-50/70 dark:bg-dark-800/50; }
 .empty-state { @apply flex min-h-72 flex-col items-center justify-center gap-3 p-8 text-center text-gray-400; }
 .empty-state h3 { @apply text-sm font-medium text-gray-600 dark:text-gray-300; }
 .empty-state p { @apply max-w-md text-xs leading-5; }
+.rules-card { @apply p-5; }
+.rules-heading { @apply flex flex-wrap items-start justify-between gap-3; }
+.rules-heading h3 { @apply text-base font-semibold; }
+.rules-heading p { @apply mt-1 max-w-3xl text-xs leading-5 text-gray-500 dark:text-gray-400; }
+.rule-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); @apply mt-5 gap-3; }
+.rule-metrics article { @apply rounded-xl border border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/60; }
+.rule-metrics span { @apply block text-xs text-gray-400; }
+.rule-metrics strong { @apply mt-2 inline-block text-2xl font-semibold tabular-nums; }
+.rule-metrics small { @apply ml-1 text-xs text-gray-400; }
+.rule-list { @apply mt-5 space-y-3; }
+.rule-list article { @apply flex gap-3 rounded-xl border border-gray-100 p-4 dark:border-dark-700; }
+.rule-list article > span { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300; }
+.rule-list strong { @apply text-sm font-medium; }
+.rule-list p { @apply mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400; }
 .editor-form { @apply space-y-5; }
 .field-label { @apply block text-xs font-medium text-gray-600 dark:text-gray-300; }
 .field-label .input { @apply mt-2; }
 .field-hint { @apply mt-1.5 block text-[11px] font-normal leading-4 text-gray-400; }
+.account-picker { @apply space-y-3; }
+.picker-search { @apply w-full; }
+.account-picker-list { @apply max-h-72 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-2 dark:border-dark-700; }
+.account-picker-list button { @apply flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-dark-800; }
+.account-picker-list button.selected { @apply border-primary-300 bg-primary-50/50 dark:border-primary-800 dark:bg-primary-950/20; }
+.account-picker-list strong { @apply block text-sm font-medium; }
+.account-picker-list small { @apply mt-1 block text-xs text-gray-400; }
+.plan-badge { @apply shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300; }
+.picker-empty { @apply py-8 text-center text-xs text-gray-400; }
+.selected-account { @apply rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/60; }
+.selected-account span { @apply block text-xs text-gray-400; }
+.selected-account strong { @apply mt-1 block text-sm font-medium; }
 .mode-grid { @apply grid gap-3 sm:grid-cols-2; }
 .mode-grid legend { @apply col-span-full mb-1 text-xs font-medium text-gray-600 dark:text-gray-300; }
 .mode-option,.toggle-row { @apply flex items-start gap-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700; }

@@ -21,11 +21,11 @@ const (
 	AccountTokenGuardV2ProbeAuth      = "auth"
 	AccountTokenGuardV2ProbeTransient = "transient"
 
-	accountTokenGuardV2ProbeInterval   = 30 * time.Minute
-	accountTokenGuardV2RetryInterval   = 5 * time.Minute
+	AccountTokenGuardV2ProbeInterval   = 30 * time.Minute
+	AccountTokenGuardV2RetryInterval   = 5 * time.Minute
 	accountTokenGuardV2LeaseDuration   = 2 * time.Minute
-	accountTokenGuardV2ReloginCooldown = 30 * time.Minute
-	accountTokenGuardV2FailThreshold   = 2
+	AccountTokenGuardV2ReloginCooldown = 30 * time.Minute
+	AccountTokenGuardV2FailThreshold   = 2
 )
 
 type AccountTokenGuardV2Record struct {
@@ -288,7 +288,7 @@ func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID i
 		return nil, err
 	}
 	now := time.Now()
-	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(accountTokenGuardV2ReloginCooldown))
+	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(AccountTokenGuardV2ReloginCooldown))
 	return task, nil
 }
 
@@ -296,7 +296,7 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 	now := time.Now()
 	completion := AccountTokenGuardV2ProbeCompletion{
 		ProbeState: AccountTokenGuardV2ProbeTransient, ProbeDetail: "inspection failed",
-		FailStreak: record.FailStreak, LastProbeAt: now, NextProbeAt: now.Add(accountTokenGuardV2ProbeInterval),
+		FailStreak: record.FailStreak, LastProbeAt: now, NextProbeAt: now.Add(AccountTokenGuardV2ProbeInterval),
 		CooldownUntil: record.CooldownUntil,
 	}
 	account, err := s.accounts.GetAccount(ctx, record.AccountID)
@@ -318,13 +318,13 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 		completion.CooldownUntil = nil
 	case AccountTokenGuardV2ProbeAuth:
 		completion.FailStreak++
-		completion.NextProbeAt = now.Add(accountTokenGuardV2RetryInterval)
+		completion.NextProbeAt = now.Add(AccountTokenGuardV2RetryInterval)
 		cooldownActive := record.CooldownUntil != nil && record.CooldownUntil.After(now)
-		if record.AutoReloginEnabled && completion.FailStreak >= accountTokenGuardV2FailThreshold && !cooldownActive {
+		if record.AutoReloginEnabled && completion.FailStreak >= AccountTokenGuardV2FailThreshold && !cooldownActive {
 			task, taskErr := s.reauth.CreateTask(ctx, record.AccountID)
 			if taskErr == nil && task != nil {
 				completion.LastReauthAt = &now
-				cooldown := now.Add(accountTokenGuardV2ReloginCooldown)
+				cooldown := now.Add(AccountTokenGuardV2ReloginCooldown)
 				completion.CooldownUntil = &cooldown
 				completion.ProbeDetail = detail + "; automatic re-login queued"
 			} else if infraerrors.Code(taskErr) == http.StatusConflict {

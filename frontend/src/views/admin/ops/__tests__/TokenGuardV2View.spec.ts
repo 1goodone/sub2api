@@ -45,6 +45,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.listGuard.mockResolvedValue({
     probe_interval_seconds: 1800,
+    retry_interval_seconds: 300,
+    relogin_cooldown_seconds: 1800,
     fail_streak_threshold: 2,
     accounts: [{
       account_id: 42,
@@ -116,7 +118,7 @@ describe('TokenGuardV2View', () => {
     expect(wrapper.findAll('input[type="password"]').map(input => input.element.value)).toEqual(['', ''])
 
     expect(wrapper.text()).toContain('SOCKS5H')
-    await wrapper.findAll('select')[1].setValue('proxy:8')
+    await wrapper.get('#token-guard-v2-proxy').setValue('proxy:8')
 
     const saveButton = wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.save')!
     expect(saveButton.attributes()).toMatchObject({ type: 'submit', form: 'token-guard-v2-editor' })
@@ -148,7 +150,7 @@ describe('TokenGuardV2View', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.edit')!.trigger('click')
-    await wrapper.findAll('select')[1].setValue('mihomo')
+    await wrapper.get('#token-guard-v2-proxy').setValue('mihomo')
     await wrapper.get('#token-guard-v2-editor').trigger('submit')
     await flushPromises()
 
@@ -175,7 +177,7 @@ describe('TokenGuardV2View', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.addAccount')!.trigger('click')
-    await wrapper.get('#token-guard-v2-account').setValue('43')
+    await wrapper.get('[data-account-id="43"]').trigger('click')
 
     expect((wrapper.get('input[type="email"]').element as HTMLInputElement).value).toBe('backup@example.com')
   })
@@ -199,14 +201,86 @@ describe('TokenGuardV2View', () => {
     await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.addAccount')!.trigger('click')
     expect(api.listGroups).toHaveBeenCalledWith('openai')
 
-    const accountSelect = wrapper.get('#token-guard-v2-account')
-    expect(accountSelect.text()).toContain('Backup (#43) · Free')
-    expect(accountSelect.text()).toContain('Secondary (#44) · Plus')
-    expect(accountSelect.text()).not.toContain('Primary (#42)')
+    const accountList = wrapper.get('.account-picker-list')
+    expect(accountList.text()).toContain('Backup')
+    expect(accountList.text()).toContain('Free')
+    expect(accountList.text()).toContain('Secondary')
+    expect(accountList.text()).toContain('Plus')
+    expect(accountList.text()).not.toContain('Primary')
 
-    await wrapper.get('#token-guard-v2-account-group').setValue('1')
-    expect(accountSelect.text()).toContain('Secondary (#44) · Plus')
-    expect(accountSelect.text()).not.toContain('Backup (#43) · Free')
-    expect(accountSelect.text()).not.toContain('Primary (#42)')
+    await wrapper.get('[data-group-id="1"]').trigger('click')
+    expect(accountList.text()).toContain('Secondary')
+    expect(accountList.text()).not.toContain('Backup')
+    expect(accountList.text()).not.toContain('Primary')
+
+    await wrapper.get('[data-group-id="all"]').trigger('click')
+    await wrapper.get('#token-guard-v2-account-search').setValue('backup')
+    expect(accountList.text()).toContain('Backup')
+    expect(accountList.text()).not.toContain('Secondary')
+  })
+
+  it('filters monitored accounts and shows the enforced probe rules', async () => {
+    api.listGuard.mockResolvedValueOnce({
+      probe_interval_seconds: 1800,
+      retry_interval_seconds: 300,
+      relogin_cooldown_seconds: 1800,
+      fail_streak_threshold: 2,
+      accounts: [
+        {
+          account_id: 42,
+          account_name: 'Primary',
+          account_status: 'active',
+          schedulable: true,
+          enabled: true,
+          auto_relogin_enabled: true,
+          probe_state: 'ok',
+          probe_detail: 'credential accepted',
+          fail_streak: 0,
+          next_probe_at: '2026-09-28T10:00:00Z',
+          login_config: { account_id: 42, login_email: 'user@example.com', credential_mode: 'password_totp', proxy_source: 'account', password_configured: true, totp_configured: false, configured: true },
+        },
+        {
+          account_id: 44,
+          account_name: 'Secondary',
+          account_status: 'error',
+          schedulable: false,
+          enabled: true,
+          auto_relogin_enabled: true,
+          probe_state: 'auth',
+          probe_detail: 'credential was rejected',
+          fail_streak: 2,
+          next_probe_at: '2026-09-28T10:00:00Z',
+          login_config: { account_id: 44, login_email: 'secondary@example.com', credential_mode: 'email_otp_url', proxy_source: 'mihomo', password_configured: false, totp_configured: false, configured: true },
+        },
+      ],
+    })
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: {
+            props: ['show'],
+            template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-filter="attention"]').trigger('click')
+    expect(wrapper.get('tbody').text()).toContain('Secondary')
+    expect(wrapper.get('tbody').text()).not.toContain('Primary')
+
+    await wrapper.get('[data-filter="all"]').trigger('click')
+    await wrapper.get('#token-guard-v2-search').setValue('user@example.com')
+    expect(wrapper.get('tbody').text()).toContain('Primary')
+    expect(wrapper.get('tbody').text()).not.toContain('Secondary')
+
+    await wrapper.get('[data-testid="guard-tab-rules"]').trigger('click')
+    expect(wrapper.text()).toContain('tokenGuardV2.ruleProbeInterval')
+    expect(wrapper.text()).toContain('tokenGuardV2.ruleRetryInterval')
+    expect(wrapper.text()).toContain('tokenGuardV2.ruleCooldown')
   })
 })
