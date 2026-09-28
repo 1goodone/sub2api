@@ -701,7 +701,7 @@ export default {
         excelBPSModelsHint: 'Matches model names after account mapping. Selected models use Excel / BPS; other models retain their Codex, WS and passthrough settings. An empty selection disables BPS routing.',
         excelBPSNotice: 'Start a new Codex conversation after saving. Selected models use HTTP/SSE regardless of WS mode or passthrough. Supports Responses, client tools and HTTPS images; base64 images are unsupported. max / ultra use xhigh. Model access depends on the upstream.',
         autoBPS: 'Enable BPS automatically when degraded',
-        autoBPSDesc: 'A state probe checks this account every 30 minutes over the normal protocol (never through BPS) and turns BPS on once the degraded conditions below are met. This is a quality rule; its records and settings are also under Smart operations → Quality operations.',
+        autoBPSDesc: "A state probe checks this account at the configured interval (every 30 minutes by default) over the normal protocol, never through BPS. When the conditions below are met, it enables BPS with the selected options. This is a quality rule; its records and settings are also under Smart operations → Quality operations.",
         autoBPSLoading: 'Loading this account’s auto-BPS rule…',
         autoBPSLoadFailed: 'Failed to load the auto-BPS rule: {error}. Saving now will not change this rule.',
         autoBPSPauseHint: 'Turning this off pauses the rule. Its settings and records are kept and it resumes with the same settings when turned back on; BPS that is already on stays on.',

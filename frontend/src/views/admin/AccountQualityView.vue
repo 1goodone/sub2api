@@ -111,7 +111,10 @@
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <label v-if="editsField('model')" class="space-y-1"><span>{{ t('qualityOps.model') }}</span><input v-model.trim="form.model_id" required maxlength="100" class="input" placeholder="gpt-6-astra" /></label>
-          <label v-if="editsField('schedule')" class="space-y-1"><span>{{ t('qualityOps.cron') }}</span><input v-model.trim="form.cron_expression" required class="input" placeholder="*/30 * * * *" /></label>
+          <template v-if="editsField('schedule')">
+            <QualityProbeSchedule v-if="isProbe" v-model="form.cron_expression" />
+            <label v-else class="space-y-1"><span>{{ t('qualityOps.cron') }}</span><input v-model.trim="form.cron_expression" required class="input" placeholder="*/30 * * * *" /></label>
+          </template>
           <template v-if="editsField('test') && !isProbe">
             <label class="space-y-1"><span>{{ t('qualityOps.effort') }}</span><select v-model="form.pelican_config.reasoning_effort" class="input"><option v-for="effort in ['minimal', 'low', 'medium', 'high', 'xhigh']" :key="effort">{{ effort }}</option></select></label>
             <label class="space-y-1"><span>{{ t('qualityOps.parallel') }}</span><input v-model.number="form.pelican_config.parallel_count" type="number" min="1" max="8" required class="input" /></label>
@@ -206,6 +209,8 @@ import * as accountsAPI from '@/api/admin/accounts'
 import * as groupsAPI from '@/api/admin/groups'
 import { CANDY_PROMPT, STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import { buildQualityRulePatch, defaultQualityBPS, qualityBPSError, qualityBPSForm, qualityBPSPayload, qualityRuleFields, type QualityRuleField } from '@/utils/qualityRulePatch'
+import { DEFAULT_STATE_PROBE_CRON } from '@/utils/intelligenceTest'
+import QualityProbeSchedule from '@/components/admin/operations/QualityProbeSchedule.vue'
 import type { AccountListItem, QualityBPSPolicy, QualityPolicy, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
 const { t, te } = useI18n()
@@ -457,7 +462,11 @@ watch(() => form.value.pelican_config.quality.action, (next, prev) => {
 function useCandy() { form.value.pelican_config.prompt = CANDY_PROMPT; form.value.pelican_config.quality.expected_answer = '21' }
 function selectQuestionKind() {
   const config = form.value.pelican_config
-  if (config.question_kind === STATE_PROBE_QUESTION) { config.parallel_count = 1; return }
+  if (config.question_kind === STATE_PROBE_QUESTION) {
+    config.parallel_count = 1
+    if (!editing.value && !bulkEditing.value && form.value.cron_expression === defaults().cron_expression) form.value.cron_expression = DEFAULT_STATE_PROBE_CRON
+    return
+  }
   // 开 BPS 只认探针结论：切回糖果题时退回默认处理方式。
   if (config.quality.action === 'enable_bps') config.quality.action = 'remove_groups'
   config.quality.judge ||= defaults().pelican_config.quality.judge

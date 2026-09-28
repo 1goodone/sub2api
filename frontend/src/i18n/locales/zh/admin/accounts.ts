@@ -788,7 +788,7 @@ export default {
         excelBPSModelsHint: '按账号映射后的模型名称匹配。仅勾选模型走 Excel / BPS；未选模型保留原 Codex、WS 和自动透传设置。不勾选任何模型时不使用 BPS。',
         excelBPSNotice: '保存后新开 Codex 会话。所选模型强制 HTTP/SSE，忽略 WS mode 与自动透传；仅支持 Responses、客户端工具和 HTTPS 图片链接，不支持 base64 图片。max / ultra 按 xhigh 发送，模型权限以上游为准。',
         autoBPS: '降智后自动开启 BPS',
-        autoBPSDesc: '每 30 分钟用状态探针检测一次（走正常协议，不经过 BPS），判定降智达到下面的条件时自动开启 BPS。这是一条质量运维规则，也可在 智能运维 → 质量运维 查看记录和修改。',
+        autoBPSDesc: "按下方配置的检测间隔用状态探针检测（默认每 30 分钟，走正常协议，不经过 BPS），达到条件时按勾选的选项自动开启 BPS。这是一条质量运维规则，也可在 智能运维 → 质量运维 查看记录和修改。",
         autoBPSLoading: '正在读取本账号的自动开启 BPS 规则…',
         autoBPSLoadFailed: '读取自动开启 BPS 规则失败：{error}。本次保存不会改动这条规则。',
         autoBPSPauseHint: '关闭后规则暂停检测，设置和记录都保留，再打开按原设置继续；已经开启的 BPS 不会被关闭。',

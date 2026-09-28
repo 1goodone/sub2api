@@ -3,6 +3,10 @@
 FRONTEND_CRITICAL_VITEST := \
 	src/views/admin/__tests__/AccountQualityView.spec.ts \
 	src/utils/__tests__/qualityRulePatch.spec.ts \
+	src/utils/__tests__/accountAutoBPS.spec.ts \
+	src/components/admin/operations/__tests__/QualityProbeSchedule.spec.ts \
+	src/components/account/__tests__/CreateAccountModal.autoBPS.spec.ts \
+	src/components/account/__tests__/EditAccountModal.autoBPS.spec.ts \
 	src/stores/__tests__/accountQuality.spec.ts \
 	src/api/__tests__/observerUsage.spec.ts \
 	src/views/admin/__tests__/UsageView.spec.ts \
