@@ -166,6 +166,7 @@ docs/*
 !docs/cyber-session-blocking.md
 !docs/request-capture.md
 !docs/codex-credits.md
+!docs/priority-scheduling.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/
