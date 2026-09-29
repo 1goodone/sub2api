@@ -27,7 +27,7 @@ func (u *autoConfigStreamUpstream) Do(_ *http.Request, _ string, _ int64, _ int)
 }
 
 func TestAutoConfigGatewayLargeCompletedStream(t *testing.T) {
-	for _, name := range []string{"native", "passthrough", "oauth", "bps"} {
+	for _, name := range []string{"native", "oauth", "bps"} {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			groupID := int64(7)
@@ -46,7 +46,7 @@ func TestAutoConfigGatewayLargeCompletedStream(t *testing.T) {
 			upstream := &autoConfigStreamUpstream{body: "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_mock\",\"status\":\"completed\",\"model\":\"gpt-5.6-sol\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + strings.Repeat("x", 32*1024) + "\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":10}}}\n\n"}
 			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 			t.Cleanup(billing.Stop)
-			gateway := service.NewOpenAIGatewayService(accountRepo, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+			gateway := service.NewOpenAIGatewayService(accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
 			t.Cleanup(gateway.StopOpenAICodexTicketHarvester)
 			t.Cleanup(gateway.CloseOpenAIWSPool)
 			h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(nil), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)

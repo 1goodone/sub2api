@@ -1056,7 +1056,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 			return nil, wsErr
 		}
-		if IsOpenAIRPMError(wsErr) || !canFallbackOpenAIWSSSEHandshake(ctx, c, wsErr) {
+		if !canFallbackOpenAIWSSSEHandshake(ctx, c, wsErr) {
 			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 			return nil, wsErr
 		}

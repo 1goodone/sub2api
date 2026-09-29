@@ -2177,6 +2177,13 @@ type opsBalanceSettingsRepoStub struct {
 func (r *opsBalanceSettingsRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
 	return map[string]string{service.SettingKeyOpsAdvancedSettings: r.advanced}, nil
 }
+func (r *opsBalanceSettingsRepoStub) GetValue(context.Context, string) (string, error) {
+	return "", service.ErrSettingNotFound
+}
+
+func (r *opsBalanceSettingsRepoStub) Set(context.Context, string, string) error {
+	return nil
+}
 
 func TestOpsBalanceFilterRecognizesExplicitUserMessage(t *testing.T) {
 	settings := &opsBalanceSettingsRepoStub{advanced: `{"ignore_insufficient_balance_errors":true}`}
