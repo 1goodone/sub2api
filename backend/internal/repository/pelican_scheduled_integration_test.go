@@ -126,6 +126,7 @@ func TestPelicanHistoryReturnsEveryRetainedOutputAcrossAccounts(t *testing.T) {
 	for {
 		page, err := svc.ListPelicanHistory(ctx, cursor, 2)
 		require.NoError(t, err)
+		require.EqualValues(t, 7, page.Total)
 		found = append(found, page.Items...)
 		if page.NextCursor == 0 {
 			break

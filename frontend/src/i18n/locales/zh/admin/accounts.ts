@@ -1707,7 +1707,7 @@ export default {
         recordLoadError: '这条记录已清理或暂时无法加载，点击卡片可重试。',
 
         historyLoadError: '部分自动记录加载失败，已保留可用的手动记录。',
-        dashboardHint: '展示保留的自动和手动测试，每次输出一张卡片，每 15 秒刷新。点击卡片查看完整结果。',
+        dashboardHint: '展示保留的自动和手动测试，每次输出一张卡片，每 15 秒刷新；服务端记录按需分批加载。点击卡片查看完整结果。',
         scheduledPreview: '定时测试预览',
         sourceManual: '手动',
         sourceScheduled: '定时',

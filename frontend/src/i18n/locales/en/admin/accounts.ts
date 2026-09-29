@@ -1651,7 +1651,7 @@ export default {
         recordLoadError: 'This record expired or could not be loaded. Open the card to retry.',
 
         historyLoadError: 'Some scheduled records could not be loaded. Available manual records are still shown.',
-        dashboardHint: 'Retained scheduled and manual test outputs, refreshed every 15 seconds. Select a card to view the full result.',
+        dashboardHint: 'Retained scheduled and manual test outputs, refreshed every 15 seconds; server records load in batches. Select a card to view the full result.',
         scheduledPreview: 'Scheduled preview',
         sourceManual: 'Manual',
         sourceScheduled: 'Scheduled',

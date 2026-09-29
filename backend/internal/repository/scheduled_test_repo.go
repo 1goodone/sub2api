@@ -314,17 +314,22 @@ func (r *scheduledTestResultRepository) GetResult(ctx context.Context, planID, r
 
 // ListPelicanHistory lists every retained output, including failures and paused plans.
 // Cursor pagination is independent of account-table filters or pages. Bodies are lazy-loaded.
-func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*service.PelicanHistoryResult, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.status, r.error_message,
- r.latency_ms, r.started_at, r.finished_at, r.created_at, r.pelican_config, a.id, a.name
+func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*service.PelicanHistoryResult, int64, error) {
+	const historyFilter = `
  FROM scheduled_test_results r
  JOIN scheduled_test_plans p ON p.id = r.plan_id
  JOIN accounts a ON a.id = p.account_id
- WHERE p.pelican_config IS NOT NULL AND p.pelican_config->'quality' IS NULL AND a.deleted_at IS NULL
+ WHERE p.pelican_config IS NOT NULL AND p.pelican_config->'quality' IS NULL AND a.deleted_at IS NULL`
+	var total int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+historyFilter).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.status, r.error_message,
+ r.latency_ms, r.started_at, r.finished_at, r.created_at, r.pelican_config, a.id, a.name`+historyFilter+`
  AND ($1::bigint = 0 OR r.id < $1)
  ORDER BY r.id DESC LIMIT $2`, beforeID, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer func() { _ = rows.Close() }()
 	results := make([]*service.PelicanHistoryResult, 0)
@@ -334,16 +339,16 @@ func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, 
 		if err := rows.Scan(&result.ID, &result.PlanID, &result.Status, &result.ErrorMessage,
 			&result.LatencyMs, &result.StartedAt, &result.FinishedAt, &result.CreatedAt,
 			&config, &result.AccountID, &result.AccountName); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if len(config) > 0 {
 			if err := json.Unmarshal(config, &result.PelicanConfig); err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 		}
 		results = append(results, result)
 	}
-	return results, rows.Err()
+	return results, total, rows.Err()
 }
 
 func marshalQualityJudgment(judgment *service.QualityJudgment) any {

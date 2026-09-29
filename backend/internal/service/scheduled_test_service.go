@@ -143,11 +143,11 @@ func (s *ScheduledTestService) ListPelicanHistory(ctx context.Context, beforeID 
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
-	items, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, limit+1)
+	items, total, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, limit+1)
 	if err != nil {
 		return nil, err
 	}
-	page := &PelicanHistoryPage{Items: items}
+	page := &PelicanHistoryPage{Items: items, Total: total}
 	if len(items) > limit {
 		page.Items = items[:limit]
 		page.NextCursor = items[limit-1].ID

@@ -205,7 +205,12 @@ func (h *ScheduledTestHandler) ListPelicanHistory(c *gin.Context) {
 		response.BadRequest(c, "invalid before_id")
 		return
 	}
-	page, err := h.scheduledTestSvc.ListPelicanHistory(c.Request.Context(), beforeID, 100)
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "24"))
+	if err != nil || limit < 1 || limit > 100 {
+		response.BadRequest(c, "invalid limit")
+		return
+	}
+	page, err := h.scheduledTestSvc.ListPelicanHistory(c.Request.Context(), beforeID, limit)
 	if err != nil {
 		response.InternalError(c, "Failed to load pelican history")
 		return

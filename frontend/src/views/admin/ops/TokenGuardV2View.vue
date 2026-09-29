@@ -5,7 +5,7 @@
       <header class="page-heading">
         <div>
           <p class="eyebrow">{{ t('accountOps.smartTitle') }}</p>
-          <h2>{{ t('tokenGuardV2.title') }}</h2>
+          <h2 class="flex items-center gap-2"><Icon name="credentialOps" size="lg" class="shrink-0" aria-hidden="true" />{{ t('tokenGuardV2.title') }}</h2>
           <p class="subtitle">{{ t('tokenGuardV2.description') }}</p>
         </div>
         <div class="flex flex-wrap gap-2">

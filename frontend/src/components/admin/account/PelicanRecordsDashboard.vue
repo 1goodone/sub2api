@@ -5,7 +5,7 @@
         <div>
           <h2 class="text-xl font-semibold">{{ t('admin.accounts.pelicanTest.history') }}</h2>
           <p class="text-sm text-gray-500">{{ t('admin.accounts.pelicanTest.dashboardHint') }}</p>
-          <p class="text-xs text-gray-500" data-testid="record-count">{{ t('admin.accounts.pelicanTest.recordCount', { count: cards.length }) }}</p>
+          <p class="text-xs text-gray-500" data-testid="record-count">{{ t('admin.accounts.pelicanTest.recordCount', { count: totalRecords }) }}</p>
         </div>
         <div class="flex gap-2"><button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refresh">{{ t('common.refresh') }}</button>
         <button type="button" class="btn btn-secondary" @click="$emit('close')">{{ t('common.close') }}</button></div>
@@ -38,7 +38,7 @@
         </article>
       </div>
       <div v-else class="rounded-xl border border-dashed border-gray-300 bg-white py-20 text-center text-sm text-gray-500 dark:bg-dark-800">{{ t('admin.accounts.pelicanTest.noHistory') }}</div>
-      <button v-if="cards.length > visibleLimit" type="button" class="btn btn-secondary mt-4" data-testid="load-more" @click="showMore">{{ t('admin.accounts.pelicanTest.moreRecords') }}</button>
+      <button v-if="cards.length > visibleLimit || nextCursor" type="button" class="btn btn-secondary mt-4" data-testid="load-more" :disabled="loadingMore" @click="showMore">{{ t('admin.accounts.pelicanTest.moreRecords') }}</button>
     </div>
     <div v-if="selected" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" data-testid="record-detail" @click.self="selected = null">
       <div class="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white dark:bg-dark-800">
@@ -117,6 +117,11 @@ const selected = ref<Card | null>(null)
 const cards = ref<Card[]>([])
 const loadError = ref('')
 const visibleLimit = ref(24)
+const nextCursor = ref(0)
+const serverTotal = ref(0)
+const manualTotal = ref(0)
+const loadingMore = ref(false)
+const totalRecords = computed(() => serverTotal.value + manualTotal.value)
 const visibleCards = computed(() => cards.value.slice(0, visibleLimit.value))
 let alive = true
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -213,34 +218,63 @@ async function hydrateVisible() {
   }))
 }
 async function openRecord(card: Card) { selected.value = card; await loadBody(card) }
-async function showMore() { visibleLimit.value += 24; await hydrateVisible() }
+function mergeServerResults(server: PelicanHistoryResult[], preserveOlder: boolean) {
+  const previous = new Map(cards.value.map(card => [card.key, card]))
+  const manual = manualCards(server)
+  manualTotal.value = manual.length
+  const merged = new Map(manual.map(card => [card.key, card]))
+  if (preserveOlder) {
+    for (const card of previous.values()) if (card.resultId) merged.set(card.key, card)
+  }
+  for (const result of server) {
+    const key = `scheduled:${result.id}`
+    const existing = previous.get(key)
+    merged.set(key, existing || { key, account: { id: result.account_id, name: result.account_name },
+      record: serverRecord(result), planId: result.plan_id, resultId: result.id, loaded: false })
+  }
+  cards.value = [...merged.values()].sort((a, b) => timestamp(b.record) - timestamp(a.record) || (b.resultId || 0) - (a.resultId || 0))
+}
+async function loadMoreServer() {
+  if (!nextCursor.value || loadingMore.value) return
+  loadingMore.value = true
+  const cursor = nextCursor.value
+  try {
+    const page = await scheduledTestsAPI.listPelicanHistory(cursor, 24)
+    if (!alive) return
+    if (page.next_cursor && page.next_cursor >= cursor) throw new Error('Invalid history cursor')
+    mergeServerResults(page.items, true)
+    nextCursor.value = page.next_cursor
+    serverTotal.value = page.total
+    loadError.value = ''
+  } catch {
+    if (alive) loadError.value = t('admin.accounts.pelicanTest.historyLoadError')
+  } finally {
+    loadingMore.value = false
+  }
+}
+async function showMore() {
+  visibleLimit.value += 24
+  if (visibleLimit.value > cards.value.length) await loadMoreServer()
+  await hydrateVisible()
+}
 async function refresh() {
   if (!alive || refreshing.value) return
   refreshing.value = true
   try {
-    const server: PelicanHistoryResult[] = []
-    let cursor = 0
-    do {
-      const page = await scheduledTestsAPI.listPelicanHistory(cursor)
-      if (!alive) return
-      server.push(...page.items)
-      if (page.next_cursor && cursor && page.next_cursor >= cursor) throw new Error('Invalid history cursor')
-      cursor = page.next_cursor
-    } while (cursor)
-    const previous = new Map(cards.value.map(card => [card.key, card]))
-    const merged = new Map(manualCards(server).map(card => [card.key, card]))
-    for (const result of server) {
-      const key = `scheduled:${result.id}`
-      const existing = previous.get(key)
-      merged.set(key, existing || { key, account: { id: result.account_id, name: result.account_name },
-        record: serverRecord(result), planId: result.plan_id, resultId: result.id, loaded: false })
-    }
-    cards.value = [...merged.values()].sort((a, b) => timestamp(b.record) - timestamp(a.record) || (b.resultId || 0) - (a.resultId || 0))
+    const page = await scheduledTestsAPI.listPelicanHistory(0, 24)
+    if (!alive) return
+    const preserveOlder = cards.value.some(card => card.resultId && !page.items.some(result => result.id === card.resultId))
+    mergeServerResults(page.items, preserveOlder)
+    if (!preserveOlder) nextCursor.value = page.next_cursor
+    serverTotal.value = page.total
     loadError.value = ''
   } catch {
     if (alive) {
       // Keep already loaded history, and show available manual records even on initial API failure.
-      if (!cards.value.length) cards.value = manualCards([])
+      if (!cards.value.length) {
+        cards.value = manualCards([])
+        manualTotal.value = cards.value.length
+      }
       loadError.value = t('admin.accounts.pelicanTest.historyLoadError')
     }
   } finally {

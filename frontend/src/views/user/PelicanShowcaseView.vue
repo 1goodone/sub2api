@@ -54,7 +54,7 @@
       </section>
 
       <!-- First load -->
-      <div v-if="loading && !view" class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div v-if="loading && !view" class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5">
         <div
           v-for="i in 8"
           :key="i"
@@ -114,7 +114,7 @@
           {{ t('pelicanShowcase.groupEmpty') }}
         </div>
         <template v-else>
-          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5">
             <PelicanShowcaseCard
               v-for="item in visibleItems(group)"
               :key="item.id"

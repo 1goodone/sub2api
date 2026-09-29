@@ -79,12 +79,13 @@ type PelicanHistoryResult struct {
 type PelicanHistoryPage struct {
 	Items      []*PelicanHistoryResult `json:"items"`
 	NextCursor int64                   `json:"next_cursor"`
+	Total      int64                   `json:"total"`
 }
 
 // ScheduledTestResultRepository defines the data access interface for test results.
 type ScheduledTestResultRepository interface {
 	ListQualityHistory(context.Context, int64, int) ([]*QualityHistoryResult, error)
-	ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*PelicanHistoryResult, error)
+	ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*PelicanHistoryResult, int64, error)
 	PruneExpiredPelican(ctx context.Context, before time.Time) error
 	Create(ctx context.Context, result *ScheduledTestResult) (*ScheduledTestResult, error)
 	GetResult(ctx context.Context, planID, resultID int64) (*ScheduledTestResult, error)
