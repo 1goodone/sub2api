@@ -47,7 +47,11 @@ the final response locally. This does not provide upstream constrained decoding.
 - Preserve `detail: original` on HTTPS images and inline images rewritten by
   the relay. Let the upstream model validate its supported detail levels; do
   not silently downgrade the requested detail.
-- Enforce the existing 20-inline-image and 32 MiB per-request relay limits.
+- Send only type and file_id for validated message attachment references,
+  including uploaded images, replayed IDs and images moved from tool results.
+  Inline tool screenshots retain their existing detail handling.
+- Enforce the saved inline-image count and byte limits; defaults remain 20
+  inline images and 32 MiB per request for the relay.
   A relay capacity error and an upstream overload are separate from a tool
   protocol error; HTTP 200 alone does not establish a successful SSE terminal.
 
