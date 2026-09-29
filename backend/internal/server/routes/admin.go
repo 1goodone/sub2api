@@ -791,6 +791,8 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.POST("/account-ops/token-guard/two-fa-login", h.Admin.AccountTokenGuard.StartTwoFALogin)
 	admin.GET("/account-ops/token-guard/two-fa-login/:id", h.Admin.AccountTokenGuard.TwoFALogin)
 	admin.DELETE("/account-ops/token-guard/two-fa-login/:id", h.Admin.AccountTokenGuard.DeleteTwoFALogin)
+	admin.GET("/account-ops/token-guard-v2/encryption", h.Admin.AccountTokenGuard.CredentialEncryption)
+	admin.POST("/account-ops/token-guard-v2/encryption/initialize", h.Admin.AccountTokenGuard.InitializeCredentialEncryption)
 	admin.GET("/account-ops/token-guard-v2/accounts", h.Admin.AccountTokenGuardV2.List)
 	admin.PUT("/account-ops/token-guard-v2/rules", h.Admin.AccountTokenGuardV2.SaveRules)
 	admin.GET("/account-ops/token-guard-v2/worker", h.Admin.OpenAIOAuthReauth.WorkerStatus)
