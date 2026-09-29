@@ -22,7 +22,7 @@ vi.mock('@/api/admin', () => ({
       getOpenAIAccountSummary
     },
     proxies: { getAll: vi.fn().mockResolvedValue([]) },
-    groups: { getAll: vi.fn().mockResolvedValue([]) }
+    groups: { getAll: vi.fn().mockResolvedValue([{ id: 7, name: 'OpenAI', platform: 'openai' }]) }
   }
 }))
 
@@ -40,8 +40,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 const AccountTableFiltersStub = defineComponent({
-  emits: ['update:filters'],
-  template: '<button data-test="set-openai" @click="$emit(\'update:filters\', { platform: \'openai\' })">openai</button>'
+  emits: ['update:filters', 'change'],
+  template: '<div><button data-test="set-openai" @click="$emit(\'update:filters\', { platform: \'openai\' }); $emit(\'change\')">openai</button><button data-test="set-openai-group" @click="$emit(\'update:filters\', { group: \'7\' }); $emit(\'change\')">openai group</button></div>'
 })
 
 const OpenAIAccountSummaryCardsStub = defineComponent({
@@ -125,5 +125,18 @@ describe('admin AccountsView OpenAI summary filters', () => {
       expect.objectContaining({ platform: 'openai', type: 'oauth', status: '', quota_window: '' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+  })
+
+  it('shows the summary for an OpenAI group without a platform filter', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="set-openai-group"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="select-5h"]').exists()).toBe(true)
+    await vi.waitFor(() => {
+      expect(getOpenAIAccountSummary).toHaveBeenLastCalledWith(expect.objectContaining({ group: '7' }))
+    })
   })
 })

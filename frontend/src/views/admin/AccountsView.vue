@@ -195,7 +195,7 @@
           </AccountTableActions>
         </div>
         <OpenAIAccountSummaryCards
-          v-if="params.platform === 'openai'"
+          v-if="showOpenAISummary"
           :summary="openAISummary"
           :filters="params"
           @select="handleOpenAISummaryFilter"
@@ -1168,6 +1168,15 @@ const {
   }
 })
 
+const selectedAccountGroup = computed(() => {
+  const groupId = Number(params.group)
+  if (!Number.isSafeInteger(groupId) || groupId <= 0) return null
+  return groups.value.find(group => group.id === groupId) ?? null
+})
+const showOpenAISummary = computed(() =>
+  params.platform === 'openai' || (!params.platform && selectedAccountGroup.value?.platform === 'openai')
+)
+
 const getOpenAISummaryContext = () => JSON.stringify({
   platform: params.platform || '',
   group: params.group || '',
@@ -1176,7 +1185,7 @@ const getOpenAISummaryContext = () => JSON.stringify({
 })
 
 const refreshOpenAISummary = async (force = false) => {
-  if (params.platform !== 'openai') {
+  if (!showOpenAISummary.value) {
     openAISummary.value = null
     openAISummaryContext = ''
     return
@@ -1233,9 +1242,7 @@ const accountTypePreferenceOptions = computed(() => [
   { value: 'apikey_first' as AccountTypePreference, label: t('admin.groups.accountRouting.apiFirst') }
 ])
 const selectedRoutingGroup = computed(() => {
-  const groupId = Number(params.group)
-  if (!Number.isSafeInteger(groupId) || groupId <= 0) return null
-  const group = groups.value.find(item => item.id === groupId)
+  const group = selectedAccountGroup.value
   return group && ['openai', 'antigravity', 'anthropic', 'gemini'].includes(group.platform)
     ? group
     : null
@@ -2813,6 +2820,7 @@ onMounted(async () => {
   }
   if (groupsResult.status === 'fulfilled') {
     groups.value = groupsResult.value
+    await refreshOpenAISummary(true)
   } else {
     console.error('Failed to load groups:', groupsResult.reason)
   }
