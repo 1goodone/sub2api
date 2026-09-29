@@ -109,6 +109,11 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		}()
 		defer candy.Wait()
 	}
+	if created, err := s.scheduledSvc.SyncQualityTemplates(ctx); err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] quality template sync error: %v", err)
+	} else if created > 0 {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] quality templates added %d rules", created)
+	}
 	plans, err := s.planRepo.ListDue(ctx, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] ListDue error: %v", err)

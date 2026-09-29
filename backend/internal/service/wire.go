@@ -647,9 +647,11 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
 	resultRepo ScheduledTestResultRepository,
+	templateRepo QualityRuleTemplateRepository,
 	showcase *PelicanShowcaseService,
 ) *ScheduledTestService {
 	svc := NewScheduledTestService(planRepo, resultRepo)
+	svc.templateRepo = templateRepo
 	svc.showcase = showcase
 	return svc
 }
