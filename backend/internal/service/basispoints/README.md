@@ -151,3 +151,18 @@ remains in force; this is gateway reconciliation, not client memory cleanup.
 A manual compact resets the checkpoint chain. State expiry or a different account,
 model, key or thread can require manual compact again. Checkpoints remain useful
 if generation fails after emitting the compaction window; all usage is still billed.
+# In-band upstream failures
+
+- Recognize error, response.failed and response.cancelled as failed terminals.
+  Explicit error status takes precedence over known error codes and types;
+  unknown identifiers use a safe 502 fallback. Never forward upstream free text.
+- Buffered client responses return the classified HTTP status. Started streams
+  retain their HTTP status and carry the classification in the error event.
+  Ops records keep the actual upstream HTTP status separate from the semantic
+  failure status; existing compact keepalives still finish with an SSE failure.
+- A rate-limit terminal cools only the BPS route for subsequent requests, except
+  observation-only quality probes. It never retries the accepted generation,
+  disables an account on an in-band 403, or changes shared Codex account health.
+- Failure/cancellation retains usage and withholds unvalidated tools. Readers
+  stop at cancellation without waiting for EOF, including correction and image
+  compaction readers. This does not add a BPS WebSocket transport.
