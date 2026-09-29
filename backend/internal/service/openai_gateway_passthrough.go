@@ -1909,6 +1909,16 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	var firstTokenMs *int
 	responseID := ""
 	ttftMode := s.openAITTFTMode(ctx)
+	firstResponseMs := int(time.Since(startTime).Milliseconds())
+	if firstResponseMs < 0 {
+		firstResponseMs = 0
+	}
+	reportedFirstTokenMs := func() *int {
+		if ttftMode == OpenAITTFTModeSemantic {
+			return &firstResponseMs
+		}
+		return firstTokenMs
+	}
 	clientDisconnected := false
 	sawDone := false
 	sawTerminalEvent := false
@@ -2023,7 +2033,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
-			firstTokenMs:     firstTokenMs,
+			firstTokenMs:     reportedFirstTokenMs(),
 			responseID:       responseID,
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),

@@ -387,6 +387,62 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 	return result, nil
 }
 
+// GetAccountWindowStatsByStartBatch fetches account stats with per-account window starts.
+func (r *usageLogRepository) GetAccountWindowStatsByStartBatch(ctx context.Context, windowStarts map[int64]time.Time) (map[int64]*usagestats.AccountStats, error) {
+	result := make(map[int64]*usagestats.AccountStats, len(windowStarts))
+	if len(windowStarts) == 0 {
+		return result, nil
+	}
+
+	accountIDs := make([]int64, 0, len(windowStarts))
+	startTimes := make([]time.Time, 0, len(windowStarts))
+	for accountID, startTime := range windowStarts {
+		accountIDs = append(accountIDs, accountID)
+		startTimes = append(startTimes, startTime)
+	}
+
+	query := `
+		WITH windows AS (
+			SELECT * FROM unnest($1::bigint[], $2::timestamptz[]) AS w(account_id, start_time)
+		)
+		SELECT
+			w.account_id,
+			COUNT(u.id) as requests,
+			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens,
+			COALESCE(SUM(COALESCE(u.account_stats_cost, u.total_cost) * COALESCE(u.account_rate_multiplier, 1)), 0) as cost,
+			COALESCE(SUM(u.total_cost), 0) as standard_cost,
+			COALESCE(SUM(u.actual_cost), 0) as user_cost
+		FROM windows w
+		LEFT JOIN usage_logs u ON u.account_id = w.account_id AND u.created_at >= w.start_time
+		GROUP BY w.account_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), pq.Array(startTimes))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		stats := &usagestats.AccountStats{}
+		if err := rows.Scan(
+			&accountID,
+			&stats.Requests,
+			&stats.Tokens,
+			&stats.Cost,
+			&stats.StandardCost,
+			&stats.UserCost,
+		); err != nil {
+			return nil, err
+		}
+		result[accountID] = stats
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // GetGeminiUsageTotalsBatch 批量聚合 Gemini 账号在窗口内的 Pro/Flash 请求与用量。
 // 模型分类规则与 service.geminiModelClassFromName 一致：model 包含 flash/lite 视为 flash，其余视为 pro。
 func (r *usageLogRepository) GetGeminiUsageTotalsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.GeminiUsageTotals, error) {

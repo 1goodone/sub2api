@@ -1185,6 +1185,20 @@ func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, ac
 	return r.accountsToService(ctx, accounts)
 }
 
+// ListAllWithFiltersSorted is the non-paginated counterpart used only by
+// in-memory quota-window filtering while preserving the account table order.
+func (r *accountRepository) ListAllWithFiltersSorted(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+	q := observerAccountQuery(ctx, r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode))
+	for _, order := range accountListOrder(params) {
+		q = q.Order(order)
+	}
+	accounts, err := q.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, accounts)
+}
+
 func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platformFilter string, groupIDFilter *int64) ([]service.Account, error) {
 	if r == nil || r.client == nil {
 		return []service.Account{}, nil

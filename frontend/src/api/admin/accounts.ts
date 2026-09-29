@@ -50,6 +50,7 @@ export async function list(
     group?: string
     search?: string
     privacy_mode?: string
+    quota_window?: '5h' | '7d' | ''
     lite?: string
     include_scheduler_score?: string
     sort_by?: string
@@ -125,6 +126,7 @@ export async function listWithEtag(
     group?: string
     search?: string
     privacy_mode?: string
+    quota_window?: '5h' | '7d' | ''
     lite?: string
     include_scheduler_score?: string
     sort_by?: string
@@ -165,6 +167,28 @@ export async function listWithEtag(
     etag: etagHeader,
     data: response.data
   }
+}
+
+export interface OpenAIAccountSummary {
+  accounts: { oauth: number; apikey: number }
+  oauth_status: { normal: number; rate_limited: number; error: number }
+  oauth_quota: {
+    '5h': { remaining_cost: number | null; estimated_cost: number | null }
+    '7d': { remaining_cost: number | null; estimated_cost: number | null }
+  }
+  concurrency: {
+    oauth: { used: number; total: number }
+    apikey: { used: number; total: number }
+  }
+}
+
+export async function getOpenAIAccountSummary(filters?: {
+  group?: string
+  search?: string
+  privacy_mode?: string
+}): Promise<OpenAIAccountSummary> {
+  const { data } = await apiClient.get<OpenAIAccountSummary>('/admin/accounts/openai-summary', { params: filters })
+  return data
 }
 
 /**
@@ -1470,6 +1494,7 @@ export async function streamManualCodexHarvest(
 export const accountsAPI = {
   list,
   listWithEtag,
+  getOpenAIAccountSummary,
   getUpstreamBillingRatesWithEtag,
   getById,
   create,

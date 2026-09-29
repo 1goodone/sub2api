@@ -42,6 +42,51 @@ func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Conte
 	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode)
 }
 
+type sortedAccountFilterRepository interface {
+	ListAllWithFiltersSorted(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
+}
+
+// ListOpenAIAccountsByQuotaWindow filters the small OpenAI account pool in
+// memory because the window decision reuses the canonical scheduling parser.
+func (s *adminServiceImpl) ListOpenAIAccountsByQuotaWindow(
+	ctx context.Context,
+	page, pageSize int,
+	accountType, status, search string,
+	groupID int64,
+	privacyMode, quotaWindow, sortBy, sortOrder string,
+) ([]Account, int64, error) {
+	if s == nil || s.accountRepo == nil || (accountType != "" && accountType != AccountTypeOAuth) {
+		return []Account{}, 0, nil
+	}
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
+	lister, ok := s.accountRepo.(sortedAccountFilterRepository)
+	if !ok {
+		return []Account{}, 0, nil
+	}
+	accounts, err := lister.ListAllWithFiltersSorted(ctx, params, PlatformOpenAI, AccountTypeOAuth, status, search, groupID, privacyMode)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	now := time.Now().UTC()
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if MatchesOpenAIQuotaWindow(&accounts[i], quotaWindow, now) {
+			filtered = append(filtered, accounts[i])
+		}
+	}
+	total := int64(len(filtered))
+	start := params.Offset()
+	if start >= len(filtered) {
+		return []Account{}, total, nil
+	}
+	end := start + params.Limit()
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[start:end], total, nil
+}
+
 func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, nil

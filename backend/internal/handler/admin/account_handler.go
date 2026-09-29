@@ -71,6 +71,16 @@ type AccountHandler struct {
 	cfg                     *config.Config
 }
 
+type openAIQuotaWindowAccountLister interface {
+	ListOpenAIAccountsByQuotaWindow(
+		ctx context.Context,
+		page, pageSize int,
+		accountType, status, search string,
+		groupID int64,
+		privacyMode, quotaWindow, sortBy, sortOrder string,
+	) ([]service.Account, int64, error)
+}
+
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe
@@ -653,6 +663,7 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	platform, accountType, status, search string,
 	groupID int64,
 	privacyMode string,
+	quotaWindow string,
 ) []service.Account {
 	if h.adminService == nil || (platform != "" && platform != service.PlatformOpenAI) {
 		return nil
@@ -663,6 +674,16 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	if err != nil {
 		slog.Warn("openai_scheduler_filter_score_pool_failed", "error", err)
 		return nil
+	}
+	if quotaWindow != "" {
+		now := time.Now().UTC()
+		filtered := accounts[:0]
+		for i := range accounts {
+			if service.MatchesOpenAIQuotaWindow(&accounts[i], quotaWindow, now) {
+				filtered = append(filtered, accounts[i])
+			}
+		}
+		accounts = filtered
 	}
 	return accounts
 }
@@ -686,6 +707,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
 	// 调度分需要跨候选池批量打分并读取负载，默认列表不计算；只有前端列可见时才显式开启。
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
+	quotaWindow := strings.ToLower(strings.TrimSpace(c.Query("quota_window")))
+	if quotaWindow != "" && quotaWindow != service.OpenAIQuotaWindow5h && quotaWindow != service.OpenAIQuotaWindow7d {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_QUOTA_WINDOW_FILTER", "invalid quota window filter"))
+		return
+	}
 
 	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
@@ -705,7 +731,19 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	var accounts []service.Account
+	var total int64
+	var err error
+	if quotaWindow == "" {
+		accounts, total, err = h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	} else if (platform != "" && platform != service.PlatformOpenAI) || (accountType != "" && accountType != service.AccountTypeOAuth) {
+		accounts = []service.Account{}
+	} else if lister, ok := h.adminService.(openAIQuotaWindowAccountLister); ok {
+		accounts, total, err = lister.ListOpenAIAccountsByQuotaWindow(c.Request.Context(), page, pageSize, accountType, status, search, groupID, privacyMode, quotaWindow, sortBy, sortOrder)
+	} else {
+		response.InternalError(c, "OpenAI quota window filtering is unavailable")
+		return
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -742,7 +780,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
-		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode)
+		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode, quotaWindow)
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 

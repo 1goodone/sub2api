@@ -120,6 +120,16 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	var firstTokenMs *int
 	ttftMode := s.openAITTFTMode(ctx)
+	firstResponseMs := int(time.Since(startTime).Milliseconds())
+	if firstResponseMs < 0 {
+		firstResponseMs = 0
+	}
+	reportedFirstTokenMs := func() *int {
+		if ttftMode == OpenAITTFTModeSemantic {
+			return &firstResponseMs
+		}
+		return firstTokenMs
+	}
 	firstOutputProgressObserved := false
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
@@ -348,7 +358,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
 			usage:            usage,
-			firstTokenMs:     firstTokenMs,
+			firstTokenMs:     reportedFirstTokenMs(),
 			responseID:       responseID,
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),

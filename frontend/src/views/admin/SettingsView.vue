@@ -5442,7 +5442,7 @@
                   </p>
                 </div>
 
-              <!-- OpenAI Responses 首 token 统计 -->
+              <!-- OpenAI Responses 首字统计 -->
               <div class="border-b border-gray-100 pb-5 dark:border-dark-700 md:col-span-2">
                 <label
                   for="openai-ttft-mode"

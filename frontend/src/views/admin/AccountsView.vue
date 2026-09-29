@@ -8,7 +8,7 @@
               v-model:searchQuery="params.search"
               :filters="params"
               :groups="groups"
-              @update:filters="(newFilters) => Object.assign(params, newFilters)"
+              @update:filters="handleFilterUpdate"
               @change="debouncedReload"
               @update:searchQuery="debouncedReload"
             />
@@ -194,6 +194,12 @@
             </template>
           </AccountTableActions>
         </div>
+        <OpenAIAccountSummaryCards
+          v-if="params.platform === 'openai'"
+          :summary="openAISummary"
+          :filters="params"
+          @select="handleOpenAISummaryFilter"
+        />
         <div
           v-if="hasPendingListSync"
           class="mt-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-200"
@@ -556,6 +562,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
+import OpenAIAccountSummaryCards from '@/components/admin/account/OpenAIAccountSummaryCards.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
@@ -586,6 +593,13 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountTypePreference, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { OpenAIAccountSummary } from '@/api/admin/accounts'
+
+type OpenAIAccountSummaryFilter = {
+  type: 'oauth' | 'apikey'
+  status?: 'active' | 'rate_limited' | 'error'
+  quota_window?: '5h' | '7d'
+}
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -593,6 +607,9 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+const openAISummary = ref<OpenAIAccountSummary | null>(null)
+let openAISummaryContext = ''
+let openAISummaryRequest = 0
 const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
 const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
   const groupIDs = account.group_ids ?? []
@@ -1140,6 +1157,7 @@ const {
     platform: '',
     type: '',
     status: '',
+    quota_window: '',
     privacy_mode: '',
     group: '',
     search: '',
@@ -1149,6 +1167,65 @@ const {
     sort_order: sortState.sort_order
   }
 })
+
+const getOpenAISummaryContext = () => JSON.stringify({
+  platform: params.platform || '',
+  group: params.group || '',
+  privacy_mode: params.privacy_mode || '',
+  search: params.search || ''
+})
+
+const refreshOpenAISummary = async (force = false) => {
+  if (params.platform !== 'openai') {
+    openAISummary.value = null
+    openAISummaryContext = ''
+    return
+  }
+  const context = getOpenAISummaryContext()
+  if (!force && context === openAISummaryContext) return
+  const request = ++openAISummaryRequest
+  try {
+    const summary = await adminAPI.accounts.getOpenAIAccountSummary({
+      group: params.group || '',
+      privacy_mode: params.privacy_mode || '',
+      search: params.search || ''
+    })
+    if (request !== openAISummaryRequest || context !== getOpenAISummaryContext()) return
+    openAISummary.value = summary
+    openAISummaryContext = context
+  } catch (error) {
+    if (request === openAISummaryRequest) console.error('Failed to load OpenAI account summary:', error)
+  }
+}
+
+const handleFilterUpdate = (newFilters: Record<string, any>) => {
+  Object.assign(params, newFilters)
+  if (params.platform !== 'openai' || params.type !== 'oauth' || params.status) {
+    params.quota_window = ''
+  }
+}
+
+const handleOpenAISummaryFilter = (filter: OpenAIAccountSummaryFilter) => {
+  params.platform = 'openai'
+  if (filter.quota_window) {
+    const selected = params.type === 'oauth' && params.quota_window === filter.quota_window
+    params.type = 'oauth'
+    params.status = ''
+    params.quota_window = selected ? '' : filter.quota_window
+  } else if (filter.status) {
+    const selected = params.type === 'oauth' && params.status === filter.status && !params.quota_window
+    params.type = 'oauth'
+    params.status = selected ? '' : filter.status
+    params.quota_window = ''
+  } else {
+    const selected = params.type === filter.type && !params.status && !params.quota_window
+    params.type = selected ? '' : filter.type
+    params.status = ''
+    params.quota_window = ''
+  }
+  pagination.page = 1
+  void reload()
+}
 
 const accountTypePreferenceOptions = computed(() => [
   { value: 'default' as AccountTypePreference, label: t('admin.groups.accountRouting.default') },
@@ -1234,6 +1311,7 @@ const load = async (options: AccountLoadOptions = {}) => {
   requestParams.lite = '1'
   await baseLoad()
   if (options.refreshTodayStats !== false) await refreshTodayStatsBatch()
+  await refreshOpenAISummary()
 }
 
 const reload = async () => {
@@ -1242,7 +1320,7 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshOpenAISummary(true)])
 }
 
 const buildUpstreamBillingRateFilters = () => {
@@ -1316,6 +1394,7 @@ const applyUpstreamBillingRateSnapshots = async (
 }
 
 const refreshUpstreamBillingRates = async (force = false) => {
+  if (params.quota_window) return
   if (upstreamBillingRateRefreshing.value || loading.value || accounts.value.length === 0) return
   if (!force && (
     probingUpstreamBilling.size > 0 ||
@@ -1408,6 +1487,7 @@ watch(loading, (isLoading, wasLoading) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
   }
+  if (wasLoading && !isLoading) void refreshOpenAISummary()
 })
 
 watch(accounts, (rows) => {
@@ -1544,6 +1624,7 @@ const refreshAccountsIncrementally = async () => {
     upstreamBillingNow.value = Date.now()
 
     await refreshTodayStatsBatch()
+    await refreshOpenAISummary(true)
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1552,7 +1633,7 @@ const refreshAccountsIncrementally = async () => {
 }
 
 const handleManualRefresh = async () => {
-  await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
+  await Promise.all([load(), loadUpstreamBillingProbeGlobalState(), refreshOpenAISummary(true)])
   // Force usage cells to refetch /usage on explicit user refresh.
   usageManualRefreshToken.value += 1
 }
@@ -2121,10 +2202,14 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
 const buildBulkEditFilterSnapshot = () => {
   const rawParams = toRaw(params) as Record<string, unknown>
   const sortOrder: AccountSortOrder = rawParams.sort_order === 'desc' ? 'desc' : 'asc'
+  const quotaWindow: '5h' | '7d' | '' = rawParams.quota_window === '5h' || rawParams.quota_window === '7d'
+    ? rawParams.quota_window
+    : ''
   return {
     platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
     type: typeof rawParams.type === 'string' ? rawParams.type : '',
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
+    quota_window: quotaWindow,
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
@@ -2177,6 +2262,24 @@ const openBulkEditSelected = () => {
 
 const openBulkEditFiltered = async () => {
   const filters = buildBulkEditFilterSnapshot()
+  if (filters.quota_window) {
+    const accountIds = await fetchAllAccountIds(
+      (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
+      filters
+    )
+    if (accountIds.length === 0) {
+      appStore.showInfo(t('admin.accounts.noAccountsYet'))
+      return
+    }
+    bulkEditTarget.value = {
+      mode: 'selected',
+      accountIds,
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    }
+    showBulkEdit.value = true
+    return
+  }
   const preview = await adminAPI.accounts.list(1, 100, filters)
   const { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
   bulkEditTarget.value = {
@@ -2202,16 +2305,30 @@ const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
   status: params.status || '',
+  quota_window: params.quota_window || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
+const accountMatchesQuotaWindow = (account: Account, window: string) => {
+  if (account.platform !== 'openai' || account.type !== 'oauth' || account.status !== 'active') return false
+  const now = Date.now()
+  const rateLimitReset = account.rate_limit_reset_at ? Date.parse(account.rate_limit_reset_at) : Number.NaN
+  if (!Number.isFinite(rateLimitReset) || rateLimitReset <= now) return false
+  const tempUntil = account.temp_unschedulable_until ? Date.parse(account.temp_unschedulable_until) : Number.NaN
+  if (Number.isFinite(tempUntil) && tempUntil > now) return false
+  const used = Number(account.extra?.[window === '5h' ? 'codex_5h_used_percent' : 'codex_7d_used_percent'])
+  const reset = Date.parse(String(account.extra?.[window === '5h' ? 'codex_5h_reset_at' : 'codex_7d_reset_at'] || ''))
+  if (!Number.isFinite(reset) || reset <= now) return false
+  return used >= 100 || Math.abs(reset - rateLimitReset) <= 120_000
+}
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (filters.platform && account.platform !== filters.platform) return false
   if (filters.type && account.type !== filters.type) return false
+  if (filters.quota_window && !accountMatchesQuotaWindow(account, filters.quota_window)) return false
   if (filters.status) {
     const now = Date.now()
     const rateLimitResetAt = account.rate_limit_reset_at ? new Date(account.rate_limit_reset_at).getTime() : Number.NaN
@@ -2379,9 +2496,21 @@ const handleExportData = async () => {
   if (exportingData.value) return
   exportingData.value = true
   try {
+    const filteredIds = selIds.value.length === 0 && params.quota_window
+      ? await fetchAllAccountIds(
+          (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
+          buildBulkEditFilterSnapshot()
+        )
+      : []
+    if (selIds.value.length === 0 && params.quota_window && filteredIds.length === 0) {
+      appStore.showInfo(t('admin.accounts.noAccountsYet'))
+      return
+    }
     const dataPayload = await accountExportStepUp.run(() => adminAPI.accounts.exportData(
       selIds.value.length > 0
         ? { ids: selIds.value, includeProxies: authStore.isAdmin && includeProxyOnExport.value }
+        : filteredIds.length > 0
+          ? { ids: filteredIds, includeProxies: authStore.isAdmin && includeProxyOnExport.value }
         : {
             includeProxies: authStore.isAdmin && includeProxyOnExport.value,
             filters: buildAccountQueryFilters()
