@@ -90,20 +90,28 @@
               </select>
             </label>
           </div>
+          <div class="space-y-1 text-sm">
+            <span>{{ t('qualityOps.accountStatus') }}</span>
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <label v-for="option in accountStatusOptions" :key="option.value" class="flex items-center gap-1.5"><input v-model="accountStatuses" type="checkbox" :value="option.value" :data-testid="`quality-account-status-${option.value}`" @change="searchAccounts(1)" />{{ t(option.label) }}</label>
+            </div>
+            <p class="text-xs text-gray-500">{{ t('qualityOps.accountStatusHint') }}</p>
+          </div>
           <div class="flex gap-2"><input id="quality-account-search" v-model="search" class="input min-w-0" :placeholder="t('qualityOps.search')" @keydown.enter.prevent="searchAccounts(1)" /><button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="searchAccounts(1)">{{ t('qualityOps.search') }}</button></div>
-          <div class="flex flex-wrap items-center gap-3 text-sm">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"><span>{{ t('qualityOps.accountScope') }}</span><label class="flex items-center gap-1.5"><input v-model="accountScope" type="radio" value="all" data-testid="quality-account-scope-all" />{{ t('qualityOps.accountScopeAll') }}</label><label class="flex items-center gap-1.5"><input v-model="accountScope" type="radio" value="manual" data-testid="quality-account-scope-manual" />{{ t('qualityOps.accountScopeManual') }}</label></div>
+          <div v-if="accountScope === 'manual'" class="flex flex-wrap items-center gap-3 text-sm">
             <button type="button" class="text-primary-600 disabled:opacity-50" data-testid="quality-select-page" :disabled="accountsLoading || selectingAccounts || !selectableAccounts.length" @click="selectCurrentPage">{{ t('qualityOps.selectAccountPage') }}</button>
             <button type="button" class="text-primary-600 disabled:opacity-50" data-testid="quality-select-all" :disabled="accountsLoading || selectingAccounts || !accounts.length" @click="selectMatchingAccounts">{{ t(selectingAccounts ? 'qualityOps.selectingAccounts' : 'qualityOps.selectMatchingAccounts') }}</button>
             <button type="button" class="text-gray-500 disabled:opacity-50" data-testid="quality-clear-selection" :disabled="!selectedAccounts.length && !selectingAccounts" @click="clearAccountSelection">{{ t('qualityOps.clearAccountSelection') }}</button>
           </div>
-          <p class="text-xs text-gray-500">{{ t('qualityOps.accountSelectionHint') }}</p>
+          <p class="text-xs text-gray-500">{{ t(accountScope === 'all' ? 'qualityOps.accountScopeAllHint' : 'qualityOps.accountSelectionHint') }}</p>
           <p v-if="accountsError" role="alert" class="text-sm text-red-600">{{ accountsError }}</p>
           <p v-if="accountsLoading" role="status" class="text-sm text-gray-500">{{ t('qualityOps.loading') }}</p>
           <div class="grid max-h-52 gap-2 overflow-auto rounded border p-3 sm:grid-cols-2 dark:border-dark-600" :aria-busy="accountsLoading || selectingAccounts">
-            <label v-for="account in accounts" :key="account.id" class="flex items-center gap-2 text-sm"><input v-model="selectedAccounts" type="checkbox" :value="account.id" :disabled="selectingAccounts || existingAccountIds.has(account.id)" /><span class="min-w-0 break-all">{{ account.name }} <span class="text-gray-500">#{{ account.id }}</span><span v-if="existingAccountIds.has(account.id)" class="ml-1 text-xs text-gray-500">{{ t('qualityOps.accountHasRule') }}</span></span></label>
+            <label v-for="account in accounts" :key="account.id" class="flex items-center gap-2 text-sm"><input v-model="selectedAccounts" type="checkbox" :value="account.id" :disabled="accountScope === 'all' || selectingAccounts || !!accountDisabledReason(account)" /><span class="min-w-0 break-all">{{ account.name }} <span class="text-gray-500">#{{ account.id }}</span><span v-if="accountDisabledReason(account)" class="ml-1 text-xs text-gray-500">{{ accountDisabledReason(account) }}</span></span></label>
             <p v-if="!accountsLoading && !accounts.length" class="text-sm text-gray-500 sm:col-span-2">{{ t('qualityOps.noMatchingAccounts') }}</p>
           </div>
-          <div class="flex flex-wrap items-center gap-3 text-sm"><button type="button" :aria-label="t('qualityOps.previousAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage <= 1" @click="searchAccounts(accountPage - 1)">←</button><span>{{ accountPage }} / {{ accountPages }}</span><button type="button" :aria-label="t('qualityOps.nextAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage >= accountPages" @click="searchAccounts(accountPage + 1)">→</button><span aria-live="polite">{{ t('qualityOps.selected', { count: selectedAccounts.length }) }}</span></div>
+          <div class="flex flex-wrap items-center gap-3 text-sm"><button type="button" :aria-label="t('qualityOps.previousAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage <= 1" @click="searchAccounts(accountPage - 1)">←</button><span>{{ accountPage }} / {{ accountPages }}</span><button type="button" :aria-label="t('qualityOps.nextAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage >= accountPages" @click="searchAccounts(accountPage + 1)">→</button><span aria-live="polite" data-testid="quality-account-count">{{ accountScope === 'all' ? t('qualityOps.accountsMatched', { count: accountsTotal }) : t('qualityOps.selected', { count: selectedAccounts.length }) }}</span></div>
         </div>
         <div v-if="editsField('test')" class="space-y-2">
           <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
@@ -159,7 +167,7 @@
         </template>
         <label v-if="editsField('enabled')" class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('qualityOps.enabled') }}</label>
       </fieldset></form>
-      <template #footer><div class="editor-footer"><button v-if="editing" type="button" class="delete-rule" :disabled="busy" @click="deleteTarget = plans.find(p => p.id === editing) || null">{{ t('qualityOps.delete') }}</button><span class="flex-1" /><button class="btn btn-secondary" :disabled="busy" @click="closeForm">{{ t('qualityOps.cancel') }}</button><button form="quality-rule-form" type="submit" class="btn btn-primary" :disabled="busy || selectingAccounts || (bulkEditing ? !bulkFields.length || !bulkRuleIds.length : !editing && !selectedAccounts.length)">{{ busy ? t('qualityOps.saving') : bulkEditing ? t('qualityOps.applyToRules', { count: bulkRuleIds.length }) : t('qualityOps.save') }}</button></div></template>
+      <template #footer><div class="editor-footer"><button v-if="editing" type="button" class="delete-rule" :disabled="busy" @click="deleteTarget = plans.find(p => p.id === editing) || null">{{ t('qualityOps.delete') }}</button><span class="flex-1" /><button class="btn btn-secondary" :disabled="busy" @click="closeForm">{{ t('qualityOps.cancel') }}</button><button form="quality-rule-form" type="submit" class="btn btn-primary" :disabled="busy || selectingAccounts || (bulkEditing ? !bulkFields.length || !bulkRuleIds.length : !editing && (accountScope === 'all' ? !accountsTotal : !selectedAccounts.length))">{{ busy ? t('qualityOps.saving') : bulkEditing ? t('qualityOps.applyToRules', { count: bulkRuleIds.length }) : t('qualityOps.save') }}</button></div></template>
     </BaseDialog>
     <BaseDialog :show="!!historyPlan" :title="detailOperation ? t('qualityOps.roundDetail') : t('qualityOps.history')" placement="right" width="extra-wide" close-on-click-outside @close="closeDetails">
       <template v-if="historyPlan">
@@ -224,26 +232,45 @@ const accountNames = computed(() => {
   for (const account of accounts.value) names[account.id] = account.name
   return names
 })
-const accounts = ref<AccountListItem[]>([]), accountsLoading = ref(false)
+const accounts = ref<AccountListItem[]>([]), accountsLoading = ref(false), accountsTotal = ref(0)
 const search = ref(''), accountPage = ref(1), accountPages = ref(1)
 const accountGroup = ref(''), accountType = ref(''), accountsError = ref(''), selectingAccounts = ref(false)
+const accountStatuses = ref<string[]>(['active']), accountScope = ref<'all' | 'manual'>('all')
+const accountStatusOptions = [
+  { value: 'active', label: 'admin.accounts.status.active' },
+  { value: 'rate_limited', label: 'admin.accounts.status.rateLimited' },
+  { value: 'temp_unschedulable', label: 'admin.accounts.status.tempUnschedulable' },
+  { value: 'unschedulable', label: 'admin.accounts.status.unschedulable' },
+  { value: 'error', label: 'admin.accounts.status.error' },
+  { value: 'inactive', label: 'admin.accounts.status.inactive' },
+]
 const existingAccountIds = computed(() => new Set(plans.value.filter(plan =>
   (plan.pelican_config?.quality?.action === 'enable_bps') === (form.value.pelican_config.quality.action === 'enable_bps')
 ).map(plan => plan.account_id)))
-const selectableAccounts = computed(() => accounts.value.filter(account => !existingAccountIds.value.has(account.id)))
+const selectableAccounts = computed(() => accounts.value.filter(account => !accountDisabledReason(account)))
 let accountSelectionRequest = 0
-const accountFilters = () => ({ search: search.value.trim(), group: accountGroup.value || undefined, type: accountType.value || undefined, lite: 'true', sort_by: 'id', sort_order: 'asc' as const })
+const accountFilters = () => ({ search: search.value.trim(), group: accountGroup.value || undefined, type: accountType.value || undefined, status: accountStatuses.value.join(',') || undefined, lite: 'true', sort_by: 'id', sort_order: 'asc' as const })
 function invalidateAccountRequests() {
   accountRequest++; accountSelectionRequest++
   accountsLoading.value = selectingAccounts.value = false
-  accounts.value = []; accountPage.value = accountPages.value = 1; accountsError.value = ''
+  accounts.value = []; accountPage.value = accountPages.value = 1; accountsTotal.value = 0; accountsError.value = ''
 }
-watch([search, accountGroup, accountType], invalidateAccountRequests, { flush: 'sync' })
+watch([search, accountGroup, accountType, accountStatuses], invalidateAccountRequests, { flush: 'sync' })
 function showAccountPicker() { return showForm.value && !editing.value && !bulkEditing.value }
 
 const selectedAccounts = ref<number[]>([]), editing = ref<number | null>(null)
 const selectedRuleIds = ref<number[]>([]), bulkRuleIds = ref<number[]>([])
 const bulkEditing = ref(false), bulkFields = ref<QualityRuleField[]>([]), bulkProgress = ref('')
+function accountDisabledReason(account: AccountListItem) {
+  if (existingAccountIds.value.has(account.id)) return t('qualityOps.accountHasRule')
+  if (isProbe.value && !supportsStateProbeAccount(account)) return t('qualityOps.probeAccountUnsupported')
+  return ''
+}
+function supportsStateProbeAccount(account: AccountListItem) {
+  return account.platform === 'openai' && ['oauth', 'setup-token'].includes(account.type) && account.extra?.synthetic_ui_test !== true
+}
+const knownAccounts = new Map<number, AccountListItem>()
+function rememberAccounts(items: AccountListItem[]) { for (const account of items) knownAccounts.set(account.id, account) }
 const busy = ref(false), error = ref(''), notice = ref(''), showForm = ref(false)
 watch(showAccountPicker, (show) => { if (!show) invalidateAccountRequests() }, { flush: 'sync' })
 const pending = ref<Record<number, string>>({}), deleteTarget = ref<ScheduledTestPlan | null>(null), deleting = ref(false)
@@ -392,7 +419,8 @@ async function searchAccounts(page = 1) {
   try {
     const data = await accountsAPI.list(page, 50, accountFilters())
     if (!alive || request !== accountRequest) return
-    accounts.value = data.items; accountPage.value = page; accountPages.value = Math.max(1, Math.ceil(data.total / 50))
+    rememberAccounts(data.items)
+    accounts.value = data.items; accountPage.value = page; accountPages.value = Math.max(1, Math.ceil(data.total / 50)); accountsTotal.value = data.total
   } catch (e) { if (alive && request === accountRequest) accountsError.value = message(e) }
   finally { if (request === accountRequest) accountsLoading.value = false }
 }
@@ -403,19 +431,23 @@ function selectCurrentPage() {
 function clearAccountSelection() {
   accountSelectionRequest++; selectingAccounts.value = false; selectedAccounts.value = []
 }
+async function collectSelectableAccountIds(aborted: () => boolean): Promise<number[] | null> {
+  const filters = accountFilters(), ids = new Set<number>()
+  for (let page = 1, pages = 1; page <= pages; page++) {
+    const data = await accountsAPI.list(page, 50, filters)
+    if (aborted()) return null
+    pages = Math.max(1, Math.ceil(data.total / 50)); rememberAccounts(data.items)
+    for (const account of data.items) if (!accountDisabledReason(account)) ids.add(account.id)
+  }
+  return [...ids]
+}
 async function selectMatchingAccounts() {
   if (accountsLoading.value || selectingAccounts.value || busy.value) return
-  const request = ++accountSelectionRequest, filters = accountFilters()
+  const request = ++accountSelectionRequest
   selectingAccounts.value = true; accountsError.value = ''
-  const ids = new Set<number>()
   try {
-    // Collect every matching page before changing selection so a failed page never leaves a partial batch.
-    for (let page = 1, pages = 1; page <= pages; page++) {
-      const data = await accountsAPI.list(page, 50, filters)
-      if (!alive || request !== accountSelectionRequest) return
-      pages = Math.max(1, Math.ceil(data.total / 50))
-      for (const account of data.items) ids.add(account.id)
-    }
+    const ids = await collectSelectableAccountIds(() => !alive || request !== accountSelectionRequest)
+    if (ids == null) return
     selectedAccounts.value = [...new Set([...selectedAccounts.value, ...ids])].filter(id => !existingAccountIds.value.has(id))
   } catch (e) { if (alive && request === accountSelectionRequest) accountsError.value = message(e) }
   finally { if (request === accountSelectionRequest) selectingAccounts.value = false }
@@ -424,6 +456,7 @@ function newPlan() {
   bulkEditing.value = false; bulkRuleIds.value = []; bulkFields.value = []; bulkProgress.value = ''
   closeDetails(); invalidateAccountRequests(); error.value = ''; editing.value = null; form.value = defaults()
   selectedAccounts.value = []; search.value = ''; accountGroup.value = ''; accountType.value = ''
+  accountStatuses.value = ['active']; accountScope.value = 'all'
   showForm.value = true; initialForm.value = formSnapshot(); void searchAccounts()
   if (!groups.value.length) void store.refreshGroups()
 }
@@ -465,6 +498,7 @@ function selectQuestionKind() {
   if (config.question_kind === STATE_PROBE_QUESTION) {
     config.parallel_count = 1
     if (!editing.value && !bulkEditing.value && form.value.cron_expression === defaults().cron_expression) form.value.cron_expression = DEFAULT_STATE_PROBE_CRON
+    if (!editing.value && !bulkEditing.value) selectedAccounts.value = selectedAccounts.value.filter(id => { const account = knownAccounts.get(id); return account && supportsStateProbeAccount(account) })
     return
   }
   // 开 BPS 只认探针结论：切回糖果题时退回默认处理方式。
@@ -497,6 +531,15 @@ async function save() {
       const invalid = qualityBPSError(bps.value)
       if (invalid) throw new Error(t(invalid))
     }
+    if (!editing.value && accountScope.value === 'all') {
+      const ids = await collectSelectableAccountIds(() => !alive || scope !== identity())
+      if (ids == null) return
+      if (!ids.length) throw new Error(t('qualityOps.noAccountsMatched'))
+      selectedAccounts.value = ids
+    }
+    if (isProbe.value && !editing.value && (!selectedAccounts.value.length || selectedAccounts.value.some(id => {
+      const account = knownAccounts.get(id); return !account || !supportsStateProbeAccount(account)
+    }))) throw new Error(t('qualityOps.probeAccountUnsupported'))
     const body = payload()
     if (editing.value) { await scheduledTests.update(editing.value, body); changed = true }
     else {
