@@ -162,6 +162,15 @@ func (b *excelBPSTrackedBody) Read(p []byte) (int, error) {
 // before HTTP could have written anything. The caller owns the returned lease
 // through response closure. Static account proxies retain their old behavior.
 func (s *OpenAIGatewayService) doExcelBPSRequest(ctx context.Context, c *gin.Context, account *Account, scope string, body []byte, token, accountID string, acquire excelBPSAcquire) (*http.Response, excelBPSLease, string, error) {
+	build := func(ctx context.Context) (*http.Request, error) {
+		return newExcelBPSRequest(ctx, body, token, accountID)
+	}
+	return s.doExcelBPSRequestTo(ctx, c, account, scope, basispoints.ResponsesURL, build, acquire)
+}
+
+// doExcelBPSRequestTo applies the same exit and no-replay rules to another BPS
+// endpoint; build must return a fresh request for each attempt.
+func (s *OpenAIGatewayService) doExcelBPSRequestTo(ctx context.Context, c *gin.Context, account *Account, scope, upstreamURL string, build func(context.Context) (*http.Request, error), acquire excelBPSAcquire) (*http.Response, excelBPSLease, string, error) {
 	managed := account.IsExcelBPSMihomoEnabled()
 	var excluded []string
 	proxy := ""
@@ -181,11 +190,11 @@ func (s *OpenAIGatewayService) doExcelBPSRequest(ctx context.Context, c *gin.Con
 					return nil, nil, proxy, ctx.Err()
 				}
 				err = &excelBPSAcquisitionFailure{cause: err}
-				recordExcelBPSTransportFailure(ctx, c, account, scope, proxy, err, "proxy_acquisition", attempt, false)
+				recordExcelBPSTransportFailureAt(ctx, c, account, upstreamURL, scope, proxy, err, "proxy_acquisition", attempt, false)
 				return nil, nil, proxy, err
 			}
 		}
-		req, err := newExcelBPSRequest(ctx, body, token, accountID)
+		req, err := build(ctx)
 		if err != nil {
 			if lease != nil {
 				lease.Release()
@@ -209,7 +218,7 @@ func (s *OpenAIGatewayService) doExcelBPSRequest(ctx context.Context, c *gin.Con
 			}
 			lease.Release()
 		}
-		recordExcelBPSTransportFailure(ctx, c, account, scope, proxy, err, "transport", attempt, retry, evidence)
+		recordExcelBPSTransportFailureAt(ctx, c, account, upstreamURL, scope, proxy, err, "transport", attempt, retry, evidence)
 		if !retry {
 			return nil, nil, proxy, err
 		}

@@ -14,6 +14,9 @@ import (
 
 const ResponsesURL = "https://bps.openai.com/basispoints/api/responses"
 
+// ImagesGenerationsURL is the non-streaming text-to-image endpoint.
+const ImagesGenerationsURL = "https://bps.openai.com/basispoints/api/images/generations"
+
 type object = map[string]any
 
 type Bridge struct {

@@ -2263,6 +2263,17 @@ func (a *Account) IsExcelBPSEnabledForModel(requestedModel string) bool {
 	return a.isExcelBPSUpstreamModelEnabled(a.GetMappedModel(requestedModel))
 }
 
+// IsExcelBPSImagesEnabledForModel routes image generation through BPS only
+// when the image model is listed explicitly. Legacy account-wide routing keeps
+// images on Codex so an upgrade does not silently change the image channel.
+func (a *Account) IsExcelBPSImagesEnabledForModel(requestedModel string) bool {
+	if !a.IsExcelBPSEnabled() || a.isExcelBPSAllModelsEnabled() {
+		return false
+	}
+	model := a.GetMappedModel(requestedModel)
+	return usesCodexDirectImages(model) && a.isExcelBPSUpstreamModelEnabled(model)
+}
+
 func (a *Account) isExcelBPSUpstreamModelEnabled(model string) bool {
 	if !a.IsExcelBPSEnabled() {
 		return false
