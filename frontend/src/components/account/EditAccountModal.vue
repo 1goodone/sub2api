@@ -6145,10 +6145,17 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.costMultiplierInvalid'))
       return
     }
-    updatePayload.extra = {
-      ...((updatePayload.extra as Record<string, unknown>) || props.account.extra || {}),
-      cost_multiplier: costMultiplier.value
+    const costExtra: Record<string, unknown> = {
+      ...((updatePayload.extra as Record<string, unknown>) || props.account.extra || {})
     }
+    // An unrelated edit must not restore a cost loaded before a probe updated it.
+    if (costMultiplier.value !== readAccountCostMultiplier(props.account.extra)) {
+      costExtra.cost_multiplier = costMultiplier.value
+    } else {
+      delete costExtra.cost_multiplier
+    }
+    updatePayload.extra = costExtra
+
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       await submitUpdateAccount(accountID, updatePayload)
     })

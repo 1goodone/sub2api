@@ -1224,7 +1224,7 @@ export default {
       priorityHint: '优先级越小的账号优先使用',
       billingRateMultiplier: '账号计费倍率',
       costMultiplier: '成本倍率',
-      costMultiplierHint: '默认 0.1。利润估算成本＝账号统计定价或基础费用 × 成本倍率；0 表示零成本。独立于账号计费和用户扣费，修改后按新倍率重估近期利润，不改历史账单。',
+      costMultiplierHint: '默认 0.1。成功探测到有效上游倍率后会直接更新此值（含探测时的峰时倍率）；探测失败、过期或不支持时保留已保存值。利润估算成本＝账号统计定价或基础费用 × 成本倍率；0 表示零成本。独立于账号计费和用户扣费，修改后按新倍率重估近期利润，不改历史账单。',
       costMultiplierInvalid: '成本倍率必须是 0 到 1000000 之间的有效数字。',
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
 

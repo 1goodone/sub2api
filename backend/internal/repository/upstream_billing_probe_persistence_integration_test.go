@@ -542,3 +542,60 @@ func latestBulkAccountOutboxPayload(t *testing.T, ctx context.Context, tx sqlQue
 	require.NoError(t, json.Unmarshal(payloadJSON, &payload))
 	return payload.AccountIDs
 }
+
+func TestProbeReplacesSavedCostMultiplier(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	now := time.Now().UTC()
+	for _, tt := range []struct {
+		name        string
+		status      string
+		accountType string
+		rate        float64
+		want        float64
+	}{
+		{"success without billing sync", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 0.14, 0.14},
+		{"zero upstream", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 0, 0},
+		{"failed cached result", service.UpstreamBillingProbeStatusFailed, service.AccountTypeAPIKey, 0.14, 0.1},
+		{"unsupported cached result", service.UpstreamBillingProbeStatusUnsupported, service.AccountTypeAPIKey, 0.14, 0.1},
+		{"out of range", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 1000001, 0.1},
+		{"oauth", service.UpstreamBillingProbeStatusOK, service.AccountTypeOAuth, 0.14, 0.1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			billing := 7.0
+			account := mustCreateAccount(t, tx.Client(), &service.Account{
+				Name: "cost-sync-" + tt.name, Platform: service.PlatformOpenAI, Type: tt.accountType,
+				RateMultiplier: &billing, Credentials: map[string]any{"api_key": "sk-test"},
+				Extra: map[string]any{service.AccountCostMultiplierExtraKey: 0.1, "unrelated": "keep"},
+			})
+			require.NoError(t, tx.Client().Account.UpdateOneID(account.ID).SetRateMultiplier(billing).Exec(ctx))
+			loaded, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			snapshot := &service.UpstreamBillingProbeSnapshot{Status: tt.status, LastAttemptAt: now, Data: map[string]any{
+				"billing_scope": "token", "resolved_rate_multiplier": tt.rate, "peak_rate_enabled": false,
+			}}
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, nil))
+			got, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got.Extra[service.AccountCostMultiplierExtraKey])
+			require.Equal(t, tt.want, got.CostMultiplier())
+			require.Equal(t, billing, got.BillingRateMultiplier())
+			require.Equal(t, "keep", got.Extra["unrelated"])
+			items := service.BuildUpstreamBillingRateSnapshotItems([]service.Account{*got})
+			require.Equal(t, tt.want, items[0].CostMultiplier, "background refresh returns the saved cost")
+			// A name-only save from a form opened before the probe must preserve cost.
+			delete(loaded.Extra, service.AccountCostMultiplierExtraKey)
+			loaded.Name = "renamed-" + tt.name
+			require.NoError(t, repo.Update(ctx, loaded))
+			renamed, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, renamed.CostMultiplier())
+			snapshot.Status = service.UpstreamBillingProbeStatusFailed
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, got, snapshot, nil))
+			afterFailure, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, afterFailure.CostMultiplier(), "failed probes preserve the saved value")
+		})
+	}
+}

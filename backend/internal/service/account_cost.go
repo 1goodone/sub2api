@@ -10,8 +10,8 @@ import (
 const AccountCostMultiplierExtraKey = "cost_multiplier"
 const DefaultAccountCostMultiplier = 0.1
 
-// CostMultiplier is an operator-maintained estimate used for profitability.
-// It is independent of account billing, user billing and upstream rate probes.
+// CostMultiplier is the saved estimate used for profitability.
+// Successful upstream rate probes update this value without changing billing.
 // Keeping it in extra preserves existing account import/export and caches.
 func (a *Account) CostMultiplier() float64 {
 	if a != nil {
@@ -57,4 +57,17 @@ func ValidateAccountCostMultiplierExtra(extra map[string]any) error {
 	}
 	extra[AccountCostMultiplierExtraKey] = value
 	return nil
+}
+
+// CostMultiplierToSync returns the successful probe's effective token cost.
+// A failed probe may carry old data; it must never rewrite the saved cost.
+func (s *UpstreamBillingProbeSnapshot) CostMultiplierToSync() (float64, bool) {
+	if s == nil || s.Status != UpstreamBillingProbeStatusOK || s.LastAttemptAt.IsZero() {
+		return 0, false
+	}
+	value, ok := upstreamBillingRateAt(s.Data, s.LastAttemptAt)
+	if !ok {
+		return 0, false
+	}
+	return accountCostMultiplierNumber(value)
 }

@@ -723,6 +723,16 @@ func lockAndMergeAccountProbeExtra(
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
 	service.StripRetiredCodexTurnStateExtra(extra)
 	extra = service.MergeExcelBPS403Marker(extra, currentExtra)
+	// Omitted cost means an unrelated edit. Keep the value under the row lock,
+	// including a probe update committed after the edit form was loaded.
+	if _, provided := extra[service.AccountCostMultiplierExtraKey]; !provided {
+		if cost, exists := currentExtra[service.AccountCostMultiplierExtraKey]; exists {
+			if extra == nil {
+				extra = make(map[string]any)
+			}
+			extra[service.AccountCostMultiplierExtraKey] = cost
+		}
+	}
 	delete(extra, service.AutoConfigConcurrencyExtraKey)
 	if state, ok := currentExtra[service.AutoConfigConcurrencyExtraKey]; ok {
 		extra[service.AutoConfigConcurrencyExtraKey] = state
@@ -3075,7 +3085,13 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	snapshot *service.UpstreamBillingProbeSnapshot,
 	rateMultiplier *float64,
 ) error {
-	payload, err := json.Marshal(map[string]any{service.UpstreamBillingProbeExtraKey: snapshot})
+	updates := map[string]any{service.UpstreamBillingProbeExtraKey: snapshot}
+	if service.IsUpstreamBillingProbeIdentity(account.Platform, account.Type) {
+		if cost, ok := snapshot.CostMultiplierToSync(); ok {
+			updates[service.AccountCostMultiplierExtraKey] = cost
+		}
+	}
+	payload, err := json.Marshal(updates)
 	if err != nil {
 		return err
 	}

@@ -1154,7 +1154,7 @@ export default {
       priorityHint: 'Lower value accounts are used first',
       billingRateMultiplier: 'Billing Rate Multiplier',
       costMultiplier: 'Cost multiplier',
-      costMultiplierHint: 'Default 0.1. Estimated cost = account statistics price or base cost × cost multiplier; 0 means zero cost. Independent of account and user billing. Changes re-estimate recent profit without rewriting usage logs.',
+      costMultiplierHint: 'Default 0.1. A successful upstream probe updates this saved value, including the effective peak rate at probe time; failed, expired, or unsupported probes preserve it. Estimated cost = account statistics price or base cost × cost multiplier; 0 means zero cost. Independent from account and user billing, and changes re-estimate recent profit without rewriting historical bills.',
       costMultiplierInvalid: 'Cost multiplier must be a finite number between 0 and 1000000.',
       billingRateMultiplierHint: '0 = free, affects account billing only',
 
