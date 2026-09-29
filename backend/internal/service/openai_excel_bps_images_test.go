@@ -1,20 +1,40 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
-const codexDirectImagesURL = "https://chatgpt.com/backend-api/codex/images/generations"
+const (
+	codexDirectImagesURL      = "https://chatgpt.com/backend-api/codex/images/generations"
+	codexDirectImagesEditsURL = "https://chatgpt.com/backend-api/codex/images/edits"
+)
+
+func newOpenAIImagesEditsTestContext(t *testing.T, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	return c, rec
+}
 
 func excelBPSImagesAccount(models ...any) *Account {
 	account := excelAccount()
@@ -43,6 +63,8 @@ func TestExcelBPSImagesRequiresExplicitImageModel(t *testing.T) {
 	require.False(t, excelBPSImagesAccount("gpt-6-astra").IsExcelBPSImagesEnabledForModel("gpt-image-2"))
 	require.True(t, excelBPSImagesAccount().IsExcelBPSImagesEnabledForModel("gpt-image-2"))
 	require.False(t, excelBPSImagesAccount("gpt-image-1").IsExcelBPSImagesEnabledForModel("gpt-image-1"), "the Responses image tool has no BPS route")
+	require.False(t, excelBPSImagesAccount("gpt-image-2.5-flare").IsExcelBPSImagesEnabledForModel("gpt-image-2.5-flare"),
+		"BPS rejects every direct-image model except gpt-image-2, so unlisted ones skip the wasted round trip")
 
 	mapped := excelBPSImagesAccount()
 	mapped.Credentials["model_mapping"] = map[string]any{"gpt-image-1": "gpt-image-2"}
@@ -64,7 +86,6 @@ func TestExcelBPSImagesUnsupportedReason(t *testing.T) {
 	}
 	require.Empty(t, excelBPSImagesUnsupportedReason(base()))
 	for want, mutate := range map[string]func(*OpenAIImagesRequest){
-		"image edits":        func(r *OpenAIImagesRequest) { r.Endpoint = openAIImagesEditsEndpoint },
 		"stream":             func(r *OpenAIImagesRequest) { r.Stream = true },
 		"partial_images":     func(r *OpenAIImagesRequest) { r.PartialImages = &one },
 		"output_compression": func(r *OpenAIImagesRequest) { r.OutputCompression = &one },
@@ -72,12 +93,41 @@ func TestExcelBPSImagesUnsupportedReason(t *testing.T) {
 		"input_fidelity":     func(r *OpenAIImagesRequest) { r.InputFidelity = "high" },
 		"output_format":      func(r *OpenAIImagesRequest) { r.OutputFormat = "jpeg" },
 		"moderation":         func(r *OpenAIImagesRequest) { r.Moderation = "low" },
+		"background":         func(r *OpenAIImagesRequest) { r.Background = "transparent" },
 	} {
 		parsed := base()
 		mutate(parsed)
 		require.Equal(t, want, excelBPSImagesUnsupportedReason(parsed))
 	}
 	require.Equal(t, "missing request", excelBPSImagesUnsupportedReason(nil))
+
+	// Edits need exactly one local image and no mask; the rest stays on Codex.
+	edits := func() *OpenAIImagesRequest {
+		parsed := base()
+		parsed.Endpoint = openAIImagesEditsEndpoint
+		parsed.Uploads = []OpenAIImagesUpload{{FieldName: "image", FileName: "src.png", ContentType: "image/png", Data: []byte("PNG")}}
+		return parsed
+	}
+	require.Empty(t, excelBPSImagesUnsupportedReason(edits()))
+	dataURLOnly := edits()
+	dataURLOnly.Uploads = nil
+	dataURLOnly.InputImageURLs = []string{"data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("PNG"))}
+	require.Empty(t, excelBPSImagesUnsupportedReason(dataURLOnly))
+	for want, mutate := range map[string]func(*OpenAIImagesRequest){
+		"mask":        func(r *OpenAIImagesRequest) { r.HasMask = true },
+		"image count": func(r *OpenAIImagesRequest) { r.Uploads = append(r.Uploads, r.Uploads[0]) },
+		"remote image_url": func(r *OpenAIImagesRequest) {
+			r.Uploads = nil
+			r.InputImageURLs = []string{"https://example.com/a.png"}
+		},
+	} {
+		parsed := edits()
+		mutate(parsed)
+		require.Equal(t, want, excelBPSImagesUnsupportedReason(parsed))
+	}
+	noImages := edits()
+	noImages.Uploads = nil
+	require.Equal(t, "image count", excelBPSImagesUnsupportedReason(noImages))
 }
 
 func TestExcelBPSImagesForwardContract(t *testing.T) {
@@ -136,8 +186,98 @@ func TestExcelBPSImagesForwardContract(t *testing.T) {
 	require.Equal(t, "data:image/png;base64,aGVsbG8=", gjson.GetBytes(rec.Body.Bytes(), "data.0.url").String())
 }
 
+// The multipart body carries the same fields the generations endpoint takes,
+// plus exactly one image file part with the upload's own MIME type.
+func TestExcelBPSImagesEditsBody(t *testing.T) {
+	parsed := &OpenAIImagesRequest{Endpoint: openAIImagesEditsEndpoint, Model: "gpt-image-2", Prompt: "add a red hat",
+		Multipart: true, N: 2, Size: "1024x1024", Quality: "low", Background: "opaque", OutputFormat: "png", Moderation: "auto",
+		Uploads: []OpenAIImagesUpload{{FieldName: "image", FileName: "src.png", ContentType: "image/png", Data: []byte("PNGDATA")}}}
+
+	body, contentType, err := buildExcelBPSImagesEditsBody(parsed, "gpt-image-2")
+
+	require.NoError(t, err)
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(1 << 20)
+	require.NoError(t, err)
+	defer func() { _ = form.RemoveAll() }()
+	require.Equal(t, map[string][]string{"model": {"gpt-image-2"}, "prompt": {"add a red hat"}, "size": {"1024x1024"},
+		"quality": {"low"}, "background": {"opaque"}, "output_format": {"png"}, "n": {"2"}}, map[string][]string(form.Value),
+		"moderation must not be forwarded")
+	require.Len(t, form.File["image"], 1)
+	file := form.File["image"][0]
+	require.Equal(t, "src.png", file.Filename)
+	require.Equal(t, "image/png", file.Header.Get("Content-Type"))
+	opened, err := file.Open()
+	require.NoError(t, err)
+	defer func() { _ = opened.Close() }()
+	data, err := io.ReadAll(opened)
+	require.NoError(t, err)
+	require.Equal(t, "PNGDATA", string(data))
+
+	// A JSON edit carries the image as a data URL instead of an upload.
+	fromDataURL := &OpenAIImagesRequest{Endpoint: openAIImagesEditsEndpoint, Model: "gpt-image-2", Prompt: "add a red hat",
+		InputImageURLs: []string{"data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("RAWPNG"))}}
+	body, contentType, err = buildExcelBPSImagesEditsBody(fromDataURL, "gpt-image-2")
+	require.NoError(t, err)
+	_, params, err = mime.ParseMediaType(contentType)
+	require.NoError(t, err)
+	form, err = multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(1 << 20)
+	require.NoError(t, err)
+	defer func() { _ = form.RemoveAll() }()
+	require.Equal(t, map[string][]string{"model": {"gpt-image-2"}, "prompt": {"add a red hat"}}, map[string][]string(form.Value))
+	require.Len(t, form.File["image"], 1)
+	require.Equal(t, "image.png", form.File["image"][0].Filename)
+	require.Equal(t, "image/png", form.File["image"][0].Header.Get("Content-Type"))
+}
+
+func TestExcelBPSImagesEditsForwardContract(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"add a red hat","images":[{"image_url":"data:image/png;base64,` +
+		base64.StdEncoding.EncodeToString([]byte("RAWPNG")) + `"}]}`)
+	c, _ := newOpenAIImagesEditsTestContext(t, body)
+	upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	result, err := svc.ForwardImages(context.Background(), c, excelBPSImagesAccount(), body, parsed, "")
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	req := upstream.lastReq
+	require.Equal(t, basispoints.ImagesEditsURL, req.URL.String())
+	require.Equal(t, "excel", req.Header.Get("X-Openai-Internal-Basispoints-Client-Editor"))
+	mediaType, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	form, err := multipart.NewReader(bytes.NewReader(upstream.lastBody), params["boundary"]).ReadForm(1 << 20)
+	require.NoError(t, err)
+	defer func() { _ = form.RemoveAll() }()
+	require.Equal(t, "gpt-image-2", form.Value["model"][0])
+	require.Len(t, form.File["image"], 1)
+	require.Equal(t, excelBPSImagesEditsEndpoint, result.UpstreamEndpoint)
+	require.Equal(t, excelBPSImagesEditsEndpoint, GetActualOpenAIUpstreamEndpoint(c))
+}
+
+func TestExcelBPSImagesEditsFormatRejectionFallsBackToCodex(t *testing.T) {
+	var urls []string
+	svc := newOpenAIImagesTestService(excelBPSImagesUpstream(http.StatusUnprocessableEntity, &urls))
+	body := []byte(`{"model":"gpt-image-2","prompt":"add a red hat","images":[{"image_url":"data:image/png;base64,` +
+		base64.StdEncoding.EncodeToString([]byte("RAWPNG")) + `"}]}`)
+	c, _ := newOpenAIImagesEditsTestContext(t, body)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	result, err := svc.ForwardImages(context.Background(), c, excelBPSImagesAccount(), body, parsed, "")
+
+	require.NoError(t, err)
+	require.Equal(t, []string{basispoints.ImagesEditsURL, codexDirectImagesEditsURL}, urls)
+	require.Equal(t, "/backend-api/codex/images/edits", result.UpstreamEndpoint)
+}
+
 func TestExcelBPSImagesFormatRejectionFallsBackToCodex(t *testing.T) {
-	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUnprocessableEntity} {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			var urls []string
 			svc := newOpenAIImagesTestService(excelBPSImagesUpstream(status, &urls))
@@ -167,6 +307,8 @@ func TestExcelBPSImagesStayOnCodexWhenBPSCannotServe(t *testing.T) {
 		"legacy all models": {account: excelAccount(), body: `{"model":"gpt-image-2","prompt":"draw"}`},
 		"model not listed":  {account: excelBPSImagesAccount("gpt-6-astra"), body: `{"model":"gpt-image-2","prompt":"draw"}`},
 		"jpeg output":       {account: excelBPSImagesAccount(), body: `{"model":"gpt-image-2","prompt":"draw","output_format":"jpeg"}`},
+		"model BPS rejects": {account: excelBPSImagesAccount("gpt-image-2.5-flare"), body: `{"model":"gpt-image-2.5-flare","prompt":"draw"}`},
+		"transparent bg":    {account: excelBPSImagesAccount(), body: `{"model":"gpt-image-2","prompt":"draw","background":"transparent"}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var urls []string

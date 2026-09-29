@@ -1,31 +1,45 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
-const excelBPSImagesEndpoint = "/basispoints/api/images/generations"
+const (
+	excelBPSImagesEndpoint      = "/basispoints/api/images/generations"
+	excelBPSImagesEditsEndpoint = "/basispoints/api/images/edits"
+)
+
+// excelBPSImagesSupportedModel lists the models the BPS image endpoints accept.
+// Every other direct-image model got 422 for 'model' in testing, so unlisted
+// models stay on Codex instead of wasting a BPS round trip per request.
+func excelBPSImagesSupportedModel(model string) bool {
+	return strings.TrimSpace(model) == "gpt-image-2"
+}
 
 // excelBPSImagesUnsupportedReason reports why a request must stay on Codex.
 // BPS answers 422 for any field outside model, prompt, size, quality, n,
-// background and output_format, and only png output was accepted in testing.
+// background and output_format; only png output and opaque/auto backgrounds
+// were accepted in testing.
 func excelBPSImagesUnsupportedReason(parsed *OpenAIImagesRequest) string {
 	switch {
 	case parsed == nil:
 		return "missing request"
-	case parsed.IsEdits():
-		return "image edits"
 	case parsed.Stream:
 		return "stream"
 	case parsed.PartialImages != nil:
@@ -47,6 +61,36 @@ func excelBPSImagesUnsupportedReason(parsed *OpenAIImagesRequest) string {
 	default:
 		return "moderation"
 	}
+	switch strings.ToLower(strings.TrimSpace(parsed.Background)) {
+	case "", "opaque", "auto":
+	default:
+		return "background"
+	}
+	if parsed.IsEdits() {
+		return excelBPSImagesEditsUnsupportedReason(parsed)
+	}
+	return ""
+}
+
+// The BPS edit endpoint requires exactly one image file; masks and remote
+// image URLs (which the gateway would have to download) stay on Codex.
+func excelBPSImagesEditsUnsupportedReason(parsed *OpenAIImagesRequest) string {
+	if parsed.HasMask || parsed.MaskUpload != nil || strings.TrimSpace(parsed.MaskImageURL) != "" {
+		return "mask"
+	}
+	images := len(parsed.Uploads)
+	for _, imageURL := range parsed.InputImageURLs {
+		if imageURL = strings.TrimSpace(imageURL); imageURL == "" {
+			continue
+		}
+		images++
+		if _, _, err := decodeAccountTestDataURL(imageURL); err != nil {
+			return "remote image_url"
+		}
+	}
+	if images != 1 {
+		return "image count"
+	}
 	return ""
 }
 
@@ -60,12 +104,90 @@ func buildExcelBPSImagesPayload(parsed *OpenAIImagesRequest, model string) ([]by
 	return sjson.DeleteBytes(body, "moderation")
 }
 
+var excelBPSImagesQuoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, `\"`)
+
+// buildExcelBPSImagesEditsBody builds the multipart edit request. Unlike the
+// Codex edit endpoint, which takes JSON data URLs, BPS wants one file part
+// plus the same form fields the generations endpoint accepts.
+func buildExcelBPSImagesEditsBody(parsed *OpenAIImagesRequest, model string) ([]byte, string, error) {
+	prompt := parsed.Prompt
+	if !parsed.Multipart && gjson.ValidBytes(parsed.Body) {
+		if rawPrompt := gjson.GetBytes(parsed.Body, "prompt").String(); rawPrompt != "" {
+			prompt = rawPrompt
+		}
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return nil, "", fmt.Errorf("prompt is required")
+	}
+	fileName, contentType, data := "", "", []byte(nil)
+	if len(parsed.Uploads) > 0 {
+		upload := parsed.Uploads[0]
+		fileName, contentType, data = upload.FileName, upload.ContentType, upload.Data
+	} else {
+		for _, imageURL := range parsed.InputImageURLs {
+			if imageURL = strings.TrimSpace(imageURL); imageURL == "" {
+				continue
+			}
+			decoded, mimeType, err := decodeAccountTestDataURL(imageURL)
+			if err != nil {
+				return nil, "", err
+			}
+			contentType, data = mimeType, decoded
+			break
+		}
+	}
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("image input is required")
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = http.DetectContentType(data)
+	}
+	if strings.TrimSpace(fileName) == "" {
+		// BPS reads the part's Content-Type; the name is only cosmetic.
+		fileName = "image.png"
+	}
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	fields := [][2]string{{"model", model}, {"prompt", prompt},
+		{"size", strings.TrimSpace(parsed.Size)}, {"quality", strings.TrimSpace(parsed.Quality)},
+		{"background", strings.TrimSpace(parsed.Background)}, {"output_format", strings.TrimSpace(parsed.OutputFormat)}}
+	if parsed.N > 1 {
+		fields = append(fields, [2]string{"n", strconv.Itoa(parsed.N)})
+	}
+	for _, field := range fields {
+		if field[1] == "" {
+			continue
+		}
+		if err := writer.WriteField(field[0], field[1]); err != nil {
+			return nil, "", err
+		}
+	}
+	// CreateFormFile would hardcode application/octet-stream; keep the image MIME.
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="image"; filename="`+excelBPSImagesQuoteEscaper.Replace(fileName)+`"`)
+	header.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := part.Write(data); err != nil {
+		return nil, "", err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), writer.FormDataContentType(), nil
+}
+
 // The images endpoint checks the full Excel client identity, not only the
 // product and agent profile that the Responses endpoint needs.
-func newExcelBPSImagesRequest(ctx context.Context, body []byte, token, accountID string) (*http.Request, error) {
-	req, err := newExcelBPSRequestTo(ctx, basispoints.ImagesGenerationsURL, "application/json", body, token, accountID)
+func newExcelBPSImagesRequest(ctx context.Context, upstreamURL, contentType string, body []byte, token, accountID string) (*http.Request, error) {
+	req, err := newExcelBPSRequestTo(ctx, upstreamURL, "application/json", body, token, accountID)
 	if err != nil {
 		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	for key, value := range map[string]string{
 		"X-Openai-Internal-Basispoints-Client-Platform":       "excel",
@@ -83,9 +205,11 @@ func newExcelBPSImagesRequest(ctx context.Context, body []byte, token, accountID
 
 // excelBPSImagesFallbackStatus lists rejections of the request format. Nothing
 // was generated or written yet, so the same request can still go to Codex.
+// 413 covers edit uploads above whatever limit BPS enforces.
 func excelBPSImagesFallbackStatus(status int) bool {
 	switch status {
-	case http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUnprocessableEntity:
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed,
+		http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
 		return true
 	}
 	return false
@@ -96,8 +220,12 @@ func excelBPSImagesFallbackStatus(status int) bool {
 // uses Codex. BPS failures never write Codex account state, and a request that
 // may have reached BPS is never replayed.
 func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin.Context, account *Account, parsed *OpenAIImagesRequest, requestModel, upstreamModel string, startTime time.Time) (*OpenAIForwardResult, bool, error) {
+	endpoint, upstreamURL := excelBPSImagesEndpoint, basispoints.ImagesGenerationsURL
+	if parsed.IsEdits() {
+		endpoint, upstreamURL = excelBPSImagesEditsEndpoint, basispoints.ImagesEditsURL
+	}
 	fail := func(status int, code, message string) (*OpenAIForwardResult, bool, error) {
-		SetActualOpenAIUpstreamEndpoint(c, excelBPSImagesEndpoint)
+		SetActualOpenAIUpstreamEndpoint(c, endpoint)
 		errorType := "invalid_request_error"
 		if status >= 500 {
 			errorType = "server_error"
@@ -106,7 +234,14 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
 		return nil, false, upErr
 	}
-	body, err := buildExcelBPSImagesPayload(parsed, upstreamModel)
+	var body []byte
+	var contentType string
+	var err error
+	if parsed.IsEdits() {
+		body, contentType, err = buildExcelBPSImagesEditsBody(parsed, upstreamModel)
+	} else {
+		body, err = buildExcelBPSImagesPayload(parsed, upstreamModel)
+	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -121,10 +256,10 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 	scope := fmt.Sprintf("transient:account:%d/key:%d/images", account.ID, getAPIKeyIDFromContext(c))
 	requestCtx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(ctx, HTTPUpstreamProfileExcelBPS))
 	build := func(ctx context.Context) (*http.Request, error) {
-		return newExcelBPSImagesRequest(ctx, body, token, accountID)
+		return newExcelBPSImagesRequest(ctx, upstreamURL, contentType, body, token, accountID)
 	}
 	sent := time.Now()
-	resp, lease, _, err := s.doExcelBPSRequestTo(requestCtx, c, account, scope, basispoints.ImagesGenerationsURL, build, s.excelBPSAcquireFor(account))
+	resp, lease, _, err := s.doExcelBPSRequestTo(requestCtx, c, account, scope, upstreamURL, build, s.excelBPSAcquireFor(account))
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(sent).Milliseconds())
 	if err != nil {
 		if isExcelBPSClientCancellation(c, err) {
@@ -151,7 +286,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
-			UpstreamURL: basispoints.ImagesGenerationsURL, Kind: "http_error",
+			UpstreamURL: upstreamURL, Kind: "http_error",
 			Message: upstreamMessage, Detail: upstreamDetail, UpstreamResponseBody: upstreamDetail,
 		}
 		if excelBPSImagesFallbackStatus(resp.StatusCode) {
@@ -203,7 +338,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 		return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS rejected this request; account scheduling was not changed")
 	}
 
-	SetActualOpenAIUpstreamEndpoint(c, excelBPSImagesEndpoint)
+	SetActualOpenAIUpstreamEndpoint(c, endpoint)
 	usage, imageCount, imageOutputSizes, err := s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
 	if err != nil {
 		if _, _, ok := OpenAIUpstreamStreamReadErrorDetails(err); ok {
@@ -214,7 +349,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 				Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 				ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 				UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
-				UpstreamURL: basispoints.ImagesGenerationsURL, Kind: "stream_error",
+				UpstreamURL: upstreamURL, Kind: "stream_error",
 				Message: "Excel BPS image response was interrupted",
 			})
 			return fail(http.StatusBadGateway, "basispoints_transport_error", "Excel BPS image response was interrupted; request was not replayed")
@@ -237,7 +372,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 		Usage:                         usage,
 		Model:                         requestModel,
 		UpstreamModel:                 upstreamModel,
-		UpstreamEndpoint:              excelBPSImagesEndpoint,
+		UpstreamEndpoint:              endpoint,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,

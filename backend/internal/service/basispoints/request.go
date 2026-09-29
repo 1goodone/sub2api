@@ -17,6 +17,9 @@ const ResponsesURL = "https://bps.openai.com/basispoints/api/responses"
 // ImagesGenerationsURL is the non-streaming text-to-image endpoint.
 const ImagesGenerationsURL = "https://bps.openai.com/basispoints/api/images/generations"
 
+// ImagesEditsURL is the multipart image-edit endpoint (exactly one image file).
+const ImagesEditsURL = "https://bps.openai.com/basispoints/api/images/edits"
+
 type object = map[string]any
 
 type Bridge struct {

@@ -2271,7 +2271,7 @@ func (a *Account) IsExcelBPSImagesEnabledForModel(requestedModel string) bool {
 		return false
 	}
 	model := a.GetMappedModel(requestedModel)
-	return usesCodexDirectImages(model) && a.isExcelBPSUpstreamModelEnabled(model)
+	return usesCodexDirectImages(model) && excelBPSImagesSupportedModel(model) && a.isExcelBPSUpstreamModelEnabled(model)
 }
 
 func (a *Account) isExcelBPSUpstreamModelEnabled(model string) bool {
