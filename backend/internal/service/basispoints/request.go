@@ -29,6 +29,7 @@ type Bridge struct {
 	stagedReplays    *[]replayWrite
 	hasToolHistory   bool
 	disallowParallel bool
+	clientStream     bool
 }
 
 func decode(raw []byte, target any) error {
@@ -108,6 +109,7 @@ func prepare(raw []byte, scope string, replay *ReplayCache, nativeToolImages map
 		return nil, nil, err
 	}
 	b := &Bridge{nativeToolImages: nativeToolImages, RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), structured: structured, replay: replay, scope: scope}
+	b.clientStream, _ = source["stream"].(bool)
 	choice := source["tool_choice"]
 	if choice != nil && text(choice) != "auto" && text(choice) != "none" {
 		return nil, nil, fmt.Errorf("basispoints supports tool_choice auto or none only")
