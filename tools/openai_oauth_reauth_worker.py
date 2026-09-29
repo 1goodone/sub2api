@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -999,6 +1000,17 @@ def run_once(api: WorkerAPI, protocol: SimpleNamespace | None) -> bool:
     return True
 
 
+def terminate_worker(_signum: int, _frame: Any) -> None:
+    # The managed launcher makes us a process-group leader. On API death its
+    # parent-death SIGTERM must also terminate Node/TLS descendants.
+    if hasattr(os, "getpgrp") and os.getpgrp() == os.getpid():
+        try:
+            os.killpg(os.getpgrp(), signal.SIGKILL)
+        except OSError:
+            pass
+    raise SystemExit(0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="claim at most one task, then exit")
@@ -1019,6 +1031,7 @@ def main() -> int:
     if args.check:
         LOGGER.info("worker configuration valid (password_totp=%s email_otp_url=%s)", config.tosub2_root is not None, protocol is not None)
         return 0
+    signal.signal(signal.SIGTERM, terminate_worker)
     LOGGER.info("worker=%s ready", config.worker_id)
     try:
         while True:
