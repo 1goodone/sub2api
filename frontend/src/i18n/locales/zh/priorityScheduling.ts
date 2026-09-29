@@ -21,7 +21,7 @@ export default {
     preview: '将更新 {count} 个账号的优先级；并发数：{concurrency}；负载因子：{loadFactor}。', keep: '保持原值', apply: '应用到选中账号', empty: '没有待更新的账号。', otherOAuth: 'OAuth · 其他套餐',
     loadError: '加载账号失败或超过 10000 个，请限定分组后重试。', result: '已更新 {count} 个账号。', partial: '部分账号未完成更新，已保留在列表中，可重试。'
   },
-
+  selectionWeight: '分流权重', boundGroups: '绑定分组', explorationEligible: '可参与少量探索流量',
   title: '优先调度',
   description: '先满足体验目标，再平衡质量、延迟、并发与成本。',
   enabled: '启用优先调度',
@@ -35,12 +35,12 @@ export default {
   window_minutes: '使用记录窗口（分钟）', min_samples: '延迟 / 利润最少样本数', quality_max_age_hours: '质量结果有效期（小时）',
   groupIds: '生效分组 ID', groupHint: '逗号分隔；留空表示所有分组。',
   models: '生效模型', modelHint: '每行一个请求模型名，精确匹配；留空表示所有模型。',
-  rule: '排序顺序：体验达标 → 数据不足 → 体验未达标；同档先按优先级（越小越先），再按策略评分。拥堵或质量不佳时，低倍率不会越过体验分档。',
-  costHint: '利润＝用户扣费−估算成本；估算成本＝同分组、同模型的账号统计定价或基础费用 × 当前账号成本倍率（默认 0.1）。开启跟随时，有效上游探测会保存新倍率；关闭后保留手填成本，失败、过期或不支持时保留已保存值。Teams 固定成本模式仍按单号成本窗口计算；其他 OAuth 缺少样本时不以倍率代替利润，API 可回退成本倍率估算。',
+  rule: '排序顺序：体验达标 → 数据不足 → 体验未达标。同档先处理 Teams 固定成本回本，再按账号显式优先级；同一回本状态和优先级内按实际剩余并发、额度、受限评分偏好及 OAuth 分组竞争加权分流。未知安全新号约有 10% 探索机会，已知不达标或回本账号不会被探索插队；可迁移会话负载明显不均时可临时分流但保留原绑定。',
+  costHint: '利润＝用户扣费−估算成本。Teams 固定成本仍按单号付费窗口计算；其他账号使用同分组、同模型基础成本 × 当前账号成本倍率（默认 0.1）。开启跟随时，有效上游探测会保存新倍率；关闭后保留手填成本，失败、过期或不支持时保留已保存值。其他 OAuth 缺少样本时不以倍率代替利润，API 可回退成本倍率估算；修改后重估近期利润，不改历史账单。',
   save: '保存配置', saving: '保存中…', saved: '配置已保存', loading: '加载中…', retry: '重试', error: '读取或保存失败，请重试', invalid: '请检查分组 ID 和参数范围',
   recent: '最近一次候选评分', refresh: '刷新评分', empty: '暂无评分。启用后，符合范围且需要自由选路的请求会生成评分。',
   historyPending: '历史统计尚未就绪，当前使用原有评分；后台每 30 秒刷新统计。',
-  snapshotHint: '仅展示当前服务实例最近一次候选池，最多 100 个账号。分数用于同一协议与订阅优先池内排序，不代表最终选中；实时并发可能继续变化。',
+  snapshotHint: '仅展示当前实例最近一次候选池，最多 100 个账号。分流权重在同一协议、订阅分池及同档同优先级内比较；分数和表格顺序不是最终选择，也不是固定流量比例。实时并发、额度及绑定分组数会影响分流。',
   model: '模型', group: '分组', account: '账号', score: '得分', tier: '状态', latency: 'P90 首 token', load: '并发占用', rate: '成本倍率', quality: '质量通过', samples: '条样本', unknown: '未知',
   tiers: { eligible: '体验达标', insufficient: '数据不足', degraded: '体验未达标' },
   reasons: { quality_below_target: '质量低于目标', quality_unknown: '无有效质量结果', latency_above_target: '延迟超过目标', latency_insufficient: '延迟样本不足', busy: '并发偏高或有排队', load_unknown: '并发数据未知', cost_unknown: '成本未知', recent_errors: '近期错误偏多', historical_loss: '近期用户扣费低于理论成本', profit_insufficient: '利润样本不足', teams_recovery: '本窗口收入尚未超过单号成本', teams_window_unavailable: 'Teams 成本窗口未设置或已失效' }

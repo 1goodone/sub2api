@@ -221,31 +221,35 @@ type prioritySchedulingState struct {
 }
 
 type PrioritySchedulingScore struct {
-	TeamsRecovery   *PriorityTeamsRecovery `json:"teams_recovery"`
-	TheoreticalCost float64                `json:"theoretical_cost"`
-	Profit          *float64               `json:"profit"`
-	Margin          *float64               `json:"margin"`
-	EconomicsSource string                 `json:"economics_source"`
-	Priority        int                    `json:"priority"`
-	Concurrency     int                    `json:"concurrency"`
-	LoadFactor      int                    `json:"load_factor"`
-	AccountID       int64                  `json:"account_id"`
-	AccountName     string                 `json:"account_name"`
-	Score           float64                `json:"score"`
-	Tier            string                 `json:"tier"`
-	Reasons         []string               `json:"reasons"`
-	Rate            *float64               `json:"rate"`
-	LoadPercent     *int                   `json:"load_percent"`
-	Waiting         int                    `json:"waiting"`
+	TeamsRecovery       *PriorityTeamsRecovery `json:"teams_recovery"`
+	BoundGroups         int                    `json:"bound_groups"`
+	SelectionWeight     float64                `json:"selection_weight"`
+	ExplorationEligible bool                   `json:"exploration_eligible"`
+	TheoreticalCost     float64                `json:"theoretical_cost"`
+	Profit              *float64               `json:"profit"`
+	Margin              *float64               `json:"margin"`
+	EconomicsSource     string                 `json:"economics_source"`
+	Priority            int                    `json:"priority"`
+	Concurrency         int                    `json:"concurrency"`
+	LoadFactor          int                    `json:"load_factor"`
+	AccountID           int64                  `json:"account_id"`
+	AccountName         string                 `json:"account_name"`
+	Score               float64                `json:"score"`
+	Tier                string                 `json:"tier"`
+	Reasons             []string               `json:"reasons"`
+	Rate                *float64               `json:"rate"`
+	LoadPercent         *int                   `json:"load_percent"`
+	Waiting             int                    `json:"waiting"`
 	PrioritySchedulingSignal
 }
 type PrioritySchedulingSnapshot struct {
-	At           time.Time                 `json:"at"`
-	Model        string                    `json:"model"`
-	GroupID      *int64                    `json:"group_id"`
-	Mode         string                    `json:"mode"`
-	HistoryReady bool                      `json:"history_ready"`
-	Candidates   []PrioritySchedulingScore `json:"candidates"`
+	SelectionPolicy string                    `json:"selection_policy"`
+	At              time.Time                 `json:"at"`
+	Model           string                    `json:"model"`
+	GroupID         *int64                    `json:"group_id"`
+	Mode            string                    `json:"mode"`
+	HistoryReady    bool                      `json:"history_ready"`
+	Candidates      []PrioritySchedulingScore `json:"candidates"`
 }
 
 func (s *OpenAIGatewayService) PrioritySchedulingSnapshot() *PrioritySchedulingSnapshot {
@@ -344,7 +348,7 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 	rate := item.account.CostMultiplier()
 	theoreticalCost := signal.BaseCost * rate
 	out := PrioritySchedulingScore{Rate: &rate, TheoreticalCost: theoreticalCost, AccountID: item.account.ID, AccountName: item.account.Name, Priority: openAIAccountSchedulingPriority(item.account), Concurrency: item.account.Concurrency, LoadFactor: item.account.EffectiveLoadFactor(), Tier: "eligible", Reasons: []string{}, PrioritySchedulingSignal: signal, Waiting: item.loadInfo.WaitingCount}
-	quality, latency, load, cost := 0.5, 0.5, 0.5, 0.0
+	quality, latency, load, cost := 0.5, 0.5, 0.5, 0.5
 	degraded, unknown := false, false
 	if signal.QualitySamples > 0 {
 		quality = float64(signal.QualityPassed) / float64(signal.QualitySamples)
@@ -372,7 +376,9 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 			percent = int(100 * float64(item.loadInfo.CurrentConcurrency) / float64(item.account.Concurrency))
 		}
 		out.LoadPercent = &percent
-		load = (1 - clamp01(float64(item.loadInfo.CurrentConcurrency)/float64(item.account.EffectiveLoadFactor()))) / (1 + float64(max(0, item.loadInfo.WaitingCount)))
+		// A configured load factor may express a routing preference, but must
+		// not make a nearly full account look idle to this capacity policy.
+		load = (1 - clamp01(float64(item.loadInfo.CurrentConcurrency)/float64(max(1, item.account.Concurrency)))) / (1 + float64(max(0, item.loadInfo.WaitingCount)))
 		if percent >= c.MaxLoadPercent || item.loadInfo.WaitingCount > 0 {
 			degraded = true
 			out.Reasons = append(out.Reasons, "busy")
@@ -448,7 +454,7 @@ func (s *defaultOpenAIAccountScheduler) applyPriorityScheduling(req OpenAIAccoun
 		return
 	}
 	signals, ready := s.service.prioritySignals(req, c, plan.candidates)
-	snapshot := &PrioritySchedulingSnapshot{At: time.Now(), Model: req.RequestedModel, GroupID: req.GroupID, Mode: c.Mode, HistoryReady: ready, Candidates: []PrioritySchedulingScore{}}
+	snapshot := &PrioritySchedulingSnapshot{At: time.Now(), Model: req.RequestedModel, GroupID: req.GroupID, Mode: c.Mode, SelectionPolicy: "capacity_weighted", HistoryReady: ready, Candidates: []PrioritySchedulingScore{}}
 	if ready {
 		for i := range plan.candidates {
 			item := &plan.candidates[i]
@@ -467,6 +473,12 @@ func (s *defaultOpenAIAccountScheduler) applyPriorityScheduling(req OpenAIAccoun
 				item.priorityRecovery = score.TeamsRecovery.NeedsRecovery
 				item.priorityRecoveryPressure = score.TeamsRecovery.RequiredRevenuePerHourCNY
 			}
+			item.priorityExploration = item.account.IsOpenAIOAuth() && score.Tier == "insufficient" &&
+				score.ProfitSamples < c.MinSamples && score.Samples < c.MinSamples &&
+				item.loadKnown && score.LoadPercent != nil && *score.LoadPercent < c.MaxLoadPercent
+			score.ExplorationEligible = item.priorityExploration
+			score.BoundGroups = priorityAccountGroupCount(item.account)
+			score.SelectionWeight = prioritySelectionWeight(*item, snapshot.At)
 			snapshot.Candidates = append(snapshot.Candidates, score)
 		}
 		plan.priorityScheduling = true

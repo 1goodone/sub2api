@@ -36,6 +36,9 @@ export interface PriorityCandidate {
     needs_recovery: boolean
     required_revenue_per_hour_cny: number
   }
+  selection_weight?: number
+  exploration_eligible?: boolean
+  bound_groups?: number
   profit: number | null
   margin: number | null
   economics_source: 'usage' | 'rate' | 'unknown' | 'teams_window'
@@ -59,6 +62,7 @@ export interface PriorityCandidate {
   quality_samples: number
 }
 export interface PrioritySnapshot {
+  selection_policy?: string
   at: string
   model: string
   group_id: number | null
