@@ -21,6 +21,7 @@ type ScheduledTestRunnerService struct {
 	cfg            *config.Config
 	judgeQuality   func(context.Context, int64, *PelicanTestConfig, string) *QualityJudgment
 	runPelican     func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error)
+	candyMonitor   *ChannelMonitorV2CandyService
 
 	cron      *cron.Cron
 	startOnce sync.Once
@@ -99,6 +100,15 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		logger.LegacyPrintf("service.scheduled_test_runner", "pelican history cleanup failed: %v", err)
 	}
 	s.scheduledSvc.showcase.Cleanup(ctx, now)
+	var candy sync.WaitGroup
+	if s.candyMonitor != nil {
+		candy.Add(1)
+		go func() {
+			defer candy.Done()
+			s.candyMonitor.RunDue(ctx, now)
+		}()
+		defer candy.Wait()
+	}
 	plans, err := s.planRepo.ListDue(ctx, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] ListDue error: %v", err)

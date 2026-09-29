@@ -659,9 +659,13 @@ func ProvideScheduledTestRunnerService(
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
 	judge *QualityJudgeService,
+	monitor *ChannelMonitorV2Service,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
 	svc.judgeQuality = judge.Judge
+	if monitor != nil {
+		svc.candyMonitor = monitor.candy
+	}
 	svc.Start()
 	return svc
 }
@@ -1155,9 +1159,19 @@ func ProvideChannelMonitorRunner(
 
 // ProvideChannelMonitorV2Service wires settings for user-facing privacy flags
 // (e.g. hide RPM/TPM throughput).
-func ProvideChannelMonitorV2Service(repo ChannelMonitorV2Repository, settingService *SettingService) *ChannelMonitorV2Service {
+func ProvideChannelMonitorV2Service(
+	repo ChannelMonitorV2Repository,
+	settingService *SettingService,
+	groups GroupRepository,
+	gateway *GatewayService,
+	openai *OpenAIGatewayService,
+	concurrency *ConcurrencyService,
+	accountTest *AccountTestService,
+) *ChannelMonitorV2Service {
 	svc := NewChannelMonitorV2Service(repo)
 	svc.SetRuntimeReader(settingService)
+	runner := newGatewayChannelMonitorV2CandyRunner(groups, gateway, openai, concurrency, accountTest)
+	svc.candy = newChannelMonitorV2CandyService(repo, runner, settingService)
 	return svc
 }
 
