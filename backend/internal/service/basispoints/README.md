@@ -166,3 +166,36 @@ if generation fails after emitting the compaction window; all usage is still bil
 - Failure/cancellation retains usage and withholds unvalidated tools. Readers
   stop at cancellation without waiting for EOF, including correction and image
   compaction readers. This does not add a BPS WebSocket transport.
+
+# Configurable image capacity
+
+Administrators can raise image limits for larger servers without changing the
+conservative defaults or existing saved settings. The settings UI, admin API,
+per-request settings reader and admission middleware use these ceilings:
+
+| Setting | Default | Maximum |
+| --- | ---: | ---: |
+| Request body | 64 MiB | 1024 MiB |
+| Shared admission budget | 1024 MiB | 65536 MiB |
+| In-flight requests | 128 | 4096 |
+| Relay image size | 20 MiB | 512 MiB |
+| Relay image bytes per request | 32 MiB | 512 MiB |
+| Images per request | 20 | 65536 |
+| Relay disk storage | 1024 MiB | 262144 MiB |
+| Relay stored images | 512 | 1048576 |
+| Relay link lifetime | 30 minutes | 10080 minutes |
+
+The budget must cover eight times the configured body limit, and its effective
+value remains at least eight MiB per in-flight slot. It is accounting capacity,
+not preallocated RAM. Storage must cover one request's image bytes and count;
+request image bytes must cover one image. Base64 expands encoded request bodies.
+The server/global body limit, gateway body limit and reverse proxy can impose
+smaller limits; to admit bodies above their defaults, adjust them explicitly.
+Higher settings do not bypass those limits or provision memory or disk.
+
+Native attachments retain their 20 MiB per-image and 32 MiB per-request size
+limits and their bounded attachment-ID cache. The per-request image count is
+configurable in both modes. Both modes retain the 64-megapixel safeguard.
+Relay download concurrency and automatic compaction checkpoint limits are
+unchanged. Large capacity settings require appropriate resource provisioning;
+these ceilings are not throughput or memory-use guarantees.
