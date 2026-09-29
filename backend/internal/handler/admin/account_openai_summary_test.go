@@ -23,7 +23,8 @@ func TestBuildOpenAIAccountSummary(t *testing.T) {
 
 	remaining, estimated := 12.5, 25.0
 	quotaCosts := service.OpenAIQuotaCostSummary{
-		FiveHour: service.OpenAIQuotaCostEstimate{RemainingCost: &remaining, EstimatedCost: &estimated},
+		FiveHour: service.OpenAIQuotaCostEstimate{RemainingCost: &remaining, EstimatedCost: &estimated, TotalAccounts: 3},
+		SevenDay: service.OpenAIQuotaCostEstimate{TotalAccounts: 3},
 	}
 	summary := buildOpenAIAccountSummary(accounts, map[int64]int{1: 1, 2: 2, 4: 3}, quotaCosts, now)
 	require.Equal(t, openAIAccountTypeCounts{OAuth: 3, APIKey: 1}, summary.Accounts)
@@ -31,4 +32,7 @@ func TestBuildOpenAIAccountSummary(t *testing.T) {
 	require.Equal(t, quotaCosts, summary.OAuthQuota)
 	require.Equal(t, openAIConcurrencyCount{Used: 3, Total: 6}, summary.Concurrency.OAuth)
 	require.Equal(t, openAIConcurrencyCount{Used: 3, Total: 4}, summary.Concurrency.APIKey)
+	unknown := buildOpenAIAccountSummary(accounts, nil, service.OpenAIQuotaCostSummary{}, now)
+	require.Equal(t, 3, unknown.OAuthQuota.FiveHour.TotalAccounts)
+	require.Nil(t, unknown.OAuthQuota.FiveHour.RemainingCost)
 }

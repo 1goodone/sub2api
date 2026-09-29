@@ -36,6 +36,15 @@ func parseReauthAccountID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
+func parseReauthTaskID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("task_id")), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid task ID")
+		return 0, false
+	}
+	return id, true
+}
+
 func (h *OpenAIOAuthReauthHandler) SaveConfig(c *gin.Context) {
 	accountID, ok := parseReauthAccountID(c)
 	if !ok {
@@ -107,6 +116,32 @@ func (h *OpenAIOAuthReauthHandler) SetWorkerEnabled(c *gin.Context) {
 		return
 	}
 	response.Success(c, status)
+}
+
+func (h *OpenAIOAuthReauthHandler) TaskEvents(c *gin.Context) {
+	taskID, ok := parseReauthTaskID(c)
+	if !ok {
+		return
+	}
+	log, err := h.service.GetTaskLog(c.Request.Context(), taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, log)
+}
+
+func (h *OpenAIOAuthReauthHandler) CancelTask(c *gin.Context) {
+	taskID, ok := parseReauthTaskID(c)
+	if !ok {
+		return
+	}
+	task, err := h.service.CancelTask(c.Request.Context(), taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, task)
 }
 
 type reauthWorkerProgressRequest struct {

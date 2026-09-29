@@ -79,6 +79,11 @@ export interface TokenGuardV2WorkerStatus {
   events: TokenGuardV2WorkerEvent[]
 }
 
+export interface TokenGuardV2TaskLog {
+  task: TokenGuardV2Task
+  events: TokenGuardV2WorkerEvent[]
+}
+
 export interface SaveTokenGuardV2Account {
   account_id?: number
   login_email: string
@@ -108,6 +113,14 @@ export async function getTokenGuardV2Worker(): Promise<TokenGuardV2WorkerStatus>
 
 export async function setTokenGuardV2WorkerEnabled(enabled: boolean): Promise<TokenGuardV2WorkerStatus> {
   return (await apiClient.put('/admin/account-ops/token-guard-v2/worker', { enabled })).data
+}
+
+export async function getTokenGuardV2TaskLog(taskId: number): Promise<TokenGuardV2TaskLog> {
+  return (await apiClient.get(`/admin/account-ops/token-guard-v2/tasks/${taskId}/events`)).data
+}
+
+export async function cancelTokenGuardV2Task(taskId: number): Promise<TokenGuardV2Task> {
+  return (await apiClient.post(`/admin/account-ops/token-guard-v2/tasks/${taskId}/cancel`)).data
 }
 
 export async function createTokenGuardV2Account(input: SaveTokenGuardV2Account): Promise<TokenGuardV2Account> {

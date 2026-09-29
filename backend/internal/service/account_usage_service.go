@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"math"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -85,8 +84,8 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
-type accountWindowStatsByStartBatchReader interface {
-	GetAccountWindowStatsByStartBatch(ctx context.Context, windowStarts map[int64]time.Time) (map[int64]*usagestats.AccountStats, error)
+type accountQuotaCostBatchReader interface {
+	GetOpenAIQuotaWindowStatsBatch(ctx context.Context, samples map[int64]OpenAIQuotaCostSample) (map[int64]*usagestats.AccountStats, error)
 }
 
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
@@ -598,8 +597,10 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 }
 
 type OpenAIQuotaCostEstimate struct {
-	RemainingCost *float64 `json:"remaining_cost"`
-	EstimatedCost *float64 `json:"estimated_cost"`
+	RemainingCost     *float64 `json:"remaining_cost"`
+	EstimatedCost     *float64 `json:"estimated_cost"`
+	EstimatedAccounts int      `json:"estimated_accounts"`
+	TotalAccounts     int      `json:"total_accounts"`
 }
 
 type OpenAIQuotaCostSummary struct {
@@ -607,86 +608,40 @@ type OpenAIQuotaCostSummary struct {
 	SevenDay OpenAIQuotaCostEstimate `json:"7d"`
 }
 
-// GetOpenAIQuotaCostSummary estimates aggregate OAuth quota value from local usage logs only.
+// GetOpenAIQuotaCostSummary is read-only and uses costs bounded by quota samples.
 func (s *AccountUsageService) GetOpenAIQuotaCostSummary(ctx context.Context, accounts []Account, now time.Time) (OpenAIQuotaCostSummary, error) {
 	var summary OpenAIQuotaCostSummary
-	if s == nil || s.usageLogRepo == nil {
-		return summary, nil
-	}
-
-	fiveHourStarts, fiveHourUsage := openAIQuotaWindowInputs(accounts, OpenAIQuotaWindow5h, 5*time.Hour, now)
-	sevenDayStarts, sevenDayUsage := openAIQuotaWindowInputs(accounts, OpenAIQuotaWindow7d, 7*24*time.Hour, now)
-
-	fiveHourStats, err := s.getAccountWindowStatsByStartBatch(ctx, fiveHourStarts)
-	if err != nil {
-		return summary, fmt.Errorf("get OpenAI 5h quota costs: %w", err)
-	}
-	sevenDayStats, err := s.getAccountWindowStatsByStartBatch(ctx, sevenDayStarts)
-	if err != nil {
-		return summary, fmt.Errorf("get OpenAI 7d quota costs: %w", err)
-	}
-
-	summary.FiveHour = estimateOpenAIQuotaCost(fiveHourUsage, fiveHourStats)
-	summary.SevenDay = estimateOpenAIQuotaCost(sevenDayUsage, sevenDayStats)
-	return summary, nil
-}
-
-func openAIQuotaWindowInputs(accounts []Account, window string, duration time.Duration, now time.Time) (map[int64]time.Time, map[int64]float64) {
-	starts := make(map[int64]time.Time)
-	usage := make(map[int64]float64)
-	for i := range accounts {
-		account := &accounts[i]
-		if !account.IsOpenAIOAuth() {
+	for _, item := range []struct {
+		window string
+		result *OpenAIQuotaCostEstimate
+	}{{OpenAIQuotaWindow5h, &summary.FiveHour}, {OpenAIQuotaWindow7d, &summary.SevenDay}} {
+		samples := make(map[int64]OpenAIQuotaCostSample)
+		usage := make(map[int64]float64)
+		for i := range accounts {
+			account := &accounts[i]
+			if !account.IsOpenAIOAuth() {
+				continue
+			}
+			item.result.TotalAccounts++
+			used, known := openAIQuotaCurrentUsage(account.Extra, item.window, now)
+			if sample := openAIQuotaCostSampleForAccount(account, item.window, now); known && sample != nil {
+				samples[account.ID], usage[account.ID] = *sample, used
+			}
+		}
+		if s == nil || len(samples) == 0 {
 			continue
 		}
-		progress := buildCodexUsageProgressFromExtra(account.Extra, window, now)
-		if progress == nil || progress.Utilization <= 0 || math.IsNaN(progress.Utilization) || math.IsInf(progress.Utilization, 0) {
-			continue
+		reader, ok := s.usageLogRepo.(accountQuotaCostBatchReader)
+		if !ok {
+			continue // Never fall back to costs without a snapshot end bound.
 		}
-		starts[account.ID] = codexWindowStatsStart(progress, duration, now)
-		usage[account.ID] = progress.Utilization
-	}
-	return starts, usage
-}
-
-func (s *AccountUsageService) getAccountWindowStatsByStartBatch(ctx context.Context, starts map[int64]time.Time) (map[int64]*usagestats.AccountStats, error) {
-	if len(starts) == 0 {
-		return map[int64]*usagestats.AccountStats{}, nil
-	}
-	if batch, ok := s.usageLogRepo.(accountWindowStatsByStartBatchReader); ok {
-		return batch.GetAccountWindowStatsByStartBatch(ctx, starts)
-	}
-	stats := make(map[int64]*usagestats.AccountStats, len(starts))
-	for accountID, start := range starts {
-		item, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, start)
+		stats, err := reader.GetOpenAIQuotaWindowStatsBatch(ctx, samples)
 		if err != nil {
-			return nil, err
+			return summary, fmt.Errorf("get OpenAI %s quota costs: %w", item.window, err)
 		}
-		stats[accountID] = item
+		estimateOpenAIQuotaCost(item.result, samples, usage, stats)
 	}
-	return stats, nil
-}
-
-func estimateOpenAIQuotaCost(usage map[int64]float64, stats map[int64]*usagestats.AccountStats) OpenAIQuotaCostEstimate {
-	var remainingCost, estimatedCost float64
-	hasEstimate := false
-	for accountID, usedPercent := range usage {
-		windowStats := stats[accountID]
-		if windowStats == nil || windowStats.Cost <= 0 {
-			continue
-		}
-		estimated := windowStats.Cost * 100 / usedPercent
-		if estimated <= 0 || math.IsNaN(estimated) || math.IsInf(estimated, 0) {
-			continue
-		}
-		estimatedCost += estimated
-		remainingCost += math.Max(estimated-windowStats.Cost, 0)
-		hasEstimate = true
-	}
-	if !hasEstimate {
-		return OpenAIQuotaCostEstimate{}
-	}
-	return OpenAIQuotaCostEstimate{RemainingCost: &remainingCost, EstimatedCost: &estimatedCost}
+	return summary, nil
 }
 
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。

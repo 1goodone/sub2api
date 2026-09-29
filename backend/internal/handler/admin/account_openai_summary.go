@@ -69,6 +69,8 @@ func buildOpenAIAccountSummary(accounts []service.Account, currentConcurrency ma
 			summary.Concurrency.APIKey.Used += currentConcurrency[account.ID]
 		}
 	}
+	summary.OAuthQuota.FiveHour.TotalAccounts = summary.Accounts.OAuth
+	summary.OAuthQuota.SevenDay.TotalAccounts = summary.Accounts.OAuth
 	return summary
 }
 

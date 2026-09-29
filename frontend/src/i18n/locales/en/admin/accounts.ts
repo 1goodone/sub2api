@@ -36,6 +36,9 @@ export default {
         quota5h: '5h OAuth Quota',
         quota7d: '7d OAuth Quota',
         remainingEstimated: 'Remaining / estimated',
+        pendingEstimate: 'Pending estimate',
+        quotaCoverage: 'Estimated {estimated} / {total} accounts',
+        quotaEstimateHint: 'Based on quota samples and local costs. Only estimable accounts are included. Windows are independent, not immediately schedulable capacity.',
         normal: 'Normal',
         rateLimited: 'Rate Limited',
         error: 'Error'

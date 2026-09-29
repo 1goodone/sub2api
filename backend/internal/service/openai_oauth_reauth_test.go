@@ -92,6 +92,7 @@ func (*reauthTestOAuthClient) RefreshTokenWithClientID(context.Context, string, 
 type reauthTestRepo struct {
 	config        *OpenAIOAuthReauthStoredConfig
 	task          *OpenAIOAuthReauthTaskRecord
+	events        []OpenAIOAuthReauthWorkerEvent
 	markSucceeded int
 	createCalls   int
 	createErr     error
@@ -132,7 +133,11 @@ func (r *reauthTestRepo) CreateTask(_ context.Context, accountID int64, hash str
 func (r *reauthTestRepo) GetLatestTask(context.Context, int64) (*OpenAIOAuthReauthTaskRecord, error) {
 	return r.task, nil
 }
-func (r *reauthTestRepo) GetTask(context.Context, int64) (*OpenAIOAuthReauthTaskRecord, error) {
+
+func (r *reauthTestRepo) GetTask(_ context.Context, taskID int64) (*OpenAIOAuthReauthTaskRecord, error) {
+	if r.task == nil || r.task.ID != taskID {
+		return nil, nil
+	}
 	return r.task, nil
 }
 func (r *reauthTestRepo) ClaimNextTask(_ context.Context, workerID string, _ time.Duration) (*OpenAIOAuthReauthTaskRecord, error) {
@@ -153,7 +158,7 @@ func (r *reauthTestRepo) SetSession(_ context.Context, _ int64, workerID, sessio
 	return nil
 }
 func (r *reauthTestRepo) UpdateStage(_ context.Context, _ int64, workerID, stage string) error {
-	if r.task == nil || r.task.WorkerID != workerID {
+	if r.task == nil || r.task.WorkerID != workerID || (r.task.Status != OpenAIOAuthReauthStatusRunning && r.task.Status != OpenAIOAuthReauthStatusCallbackProcessing) {
 		return errors.New("worker mismatch")
 	}
 	r.task.Stage = stage
@@ -161,6 +166,9 @@ func (r *reauthTestRepo) UpdateStage(_ context.Context, _ int64, workerID, stage
 }
 func (r *reauthTestRepo) BeginCallback(_ context.Context, _ int64, workerID string) (*OpenAIOAuthReauthTaskRecord, bool, error) {
 	if r.task == nil || r.task.WorkerID != workerID || r.task.Status != OpenAIOAuthReauthStatusRunning || r.task.AuthSessionID == "" {
+		if r.task != nil && (r.task.Status == OpenAIOAuthReauthStatusSucceeded || r.task.Status == OpenAIOAuthReauthStatusFailed) {
+			return r.task, false, nil
+		}
 		return nil, false, errors.New("task not active")
 	}
 	r.task.Status = OpenAIOAuthReauthStatusCallbackProcessing
@@ -168,6 +176,9 @@ func (r *reauthTestRepo) BeginCallback(_ context.Context, _ int64, workerID stri
 }
 func (r *reauthTestRepo) BeginDirectCallback(_ context.Context, _ int64, workerID string) (*OpenAIOAuthReauthTaskRecord, bool, error) {
 	if r.task == nil || r.task.WorkerID != workerID || r.task.Status != OpenAIOAuthReauthStatusRunning {
+		if r.task != nil && (r.task.Status == OpenAIOAuthReauthStatusSucceeded || r.task.Status == OpenAIOAuthReauthStatusFailed) {
+			return r.task, false, nil
+		}
 		return nil, false, errors.New("task not active")
 	}
 	r.task.Status = OpenAIOAuthReauthStatusCallbackProcessing
@@ -191,6 +202,29 @@ func (r *reauthTestRepo) MarkFailed(_ context.Context, _ int64, workerID, reason
 	r.task.Stage = OpenAIOAuthReauthStageFailed
 	r.task.Error = reason
 	return nil
+}
+
+func (r *reauthTestRepo) ListTaskEvents(_ context.Context, taskID int64) ([]OpenAIOAuthReauthWorkerEvent, error) {
+	events := make([]OpenAIOAuthReauthWorkerEvent, 0)
+	for _, event := range r.events {
+		if event.TaskID != nil && *event.TaskID == taskID {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func (r *reauthTestRepo) CancelTask(_ context.Context, taskID int64, reason string) (*OpenAIOAuthReauthTaskRecord, error) {
+	if r.task == nil || r.task.ID != taskID || (r.task.Status != OpenAIOAuthReauthStatusQueued && r.task.Status != OpenAIOAuthReauthStatusRunning && r.task.Status != OpenAIOAuthReauthStatusCallbackProcessing) {
+		return nil, nil
+	}
+	now := time.Now()
+	r.task.Status = OpenAIOAuthReauthStatusFailed
+	r.task.Stage = OpenAIOAuthReauthStageFailed
+	r.task.Error = reason
+	r.task.UpdatedAt = now
+	r.task.FinishedAt = &now
+	return r.task, nil
 }
 
 type reauthTestUpdater struct {
@@ -608,6 +642,73 @@ func TestOpenAIOAuthReauthWorkerCannotSetBackendOwnedStage(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
 	require.Equal(t, OpenAIOAuthReauthStageStarting, repo.task.Stage)
+}
+
+func TestOpenAIOAuthReauthCancelTaskStopsEveryActiveState(t *testing.T) {
+	for _, status := range []string{
+		OpenAIOAuthReauthStatusQueued,
+		OpenAIOAuthReauthStatusRunning,
+		OpenAIOAuthReauthStatusCallbackProcessing,
+	} {
+		t.Run(status, func(t *testing.T) {
+			svc, _, repo, updater, _, _ := newReauthTestService("acct-1")
+			repo.task = &OpenAIOAuthReauthTaskRecord{
+				ID: 71, AccountID: 42, Status: status, Stage: OpenAIOAuthReauthStageStarting,
+				WorkerID: "worker-a", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			}
+
+			task, err := svc.CancelTask(context.Background(), repo.task.ID)
+			require.NoError(t, err)
+			require.Equal(t, OpenAIOAuthReauthStatusFailed, task.Status)
+			require.Equal(t, OpenAIOAuthReauthStageFailed, task.Stage)
+			require.Equal(t, openAIOAuthReauthStoppedByAdmin, task.Error)
+			require.NotNil(t, task.FinishedAt)
+
+			err = svc.UpdateStage(context.Background(), repo.task.ID, "worker-a", OpenAIOAuthReauthStageWaitingCallback)
+			require.Error(t, err)
+			changed, applyErr := updater.ApplyOpenAIOAuthReauth(context.Background(), repo.task.ID, "worker-a", 42, nil, map[string]any{"access_token": "late"}, nil)
+			require.NoError(t, applyErr)
+			require.False(t, changed)
+			require.False(t, updater.applied)
+		})
+	}
+}
+
+func TestOpenAIOAuthReauthCancelTaskRejectsTerminalOrMissingTask(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	repo.task = &OpenAIOAuthReauthTaskRecord{ID: 71, AccountID: 42, Status: OpenAIOAuthReauthStatusSucceeded}
+
+	_, err := svc.CancelTask(context.Background(), repo.task.ID)
+	require.Error(t, err)
+	require.Equal(t, http.StatusConflict, infraerrors.Code(err))
+
+	repo.task = nil
+	_, err = svc.CancelTask(context.Background(), 999)
+	require.Error(t, err)
+	require.Equal(t, http.StatusNotFound, infraerrors.Code(err))
+}
+
+func TestOpenAIOAuthReauthTaskLogIsScopedAndRedacted(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	taskID := int64(71)
+	otherTaskID := int64(72)
+	repo.task = &OpenAIOAuthReauthTaskRecord{
+		ID: taskID, AccountID: 42, Status: OpenAIOAuthReauthStatusFailed, Stage: OpenAIOAuthReauthStageFailed,
+		Error: "access_token=secret", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	repo.events = []OpenAIOAuthReauthWorkerEvent{
+		{ID: 1, Kind: "task", TaskID: &taskID, Status: OpenAIOAuthReauthStatusQueued, Stage: OpenAIOAuthReauthStageQueued},
+		{ID: 2, Kind: "task", TaskID: &otherTaskID, Status: OpenAIOAuthReauthStatusRunning, Stage: OpenAIOAuthReauthStageStarting},
+	}
+
+	log, err := svc.GetTaskLog(context.Background(), taskID)
+	require.NoError(t, err)
+	require.Len(t, log.Events, 1)
+	require.Equal(t, taskID, *log.Events[0].TaskID)
+	require.Equal(t, "re-login failed; sensitive provider details were omitted", log.Task.Error)
+	payload, err := json.Marshal(log)
+	require.NoError(t, err)
+	require.NotContains(t, string(payload), "secret")
 }
 
 func TestOpenAIOAuthReauthRequiresFixedEncryptionKey(t *testing.T) {

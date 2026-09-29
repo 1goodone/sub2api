@@ -36,6 +36,9 @@ export default {
         quota5h: '5h OAuth 额度',
         quota7d: '7d OAuth 额度',
         remainingEstimated: '剩余 / 预估',
+        pendingEstimate: '待估算',
+        quotaCoverage: '已估算 {estimated} / {total} 个账号',
+        quotaEstimateHint: '按最新采样和本地费用估算，仅汇总可估算账号；各窗口独立，不代表当前可调度额度。',
         normal: '正常',
         rateLimited: '限流',
         error: '错误'

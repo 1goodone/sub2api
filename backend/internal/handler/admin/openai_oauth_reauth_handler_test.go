@@ -58,3 +58,26 @@ func TestOpenAIOAuthReauthWorkerRouteRejectsUnsafeTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAIOAuthReauthAdminTaskRoutesRejectInvalidIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := &OpenAIOAuthReauthHandler{}
+	router.GET("/tasks/:task_id/events", handler.TaskEvents)
+	router.POST("/tasks/:task_id/cancel", handler.CancelTask)
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/tasks/not-a-number/events"},
+		{method: http.MethodPost, path: "/tasks/0/cancel"},
+	} {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		router.ServeHTTP(recorder, req)
+
+		require.Equal(t, http.StatusBadRequest, recorder.Code)
+		require.Contains(t, recorder.Body.String(), "Invalid task ID")
+	}
+}

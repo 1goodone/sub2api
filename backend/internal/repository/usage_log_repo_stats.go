@@ -387,36 +387,43 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 	return result, nil
 }
 
-// GetAccountWindowStatsByStartBatch fetches account stats with per-account window starts.
-func (r *usageLogRepository) GetAccountWindowStatsByStartBatch(ctx context.Context, windowStarts map[int64]time.Time) (map[int64]*usagestats.AccountStats, error) {
-	result := make(map[int64]*usagestats.AccountStats, len(windowStarts))
-	if len(windowStarts) == 0 {
+// GetOpenAIQuotaWindowStatsBatch aligns local costs to each quota observation.
+func (r *usageLogRepository) GetOpenAIQuotaWindowStatsBatch(ctx context.Context, samples map[int64]service.OpenAIQuotaCostSample) (map[int64]*usagestats.AccountStats, error) {
+	result := make(map[int64]*usagestats.AccountStats, len(samples))
+	if len(samples) == 0 {
 		return result, nil
 	}
 
-	accountIDs := make([]int64, 0, len(windowStarts))
-	startTimes := make([]time.Time, 0, len(windowStarts))
-	for accountID, startTime := range windowStarts {
+	accountIDs := make([]int64, 0, len(samples))
+	startTimes := make([]time.Time, 0, len(samples))
+	endTimes := make([]time.Time, 0, len(samples))
+	multipliers := make([]float64, 0, len(samples))
+	for accountID, sample := range samples {
 		accountIDs = append(accountIDs, accountID)
-		startTimes = append(startTimes, startTime)
+		startTimes = append(startTimes, time.Unix(sample.StartAt, 0))
+		endTimes = append(endTimes, time.Unix(sample.SampledAt, 0))
+		multipliers = append(multipliers, sample.RateMultiplier)
 	}
 
 	query := `
 		WITH windows AS (
-			SELECT * FROM unnest($1::bigint[], $2::timestamptz[]) AS w(account_id, start_time)
+			SELECT * FROM unnest($1::bigint[], $2::timestamptz[], $3::timestamptz[], $4::numeric[]) AS w(account_id, start_time, end_time, multiplier)
 		)
 		SELECT
 			w.account_id,
 			COUNT(u.id) as requests,
 			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(u.account_stats_cost, u.total_cost) * COALESCE(u.account_rate_multiplier, 1)), 0) as cost,
+			CASE WHEN BOOL_AND(COALESCE(u.account_rate_multiplier, 1) = w.multiplier)
+				THEN COALESCE(SUM(COALESCE(u.account_stats_cost, u.total_cost) * COALESCE(u.account_rate_multiplier, 1)), 0)
+				ELSE 0 END as cost,
 			COALESCE(SUM(u.total_cost), 0) as standard_cost,
 			COALESCE(SUM(u.actual_cost), 0) as user_cost
 		FROM windows w
-		LEFT JOIN usage_logs u ON u.account_id = w.account_id AND u.created_at >= w.start_time
+		LEFT JOIN usage_logs u ON u.account_id = w.account_id
+			AND u.created_at >= w.start_time AND u.created_at <= w.end_time
 		GROUP BY w.account_id
 	`
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), pq.Array(startTimes))
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), pq.Array(startTimes), pq.Array(endTimes), pq.Array(multipliers))
 	if err != nil {
 		return nil, err
 	}

@@ -244,6 +244,58 @@ func (r *openAIOAuthReauthRepository) GetWorkerStatus(ctx context.Context) (*ser
 	return status, rows.Err()
 }
 
+func (r *openAIOAuthReauthRepository) ListTaskEvents(ctx context.Context, taskID int64) ([]service.OpenAIOAuthReauthWorkerEvent, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, kind, task_id, account_id, worker_id, status, stage, attempt, created_at
+		FROM openai_oauth_reauth_events
+		WHERE task_id = $1
+		ORDER BY id ASC
+		LIMIT 1000
+	`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := make([]service.OpenAIOAuthReauthWorkerEvent, 0)
+	for rows.Next() {
+		var event service.OpenAIOAuthReauthWorkerEvent
+		var eventTaskID, accountID sql.NullInt64
+		if err := rows.Scan(&event.ID, &event.Kind, &eventTaskID, &accountID, &event.WorkerID, &event.Status, &event.Stage, &event.Attempt, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		if eventTaskID.Valid {
+			event.TaskID = &eventTaskID.Int64
+		}
+		if accountID.Valid {
+			event.AccountID = &accountID.Int64
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (r *openAIOAuthReauthRepository) CancelTask(ctx context.Context, taskID int64, reason string) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	row := r.db.QueryRowContext(ctx, `
+		UPDATE openai_oauth_reauth_tasks
+		SET status = $2,
+			stage = $3,
+			error_message = $4,
+			finished_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $1 AND status IN ($5, $6, $7)
+		RETURNING id, account_id, status, stage, COALESCE(worker_id, ''),
+			COALESCE(auth_session_id, ''), expected_credentials_hash,
+			COALESCE(error_message, ''), attempt,
+			created_at, updated_at, finished_at
+	`, taskID, service.OpenAIOAuthReauthStatusFailed, service.OpenAIOAuthReauthStageFailed, strings.TrimSpace(reason),
+		service.OpenAIOAuthReauthStatusQueued, service.OpenAIOAuthReauthStatusRunning, service.OpenAIOAuthReauthStatusCallbackProcessing)
+	record, err := scanOpenAIOAuthReauthTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return record, err
+}
+
 func (r *openAIOAuthReauthRepository) SetWorkerEnabled(ctx context.Context, enabled bool) error {
 	_, err := r.db.ExecContext(ctx, `
 		WITH changed AS (

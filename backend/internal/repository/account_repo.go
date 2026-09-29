@@ -2954,6 +2954,7 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	updates = stripCodexFingerprintSeedFromExtraUpdate(updates)
+	updates = prepareOpenAIQuotaCostSamples(updates)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -2983,6 +2984,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		}
 	}
 	extraExpression := "COALESCE(extra, '{}'::jsonb) || $1::jsonb"
+	extraExpression = openAIQuotaCostSamplesSQL(extraExpression, updates)
 	if clearProbeSnapshot {
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 	}

@@ -126,4 +126,26 @@ func TestAccountTokenGuardV2RepositoryLeasesAndReauth(t *testing.T) {
 	done, err := reauth.GetTask(ctx, task.ID)
 	require.NoError(t, err)
 	require.Equal(t, service.OpenAIOAuthReauthStatusSucceeded, done.Status)
+
+	stoppable, err := reauth.CreateTask(ctx, account.ID, "cancel-hash")
+	require.NoError(t, err)
+	running, err = reauth.ClaimNextTask(ctx, "worker-c", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, stoppable.ID, running.ID)
+	stopped, err := reauth.CancelTask(ctx, stoppable.ID, "stopped by administrator")
+	require.NoError(t, err)
+	require.Equal(t, service.OpenAIOAuthReauthStatusFailed, stopped.Status)
+	require.Equal(t, "stopped by administrator", stopped.Error)
+	require.Error(t, reauth.UpdateStage(ctx, stoppable.ID, "worker-c", service.OpenAIOAuthReauthStageWaitingCallback))
+	late, started, err := reauth.BeginDirectCallback(ctx, stoppable.ID, "worker-c")
+	require.NoError(t, err)
+	require.False(t, started)
+	require.Equal(t, service.OpenAIOAuthReauthStatusFailed, late.Status)
+	events, err := reauth.ListTaskEvents(ctx, stoppable.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	for _, event := range events {
+		require.NotNil(t, event.TaskID)
+		require.Equal(t, stoppable.ID, *event.TaskID)
+	}
 }

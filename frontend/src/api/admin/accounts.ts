@@ -173,8 +173,8 @@ export interface OpenAIAccountSummary {
   accounts: { oauth: number; apikey: number }
   oauth_status: { normal: number; rate_limited: number; error: number }
   oauth_quota: {
-    '5h': { remaining_cost: number | null; estimated_cost: number | null }
-    '7d': { remaining_cost: number | null; estimated_cost: number | null }
+    '5h': { remaining_cost: number | null; estimated_cost: number | null; estimated_accounts: number; total_accounts: number }
+    '7d': { remaining_cost: number | null; estimated_cost: number | null; estimated_accounts: number; total_accounts: number }
   }
   concurrency: {
     oauth: { used: number; total: number }

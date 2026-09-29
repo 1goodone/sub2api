@@ -8,8 +8,8 @@
         ? 'border-primary-400 ring-1 ring-primary-200 dark:border-primary-600 dark:ring-primary-900'
         : 'border-gray-200 dark:border-dark-700'"
     >
-      <div class="flex items-start justify-between gap-2">
-        <div class="truncate text-xs font-semibold text-gray-600 dark:text-gray-300">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="min-w-0 break-words text-xs font-semibold text-gray-600 dark:text-gray-300">
           {{ card.title }}
         </div>
         <span
@@ -39,14 +39,17 @@
             {{ item.label }}
           </div>
           <div
-            class="mt-0.5 truncate font-semibold tabular-nums tracking-tight"
+            class="mt-0.5 break-words font-semibold tabular-nums tracking-tight"
             :class="item.compact ? 'text-base' : 'text-2xl'"
             :title="item.value"
           >
             {{ item.value }}
           </div>
-          <div v-if="item.hint" class="mt-0.5 truncate text-[10px] text-gray-400 dark:text-gray-500">
+          <div v-if="item.hint" class="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
             {{ item.hint }}
+          </div>
+          <div v-if="item.coverage" class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400" :title="t('admin.accounts.openaiSummary.quotaEstimateHint')">
+            {{ item.coverage }}
           </div>
         </button>
       </div>
@@ -70,6 +73,7 @@ type SummaryItem = {
   label: string
   value: string
   hint?: string
+  coverage?: string
   compact?: boolean
   ariaLabel: string
   active: boolean
@@ -101,8 +105,14 @@ const concurrency = (item: { used: number; total: number } | undefined) =>
   props.summary ? `${item?.used ?? 0}/${item?.total ?? 0}` : '—'
 const money = (amount: number) => `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const quota = (item: { remaining_cost: number | null; estimated_cost: number | null } | undefined) => {
-  if (!props.summary || item?.remaining_cost == null || item.estimated_cost == null) return '—'
+  if (!props.summary) return '—'
+  if (item?.remaining_cost == null || item.estimated_cost == null) return t('admin.accounts.openaiSummary.pendingEstimate')
   return `${money(item.remaining_cost)} / ${money(item.estimated_cost)}`
+}
+const quotaCoverage = (window: '5h' | '7d') => {
+  const item = props.summary?.oauth_quota[window]
+  if (item?.estimated_accounts == null || item.total_accounts == null) return undefined
+  return t('admin.accounts.openaiSummary.quotaCoverage', { estimated: item.estimated_accounts, total: item.total_accounts })
 }
 const typeActive = (type: string) => props.filters.type === type && !props.filters.status && !props.filters.quota_window
 const statusActive = (status: string) => props.filters.type === 'oauth' && props.filters.status === status && !props.filters.quota_window
@@ -162,7 +172,7 @@ const cards = computed<SummaryCard[]>(() => [
     dotClass: 'bg-indigo-500',
     active: quotaActive('5h'),
     items: [
-      { key: 'quota-5h', label: '', value: quota(props.summary?.oauth_quota['5h']), hint: t('admin.accounts.openaiSummary.remainingEstimated'), compact: true, ariaLabel: t('admin.accounts.openaiSummary.quota5h'), active: quotaActive('5h'), filter: { type: 'oauth' as const, quota_window: '5h' as const } }
+      { key: 'quota-5h', label: '', value: quota(props.summary?.oauth_quota['5h']), hint: t('admin.accounts.openaiSummary.remainingEstimated'), coverage: quotaCoverage('5h'), compact: true, ariaLabel: t('admin.accounts.openaiSummary.quota5h'), active: quotaActive('5h'), filter: { type: 'oauth' as const, quota_window: '5h' as const } }
     ]
   },
   {
@@ -173,7 +183,7 @@ const cards = computed<SummaryCard[]>(() => [
     dotClass: 'bg-violet-500',
     active: quotaActive('7d'),
     items: [
-      { key: 'quota-7d', label: '', value: quota(props.summary?.oauth_quota['7d']), hint: t('admin.accounts.openaiSummary.remainingEstimated'), compact: true, ariaLabel: t('admin.accounts.openaiSummary.quota7d'), active: quotaActive('7d'), filter: { type: 'oauth' as const, quota_window: '7d' as const } }
+      { key: 'quota-7d', label: '', value: quota(props.summary?.oauth_quota['7d']), hint: t('admin.accounts.openaiSummary.remainingEstimated'), coverage: quotaCoverage('7d'), compact: true, ariaLabel: t('admin.accounts.openaiSummary.quota7d'), active: quotaActive('7d'), filter: { type: 'oauth' as const, quota_window: '7d' as const } }
     ]
   },
   {
@@ -184,8 +194,8 @@ const cards = computed<SummaryCard[]>(() => [
     dotClass: 'bg-sky-500',
     active: typeActive('oauth') || typeActive('apikey'),
     items: [
-      { key: 'concurrency-oauth', label: 'OAuth', value: concurrency(props.summary?.concurrency.oauth), ariaLabel: 'OAuth concurrency', active: typeActive('oauth'), filter: { type: 'oauth' as const } },
-      { key: 'concurrency-apikey', label: 'APIKey', value: concurrency(props.summary?.concurrency.apikey), ariaLabel: 'APIKey concurrency', active: typeActive('apikey'), filter: { type: 'apikey' as const } }
+      { key: 'concurrency-oauth', label: 'OAuth', value: concurrency(props.summary?.concurrency.oauth), compact: true, ariaLabel: 'OAuth concurrency', active: typeActive('oauth'), filter: { type: 'oauth' as const } },
+      { key: 'concurrency-apikey', label: 'APIKey', value: concurrency(props.summary?.concurrency.apikey), compact: true, ariaLabel: 'APIKey concurrency', active: typeActive('apikey'), filter: { type: 'apikey' as const } }
     ]
   }
 ])

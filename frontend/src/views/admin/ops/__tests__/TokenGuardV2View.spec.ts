@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
   saveRules: vi.fn(),
   getWorker: vi.fn(),
   setWorker: vi.fn(),
+  getTaskLog: vi.fn(),
+  cancelTask: vi.fn(),
   listAccounts: vi.fn(),
   listGroups: vi.fn(),
   listProxies: vi.fn(),
@@ -28,6 +30,8 @@ vi.mock('@/api/admin/accountTokenGuardV2', () => ({
   saveTokenGuardV2Rules: api.saveRules,
   getTokenGuardV2Worker: api.getWorker,
   setTokenGuardV2WorkerEnabled: api.setWorker,
+  getTokenGuardV2TaskLog: api.getTaskLog,
+  cancelTokenGuardV2Task: api.cancelTask,
 }))
 vi.mock('@/api/admin/accounts', () => ({ list: api.listAccounts, default: { list: api.listAccounts } }))
 vi.mock('@/api/admin/groups', () => ({ getByPlatform: api.listGroups, default: { getByPlatform: api.listGroups } }))
@@ -113,6 +117,11 @@ beforeEach(() => {
     running: 2,
     events: [{ id: 2, kind: 'paused', worker_id: '', status: '', stage: '', attempt: 0, created_at: '2026-09-28T10:02:00Z' }],
   })
+  api.getTaskLog.mockResolvedValue({
+    task: { id: 8, account_id: 42, status: 'running', stage: 'starting', attempt: 1, created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:01:00Z' },
+    events: [{ id: 1, kind: 'task', task_id: 8, account_id: 42, worker_id: 'worker-a', status: 'running', stage: 'starting', attempt: 1, created_at: '2026-09-28T10:00:00Z' }],
+  })
+  api.cancelTask.mockResolvedValue({ id: 8, account_id: 42, status: 'failed', stage: 'failed', error: 'stopped by administrator', attempt: 1, created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:02:00Z', finished_at: '2026-09-28T10:02:00Z' })
 })
 
 afterEach(() => {
@@ -386,6 +395,50 @@ describe('TokenGuardV2View', () => {
     expect(api.setWorker).toHaveBeenCalledWith(false)
     expect(wrapper.text()).toContain('tokenGuardV2.workerPausedNotice')
     expect(wrapper.text()).toContain('tokenGuardV2.workerPaused')
+  })
+
+  it('opens task logs and stops an active task', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    api.getTaskLog
+      .mockResolvedValueOnce({
+        task: { id: 8, account_id: 42, status: 'running', stage: 'starting', attempt: 1, created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:01:00Z' },
+        events: [{ id: 1, kind: 'task', task_id: 8, account_id: 42, worker_id: 'worker-a', status: 'running', stage: 'starting', attempt: 1, created_at: '2026-09-28T10:00:00Z' }],
+      })
+      .mockResolvedValueOnce({
+        task: { id: 8, account_id: 42, status: 'failed', stage: 'failed', error: 'stopped by administrator', attempt: 1, created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:02:00Z', finished_at: '2026-09-28T10:02:00Z' },
+        events: [{ id: 2, kind: 'task', task_id: 8, account_id: 42, worker_id: 'worker-a', status: 'failed', stage: 'failed', attempt: 1, created_at: '2026-09-28T10:02:00Z' }],
+      })
+    wrapper = mount(TokenGuardV2View, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          SmartOpsNav: true,
+          Icon: true,
+          BaseDialog: {
+            props: ['show', 'title'],
+            template: '<section v-if="show"><h2>{{ title }}</h2><slot /><footer><slot name="footer" /></footer></section>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="guard-tab-worker"]').trigger('click')
+    await wrapper.get('[data-testid="task-log-8"]').trigger('click')
+    await flushPromises()
+
+    expect(api.getTaskLog).toHaveBeenCalledWith(8)
+    expect(wrapper.text()).toContain('worker-a')
+    expect(wrapper.get('[data-testid="stop-task"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="stop-task"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('tokenGuardV2.stopTaskConfirm 8')
+    expect(api.cancelTask).toHaveBeenCalledWith(8)
+    expect(wrapper.text()).toContain('stopped by administrator')
+    expect(wrapper.find('[data-testid="stop-task"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('tokenGuardV2.taskStopped 8')
   })
 
   it('paginates monitored accounts and resets to page one after searching', async () => {

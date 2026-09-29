@@ -56,9 +56,10 @@ const (
 )
 
 const (
-	openAIOAuthReauthStaleAfter = 30 * time.Minute
-	maxOpenAIOAuthReauthURL     = 4096
-	maxOpenAIOAuthReauthError   = 500
+	openAIOAuthReauthStaleAfter     = 30 * time.Minute
+	maxOpenAIOAuthReauthURL         = 4096
+	maxOpenAIOAuthReauthError       = 500
+	openAIOAuthReauthStoppedByAdmin = "stopped by administrator"
 )
 
 // OpenAIOAuthReauthConfig is the non-secret representation of a saved re-login
@@ -130,6 +131,11 @@ type OpenAIOAuthReauthWorkerStatus struct {
 	Events       []OpenAIOAuthReauthWorkerEvent `json:"events"`
 }
 
+type OpenAIOAuthReauthTaskLog struct {
+	Task   *OpenAIOAuthReauthTask         `json:"task"`
+	Events []OpenAIOAuthReauthWorkerEvent `json:"events"`
+}
+
 // OpenAIOAuthReauthRepository is deliberately small so the task state can be
 // tested without a live database. The production implementation uses raw SQL
 // because the task table is intentionally outside the generated Ent schema.
@@ -146,6 +152,8 @@ type OpenAIOAuthReauthRepository interface {
 	BeginDirectCallback(ctx context.Context, taskID int64, workerID string) (*OpenAIOAuthReauthTaskRecord, bool, error)
 	MarkSucceeded(ctx context.Context, taskID int64, workerID string) error
 	MarkFailed(ctx context.Context, taskID int64, workerID, reason string) error
+	ListTaskEvents(ctx context.Context, taskID int64) ([]OpenAIOAuthReauthWorkerEvent, error)
+	CancelTask(ctx context.Context, taskID int64, reason string) (*OpenAIOAuthReauthTaskRecord, error)
 	GetWorkerStatus(ctx context.Context) (*OpenAIOAuthReauthWorkerStatus, error)
 	SetWorkerEnabled(ctx context.Context, enabled bool) error
 }
@@ -546,6 +554,46 @@ func (s *OpenAIOAuthReauthService) SetWorkerEnabled(ctx context.Context, enabled
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_WORKER_UPDATE_FAILED", "failed to change worker state")
 	}
 	return s.GetWorkerStatus(ctx)
+}
+
+func (s *OpenAIOAuthReauthService) GetTaskLog(ctx context.Context, taskID int64) (*OpenAIOAuthReauthTaskLog, error) {
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.New(http.StatusServiceUnavailable, "OPENAI_REAUTH_UNAVAILABLE", "re-login task control is unavailable")
+	}
+	record, err := s.repo.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_TASK_READ_FAILED", "failed to read re-login task")
+	}
+	if record == nil {
+		return nil, infraerrors.NotFound("OPENAI_REAUTH_TASK_NOT_FOUND", "re-login task not found")
+	}
+	events, err := s.repo.ListTaskEvents(ctx, taskID)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_TASK_EVENTS_READ_FAILED", "failed to read re-login task events")
+	}
+	return &OpenAIOAuthReauthTaskLog{Task: safeReauthTask(record), Events: events}, nil
+}
+
+func (s *OpenAIOAuthReauthService) CancelTask(ctx context.Context, taskID int64) (*OpenAIOAuthReauthTask, error) {
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.New(http.StatusServiceUnavailable, "OPENAI_REAUTH_UNAVAILABLE", "re-login task control is unavailable")
+	}
+	record, err := s.repo.CancelTask(ctx, taskID, openAIOAuthReauthStoppedByAdmin)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_TASK_CANCEL_FAILED", "failed to stop re-login task")
+	}
+	if record == nil {
+		existing, readErr := s.repo.GetTask(ctx, taskID)
+		if readErr != nil {
+			return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_TASK_READ_FAILED", "failed to read re-login task")
+		}
+		if existing == nil {
+			return nil, infraerrors.NotFound("OPENAI_REAUTH_TASK_NOT_FOUND", "re-login task not found")
+		}
+		return nil, infraerrors.Conflict("OPENAI_REAUTH_TASK_NOT_ACTIVE", "re-login task is no longer active")
+	}
+	s.releaseMihomoLease(taskID)
+	return safeReauthTask(record), nil
 }
 
 func (s *OpenAIOAuthReauthService) GetStatus(ctx context.Context, accountID int64) (*OpenAIOAuthReauthStatus, error) {

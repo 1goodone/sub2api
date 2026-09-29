@@ -66,7 +66,11 @@
                 <td><span class="badge" :class="probeClass(item.probe_state)">{{ t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`) }}</span><small>{{ item.blocked_reason || item.probe_detail || '-' }}</small></td>
                 <td class="tabular-nums">{{ item.fail_streak }}</td>
                 <td>{{ date(item.last_probe_at) }}<small v-if="item.enabled">{{ t('tokenGuardV2.next') }} {{ date(item.next_probe_at) }}</small><small v-else>{{ t('tokenGuardV2.paused') }}</small></td>
-                <td>{{ date(item.last_reauth_at) }}<small v-if="item.latest_task">{{ taskLabel(item.latest_task) }}</small></td>
+                <td>
+                  {{ date(item.last_reauth_at) }}
+                  <small v-if="item.latest_task">{{ taskLabel(item.latest_task) }}</small>
+                  <button v-if="item.latest_task" type="button" class="task-log-link" @click="openTaskLog(item.latest_task.id)">{{ t('tokenGuardV2.viewTaskLog') }}</button>
+                </td>
                 <td>
                   <div class="actions">
                     <button class="link-btn" @click="openEdit(item)">{{ t('tokenGuardV2.edit') }}</button>
@@ -139,7 +143,7 @@
         <div class="worker-events-heading"><h4>{{ t('tokenGuardV2.workerEvents') }}</h4><span>{{ t('tokenGuardV2.workerEventsHint') }}</span></div>
         <div class="table-wrap worker-events">
           <table>
-            <thead><tr><th>{{ t('tokenGuardV2.eventTime') }}</th><th>{{ t('tokenGuardV2.eventType') }}</th><th>{{ t('tokenGuardV2.eventTask') }}</th><th>{{ t('tokenGuardV2.eventAccount') }}</th><th>{{ t('tokenGuardV2.eventWorker') }}</th><th>{{ t('tokenGuardV2.eventState') }}</th></tr></thead>
+            <thead><tr><th>{{ t('tokenGuardV2.eventTime') }}</th><th>{{ t('tokenGuardV2.eventType') }}</th><th>{{ t('tokenGuardV2.eventTask') }}</th><th>{{ t('tokenGuardV2.eventAccount') }}</th><th>{{ t('tokenGuardV2.eventWorker') }}</th><th>{{ t('tokenGuardV2.eventState') }}</th><th>{{ t('tokenGuardV2.actions') }}</th></tr></thead>
             <tbody>
               <tr v-for="event in worker.events" :key="event.id">
                 <td>{{ date(event.created_at) }}</td>
@@ -148,12 +152,47 @@
                 <td>{{ event.account_id ? `#${event.account_id}` : '-' }}</td>
                 <td>{{ event.worker_id || '-' }}</td>
                 <td>{{ event.status || '-' }}<small v-if="event.stage">{{ event.stage }} · {{ t('tokenGuardV2.eventAttempt', { count: event.attempt }) }}</small></td>
+                <td><button v-if="event.task_id" type="button" class="link-btn" :data-testid="`task-log-${event.task_id}`" @click="openTaskLog(event.task_id)">{{ t('tokenGuardV2.viewTaskLog') }}</button><span v-else>-</span></td>
               </tr>
             </tbody>
           </table>
           <div v-if="!worker.events.length" class="empty-state"><h3>{{ t('tokenGuardV2.noWorkerEvents') }}</h3><p>{{ t('tokenGuardV2.noWorkerEventsHint') }}</p></div>
         </div>
       </section>
+
+      <BaseDialog :show="taskLogOpen" :title="t('tokenGuardV2.taskLogTitle', { task: taskLog?.task.id || '' })" width="wide" @close="closeTaskLog">
+        <p v-if="taskLogError" role="alert" class="error-banner">{{ taskLogError }}</p>
+        <div v-if="taskLogLoading" class="task-log-loading">{{ t('tokenGuardV2.taskLogLoading') }}</div>
+        <template v-else-if="taskLog">
+          <div class="task-log-summary">
+            <div><span>{{ t('tokenGuardV2.eventTask') }}</span><strong>#{{ taskLog.task.id }}</strong></div>
+            <div><span>{{ t('tokenGuardV2.eventAccount') }}</span><strong>#{{ taskLog.task.account_id }}</strong></div>
+            <div><span>{{ t('tokenGuardV2.eventState') }}</span><strong>{{ taskLog.task.status }} · {{ taskLog.task.stage }}</strong></div>
+            <div><span>{{ t('tokenGuardV2.eventAttempt', { count: taskLog.task.attempt }) }}</span><strong>{{ date(taskLog.task.updated_at) }}</strong></div>
+          </div>
+          <p v-if="taskLog.task.error" class="task-log-error">{{ taskLog.task.error }}</p>
+          <div class="table-wrap task-log-events">
+            <table>
+              <thead><tr><th>{{ t('tokenGuardV2.eventTime') }}</th><th>{{ t('tokenGuardV2.eventType') }}</th><th>{{ t('tokenGuardV2.eventWorker') }}</th><th>{{ t('tokenGuardV2.eventState') }}</th></tr></thead>
+              <tbody>
+                <tr v-for="event in taskLog.events" :key="event.id">
+                  <td>{{ date(event.created_at) }}</td>
+                  <td>{{ t(`tokenGuardV2.eventKinds.${event.kind}`) }}</td>
+                  <td>{{ event.worker_id || '-' }}</td>
+                  <td>{{ event.status || '-' }}<small v-if="event.stage">{{ event.stage }} · {{ t('tokenGuardV2.eventAttempt', { count: event.attempt }) }}</small></td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="!taskLog.events.length" class="empty-state task-log-empty"><p>{{ t('tokenGuardV2.noTaskEvents') }}</p></div>
+          </div>
+        </template>
+        <template #footer>
+          <button type="button" class="btn btn-secondary" :disabled="taskStopping" @click="closeTaskLog">{{ t('tokenGuardV2.close') }}</button>
+          <button v-if="canStopTask(taskLog?.task)" type="button" data-testid="stop-task" class="btn btn-danger" :disabled="taskStopping" @click="stopTask">
+            {{ taskStopping ? t('tokenGuardV2.stoppingTask') : t('tokenGuardV2.stopTask') }}
+          </button>
+        </template>
+      </BaseDialog>
 
       <BaseDialog :show="editorOpen" :title="editing ? t('tokenGuardV2.editTitle') : t('tokenGuardV2.addTitle')" width="wide" @close="closeEditor">
         <form id="token-guard-v2-editor" class="editor-form" @submit.prevent="save">
@@ -226,9 +265,11 @@ import { getAllWithCount as listProxies } from '@/api/admin/proxies'
 import { openAIPlanTypeLabel } from '@/utils/planType'
 import type { AccountListItem, AdminGroup, Proxy } from '@/types'
 import {
+  cancelTokenGuardV2Task,
   createTokenGuardV2Account,
   deleteTokenGuardV2Account,
   getTokenGuardV2Worker,
+  getTokenGuardV2TaskLog,
   listTokenGuardV2Accounts,
   probeTokenGuardV2Account,
   reloginTokenGuardV2Account,
@@ -242,6 +283,7 @@ import {
   type TokenGuardV2Rules,
   type TokenGuardV2Status,
   type TokenGuardV2Task,
+  type TokenGuardV2TaskLog,
   type TokenGuardV2WorkerStatus
 } from '@/api/admin/accountTokenGuardV2'
 
@@ -269,6 +311,9 @@ const accountPage = ref(1)
 const accountPageSize = ref(20)
 const rulesSaving = ref(false)
 const workerSaving = ref(false)
+const taskLogOpen = ref(false), taskLogLoading = ref(false), taskStopping = ref(false)
+const taskLog = ref<TokenGuardV2TaskLog | null>(null)
+const taskLogError = ref('')
 const rulesDirty = ref(false)
 const error = ref(''), notice = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
@@ -382,6 +427,7 @@ const proxyLabel = (source: TokenGuardV2ProxySource = 'account', proxyId?: numbe
 }
 const probeClass = (state: string) => state === 'ok' ? 'ok' : state === 'auth' ? 'danger' : ''
 const taskLabel = (task: TokenGuardV2Task) => task.error ? `${task.status}: ${task.error}` : `${task.status} · ${task.stage}`
+const canStopTask = (task?: TokenGuardV2Task) => Boolean(task && ['queued', 'running', 'callback_processing'].includes(task.status))
 const configurationDetail = (item: TokenGuardV2Account) => {
   const config = item.login_config
   if (!config) return '-'
@@ -418,6 +464,46 @@ function openEdit(item: TokenGuardV2Account) {
   editorOpen.value = true
 }
 function closeEditor() { if (!saving.value) editorOpen.value = false }
+
+async function loadTaskLog(taskId: number) {
+  taskLogLoading.value = true
+  taskLogError.value = ''
+  try {
+    taskLog.value = await getTokenGuardV2TaskLog(taskId)
+  } catch (value) {
+    taskLogError.value = message(value)
+  } finally {
+    taskLogLoading.value = false
+  }
+}
+
+async function openTaskLog(taskId: number) {
+  taskLogOpen.value = true
+  taskLog.value = null
+  await loadTaskLog(taskId)
+}
+
+function closeTaskLog() {
+  if (!taskStopping.value) taskLogOpen.value = false
+}
+
+async function stopTask() {
+  const task = taskLog.value?.task
+  if (!task || !canStopTask(task) || taskStopping.value) return
+  if (!window.confirm(t('tokenGuardV2.stopTaskConfirm', { task: task.id }))) return
+  taskStopping.value = true
+  taskLogError.value = ''
+  notice.value = ''
+  try {
+    await cancelTokenGuardV2Task(task.id)
+    await Promise.all([loadTaskLog(task.id), load(true)])
+    notice.value = t('tokenGuardV2.taskStopped', { task: task.id })
+  } catch (value) {
+    taskLogError.value = message(value)
+  } finally {
+    taskStopping.value = false
+  }
+}
 
 async function load(silent = false) {
   if (loading.value) return
@@ -532,7 +618,7 @@ watch(() => filteredAccounts.value.length, (total) => {
 
 onMounted(() => {
   void load()
-  timer = setInterval(() => { if (document.visibilityState === 'visible' && !editorOpen.value) void load(true) }, 30_000)
+  timer = setInterval(() => { if (document.visibilityState === 'visible' && !editorOpen.value && !taskLogOpen.value) void load(true) }, 30_000)
 })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
@@ -607,6 +693,16 @@ tbody tr:hover { @apply bg-gray-50/70 dark:bg-dark-800/50; }
 .worker-events-heading span { @apply text-xs text-gray-400; }
 .worker-events { @apply mt-3 rounded-xl border border-gray-100 dark:border-dark-700; }
 .worker-events table { min-width:900px; }
+.task-log-link { @apply mt-1.5 block text-[11px] font-medium text-primary-600 hover:underline; }
+.task-log-loading { @apply py-12 text-center text-sm text-gray-400; }
+.task-log-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); @apply gap-3; }
+.task-log-summary > div { @apply rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-dark-700 dark:bg-dark-800/60; }
+.task-log-summary span { @apply block text-[11px] text-gray-400; }
+.task-log-summary strong { @apply mt-1 block text-sm font-medium; }
+.task-log-error { @apply mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300; }
+.task-log-events { @apply mt-4 rounded-xl border border-gray-100 dark:border-dark-700; }
+.task-log-events table { min-width:680px; }
+.task-log-empty { @apply min-h-32; }
 .editor-form { @apply space-y-5; }
 .field-label { @apply block text-xs font-medium text-gray-600 dark:text-gray-300; }
 .field-label .input { @apply mt-2; }
