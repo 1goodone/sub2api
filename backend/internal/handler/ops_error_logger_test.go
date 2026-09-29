@@ -2168,3 +2168,22 @@ func TestNormalizeOpsErrorType_KeepsGeminiInBandSignalTypes(t *testing.T) {
 		require.Equal(t, errType, normalizeOpsErrorType(errType, "PROHIBITED_CONTENT"), errType)
 	}
 }
+
+type opsBalanceSettingsRepoStub struct {
+	service.SettingRepository
+	advanced string
+}
+
+func (r *opsBalanceSettingsRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return map[string]string{service.SettingKeyOpsAdvancedSettings: r.advanced}, nil
+}
+
+func TestOpsBalanceFilterRecognizesExplicitUserMessage(t *testing.T) {
+	settings := &opsBalanceSettingsRepoStub{advanced: `{"ignore_insufficient_balance_errors":true}`}
+	ops := service.NewOpsService(nil, settings, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.True(t, ops.OpsAdvancedSettingsSnapshot().IgnoreInsufficientBalanceErrors)
+	for _, message := range []string{"insufficient balance", "Insufficient account balance", service.InsufficientUserBalanceMessage} {
+		require.True(t, shouldSkipOpsErrorLog(context.Background(), ops, message, "", "/v1/responses"))
+		require.True(t, shouldSkipOpsErrorLog(context.Background(), ops, "", message, "/v1/responses"))
+	}
+}
