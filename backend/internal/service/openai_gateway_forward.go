@@ -141,8 +141,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
-	// 仅允许 WS 入站请求走 WS 上游，避免出现 HTTP -> WS 协议混用。
-	wsDecision = resolveOpenAIWSDecisionByClientTransport(wsDecision, GetOpenAIClientTransport(c))
+	wsDecision = s.resolveOpenAIHTTPWSSSEDecision(c, account, body, wsDecision)
+	accelerateHTTPSSE := wsDecision.Reason == openAIOAuthWSSSEAccelerationReason
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled()
 	compactPath := isOpenAIResponsesCompactPath(c)
 	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
@@ -818,7 +818,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	SetOpsUpstreamModel(c, upstreamModel)
 
-	// 命中 WS 时仅走 WebSocket Mode；不再自动回退 HTTP。
+	// 原生 WS 保持既有重试；HTTP SSE 加速仅允许在请求尚未发送时回退。
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
 		// WS 分支需要结构化 payload 与重连恢复，命中后再触发 full-map decode。
 		wsReqBody, err := ensureReqBody()
@@ -944,6 +944,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if c != nil && c.Writer != nil && c.Writer.Written() {
 				break
 			}
+			if accelerateHTTPSSE {
+				break
+			}
 			var taskRecoveredErr *agentIdentityTaskRecoveredError
 			if errors.As(wsErr, &taskRecoveredErr) {
 				continue
@@ -1049,8 +1052,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return wsResult, nil
 		}
-		s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
-		return nil, wsErr
+		if !accelerateHTTPSSE {
+			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
+			return nil, wsErr
+		}
+		if IsOpenAIRPMError(wsErr) || !canFallbackOpenAIWSSSEHandshake(ctx, c, wsErr) {
+			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
+			return nil, wsErr
+		}
+		c.Set("openai_ws_transport_decision", string(OpenAIUpstreamTransportHTTPSSE))
+		c.Set("openai_ws_transport_reason", "oauth_ws_sse_handshake_fallback")
 	}
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
