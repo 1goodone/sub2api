@@ -17,6 +17,7 @@ const prioritySchedulingSettingKey = "priority_scheduling_v1"
 // Account eligibility, continuity, profit gates and concurrency acquisition stay authoritative.
 type PrioritySchedulingConfig struct {
 	Teams              PriorityTeamsConfig `json:"teams"`
+	BalanceProtocols   bool                `json:"balance_protocols"`
 	Enabled            bool                `json:"enabled"`
 	Mode               string              `json:"mode"`
 	GroupIDs           []int64             `json:"group_ids"`
@@ -34,7 +35,7 @@ type PrioritySchedulingConfig struct {
 }
 
 func DefaultPrioritySchedulingConfig() PrioritySchedulingConfig {
-	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
+	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, BalanceProtocols: true, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
 }
 
 func ValidatePrioritySchedulingConfig(c PrioritySchedulingConfig) error {
@@ -222,6 +223,7 @@ type prioritySchedulingState struct {
 
 type PrioritySchedulingScore struct {
 	TeamsRecovery       *PriorityTeamsRecovery `json:"teams_recovery"`
+	CapacityBand        int                    `json:"capacity_band"`
 	BoundGroups         int                    `json:"bound_groups"`
 	SelectionWeight     float64                `json:"selection_weight"`
 	ExplorationEligible bool                   `json:"exploration_eligible"`
@@ -454,78 +456,100 @@ func (s *defaultOpenAIAccountScheduler) applyPriorityScheduling(req OpenAIAccoun
 		return
 	}
 	signals, ready := s.service.prioritySignals(req, c, plan.candidates)
-	snapshot := &PrioritySchedulingSnapshot{At: time.Now(), Model: req.RequestedModel, GroupID: req.GroupID, Mode: c.Mode, SelectionPolicy: "capacity_weighted", HistoryReady: ready, Candidates: []PrioritySchedulingScore{}}
-	if ready {
-		for i := range plan.candidates {
-			item := &plan.candidates[i]
-			score := scorePriorityCandidateWithOAuthRate(c, *item, signals[item.account.ID], snapshot.At, s.service.openAIOAuthSchedulingRateMultiplier(context.Background()))
-			// Disjoint score bands guarantee that cheaper degraded accounts cannot
-			// overtake accounts meeting the experience targets, even with custom weights.
-			offset := 0.0
-			switch score.Tier {
-			case "eligible":
-				offset = 400
-			case "insufficient":
-				offset = 200
-			}
-			item.score = offset + score.Score
-			if score.TeamsRecovery != nil {
-				item.priorityRecovery = score.TeamsRecovery.NeedsRecovery
-				item.priorityRecoveryPressure = score.TeamsRecovery.RequiredRevenuePerHourCNY
-			}
-			item.priorityExploration = item.account.IsOpenAIOAuth() && score.Tier == "insufficient" &&
-				score.ProfitSamples < c.MinSamples && score.Samples < c.MinSamples &&
-				item.loadKnown && score.LoadPercent != nil && *score.LoadPercent < c.MaxLoadPercent
-			score.ExplorationEligible = item.priorityExploration
-			score.BoundGroups = priorityAccountGroupCount(item.account)
-			score.SelectionWeight = prioritySelectionWeight(*item, snapshot.At)
-			snapshot.Candidates = append(snapshot.Candidates, score)
+	snapshot := &PrioritySchedulingSnapshot{At: time.Now(), Model: req.RequestedModel, GroupID: req.GroupID, Mode: c.Mode, SelectionPolicy: "capacity_first", HistoryReady: ready, Candidates: []PrioritySchedulingScore{}}
+	// Cold/failed history must not restore a tiny fixed Top-K and strand idle
+	// accounts. Missing history stays unknown while live capacity still balances.
+	for i := range plan.candidates {
+		item := &plan.candidates[i]
+		score := scorePriorityCandidateWithOAuthRate(c, *item, signals[item.account.ID], snapshot.At, s.service.openAIOAuthSchedulingRateMultiplier(context.Background()))
+		item.priorityUnhealthy = slices.Contains(score.Reasons, "quality_below_target") ||
+			slices.Contains(score.Reasons, "recent_errors") || slices.Contains(score.Reasons, "historical_loss")
+		item.priorityLatencyFactor = 1
+		if score.Samples >= c.MinSamples && score.P90TTFTMs > 0 {
+			ratio := score.P90TTFTMs / float64(c.TargetTTFTMs)
+			// Experience constrains profit preference even when every account
+			// misses the target. Keep a floor for recovery/overflow traffic.
+			item.priorityLatencyFactor = math.Max(0.02, 1/(1+ratio*ratio))
 		}
-		plan.priorityScheduling = true
-		plan.includeOverflowFallback = true
-		slices.SortStableFunc(snapshot.Candidates, func(a, b PrioritySchedulingScore) int {
-			tier := func(t string) int {
-				if t == "eligible" {
-					return 2
-				}
-				if t == "insufficient" {
-					return 1
-				}
-				return 0
-			}
-			if tier(a.Tier) != tier(b.Tier) {
-				return tier(b.Tier) - tier(a.Tier)
-			}
-			aRecovery, bRecovery := a.TeamsRecovery != nil && a.TeamsRecovery.NeedsRecovery, b.TeamsRecovery != nil && b.TeamsRecovery.NeedsRecovery
-			if aRecovery != bRecovery {
-				if aRecovery {
-					return -1
-				}
+		// Experience tiers remain distinct within the same risk/capacity cohort;
+		// current congestion is considered before historical score differences.
+		offset := 0.0
+		switch score.Tier {
+		case "eligible":
+			offset = 400
+		case "insufficient":
+			offset = 200
+		}
+		item.score = offset + score.Score
+		if score.TeamsRecovery != nil {
+			item.priorityRecovery = score.TeamsRecovery.NeedsRecovery
+			item.priorityRecoveryPressure = score.TeamsRecovery.RequiredRevenuePerHourCNY
+		}
+		item.priorityExploration = item.account.IsOpenAIOAuth() && score.Tier == "insufficient" &&
+			score.ProfitSamples < c.MinSamples && score.Samples < c.MinSamples &&
+			item.loadKnown && score.LoadPercent != nil && *score.LoadPercent < c.MaxLoadPercent
+		score.ExplorationEligible = item.priorityExploration
+		score.BoundGroups = priorityAccountGroupCount(item.account)
+		score.SelectionWeight = prioritySelectionWeight(*item, snapshot.At)
+		score.CapacityBand = priorityCapacityBand(*item)
+		snapshot.Candidates = append(snapshot.Candidates, score)
+	}
+	plan.priorityScheduling = true
+	plan.includeOverflowFallback = true
+	slices.SortStableFunc(snapshot.Candidates, func(a, b PrioritySchedulingScore) int {
+		unhealthy := func(v PrioritySchedulingScore) bool {
+			return slices.Contains(v.Reasons, "quality_below_target") || slices.Contains(v.Reasons, "recent_errors") || slices.Contains(v.Reasons, "historical_loss")
+		}
+		if unhealthy(a) != unhealthy(b) {
+			if unhealthy(a) {
 				return 1
 			}
-			if aRecovery && a.TeamsRecovery.RequiredRevenuePerHourCNY != b.TeamsRecovery.RequiredRevenuePerHourCNY {
-				if a.TeamsRecovery.RequiredRevenuePerHourCNY > b.TeamsRecovery.RequiredRevenuePerHourCNY {
-					return -1
-				}
-				return 1
+			return -1
+		}
+		if a.CapacityBand != b.CapacityBand {
+			return a.CapacityBand - b.CapacityBand
+		}
+		tier := func(t string) int {
+			if t == "eligible" {
+				return 2
 			}
-			if a.Priority != b.Priority {
-				if a.Priority < b.Priority {
-					return -1
-				}
-				return 1
-			}
-			if a.Score > b.Score {
-				return -1
-			}
-			if a.Score < b.Score {
+			if t == "insufficient" {
 				return 1
 			}
 			return 0
-		})
-		if len(snapshot.Candidates) > 100 {
-			snapshot.Candidates = snapshot.Candidates[:100]
 		}
+		if tier(a.Tier) != tier(b.Tier) {
+			return tier(b.Tier) - tier(a.Tier)
+		}
+		aRecovery, bRecovery := a.TeamsRecovery != nil && a.TeamsRecovery.NeedsRecovery, b.TeamsRecovery != nil && b.TeamsRecovery.NeedsRecovery
+		if aRecovery != bRecovery {
+			if aRecovery {
+				return -1
+			}
+			return 1
+		}
+		if aRecovery && a.TeamsRecovery.RequiredRevenuePerHourCNY != b.TeamsRecovery.RequiredRevenuePerHourCNY {
+			if a.TeamsRecovery.RequiredRevenuePerHourCNY > b.TeamsRecovery.RequiredRevenuePerHourCNY {
+				return -1
+			}
+			return 1
+		}
+		if a.Priority != b.Priority {
+			if a.Priority < b.Priority {
+				return -1
+			}
+			return 1
+		}
+		if a.SelectionWeight > b.SelectionWeight {
+			return -1
+		}
+		if a.SelectionWeight < b.SelectionWeight {
+			return 1
+		}
+		return 0
+	})
+	if len(snapshot.Candidates) > 100 {
+		snapshot.Candidates = snapshot.Candidates[:100]
 	}
 	state := &s.service.priorityScheduling
 	state.mu.Lock()

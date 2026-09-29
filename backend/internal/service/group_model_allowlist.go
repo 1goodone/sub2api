@@ -37,14 +37,28 @@ func supplementUnmappedOpenAIModels(accounts []Account, groupID *int64, models [
 	if len(models) == 0 {
 		return models
 	}
+	catalog := openai.DefaultModelIDs()
+	defaults := make([]string, 0, len(catalog))
+	seen := make(map[string]struct{}, len(catalog))
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 &&
-			len(account.GroupAllowedModels(derefGroupID(groupID))) == 0 {
-			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))
+		if account.Platform != PlatformOpenAI || (!account.IsOpenAIPassthroughEnabled() && !account.IsOpenAIModelMappingAliases() && len(account.GetModelMapping()) != 0) {
+			continue
+		}
+		for _, model := range catalog {
+			if _, found := seen[model]; !found && account.IsModelAllowedInGroup(groupID, model) {
+				seen[model] = struct{}{}
+				defaults = append(defaults, model)
+			}
+		}
+		if len(defaults) == len(catalog) {
+			break
 		}
 	}
-	return models
+	if len(defaults) == 0 {
+		return models
+	}
+	return dedupeAndSortModelIDs(slices.Concat(models, defaults))
 }
 
 // normalizeGroupModelAllowlist 归一化管理端提交的分组模型白名单：

@@ -60,7 +60,7 @@ func TestPriorityFairDistributionFavorsSpareCapacity(t *testing.T) {
 		counts[order[0].account.ID]++
 	}
 	require.Greater(t, counts[2], 2000, "real spare slots must overcome a modest score advantage: %v", counts)
-	require.Greater(t, counts[1], 300, "a usable busier account still participates: %v", counts)
+	require.Zero(t, counts[1], "an idle peer must be used before materially busier capacity: %v", counts)
 }
 
 func TestPriorityQuotaHeadroomAndUnknownData(t *testing.T) {
@@ -122,7 +122,7 @@ func TestPriorityExplorationRequiresSafeUnknownAccount(t *testing.T) {
 		require.False(t, candidate.priorityExploration)
 	}
 	snapshot := gateway.PrioritySchedulingSnapshot()
-	require.Equal(t, "capacity_weighted", snapshot.SelectionPolicy)
+	require.Equal(t, "capacity_first", snapshot.SelectionPolicy)
 	for _, candidate := range snapshot.Candidates {
 		require.Greater(t, candidate.SelectionWeight, 0.0)
 	}

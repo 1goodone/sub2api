@@ -122,7 +122,8 @@ func TestPrioritySchedulingOrderingAndFallback(t *testing.T) {
 	gateway.priorityScheduling.mu.Unlock()
 	plan.priorityScheduling = false
 	scheduler.applyPriorityScheduling(req, &plan)
-	require.False(t, plan.priorityScheduling)
+	require.True(t, plan.priorityScheduling, "missing history must retain live capacity balancing")
+	require.False(t, gateway.PrioritySchedulingSnapshot().HistoryReady)
 }
 func TestPrioritySignalRefreshCoalescesAndErrorsFallBack(t *testing.T) {
 	c := DefaultPrioritySchedulingConfig()

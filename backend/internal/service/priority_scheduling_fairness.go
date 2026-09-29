@@ -9,6 +9,32 @@ import (
 
 const priorityExplorationShare = 0.10
 
+// Ten-percentage-point cohorts prefer genuinely idle capacity while preserving
+// weighted diversity among similarly loaded accounts. Use the next slot and
+// RPM headroom, and rank real queues after every non-queued cohort.
+func priorityCapacityBand(item openAIAccountCandidateScore) int {
+	if !item.loadKnown || item.loadInfo == nil || item.account.Concurrency <= 0 {
+		return 10
+	}
+	load := float64(max(0, item.loadInfo.CurrentConcurrency)+1) / float64(item.account.Concurrency)
+	if item.rpmEnabled && item.rpmLimit > 0 {
+		load = math.Max(load, float64(item.rpmCurrent+1)/float64(item.rpmLimit))
+	}
+	band := int(math.Floor(load * 10))
+	if item.loadInfo.WaitingCount > 0 {
+		return 20 + max(band, item.loadInfo.WaitingCount)
+	}
+	return band
+}
+
+func (s *OpenAIGatewayService) balancesPriorityProtocols(req OpenAIAccountScheduleRequest) bool {
+	if s == nil || req.Platform != PlatformOpenAI || !req.UseUpstreamTokenCost || req.RequiredImageCapability != "" {
+		return false
+	}
+	cfg := s.prioritySchedulingRuntimeConfig()
+	return cfg.BalanceProtocols && cfg.applies(req.GroupID, req.RequestedModel)
+}
+
 // Count distinct bindings, not group price/name or an inferred account class.
 // AccountGroups supports older snapshots that do not populate GroupIDs.
 func priorityAccountGroupCount(account *Account) int {
@@ -52,7 +78,11 @@ func prioritySelectionWeight(item openAIAccountCandidateScore, now time.Time) fl
 	if item.account.IsOpenAIOAuth() {
 		groups = priorityAccountGroupCount(item.account)
 	}
-	return remaining * preference * quota / float64(groups)
+	latency := item.priorityLatencyFactor
+	if latency <= 0 || math.IsNaN(latency) || math.IsInf(latency, 0) {
+		latency = 1
+	}
+	return remaining * preference * quota * latency / float64(groups)
 }
 
 // Rebalance one movable turn only when another compatible account has both
@@ -84,7 +114,7 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 		if _, excluded := req.ExcludedIDs[account.ID]; excluded {
 			continue
 		}
-		if sticky.IsExcelBPSEnabledForModel(req.RequestedModel) && !account.IsExcelBPSEnabledForModel(req.RequestedModel) {
+		if !s.service.balancesPriorityProtocols(req) && sticky.IsExcelBPSEnabledForModel(req.RequestedModel) && !account.IsExcelBPSEnabledForModel(req.RequestedModel) {
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(account) < openAICompactSupportTier(sticky) {
@@ -141,6 +171,12 @@ func buildPrioritySelectionOrder(pool []openAIAccountCandidateScore, req OpenAIA
 	}
 	sort.Slice(choices, func(i, j int) bool {
 		a, b := choices[i].candidate, choices[j].candidate
+		if a.priorityUnhealthy != b.priorityUnhealthy {
+			return !a.priorityUnhealthy
+		}
+		if aBand, bBand := priorityCapacityBand(a), priorityCapacityBand(b); aBand != bBand {
+			return aBand < bBand
+		}
 		if int(a.score/200) != int(b.score/200) {
 			return a.score > b.score
 		}
@@ -169,6 +205,7 @@ func buildPrioritySelectionOrder(pool []openAIAccountCandidateScore, req OpenAIA
 		for i := 1; i < len(choices); i++ {
 			candidate := choices[i].candidate
 			if !candidate.priorityRecovery && int(candidate.score/200) == 1 && candidate.priorityExploration &&
+				!candidate.priorityUnhealthy && priorityCapacityBand(candidate) <= priorityCapacityBand(choices[0].candidate) &&
 				candidate.account.Priority == choices[0].candidate.account.Priority &&
 				(best < 0 || choices[i].key < choices[best].key) {
 				best = i

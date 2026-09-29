@@ -95,6 +95,18 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  it('repairs OAuth alias scope without replacing mappings or enabling BPS', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
+    await wrapper.get('[data-testid="enable-model-aliases"]').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { credentials: { model_mapping_mode: 'aliases' } })
+    wrapper.unmount()
+  })
+  it('does not offer OAuth alias scope to mixed or API-key targets', () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    expect(wrapper.find('[data-testid="enable-model-aliases"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('applies only the independent cost multiplier when selected', async () => {
     const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
     expect(wrapper.get<HTMLInputElement>('#bulk-edit-cost-multiplier').element.value).toBe('0.1')

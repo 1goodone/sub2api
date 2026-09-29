@@ -9,6 +9,7 @@ export interface PriorityTeamsConfig {
 export const defaultPriorityTeamsConfig = (): PriorityTeamsConfig => ({ enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'first_usage' })
 export interface PrioritySchedulingConfig {
   teams: PriorityTeamsConfig
+  balance_protocols?: boolean
   enabled: boolean
   mode: 'experience' | 'balanced' | 'profit' | 'custom'
   group_ids: number[]
@@ -36,6 +37,7 @@ export interface PriorityCandidate {
     needs_recovery: boolean
     required_revenue_per_hour_cny: number
   }
+  capacity_band?: number
   selection_weight?: number
   exploration_eligible?: boolean
   bound_groups?: number
