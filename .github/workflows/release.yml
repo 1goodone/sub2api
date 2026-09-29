@@ -84,8 +84,50 @@ jobs:
           path: backend/internal/web/dist/
           retention-days: 1
 
+  build-reauth-runtime:
+    needs: update-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Download VERSION artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: version-file
+          path: backend/cmd/server/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and validate portable re-login runtime
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION)
+          export VERSION ARCH
+          bash tools/reauth-runtime/build.sh
+
+      - name: Upload re-login runtime artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: reauth-runtime-${{ matrix.arch }}
+          path: reauth-output/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   release:
-    needs: [update-version, build-frontend]
+    needs: [update-version, build-frontend, build-reauth-runtime]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -185,6 +227,23 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
 
+      - name: Download re-login runtime artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: reauth-runtime-*
+          path: reauth-output
+          merge-multiple: true
+
+      - name: Publish verified re-login runtimes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE_TAG=${{ github.event.inputs.tag }}
+          else
+            RELEASE_TAG=${GITHUB_REF#refs/tags/}
+          fi
+          gh release upload "$RELEASE_TAG" reauth-output/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
       # Update DockerHub description
       - name: Update DockerHub description
         if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}

@@ -81,6 +81,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
       - OPENAI_REAUTH_WORKER_TOKEN=${OPENAI_REAUTH_WORKER_TOKEN:-}
+      - OPENAI_REAUTH_RUNTIME_REPOSITORY=${OPENAI_REAUTH_RUNTIME_REPOSITORY:-Even1997/sub2api}
 
       # =======================================================================
       # Setup Configuration

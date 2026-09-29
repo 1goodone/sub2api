@@ -128,9 +128,12 @@ func ProvideOpenAIOAuthReauthService(
 	cfg *config.Config,
 	tokenCacheInvalidator TokenCacheInvalidator,
 	runtimeBlocker AccountRuntimeBlocker,
+	buildInfo BuildInfo,
 ) *OpenAIOAuthReauthService {
 	credentialUpdater, _ := accountRepo.(OpenAIOAuthReauthCredentialUpdater)
-	return NewOpenAIOAuthReauthService(repo, adminService, credentialUpdater, openaiOAuthService, secretEncryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured, tokenCacheInvalidator, runtimeBlocker)
+	svc := NewOpenAIOAuthReauthService(repo, adminService, credentialUpdater, openaiOAuthService, secretEncryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured, tokenCacheInvalidator, runtimeBlocker)
+	svc.configureWorker(cfg, buildInfo)
+	return svc
 }
 
 // ProvideTokenRefreshService creates and starts TokenRefreshService

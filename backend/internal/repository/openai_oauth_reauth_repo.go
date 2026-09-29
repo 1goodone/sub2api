@@ -125,6 +125,14 @@ func (r *openAIOAuthReauthRepository) GetTask(ctx context.Context, taskID int64)
 }
 
 func (r *openAIOAuthReauthRepository) ClaimNextTask(ctx context.Context, workerID string, staleAfter time.Duration) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	return r.claimNextTask(ctx, workerID, staleAfter, "")
+}
+
+func (r *openAIOAuthReauthRepository) ClaimNextPasswordTask(ctx context.Context, workerID string, staleAfter time.Duration) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	return r.claimNextTask(ctx, workerID, staleAfter, service.OpenAIOAuthReauthModePasswordTOTP)
+}
+
+func (r *openAIOAuthReauthRepository) claimNextTask(ctx context.Context, workerID string, staleAfter time.Duration, mode string) (*service.OpenAIOAuthReauthTaskRecord, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -159,11 +167,15 @@ func (r *openAIOAuthReauthRepository) ClaimNextTask(ctx context.Context, workerI
 		), next_task AS (
 			SELECT id
 			FROM openai_oauth_reauth_tasks
-			WHERE status = $5
+			WHERE (status = $5
 				OR (
 					status = $6
 					AND claimed_at < NOW() - ($4 * INTERVAL '1 second')
-				)
+				))
+				AND ($9 = '' OR EXISTS (
+					SELECT 1 FROM openai_oauth_reauth_configs AS config
+					WHERE config.account_id = openai_oauth_reauth_tasks.account_id AND config.credential_mode = $9
+				))
 			ORDER BY created_at ASC, id ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
@@ -192,7 +204,7 @@ func (r *openAIOAuthReauthRepository) ClaimNextTask(ctx context.Context, workerI
 		service.OpenAIOAuthReauthStatusQueued,
 		service.OpenAIOAuthReauthStatusRunning,
 		service.OpenAIOAuthReauthStageStarting,
-		workerID,
+		workerID, mode,
 	)
 	record, err := scanOpenAIOAuthReauthTask(row)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

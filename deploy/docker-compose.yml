@@ -111,6 +111,7 @@ services:
       # Generate a secure key: openssl rand -hex 32
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
       - OPENAI_REAUTH_WORKER_TOKEN=${OPENAI_REAUTH_WORKER_TOKEN:-}
+      - OPENAI_REAUTH_RUNTIME_REPOSITORY=${OPENAI_REAUTH_RUNTIME_REPOSITORY:-Even1997/sub2api}
 
       # =======================================================================
       # Timezone Configuration
