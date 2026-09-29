@@ -101,6 +101,9 @@ func (s *adminServiceImpl) ApplyOAuthAutoConfig(ctx context.Context, input *Crea
 	if input == nil {
 		return ErrAccountNilInput
 	}
+	// Imported/user-supplied markers must not fabricate automatic-configuration history.
+	input.Extra = maps.Clone(input.Extra)
+	delete(input.Extra, "auto_config_initial_revision")
 	if input.Type != AccountTypeOAuth || s.settingService == nil {
 		return nil
 	}
@@ -209,6 +212,7 @@ type AutoConfigConcurrencyState struct {
 	Step          int        `json:"step"`
 	PausedUntil   time.Time  `json:"paused_until"`
 	LastUpgradeAt *time.Time `json:"last_upgrade_at,omitempty"`
+	LastFailureAt *time.Time `json:"last_failure_at,omitempty"`
 }
 
 // AdvanceConcurrency is pure. A fresh cycle starts after a rule/manual change.
@@ -221,6 +225,7 @@ func AdvanceConcurrency(state AutoConfigConcurrencyState, current int, c OAuthAu
 	state.Step = c.UpgradeStep
 	if !result.Success {
 		state.Successes = 0
+		state.LastFailureAt = &now
 		state.PausedUntil = now.Add(time.Duration(c.CooldownSeconds) * time.Second)
 		return state, current
 	}
@@ -233,6 +238,7 @@ func AdvanceConcurrency(state AutoConfigConcurrencyState, current int, c OAuthAu
 		state.Concurrency = current
 		state.Successes = 0
 		state.LastUpgradeAt = &now
+		state.LastFailureAt = nil
 		state.PausedUntil = now.Add(time.Duration(c.CooldownSeconds) * time.Second)
 	}
 	return state, current

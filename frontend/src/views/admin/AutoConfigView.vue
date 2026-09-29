@@ -29,6 +29,7 @@
         </fieldset>
         <div class="flex flex-wrap items-center gap-4"><button type="submit" class="btn btn-primary" :disabled="saving">{{ t(saving ? 'autoConfig.saving' : 'common.save') }}</button><span class="text-xs text-gray-500">{{ t('autoConfig.saveHint') }}</span></div>
       </form>
+      <AutoConfigHistory v-if="auth.user?.role === 'admin'" :refresh-key="historyRefreshKey" />
     </div>
   </AppLayout>
 </template>
@@ -39,6 +40,7 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
 import BPSDefaultsCard from '@/components/admin/operations/BPSDefaultsCard.vue'
+import AutoConfigHistory from '@/components/admin/operations/AutoConfigHistory.vue'
 import { defaultExcelBPSDefaults, excelBPSDefaultsError, excelBPSDefaultsPayload, type ExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import { getAll } from '@/api/admin/groups'
 import { getAutoConfig, saveAutoConfig, type AutoConfig } from '@/api/admin/autoConfig'
@@ -46,6 +48,7 @@ import type { Group } from '@/types'
 const { t } = useI18n(), auth = useAuthStore()
 const draft = ref<(AutoConfig & { excel_bps: ExcelBPSDefaults }) | null>(null), groups = ref<Group[]>([])
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref('')
+const historyRefreshKey = ref(0)
 let generation = 0, alive = true
 const validGeneration = (v: number) => alive && generation === v
 const platforms = [{ value: 'openai', label: 'OpenAI' }, { value: 'anthropic', label: 'Anthropic' }, { value: 'gemini', label: 'Gemini' }, { value: 'antigravity', label: 'Antigravity' }, { value: 'grok', label: 'Grok' }]
@@ -65,7 +68,7 @@ async function save() {
  if (bpsError) { error.value = t(bpsError); return }
  if (c.enabled && !c.group_ids.length || c.upgrade_enabled && !c.upgrade_group_ids.length || [...initialFields, ...upgradeFields].some(f => !Number.isInteger(c[f.key]) || c[f.key] < ('min' in f ? f.min : 1) || c[f.key] > ('max' in f ? f.max : 10000))) { error.value = t('autoConfig.invalid'); return }
  const v = generation; saving.value = true; error.value = ''; notice.value = ''
- try { const { runtime_blocked: _blocked, ...payload } = c; const result = await saveAutoConfig({ ...payload, excel_bps: excelBPSDefaultsPayload(c.excel_bps) }); if (validGeneration(v)) { draft.value = { ...result, excel_bps: result.excel_bps ?? defaultExcelBPSDefaults() }; notice.value = t('autoConfig.saved') } }
+ try { const { runtime_blocked: _blocked, ...payload } = c; const result = await saveAutoConfig({ ...payload, excel_bps: excelBPSDefaultsPayload(c.excel_bps) }); if (validGeneration(v)) { draft.value = { ...result, excel_bps: result.excel_bps ?? defaultExcelBPSDefaults() }; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.saveFailed') }
  finally { if (validGeneration(v)) saving.value = false }
 }

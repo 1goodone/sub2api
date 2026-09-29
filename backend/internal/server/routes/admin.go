@@ -773,6 +773,7 @@ func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.GET("/account-ops/auto-config", h.Admin.AccountOps.GetAutoConfig)
 	admin.PUT("/account-ops/auto-config", h.Admin.AccountOps.SaveAutoConfig)
+	admin.GET("/account-ops/auto-config/events", h.Admin.AccountOps.ListAutoConfigEvents)
 	admin.GET("/priority-scheduling/config", h.Admin.Setting.GetPriorityScheduling)
 	admin.PUT("/priority-scheduling/config", h.Admin.Setting.SavePriorityScheduling)
 	admin.GET("/priority-scheduling/snapshot", h.Admin.Account.PrioritySchedulingSnapshot)
