@@ -119,3 +119,20 @@ func TestUpstreamProbeCostMultiplierToSync(t *testing.T) {
 	require.InDelta(t, 28, score.TheoreticalCost, 1e-9)
 	require.Equal(t, 7.0, item.account.BillingRateMultiplier())
 }
+
+func TestAccountCostAutoSyncSetting(t *testing.T) {
+	for _, value := range []any{nil, true, false} {
+		extra := map[string]any{AccountCostAutoSyncExtraKey: value}
+		require.NoError(t, ValidateAccountCostMultiplierExtra(extra))
+		account := &Account{Extra: extra}
+		require.Equal(t, value != false, account.CostMultiplierAutoSyncEnabled())
+	}
+	for _, value := range []any{"false", 0, 1.0, map[string]any{}} {
+		extra := map[string]any{AccountCostAutoSyncExtraKey: value}
+		require.ErrorContains(t, ValidateAccountCostMultiplierExtra(extra), "cost_multiplier_auto_sync")
+		s := &adminServiceImpl{}
+		_, err := s.UpdateAccount(context.Background(), 1, &UpdateAccountInput{Extra: extra})
+		require.ErrorContains(t, err, "cost_multiplier_auto_sync")
+	}
+	require.True(t, (&Account{}).CostMultiplierAutoSyncEnabled())
+}

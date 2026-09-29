@@ -725,12 +725,14 @@ func lockAndMergeAccountProbeExtra(
 	extra = service.MergeExcelBPS403Marker(extra, currentExtra)
 	// Omitted cost means an unrelated edit. Keep the value under the row lock,
 	// including a probe update committed after the edit form was loaded.
-	if _, provided := extra[service.AccountCostMultiplierExtraKey]; !provided {
-		if cost, exists := currentExtra[service.AccountCostMultiplierExtraKey]; exists {
-			if extra == nil {
-				extra = make(map[string]any)
+	for _, key := range []string{service.AccountCostMultiplierExtraKey, service.AccountCostAutoSyncExtraKey} {
+		if _, provided := extra[key]; !provided {
+			if value, exists := currentExtra[key]; exists {
+				if extra == nil {
+					extra = make(map[string]any)
+				}
+				extra[key] = value
 			}
-			extra[service.AccountCostMultiplierExtraKey] = cost
 		}
 	}
 	delete(extra, service.AutoConfigConcurrencyExtraKey)
@@ -3138,7 +3140,11 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
-			extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+			extra = COALESCE(extra, '{}'::jsonb) || CASE
+				WHEN extra @> '{"cost_multiplier_auto_sync": false}'::jsonb
+				THEN $1::jsonb - 'cost_multiplier'
+				ELSE $1::jsonb
+			END,
 			rate_multiplier = CASE
 				WHEN $10::numeric IS NOT NULL
 					AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb

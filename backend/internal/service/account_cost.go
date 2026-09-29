@@ -8,6 +8,7 @@ import (
 )
 
 const AccountCostMultiplierExtraKey = "cost_multiplier"
+const AccountCostAutoSyncExtraKey = "cost_multiplier_auto_sync"
 const DefaultAccountCostMultiplier = 0.1
 
 // CostMultiplier is the saved estimate used for profitability.
@@ -20,6 +21,15 @@ func (a *Account) CostMultiplier() float64 {
 		}
 	}
 	return DefaultAccountCostMultiplier
+}
+
+// CostMultiplierAutoSyncEnabled defaults to true for existing accounts.
+func (a *Account) CostMultiplierAutoSyncEnabled() bool {
+	if a == nil {
+		return true
+	}
+	enabled, present := a.Extra[AccountCostAutoSyncExtraKey].(bool)
+	return !present || enabled
 }
 
 func accountCostMultiplierNumber(raw any) (float64, bool) {
@@ -47,6 +57,11 @@ func accountCostMultiplierNumber(raw any) (float64, bool) {
 
 // Null removes an override and restores the default; zero is an explicit cost.
 func ValidateAccountCostMultiplierExtra(extra map[string]any) error {
+	if raw := extra[AccountCostAutoSyncExtraKey]; raw != nil {
+		if _, ok := raw.(bool); !ok {
+			return infraerrors.BadRequest("INVALID_COST_MULTIPLIER_AUTO_SYNC", "cost_multiplier_auto_sync must be a boolean")
+		}
+	}
 	raw, exists := extra[AccountCostMultiplierExtraKey]
 	if !exists || raw == nil {
 		return nil
