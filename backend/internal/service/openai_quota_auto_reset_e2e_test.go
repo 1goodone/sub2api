@@ -112,7 +112,7 @@ func TestOpenAIQuotaAutoResetDisabledWindowHTTPFlow(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 			tokens := &stubQuotaTokenCache{tokens: map[string]string{OpenAITokenCacheKey(account): "fake-token"}}
-			quota := NewOpenAIQuotaService(repo, nil, NewOpenAITokenProvider(repo, tokens, nil), newQuotaRedirectingFactory(upstream), nil)
+			quota := NewOpenAIQuotaService(repo, nil, NewOpenAITokenProvider(repo, tokens, nil), newQuotaRedirectingFactory(upstream))
 			idempotencyConfig := DefaultIdempotencyConfig()
 			idempotencyConfig.ObserveOnly = false
 			svc := NewOpenAIQuotaAutoResetService(repo, quota, autoResetTestRecoverer{}, NewIdempotencyCoordinator(newInMemoryIdempotencyRepo(), idempotencyConfig), nil, nil, nil)
