@@ -144,24 +144,25 @@ func TestModelBillingOpenAIRecordUsageBalanceAndSubscription(t *testing.T) {
 			svc.StopOpenAICodexTicketHarvester() // Billing fixtures must not run background ticket work.
 			cfg := DefaultModelBillingConfig()
 			cfg.Enabled = true
+			cfg.Rules[0].Model = "gpt-5.6-luna*"
 			svc.settingService = modelBillingSettings(t, cfg)
-			accountRate, accountGroupRate := .3, 2.0
+			accountRate := .3
 			group := &Group{ID: 2, RateMultiplier: multiplier}
 			input := &OpenAIRecordUsageInput{
-				Result: &OpenAIForwardResult{Model: "gpt-6-luna", Usage: OpenAIUsage{InputTokens: 1000, OutputTokens: 200, CacheReadInputTokens: 100}, Duration: time.Second},
+				Result: &OpenAIForwardResult{Model: "gpt-5.6-luna", Usage: OpenAIUsage{InputTokens: 1000, OutputTokens: 200, CacheReadInputTokens: 100}, Duration: time.Second},
 				APIKey: &APIKey{ID: 1, GroupID: &group.ID, Group: group}, User: &User{ID: 3},
-				Account: &Account{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeOAuth, RateMultiplier: &accountRate, GroupRateMultiplier: &accountGroupRate},
+				Account: &Account{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeOAuth, RateMultiplier: &accountRate},
 			}
 			if subscription {
 				group.SubscriptionType = SubscriptionTypeSubscription
 				input.Subscription = &UserSubscription{ID: 8}
 			}
-			base := expectedOpenAICost(t, svc, "gpt-6-luna", input.Result.Usage, multiplier*accountGroupRate)
+			base := expectedOpenAICost(t, svc, "gpt-5.6-luna", input.Result.Usage, multiplier)
 			require.NoError(t, svc.RecordUsage(t.Context(), input))
 			require.NotNil(t, logRepo.lastLog)
 			require.InDelta(t, base.ActualCost*10, logRepo.lastLog.ActualCost, 1e-12)
 			require.InDelta(t, base.TotalCost, logRepo.lastLog.TotalCost, 1e-12)
-			require.InDelta(t, multiplier*accountGroupRate*10, logRepo.lastLog.RateMultiplier, 1e-12)
+			require.InDelta(t, multiplier*10, logRepo.lastLog.RateMultiplier, 1e-12)
 			require.Equal(t, accountRate, *logRepo.lastLog.AccountRateMultiplier)
 			if subscription {
 				require.InDelta(t, base.ActualCost*10, subRepo.lastAmount, 1e-12)
@@ -191,15 +192,16 @@ func TestModelBillingUsesPricedFallbackAndPreservesSearchSurcharge(t *testing.T)
 	svc.StopOpenAICodexTicketHarvester() // Billing fixtures must not run background ticket work.
 	cfg := DefaultModelBillingConfig()
 	cfg.Enabled = true
+	cfg.Rules[0].Model = "gpt-5.6-luna*"
 	svc.settingService = modelBillingSettings(t, cfg)
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 100}
 	result := &OpenAIForwardResult{Model: "custom-alias", SearchCount: 2}
 	key := &APIKey{ID: 1}
-	base, err := svc.billingService.CalculateCost("gpt-6-luna", tokens, .2)
+	base, err := svc.billingService.CalculateCost("gpt-5.6-luna", tokens, .2)
 	require.NoError(t, err)
 	search := svc.billingService.CalculateSearchCost(2, nil, .2)
 	cost, err := svc.calculateOpenAIRecordUsageCost(t.Context(), result, key,
-		[]string{"no-price-test-model", "gpt-6-luna"}, .2, .2, .2, .2, tokens, "", nil, time.Time{})
+		[]string{"no-price-test-model", "gpt-5.6-luna"}, .2, .2, .2, .2, tokens, "", nil, time.Time{})
 	require.NoError(t, err)
 	require.InDelta(t, base.ActualCost*10+search.ActualCost, cost.ActualCost, 1e-12)
 	require.InDelta(t, base.TotalCost+search.TotalCost, cost.TotalCost, 1e-12)
