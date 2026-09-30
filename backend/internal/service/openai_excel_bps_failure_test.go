@@ -65,25 +65,6 @@ func TestExcelBPSFailureAfterCompactKeepalive(t *testing.T) {
 	require.Len(t, upstream.requests, 1)
 }
 
-func TestExcelBPSFailureQualityObservationDoesNotCoolAccount(t *testing.T) {
-	upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(http.StatusOK,
-		bpsFailureWire(t, "response.failed", "rate_limit_exceeded", "", 0))}
-	svc := openAIClientToolsTestService(upstream)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	ctx := withPelicanTestOptions(context.Background(), pelicanTestOptions{observeOnly: true})
-	body, err := json.Marshal(map[string]any{"model": "gpt-6-astra", "input": "observe"})
-	require.NoError(t, err)
-	account := excelAccount()
-	_, err = svc.Forward(ctx, c, account, body)
-	require.Error(t, err)
-	require.Equal(t, http.StatusTooManyRequests, rec.Code)
-	require.False(t, svc.isExcelBPSCoolingDown(account, "gpt-6-astra"))
-	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
-	require.Len(t, upstream.requests, 1)
-}
-
 func TestExcelBPSFailureClassification(t *testing.T) {
 	for _, tc := range []struct {
 		name, event, code, errorType string
@@ -165,7 +146,7 @@ func TestExcelBPSFailureClassification(t *testing.T) {
 				require.Equal(t, tc.status, observed.IntendedStatus)
 				require.Equal(t, tc.wantCode, observed.Code)
 				require.Equal(t, http.StatusOK, c.GetInt(OpsUpstreamStatusCodeKey), "mapped status is not an upstream HTTP status")
-				require.Equal(t, tc.status == 429, svc.isExcelBPSCoolingDown(account, "gpt-6-astra"))
+				require.Equal(t, tc.status == 429, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
 				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 				require.True(t, account.IsSchedulable())
 				require.True(t, account.IsExcelBPSEnabled(), "an in-band 403 must not disable the account")

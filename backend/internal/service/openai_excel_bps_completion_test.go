@@ -78,11 +78,16 @@ func TestExcelBPSNativeAttachmentFailureDoesNotGenerate(t *testing.T) {
 			_, err := svc.Forward(context.Background(), c, excelAccount(), body)
 			require.Error(t, err)
 			require.Len(t, upstream.requests, 1)
-			expected := status
-			if status == 302 {
-				expected = 502
+			if status == http.StatusTooManyRequests {
+				requireExcelBPSRateLimitFailover(t, err, c)
+				require.Empty(t, rec.Body.String())
+			} else {
+				expected := status
+				if status == http.StatusFound {
+					expected = http.StatusBadGateway
+				}
+				require.Equal(t, expected, rec.Code)
 			}
-			require.Equal(t, expected, rec.Code)
 			require.NotContains(t, rec.Body.String(), "PRIVATE_RESPONSE")
 		})
 	}

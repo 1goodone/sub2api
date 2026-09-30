@@ -231,6 +231,10 @@ func excelBPSLocalProxyPort(proxy string) int {
 }
 
 func recordExcelBPSTransportFailure(ctx context.Context, c *gin.Context, account *Account, scope, proxy string, err error, stage string, attempt int, retry bool, evidence ...*excelBPSWriteEvidence) {
+	recordExcelBPSTransportFailureAt(ctx, c, account, basispoints.ResponsesURL, scope, proxy, err, stage, attempt, retry, evidence...)
+}
+
+func recordExcelBPSTransportFailureAt(ctx context.Context, c *gin.Context, account *Account, upstreamURL, scope, proxy string, err error, stage string, attempt int, retry bool, evidence ...*excelBPSWriteEvidence) {
 	if isExcelBPSClientCancellation(c, err) {
 		logger.FromContext(ctx).Info("excel_bps.client_canceled",
 			zap.Int64("account_id", account.ID), zap.String("stage", stage))
@@ -266,7 +270,7 @@ func recordExcelBPSTransportFailure(ctx context.Context, c *gin.Context, account
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform: account.Platform, AccountID: account.ID,
-		UpstreamURL: basispoints.ResponsesURL, Kind: "request_error", Stage: stage,
+		UpstreamURL: upstreamURL, Kind: "request_error", Stage: stage,
 		Scope: "excel_bps", Reason: kind, Message: message, Detail: string(detail),
 	})
 	logger.FromContext(ctx).Warn("excel_bps.transport_failed",

@@ -19,6 +19,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireExcelBPSRateLimitFailover(t *testing.T, err error, c *gin.Context) {
+	t.Helper()
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, failover.RetryableOnSameAccount)
+	require.False(t, failover.ShouldReportAccountScheduleFailure())
+	require.True(t, failover.SkipOAuth429AttemptLimit)
+	require.False(t, c.Writer.Written())
+	require.False(t, IsResponseCommitted(c))
+}
+
 func TestExcelBPSAttachmentFailureDiagnostics(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, stage, kind string

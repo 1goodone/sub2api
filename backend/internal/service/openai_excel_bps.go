@@ -267,6 +267,26 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		// No response or metered usage exists before headers; do not create a usage row.
 		return nil, context.Canceled
 	}
+	failoverRateLimited := func(retryAfter string) (*OpenAIForwardResult, error) {
+		headers := make(http.Header)
+		if retryAfter = strings.TrimSpace(retryAfter); retryAfter != "" {
+			headers.Set("Retry-After", retryAfter)
+		}
+		s.coolDownExcelBPS(ctx, account, headers, nil)
+		if isExcelBPSClientCancellation(c, ctx.Err()) {
+			return clientCanceled()
+		}
+		failover := newOpenAIUpstreamFailoverError(
+			http.StatusTooManyRequests,
+			headers,
+			[]byte(`{"error":{"type":"rate_limit_error","code":"basispoints_rate_limited","message":"Excel BPS rate limit exceeded"}}`),
+			"Excel BPS rate limit exceeded",
+			false,
+		)
+		failover.SuppressScheduleFailure = true
+		failover.SkipOAuth429AttemptLimit = true
+		return nil, failover
+	}
 	var err error
 	body, err = sjson.SetBytes(body, "model", model)
 	if err != nil {
@@ -793,8 +813,8 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 						ErrType: upstreamFailure.Type, Code: upstreamFailure.Code, Message: upstreamFailure.Message,
 						IntendedStatus: upstreamFailure.Status, CountTowardsSLA: true, NonStream: !stream,
 					})
-					if upstreamFailure.Status == http.StatusTooManyRequests && !isQualityObservation(ctx) {
-						s.coolDownExcelBPS(ctx, account, resp.Header.Get("Retry-After"))
+					if upstreamFailure.Status == http.StatusTooManyRequests {
+						s.coolDownExcelBPS(ctx, account, resp.Header, payload)
 					}
 				}
 			}
