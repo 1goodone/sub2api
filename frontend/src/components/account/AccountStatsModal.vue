@@ -9,24 +9,25 @@
       <!-- Account Info Header -->
       <div
         v-if="account"
-        class="flex items-center justify-between rounded-xl border border-primary-200 bg-gradient-to-r from-primary-50 to-primary-100 p-3 dark:border-primary-700/50 dark:from-primary-900/20 dark:to-primary-800/20"
+        class="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-primary-200 bg-gradient-to-r from-primary-50 to-primary-100 p-3 dark:border-primary-700/50 dark:from-primary-900/20 dark:to-primary-800/20"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 flex-1 items-center gap-3">
           <div
-            class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600"
           >
             <Icon name="chartBar" size="md" class="text-white" :stroke-width="2" />
           </div>
-          <div>
-            <div class="font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.last30DaysUsage') }}
+          <div class="min-w-0">
+            <div class="truncate font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
+            <div class="truncate text-xs text-gray-500 dark:text-gray-400">
+              {{ activeTab === 'official' ? t('admin.accounts.officialUsage.subtitle') : t('admin.accounts.last30DaysUsage') }}
             </div>
           </div>
         </div>
         <span
+          v-if="account.status"
           :class="[
-            'rounded-full px-2.5 py-1 text-xs font-semibold',
+            'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
             account.status === 'active'
               ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
               : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
@@ -36,12 +37,39 @@
         </span>
       </div>
 
+      <div v-if="officialEligible" class="flex border-b border-gray-200 dark:border-dark-500">
+        <button
+          type="button"
+          :class="[
+            'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+            activeTab === 'local'
+              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
+          ]"
+          @click="activeTab = 'local'"
+        >
+          {{ t('admin.accounts.officialUsage.localTab') }}
+        </button>
+        <button
+          type="button"
+          :class="[
+            'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+            activeTab === 'official'
+              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
+          ]"
+          @click="activeTab = 'official'"
+        >
+          {{ t('admin.accounts.officialUsage.officialTab') }}
+        </button>
+      </div>
+
       <!-- Loading State -->
-      <div v-if="loading" class="flex items-center justify-center py-12">
+      <div v-if="activeTab === 'local' && loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
       </div>
 
-      <template v-else-if="stats">
+      <template v-else-if="activeTab === 'local' && stats">
         <!-- Row 1: Main Stats Cards -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- 30-Day Total Cost -->
@@ -462,12 +490,17 @@
 
       <!-- No Data State -->
       <div
-        v-else-if="!loading"
+        v-else-if="activeTab === 'local' && !loading"
         class="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400"
       >
         <Icon name="chartBar" size="xl" class="mb-4 h-12 w-12" :stroke-width="1.5" />
         <p class="text-sm">{{ t('admin.accounts.stats.noData') }}</p>
       </div>
+
+      <AccountOfficialStatsTab
+        v-else-if="activeTab === 'official' && account"
+        :account="account"
+      />
     </div>
 
     <template #footer>
@@ -502,6 +535,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
+import AccountOfficialStatsTab from '@/components/account/AccountOfficialStatsTab.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageStatsResponse } from '@/types'
@@ -530,6 +564,14 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const stats = ref<AccountUsageStatsResponse | null>(null)
+const activeTab = ref<'local' | 'official'>('local')
+const officialEligible = computed(() => {
+  const account = props.account
+  if (!account || account.platform !== 'openai' || account.type !== 'oauth' || account.parent_account_id != null) return false
+  const credentials = account.credentials || {}
+  const modes = [credentials.auth_mode, credentials.openai_auth_mode].map((mode) => String(mode ?? '').trim().toLowerCase())
+  return !modes.some((mode) => mode === 'agentidentity' || mode === 'personalaccesstoken' || mode === 'personal_access_token')
+})
 
 // Dark mode detection
 const isDarkMode = computed(() => {
@@ -683,6 +725,7 @@ watch(
   () => props.show,
   async (newVal) => {
     if (newVal && props.account) {
+      activeTab.value = 'local'
       await loadStats()
     } else {
       stats.value = null

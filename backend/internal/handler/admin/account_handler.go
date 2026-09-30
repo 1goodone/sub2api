@@ -1893,6 +1893,30 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
+// GetOfficialUsage returns OpenAI's official ChatGPT/Codex settlement usage.
+// GET /api/v1/admin/accounts/:id/official-usage
+func (h *AccountHandler) GetOfficialUsage(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	rangeKey := strings.ToLower(strings.TrimSpace(c.DefaultQuery("range", "30d")))
+	switch rangeKey {
+	case "7d", "30d", "90d", "all":
+	default:
+		response.BadRequest(c, "range must be one of 7d, 30d, 90d, all")
+		return
+	}
+	refresh := c.Query("refresh") == "1" || strings.EqualFold(c.Query("refresh"), "true")
+	usage, err := h.accountUsageService.GetOfficialUsage(c.Request.Context(), accountID, rangeKey, refresh)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, usage)
+}
+
 // ClearError handles clearing account error
 // POST /api/v1/admin/accounts/:id/clear-error
 func (h *AccountHandler) ClearError(c *gin.Context) {

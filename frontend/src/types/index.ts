@@ -2366,6 +2366,77 @@ export interface AccountUsageStatsResponse {
   upstream_endpoints: EndpointStat[]
 }
 
+export type OfficialUsageState =
+  | 'ok'
+  | 'unsupported'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'timeout'
+  | 'unavailable'
+  | 'stale'
+
+export interface AccountOfficialUsageModel {
+  model: string
+  speed: string
+  share?: number
+  credits: number
+  usd: number
+}
+
+export interface AccountOfficialUsageDay {
+  date: string
+  settled: boolean
+  credits: number
+  usd: number
+  users: number
+  threads: number
+  turns: number
+  uncached_input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  models?: AccountOfficialUsageModel[]
+}
+
+export interface AccountOfficialUsageResponse {
+  state: OfficialUsageState
+  message?: string
+  range: '7d' | '30d' | '90d' | 'all'
+  days: number
+  source: string
+  fetched_at: string
+  stale: boolean
+  refresh_error?: string
+  breakdown_state?: OfficialUsageState
+  breakdown_error?: string
+  retention_days: number
+  credits_per_usd: number
+  totals: {
+    credits: number
+    usd: number
+    tokens: number
+    turns: number
+    threads: number
+    settled_days: number
+  }
+  cycle: {
+    available: boolean
+    reliable: boolean
+    reason?: string
+    utilization?: number
+    used_usd?: number
+    estimated_usd?: number
+    estimated_low_usd?: number
+    estimated_high_usd?: number
+    starts_at?: string
+    resets_at?: string
+    usage_updated_at?: string
+  }
+  daily: AccountOfficialUsageDay[]
+  clients: Array<{ client_id: string; credits: number; usd: number; tokens: number; turns: number }>
+  models: AccountOfficialUsageModel[]
+}
+
 // ==================== User Attribute Types ====================
 
 export type UserAttributeType = 'text' | 'textarea' | 'number' | 'email' | 'url' | 'date' | 'select' | 'multi_select'

@@ -16,6 +16,7 @@ import type {
   WindowStats,
   ClaudeModel,
   AccountUsageStatsResponse,
+  AccountOfficialUsageResponse,
   TempUnschedulableStatus,
   AdminDataPayload,
   AdminDataImportResult,
@@ -506,6 +507,17 @@ export async function startOpenAIOAuthReauth(id: number): Promise<OpenAIOAuthRea
 export async function getStats(id: number, days: number = 30): Promise<AccountUsageStatsResponse> {
   const { data } = await apiClient.get<AccountUsageStatsResponse>(`/admin/accounts/${id}/stats`, {
     params: { days }
+  })
+  return data
+}
+
+export async function getOfficialUsage(
+  id: number,
+  range: '7d' | '30d' | '90d' | 'all' = '30d',
+  refresh = false
+): Promise<AccountOfficialUsageResponse> {
+  const { data } = await apiClient.get<AccountOfficialUsageResponse>(`/admin/accounts/${id}/official-usage`, {
+    params: { range, refresh: refresh ? 'true' : undefined }
   })
   return data
 }
@@ -1512,6 +1524,7 @@ export const accountsAPI = {
   saveOpenAIOAuthReauthConfig,
   startOpenAIOAuthReauth,
   getStats,
+  getOfficialUsage,
   clearError,
   getUsage,
   getBatchUsage,

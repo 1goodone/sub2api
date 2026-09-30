@@ -1874,6 +1874,51 @@ export default {
         todayCost: '今日计费',
         usageTrend: '30天费用与请求趋势',
         noData: '该账号暂无使用数据'
+      },
+      officialUsage: {
+        subtitle: 'OpenAI 官方结算口径，数据最多回溯约 84 天',
+        localTab: '本地统计',
+        officialTab: '官方结算',
+        source: '数据源',
+        lastSync: '最近同步',
+        refresh: '刷新',
+        range7d: '7天',
+        range30d: '30天',
+        range90d: '90天',
+        rangeAll: '全部',
+        loadFailed: '加载官方结算数据失败',
+        officialCost: '官方成本',
+        tokens: '官方 Token',
+        settledDays: '个已结算日',
+        turns: '对话轮次',
+        cycleEstimate: '本周期额度估算',
+        currentCycle: '当前 7 天周期',
+        estimateRange: '估算区间',
+        resetAt: '重置时间',
+        dailyCost: '每日官方成本',
+        barHint: '横条长度按每日成本',
+        settled: '已结算',
+        unsettled: '结算中',
+        noData: '该时间范围暂无官方结算数据',
+        byClient: '按客户端',
+        byModel: '按模型 / 速度',
+        gatewayTraffic: '网关 / 未知客户端',
+        states: {
+          ok: '可用',
+          stale: '显示缓存数据',
+          unsupported: '当前账号不支持',
+          unauthorized: '授权不可用',
+          rate_limited: '请求过于频繁',
+          timeout: '请求超时',
+          unavailable: '服务暂时不可用'
+        },
+        cycleReasons: {
+          quota_window_unavailable: '缺少 7 天额度窗口',
+          quota_snapshot_unavailable: '缺少额度快照时间',
+          usage_or_cost_unavailable: '当前使用率或官方成本不足',
+          quota_snapshot_stale: '额度快照已过期',
+          low_utilization: '使用率较低，估算仅供参考'
+        }
       }
     },
 
