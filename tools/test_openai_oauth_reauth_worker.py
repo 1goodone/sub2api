@@ -49,13 +49,13 @@ class OTPHandler(BaseHTTPRequestHandler):
 
 class OpenAIOAuthReauthWorkerTest(unittest.TestCase):
     def test_parent_death_terminates_managed_protocol_descendants(self):
-        with patch("os.getpgrp", return_value=123), patch("os.getpid", return_value=123), patch("os.killpg") as kill:
+        with patch("os.getpgrp", return_value=123, create=True), patch("os.getpid", return_value=123), patch("os.killpg", create=True) as kill, patch("signal.SIGKILL", 9, create=True):
             with self.assertRaises(SystemExit):
                 terminate_worker(15, None)
             kill.assert_called_once_with(123, 9)
 
     def test_external_worker_does_not_signal_unrelated_process_group(self):
-        with patch("os.getpgrp", return_value=100), patch("os.getpid", return_value=123), patch("os.killpg") as kill:
+        with patch("os.getpgrp", return_value=100, create=True), patch("os.getpid", return_value=123), patch("os.killpg", create=True) as kill:
             with self.assertRaises(SystemExit):
                 terminate_worker(15, None)
             kill.assert_not_called()

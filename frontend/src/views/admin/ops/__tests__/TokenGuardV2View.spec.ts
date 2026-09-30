@@ -501,7 +501,7 @@ describe('managed re-login availability', () => {
       ...data, worker: { mode: 'managed', state: 'unavailable', reason: 'runtime_install_failed' }
     })
     wrapper = mount(TokenGuardV2View, {
-      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Icon: true } }
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, SmartOpsNav: true, Icon: true } }
     })
     await flushPromises()
     const runtime = wrapper.get('[data-testid="reauth-runtime-status"]')
