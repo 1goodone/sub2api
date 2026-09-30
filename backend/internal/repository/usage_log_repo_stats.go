@@ -399,13 +399,15 @@ func (r *usageLogRepository) GetRecentAccountCallsBatch(ctx context.Context, acc
 		WITH requested_accounts AS (
 			SELECT unnest($1::bigint[]) AS account_id
 		), recent_calls AS (
-			SELECT requested.account_id, recent.success, recent.created_at
+			SELECT requested.account_id, recent.success, recent.duration_ms, recent.error_message, recent.created_at
 			FROM requested_accounts requested
 			CROSS JOIN LATERAL (
 				WITH candidates AS (
 					(
 						SELECT
 							TRUE AS success,
+							COALESCE(u.duration_ms, 0)::bigint AS duration_ms,
+							''::text AS error_message,
 							u.created_at,
 							u.id,
 							COALESCE(NULLIF(u.request_id, ''), 'usage:' || u.id::text) AS call_key
@@ -418,6 +420,14 @@ func (r *usageLogRepository) GetRecentAccountCallsBatch(ctx context.Context, acc
 					(
 						SELECT
 							FALSE AS success,
+							COALESCE(e.duration_ms, 0)::bigint AS duration_ms,
+							LEFT(COALESCE(
+								NULLIF(e.upstream_error_message, ''),
+								NULLIF(e.error_message, ''),
+								NULLIF(e.upstream_error_detail, ''),
+								NULLIF(e.error_type, ''),
+								'Error'
+							), 240) AS error_message,
 							e.created_at,
 							e.id,
 							COALESCE(NULLIF(e.request_id, ''), 'error:' || e.id::text) AS call_key
@@ -430,17 +440,17 @@ func (r *usageLogRepository) GetRecentAccountCallsBatch(ctx context.Context, acc
 					)
 				), deduplicated AS (
 					SELECT DISTINCT ON (call_key)
-						success, created_at, id, call_key
+						success, duration_ms, error_message, created_at, id, call_key
 					FROM candidates
 					ORDER BY call_key, success ASC, created_at DESC, id DESC
 				)
-				SELECT success, created_at
+				SELECT success, duration_ms, error_message, created_at
 				FROM deduplicated
 				ORDER BY created_at DESC, id DESC
 				LIMIT $2
 			) recent
 		)
-		SELECT account_id, success, created_at
+		SELECT account_id, success, duration_ms, error_message, created_at
 		FROM recent_calls
 		ORDER BY account_id, created_at ASC
 	`
@@ -455,7 +465,7 @@ func (r *usageLogRepository) GetRecentAccountCallsBatch(ctx context.Context, acc
 			accountID int64
 			call      usagestats.AccountRecentCall
 		)
-		if err := rows.Scan(&accountID, &call.Success, &call.CreatedAt); err != nil {
+		if err := rows.Scan(&accountID, &call.Success, &call.DurationMs, &call.ErrorMessage, &call.CreatedAt); err != nil {
 			return nil, err
 		}
 		result[accountID] = append(result[accountID], call)

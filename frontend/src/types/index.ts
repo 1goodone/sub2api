@@ -1395,6 +1395,8 @@ export interface AccountSchedulerGroupScore {
 // Account Usage types
 export interface AccountRecentCall {
   success: boolean
+  duration_ms?: number
+  error_message?: string
   created_at: string
 }
 

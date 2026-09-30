@@ -3,8 +3,10 @@ package usagestats
 import "time"
 
 type AccountRecentCall struct {
-	Success   bool      `json:"success"`
-	CreatedAt time.Time `json:"created_at"`
+	Success      bool      `json:"success"`
+	DurationMs   int64     `json:"duration_ms"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // AccountStats 账号使用统计

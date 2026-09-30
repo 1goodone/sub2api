@@ -22,9 +22,9 @@ describe('AccountTodayStatsCell', () => {
           lifetime_tokens: 8000000,
           lifetime_cost: 42,
           recent_calls: [
-            { success: true, created_at: '2026-09-30T01:00:00Z' },
-            { success: false, created_at: '2026-09-30T01:01:00Z' },
-            { success: true, created_at: '2026-09-30T01:02:00Z' }
+            { success: true, duration_ms: 128, created_at: '2026-09-30T01:00:00Z' },
+            { success: false, error_message: 'rate limited', created_at: '2026-09-30T01:01:00Z' },
+            { success: true, duration_ms: 845, created_at: '2026-09-30T01:02:00Z' }
           ]
         }
       }
@@ -38,6 +38,8 @@ describe('AccountTodayStatsCell', () => {
     expect(wrapper.get('[data-test="lifetime-cost"]').text()).toContain('42.00')
     expect(wrapper.findAll('[data-test="recent-call-success"]')).toHaveLength(2)
     expect(wrapper.findAll('[data-test="recent-call-failure"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-test="recent-call-success"]')[0].attributes('title')).toBe('128 ms')
+    expect(wrapper.get('[data-test="recent-call-failure"]').attributes('title')).toBe('rate limited')
   })
 
   it('emits view-stats from the inline action', async () => {

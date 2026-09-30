@@ -21,10 +21,11 @@
             <span
               v-for="(call, index) in props.stats.recent_calls"
               :key="`${call.created_at}-${index}`"
-              class="h-4 w-1.5 rounded-[1px]"
+              class="h-4 w-1.5 cursor-help rounded-[1px]"
               :class="call.success ? 'bg-emerald-500' : 'bg-red-500'"
               :data-test="call.success ? 'recent-call-success' : 'recent-call-failure'"
-              :title="call.success ? t('common.success') : t('common.error')"
+              :title="recentCallLabel(call)"
+              :aria-label="recentCallLabel(call)"
             ></span>
           </template>
           <span v-else class="text-gray-400">-</span>
@@ -85,7 +86,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { WindowStats } from '@/types'
+import type { AccountRecentCall, WindowStats } from '@/types'
 import { formatCurrency, formatNumber } from '@/utils/format'
 
 const props = withDefaults(
@@ -106,6 +107,15 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const recentCallLabel = (call: AccountRecentCall): string => {
+  if (call.success) {
+    return typeof call.duration_ms === 'number'
+      ? `${formatNumber(Math.max(0, Math.round(call.duration_ms)))} ms`
+      : t('common.success')
+  }
+  return call.error_message?.trim() || t('common.error')
+}
 
 const formatTokens = (tokens: number): string => {
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(2)}M`
