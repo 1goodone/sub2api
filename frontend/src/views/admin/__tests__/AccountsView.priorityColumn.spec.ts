@@ -112,6 +112,7 @@ describe('admin AccountsView priority column preferences', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-column="priority"]').text()).toBe('sortable')
+    expect(wrapper.get('[data-column="today_stats"]').text()).toBe('fixed')
 
     await wrapper.get('[data-test="sort-priority"]').trigger('click')
     await flushPromises()
@@ -126,7 +127,7 @@ describe('admin AccountsView priority column preferences', () => {
 
   it('preserves an existing preference that explicitly hides priority', async () => {
     localStorage.setItem('account-hidden-columns', JSON.stringify(['priority', 'today_stats']))
-    localStorage.setItem('account-hidden-columns-version', 'scheduler-score-hidden-by-default')
+    localStorage.setItem('account-hidden-columns-version', 'today-stats-visible-and-scheduler-score-hidden')
 
     const wrapper = mountView()
     await flushPromises()
@@ -145,9 +146,9 @@ describe('admin AccountsView priority column preferences', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-column="priority"]').text()).toBe('sortable')
-    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(
-      expect.arrayContaining(['today_stats', 'scheduler_score'])
-    )
-    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).not.toContain('priority')
+    const migrated = JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')
+    expect(migrated).toContain('scheduler_score')
+    expect(migrated).not.toContain('today_stats')
+    expect(migrated).not.toContain('priority')
   })
 })

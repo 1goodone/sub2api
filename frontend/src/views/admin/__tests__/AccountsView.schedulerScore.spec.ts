@@ -228,12 +228,14 @@ describe('admin AccountsView scheduler score column', () => {
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       include_scheduler_score: '0'
     }))
-    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toContain('scheduler_score')
+    const migrated = JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')
+    expect(migrated).toContain('scheduler_score')
+    expect(migrated).not.toContain('today_stats')
   })
 
   it('requests scheduler scores when the migrated column settings explicitly show the column', async () => {
     localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats']))
-    localStorage.setItem('account-hidden-columns-version', 'scheduler-score-hidden-by-default')
+    localStorage.setItem('account-hidden-columns-version', 'today-stats-visible-and-scheduler-score-hidden')
 
     mountView()
     await flushPromises()

@@ -1813,6 +1813,7 @@ export default {
         daysActive: 'Days Active',
         recentActivity: 'Recent Activity',
         todayRequests: 'Today Requests',
+        lifetimeRequests: 'Total Requests',
         todayTokens: 'Today Tokens',
         todayCost: 'Today Cost',
         usageTrend: '30-Day Cost & Request Trend',

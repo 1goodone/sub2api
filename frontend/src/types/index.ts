@@ -1393,14 +1393,21 @@ export interface AccountSchedulerGroupScore {
 }
 
 // Account Usage types
+export interface AccountRecentCall {
+  success: boolean
+  created_at: string
+}
+
 export interface WindowStats {
   requests: number
   tokens: number
   cost: number // Account cost (account multiplier)
   standard_cost?: number
   user_cost?: number
+  lifetime_requests?: number
   lifetime_tokens?: number // All-time totals (no time filter)
   lifetime_cost?: number
+  recent_calls?: AccountRecentCall[]
 }
 
 export interface UsageProgress {

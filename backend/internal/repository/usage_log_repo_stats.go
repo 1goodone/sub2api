@@ -387,6 +387,85 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 	return result, nil
 }
 
+// GetRecentAccountCallsBatch returns the newest client-visible calls per account.
+// Successful usage rows and failed ops rows sharing a request_id count as one failed call.
+func (r *usageLogRepository) GetRecentAccountCallsBatch(ctx context.Context, accountIDs []int64, limit int) (map[int64][]usagestats.AccountRecentCall, error) {
+	result := make(map[int64][]usagestats.AccountRecentCall, len(accountIDs))
+	if len(accountIDs) == 0 || limit <= 0 {
+		return result, nil
+	}
+
+	query := `
+		WITH requested_accounts AS (
+			SELECT unnest($1::bigint[]) AS account_id
+		), recent_calls AS (
+			SELECT requested.account_id, recent.success, recent.created_at
+			FROM requested_accounts requested
+			CROSS JOIN LATERAL (
+				WITH candidates AS (
+					(
+						SELECT
+							TRUE AS success,
+							u.created_at,
+							u.id,
+							COALESCE(NULLIF(u.request_id, ''), 'usage:' || u.id::text) AS call_key
+						FROM usage_logs u
+						WHERE u.account_id = requested.account_id
+						ORDER BY u.created_at DESC, u.id DESC
+						LIMIT $2
+					)
+					UNION ALL
+					(
+						SELECT
+							FALSE AS success,
+							e.created_at,
+							e.id,
+							COALESCE(NULLIF(e.request_id, ''), 'error:' || e.id::text) AS call_key
+						FROM ops_error_logs e
+						WHERE e.account_id = requested.account_id
+							AND NOT COALESCE(e.is_count_tokens, FALSE)
+							AND (COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')
+						ORDER BY e.created_at DESC, e.id DESC
+						LIMIT $2
+					)
+				), deduplicated AS (
+					SELECT DISTINCT ON (call_key)
+						success, created_at, id, call_key
+					FROM candidates
+					ORDER BY call_key, success ASC, created_at DESC, id DESC
+				)
+				SELECT success, created_at
+				FROM deduplicated
+				ORDER BY created_at DESC, id DESC
+				LIMIT $2
+			) recent
+		)
+		SELECT account_id, success, created_at
+		FROM recent_calls
+		ORDER BY account_id, created_at ASC
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			accountID int64
+			call      usagestats.AccountRecentCall
+		)
+		if err := rows.Scan(&accountID, &call.Success, &call.CreatedAt); err != nil {
+			return nil, err
+		}
+		result[accountID] = append(result[accountID], call)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // GetOpenAIQuotaWindowStatsBatch aligns local costs to each quota observation.
 func (r *usageLogRepository) GetOpenAIQuotaWindowStatsBatch(ctx context.Context, samples map[int64]service.OpenAIQuotaCostSample) (map[int64]*usagestats.AccountStats, error) {
 	result := make(map[int64]*usagestats.AccountStats, len(samples))

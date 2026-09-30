@@ -84,6 +84,10 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+type accountRecentCallsBatchReader interface {
+	GetRecentAccountCallsBatch(ctx context.Context, accountIDs []int64, limit int) (map[int64][]usagestats.AccountRecentCall, error)
+}
+
 type accountQuotaCostBatchReader interface {
 	GetOpenAIQuotaWindowStatsBatch(ctx context.Context, samples map[int64]OpenAIQuotaCostSample) (map[int64]*usagestats.AccountStats, error)
 }
@@ -117,6 +121,7 @@ const (
 	openAIProbeCacheTTL = 10 * time.Minute
 	grokProbeRetryTTL   = 1 * time.Minute
 	grokFreeQuotaWindow = 24 * time.Hour
+	recentAccountCalls  = 10
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -147,8 +152,10 @@ type WindowStats struct {
 	StandardCost float64 `json:"standard_cost"`
 	UserCost     float64 `json:"user_cost"`
 	// Lifetime totals (no time filter); only populated by today-stats queries.
-	LifetimeTokens int64   `json:"lifetime_tokens,omitempty"`
-	LifetimeCost   float64 `json:"lifetime_cost,omitempty"`
+	LifetimeRequests int64                          `json:"lifetime_requests,omitempty"`
+	LifetimeTokens   int64                          `json:"lifetime_tokens,omitempty"`
+	LifetimeCost     float64                        `json:"lifetime_cost,omitempty"`
+	RecentCalls      []usagestats.AccountRecentCall `json:"recent_calls,omitempty"`
 }
 
 // UsageProgress 使用量进度
@@ -1492,6 +1499,7 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 	if lifetime, lerr := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, time.Time{}); lerr == nil {
 		attachLifetimeStats(ws, lifetime)
 	}
+	ws.RecentCalls = s.recentAccountCallsBatch(ctx, []int64{accountID})[accountID]
 	return ws, nil
 }
 
@@ -1520,11 +1528,13 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {
 			lifetimeByAccount, lerr := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, time.Time{})
+			recentByAccount := s.recentAccountCallsBatch(ctx, uniqueIDs)
 			for _, accountID := range uniqueIDs {
 				ws := windowStatsFromAccountStats(statsByAccount[accountID])
 				if lerr == nil {
 					attachLifetimeStats(ws, lifetimeByAccount[accountID])
 				}
+				ws.RecentCalls = recentByAccount[accountID]
 				result[accountID] = ws
 			}
 			return result, nil
@@ -1551,6 +1561,7 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 
 	_ = g.Wait()
 
+	recentByAccount := s.recentAccountCallsBatch(ctx, uniqueIDs)
 	for _, accountID := range uniqueIDs {
 		ws, ok := result[accountID]
 		if !ok {
@@ -1560,8 +1571,21 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 		if lifetime, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, time.Time{}); err == nil {
 			attachLifetimeStats(ws, lifetime)
 		}
+		ws.RecentCalls = recentByAccount[accountID]
 	}
 	return result, nil
+}
+
+func (s *AccountUsageService) recentAccountCallsBatch(ctx context.Context, accountIDs []int64) map[int64][]usagestats.AccountRecentCall {
+	reader, ok := s.usageLogRepo.(accountRecentCallsBatchReader)
+	if !ok {
+		return nil
+	}
+	recent, err := reader.GetRecentAccountCallsBatch(ctx, accountIDs, recentAccountCalls)
+	if err != nil {
+		return nil
+	}
+	return recent
 }
 
 func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
@@ -1581,6 +1605,7 @@ func attachLifetimeStats(ws *WindowStats, lifetime *usagestats.AccountStats) {
 	if ws == nil || lifetime == nil {
 		return
 	}
+	ws.LifetimeRequests = lifetime.Requests
 	ws.LifetimeTokens = lifetime.Tokens
 	ws.LifetimeCost = lifetime.Cost
 }

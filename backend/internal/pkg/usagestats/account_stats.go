@@ -1,5 +1,12 @@
 package usagestats
 
+import "time"
+
+type AccountRecentCall struct {
+	Success   bool      `json:"success"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // AccountStats 账号使用统计
 //
 // cost: 账号口径费用（使用 total_cost * account_rate_multiplier）

@@ -1869,6 +1869,7 @@ export default {
         daysActive: '活跃天数',
         recentActivity: '最近统计',
         todayRequests: '今日请求',
+        lifetimeRequests: '累计调用',
         todayTokens: '今日 Token',
         todayCost: '今日计费',
         usageTrend: '30天费用与请求趋势',
