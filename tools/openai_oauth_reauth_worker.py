@@ -13,6 +13,7 @@ import html
 import ipaddress
 import json
 import logging
+import multiprocessing
 import os
 import re
 import shutil
@@ -22,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -228,6 +229,7 @@ class WorkerConfig:
     tosub2_root: Path | None = None
     poll_seconds: float = 5.0
     request_timeout: float = 30.0
+    concurrency: int = 1
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -276,6 +278,13 @@ class WorkerConfig:
         if protocol_root is None and tosub2_root is None:
             raise WorkerError("configure TOSUB2_ROOT for password/TOTP or CODEX_PROTOCOL_ROOT/TURB_ROOT for email OTP")
 
+        try:
+            concurrency = int(os.getenv("OPENAI_REAUTH_CONCURRENCY", "1"))
+        except ValueError:
+            raise WorkerError("OPENAI_REAUTH_CONCURRENCY must be an integer from 1 to 16") from None
+        if not 1 <= concurrency <= 16:
+            raise WorkerError("OPENAI_REAUTH_CONCURRENCY must be an integer from 1 to 16")
+
         return cls(
             base_url=base_url,
             worker_token=worker_token,
@@ -284,6 +293,7 @@ class WorkerConfig:
             tosub2_root=tosub2_root,
             poll_seconds=_positive_float(os.getenv("OPENAI_REAUTH_POLL_SECONDS"), 5.0),
             request_timeout=_positive_float(os.getenv("OPENAI_REAUTH_REQUEST_TIMEOUT"), 30.0),
+            concurrency=concurrency,
         )
 
 
@@ -1011,6 +1021,86 @@ def terminate_worker(_signum: int, _frame: Any) -> None:
     raise SystemExit(0)
 
 
+def _run_worker_loop(config: WorkerConfig) -> None:
+    protocol = load_protocol(config.protocol_root) if config.protocol_root is not None else None
+    api = WorkerAPI(config)
+    LOGGER.info("worker=%s ready", config.worker_id)
+    while True:
+        if not run_once(api, protocol):
+            time.sleep(config.poll_seconds)
+
+
+def _worker_loop(config: WorkerConfig) -> None:
+    signal.signal(signal.SIGTERM, terminate_worker)
+    if hasattr(os, "setpgid"):
+        try:
+            os.setpgid(0, 0)
+        except OSError as exc:
+            raise WorkerError("could not isolate re-login worker process group") from exc
+    _run_worker_loop(config)
+
+
+def worker_slot_config(config: WorkerConfig, slot: int) -> WorkerConfig:
+    suffix = f"-slot-{slot}"
+    return replace(config, worker_id=config.worker_id[:128-len(suffix)] + suffix, concurrency=1)
+
+
+def signal_worker_group(child: multiprocessing.Process, signum: int) -> None:
+    if hasattr(os, "killpg"):
+        try:
+            os.killpg(child.pid, signum)
+            return
+        except ProcessLookupError:
+            if not child.is_alive():
+                return
+        except OSError:
+            pass
+    if child.is_alive():
+        if signum == signal.SIGTERM:
+            child.terminate()
+        else:
+            child.kill()
+
+
+def run_worker_pool(config: WorkerConfig) -> None:
+    context = multiprocessing.get_context("fork" if sys.platform.startswith("linux") else "spawn")
+    children = []
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    stop_requested = False
+
+    def stop_pool(_signum: int, _frame: Any) -> None:
+        nonlocal stop_requested
+        stop_requested = True
+
+    signal.signal(signal.SIGTERM, stop_pool)
+    try:
+        for slot in range(1, config.concurrency + 1):
+            if stop_requested:
+                raise SystemExit(0)
+            child = context.Process(target=_worker_loop, args=(worker_slot_config(config, slot),))
+            child.start()
+            children.append(child)
+        if stop_requested:
+            raise SystemExit(0)
+        while all(child.is_alive() for child in children):
+            if stop_requested:
+                raise SystemExit(0)
+            time.sleep(0.25)
+        raise WorkerError("a re-login worker process exited")
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        try:
+            for child in children:
+                signal_worker_group(child, signal.SIGTERM)
+            for child in children:
+                child.join(timeout=5)
+                if child.is_alive():
+                    signal_worker_group(child, signal.SIGKILL)
+                    child.join()
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="claim at most one task, then exit")
@@ -1032,14 +1122,20 @@ def main() -> int:
         LOGGER.info("worker configuration valid (password_totp=%s email_otp_url=%s)", config.tosub2_root is not None, protocol is not None)
         return 0
     signal.signal(signal.SIGTERM, terminate_worker)
-    LOGGER.info("worker=%s ready", config.worker_id)
+    LOGGER.info("worker=%s concurrency=%s ready", config.worker_id, config.concurrency)
     try:
+        if not args.once and config.concurrency > 1:
+            run_worker_pool(config)
+            return 0
         while True:
             worked = run_once(api, protocol)
             if args.once:
                 return 0
             if not worked:
                 time.sleep(config.poll_seconds)
+    except WorkerError as exc:
+        LOGGER.error("worker pool failed: %s", sanitize_error(str(exc)))
+        return 1
     except KeyboardInterrupt:
         LOGGER.info("worker stopped")
         return 0

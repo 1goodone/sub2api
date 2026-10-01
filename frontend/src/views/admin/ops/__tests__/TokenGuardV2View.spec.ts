@@ -495,10 +495,10 @@ describe('TokenGuardV2View', () => {
 })
 
 describe('managed re-login availability', () => {
-  it('separates encrypted credential readiness from a failed runtime', async () => {
+  it.each(['runtime_install_failed', 'worker_concurrency_invalid'])('shows managed runtime failure reason: %s', async reason => {
     const data = await api.listGuard()
     api.listGuard.mockResolvedValue({
-      ...data, worker: { mode: 'managed', state: 'unavailable', reason: 'runtime_install_failed' }
+      ...data, worker: { mode: 'managed', state: 'unavailable', reason }
     })
     wrapper = mount(TokenGuardV2View, {
       global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, SmartOpsNav: true, Icon: true } }
@@ -506,7 +506,7 @@ describe('managed re-login availability', () => {
     await flushPromises()
     const runtime = wrapper.get('[data-testid="reauth-runtime-status"]')
     expect(runtime.text()).toContain('tokenGuardV2.runtimeStates.unavailable')
-    expect(runtime.text()).toContain('tokenGuardV2.runtimeReasons.runtime_install_failed')
+    expect(runtime.text()).toContain(`tokenGuardV2.runtimeReasons.${reason}`)
     expect(runtime.text()).toContain('tokenGuardV2.runtimeManaged')
   })
 })

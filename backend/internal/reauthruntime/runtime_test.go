@@ -84,6 +84,37 @@ func TestInvalidReleaseRepositoryIsUnavailable(t *testing.T) {
 	require.Equal(t, "release_repository_invalid", m.Status().Reason)
 }
 
+func TestConfiguredConcurrency(t *testing.T) {
+	for _, tc := range []struct {
+		raw, want string
+		valid     bool
+	}{
+		{"", "", true}, {" 3 ", "3", true}, {"16", "16", true},
+		{"0", "", false}, {"17", "", false}, {"2.5", "", false}, {"NaN", "", false},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Setenv("OPENAI_REAUTH_CONCURRENCY", tc.raw)
+			got, err := configuredConcurrency()
+			if tc.valid {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestInvalidConcurrencyIsUnavailable(t *testing.T) {
+	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
+		t.Skip("managed runtime platform")
+	}
+	t.Setenv("OPENAI_REAUTH_CONCURRENCY", "17")
+	m := New(t.TempDir(), "1.2.3", "http://127.0.0.1:4040", strings.Repeat("x", 64))
+	m.Ensure()
+	require.Equal(t, "worker_concurrency_invalid", m.Status().Reason)
+}
+
 func TestPrepareVerifiesDigestBeforeExecutingAndReusesCache(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux runtime")
@@ -92,7 +123,7 @@ func TestPrepareVerifiesDigestBeforeExecutingAndReusesCache(t *testing.T) {
 		t.Run(map[bool]string{true: "valid", false: "tampered"}[valid], func(t *testing.T) {
 			t.Setenv("OPENAI_REAUTH_RUNTIME_REPOSITORY", "owner/runtime-repo")
 			root := t.TempDir()
-			script := "#!/bin/sh\nexit 0\n"
+			script := "#!/bin/sh\n[ \"$OPENAI_REAUTH_CONCURRENCY\" = \"3\" ]\n"
 			data := archive(t, []*tar.Header{{Name: "python", Typeflag: tar.TypeReg, Size: int64(len(script)), Mode: 0755}}, []string{script})
 			sum := sha256.Sum256(data)
 			digest := hex.EncodeToString(sum[:])
@@ -101,6 +132,7 @@ func TestPrepareVerifiesDigestBeforeExecutingAndReusesCache(t *testing.T) {
 			}
 			requests := 0
 			m := New(root, "1.2.3", "http://127.0.0.1:4040", strings.Repeat("x", 64))
+			m.concurrency = "3"
 			m.client = &http.Client{Transport: transportFunc(func(req *http.Request) (*http.Response, error) {
 				requests++
 				require.NotContains(t, req.URL.String(), m.token)

@@ -1,5 +1,12 @@
 <template>
-  <div class="flex items-center gap-2">
+  <div class="flex flex-col items-start gap-1">
+    <span
+      v-if="isExcelBPSEnabled"
+      data-testid="bps-status-badge"
+      class="inline-flex items-center rounded bg-[#217346] px-1.5 py-0.5 text-[10px] font-semibold leading-3 text-white"
+      :title="t('admin.accounts.openai.excelBPS')"
+    >bps</span>
+    <div class="flex items-center gap-2">
     <!-- Rate Limit Display (429) - Two-line layout -->
     <div v-if="isRateLimited && !isCodexQuotaOverdraftPause" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
@@ -155,6 +162,7 @@
         ></div>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -174,6 +182,20 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
+
+// Keep eligibility aligned with Account.IsExcelBPSEnabled on the backend.
+const isExcelBPSEnabled = computed(() => {
+  const account = props.account
+  if (account.platform !== 'openai' || account.type !== 'oauth' || account.parent_account_id != null ||
+      account.extra?.openai_excel_bps !== true) return false
+  const credential = (key: string) => {
+    const value = account.credentials?.[key]
+    return typeof value === 'string' ? value.trim().toLowerCase() : ''
+  }
+  const isPAT = (mode: string) => mode === 'personalaccesstoken' || mode === 'personal_access_token'
+  return credential('plan_type') !== 'free' && credential('auth_mode') !== 'agentidentity' &&
+    !isPAT(credential('auth_mode')) && !isPAT(credential('openai_auth_mode'))
+})
 
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {

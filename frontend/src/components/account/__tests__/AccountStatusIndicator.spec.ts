@@ -51,6 +51,68 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it('在状态上方显示 BPS 标识，并随账号设置更新', async () => {
+    const account = makeAccount({
+      platform: 'openai',
+      extra: { openai_excel_bps: false }
+    })
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.find('[data-testid="bps-status-badge"]').exists()).toBe(false)
+    await wrapper.setProps({ account: { ...account, extra: { openai_excel_bps: true } } })
+    const badge = wrapper.get('[data-testid="bps-status-badge"]')
+    expect(badge.text()).toBe('bps')
+    expect(badge.attributes('title')).toBe('admin.accounts.openai.excelBPS')
+    expect(wrapper.element.firstElementChild).toBe(badge.element)
+    await wrapper.setProps({ account })
+    expect(wrapper.find('[data-testid="bps-status-badge"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { extra: undefined },
+    { extra: { openai_excel_bps: false } },
+    { extra: { openai_excel_bps: 'true' } },
+    { platform: 'anthropic' },
+    { type: 'apikey' },
+    { parent_account_id: 2 },
+    { credentials: { plan_type: ' Free ' } },
+    { credentials: { auth_mode: ' agentIdentity ' } },
+    { credentials: { auth_mode: 'personalAccessToken' } },
+    { credentials: { openai_auth_mode: ' PERSONAL_ACCESS_TOKEN ' } }
+  ] as Partial<Account>[])('不为不支持的账号显示 BPS: %j', overrides => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          extra: { openai_excel_bps: true },
+          ...overrides
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.find('[data-testid="bps-status-badge"]').exists()).toBe(false)
+  })
+
+  it('BPS 标识与限流状态独立显示', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          extra: { openai_excel_bps: true },
+          rate_limit_reset_at: '2099-01-01T00:00:00Z'
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.get('[data-testid="bps-status-badge"]').text()).toBe('bps')
+    expect(wrapper.find('.badge-warning').text()).toBe('admin.accounts.status.rateLimited')
+  })
+
   it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

@@ -365,7 +365,7 @@ const accountGroupNames = (account: AccountListItem) => groups.value
   .join(' ')
 const runtimeReason = computed(() => {
   const reason = status.worker?.reason || ''
-  return ['unsupported_platform', 'release_required', 'runtime_install_failed', 'worker_start_failed', 'worker_exited', 'external_not_configured', 'external_offline', 'api_unreachable'].includes(reason) ? reason : ''
+  return ['unsupported_platform', 'release_required', 'runtime_install_failed', 'worker_start_failed', 'worker_concurrency_invalid', 'worker_exited', 'external_not_configured', 'external_offline', 'api_unreachable'].includes(reason) ? reason : ''
 })
 const runtimeState = computed(() => {
   const state = status.worker?.state || 'idle'

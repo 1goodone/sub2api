@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ type Manager struct {
 	status                        Status
 	root, version, baseURL, token string
 	repository                    string
+	concurrency                   string
 	ctx                           context.Context
 	cancel                        context.CancelFunc
 	done                          chan struct{}
@@ -68,6 +70,18 @@ func (m *Manager) set(state, reason string) {
 	m.status.Reason = reason
 }
 
+func configuredConcurrency() (string, error) {
+	raw := strings.TrimSpace(os.Getenv("OPENAI_REAUTH_CONCURRENCY"))
+	if raw == "" {
+		return "", nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 || value > 16 {
+		return "", errors.New("OPENAI_REAUTH_CONCURRENCY must be an integer from 1 to 16")
+	}
+	return strconv.Itoa(value), nil
+}
+
 // Ensure never performs downloads on the request goroutine and retries failed
 // preparation at most once per minute.
 func (m *Manager) Ensure() {
@@ -91,6 +105,13 @@ func (m *Manager) Ensure() {
 		m.status.Reason = "release_repository_invalid"
 		return
 	}
+	concurrency, err := configuredConcurrency()
+	if err != nil {
+		m.status.State = "unavailable"
+		m.status.Reason = "worker_concurrency_invalid"
+		return
+	}
+	m.concurrency = concurrency
 	m.started = true
 	m.status.State = "preparing"
 	m.status.Reason = ""
@@ -128,6 +149,11 @@ func (m *Manager) run() {
 		"SUB2API_BASE_URL=" + m.baseURL, "OPENAI_REAUTH_WORKER_TOKEN=" + m.token,
 		"OPENAI_REAUTH_WORKER_ID=managed-" + randomID(), "TOSUB2_ROOT=" + filepath.Join(dir, "tosub2"),
 		"TOSUB2_PYTHON=" + filepath.Join(dir, "python"), "NODE_EXECUTABLE=" + filepath.Join(dir, "node")}
+	// The managed child has a minimal environment. Pass only this bounded
+	// worker-pool setting when the operator explicitly configures it.
+	if m.concurrency != "" {
+		cmd.Env = append(cmd.Env, "OPENAI_REAUTH_CONCURRENCY="+m.concurrency)
+	}
 	cmd.Dir = dir
 	// Worker/external runner output must never reach the application journal.
 	cmd.Stdout = io.Discard
@@ -205,6 +231,9 @@ func (m *Manager) prepare(ctx context.Context) (string, error) {
 	check.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8", "OPENAI_REAUTH_WORKER_TOKEN=" + m.token,
 		"TOSUB2_ROOT=" + filepath.Join(tmp, "tosub2"), "NODE_EXECUTABLE=" + filepath.Join(tmp, "node"),
 		"PYTHONDONTWRITEBYTECODE=1"}
+	if m.concurrency != "" {
+		check.Env = append(check.Env, "OPENAI_REAUTH_CONCURRENCY="+m.concurrency)
+	}
 	configureProcess(check)
 	if err := check.Run(); err != nil {
 		return "", errors.New("runtime self-check failed")

@@ -7,6 +7,7 @@ export default {
     release_required: '此开发构建没有对应的已发布运行环境。',
     runtime_install_failed: '运行环境下载、校验或准备失败，稍后会自动重试。',
     worker_start_failed: '重登进程启动失败，稍后会自动重试。',
+    worker_concurrency_invalid: '自动重登并发数必须是 1 到 16 之间的整数。',
     worker_exited: '重登进程意外退出，稍后会自动恢复。',
     external_not_configured: '已有独立重登服务的连接配置无效。',
     external_offline: '尚未收到独立重登服务的连接。',

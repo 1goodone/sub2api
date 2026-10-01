@@ -7,6 +7,7 @@ export default {
     release_required: 'No published runtime matches this development build.',
     runtime_install_failed: 'Runtime download, verification or preparation failed; it will retry.',
     worker_start_failed: 'The re-login process could not start; it will retry.',
+    worker_concurrency_invalid: 'Automatic re-login concurrency must be an integer from 1 to 16.',
     worker_exited: 'The re-login process exited; it will be restarted.',
     external_not_configured: 'The existing external service connection is invalid.',
     external_offline: 'The external re-login service has not connected.',
