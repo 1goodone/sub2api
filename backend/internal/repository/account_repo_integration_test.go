@@ -534,7 +534,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
-			name: "filter_by_status_rate_limited_excludes_temp_unschedulable",
+			name: "filter_by_status_rate_limited_includes_quota_pause_only",
 			setup: func(client *dbent.Client) {
 				rateLimited := mustCreateAccount(s.T(), client, &service.Account{Name: "active-rate-limited", Status: service.StatusActive})
 				err := client.Account.UpdateOneID(rateLimited.ID).
@@ -547,11 +547,18 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 					SetTempUnschedulableUntil(time.Now().Add(15 * time.Minute)).
 					Exec(context.Background())
 				s.Require().NoError(err)
+				quotaPaused := mustCreateAccount(s.T(), client, &service.Account{Name: "active-quota-paused", Status: service.StatusActive})
+				err = client.Account.UpdateOneID(quotaPaused.ID).
+					SetTempUnschedulableUntil(time.Now().Add(15 * time.Minute)).
+					SetTempUnschedulableReason(service.BuildTempUnschedReasonPayload(service.CodexQuotaOverdraftPauseSource, "quota exhausted")).
+					Exec(context.Background())
+				s.Require().NoError(err)
 			},
 			status:    "rate_limited",
-			wantCount: 1,
+			wantCount: 2,
 			validate: func(accounts []service.Account) {
-				s.Require().Equal("active-rate-limited", accounts[0].Name)
+				names := []string{accounts[0].Name, accounts[1].Name}
+				s.Require().ElementsMatch([]string{"active-rate-limited", "active-quota-paused"}, names)
 			},
 		},
 		{

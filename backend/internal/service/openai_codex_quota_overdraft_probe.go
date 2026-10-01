@@ -31,8 +31,9 @@ const (
 	codexQuotaOverdraftProbeAttemptTimeout = 20 * time.Second
 	codexQuotaOverdraftProbePlanTimeout    = codexQuotaOverdraftProbeAttemptLimit * codexQuotaOverdraftProbeAttemptTimeout
 	codexQuotaOverdraftProbeBodyLimit      = 256 << 10
-	codexQuotaOverdraftPauseSource         = "codex_quota_overdraft"
-	codexQuotaOverdraftPersistAttempts     = 3
+	// CodexQuotaOverdraftPauseSource identifies confirmed quota exhaustion pauses.
+	CodexQuotaOverdraftPauseSource     = "codex_quota_overdraft"
+	codexQuotaOverdraftPersistAttempts = 3
 
 	codexQuotaOverdraftFallbackModel      = "gpt-5.5"
 	codexQuotaOverdraftCompatibilityModel = "gpt-5.4-mini"
@@ -746,7 +747,7 @@ func (c *CodexQuotaOverdraftCoordinator) ensureFailedPause(account *Account, sta
 		account.TempUnschedulableUntil != nil && !account.TempUnschedulableUntil.Before(*state.RecoverAt) {
 		return true
 	}
-	reason := BuildTempUnschedReasonPayload(codexQuotaOverdraftPauseSource, "injected overdraft request confirmed quota exhaustion")
+	reason := BuildTempUnschedReasonPayload(CodexQuotaOverdraftPauseSource, "injected overdraft request confirmed quota exhaustion")
 	if finalizer, ok := c.accountRepo.(codexQuotaOverdraftFailedFinalizer); ok {
 		finalized := false
 		var lastErr error
@@ -809,7 +810,7 @@ func (c *CodexQuotaOverdraftCoordinator) ensureFailedPause(account *Account, sta
 		})
 	}
 	if c.runtimeBlocker != nil {
-		c.runtimeBlocker.BlockAccountScheduling(account, *state.RecoverAt, codexQuotaOverdraftPauseSource)
+		c.runtimeBlocker.BlockAccountScheduling(account, *state.RecoverAt, CodexQuotaOverdraftPauseSource)
 	}
 	slog.Info("codex_quota_overdraft_pause_applied", "account_id", account.ID, "until", state.RecoverAt, "cycle_key", state.CycleKey)
 	return true
@@ -828,7 +829,7 @@ func (c *CodexQuotaOverdraftCoordinator) clearQuotaPause(accountID int64, state 
 		return
 	}
 	expectedTempReason := ""
-	if IsAccountSchedulingThresholdReason(account.TempUnschedulableReason) || codexQuotaOverdraftPauseReason(account.TempUnschedulableReason) {
+	if IsAccountSchedulingThresholdReason(account.TempUnschedulableReason) || IsCodexQuotaOverdraftPauseReason(account.TempUnschedulableReason) {
 		expectedTempReason = account.TempUnschedulableReason
 	}
 	if clearer, ok := c.accountRepo.(codexQuotaOverdraftPauseClearer); ok {
@@ -1344,9 +1345,9 @@ func earlierCodexQuotaOverdraftStart(left, right *time.Time) *time.Time {
 	}
 }
 
-func codexQuotaOverdraftPauseReason(reason string) bool {
+func IsCodexQuotaOverdraftPauseReason(reason string) bool {
 	payload, ok := parseTempUnschedReasonPayload(reason)
-	return ok && payload.Source == codexQuotaOverdraftPauseSource
+	return ok && payload.Source == CodexQuotaOverdraftPauseSource
 }
 
 func codexQuotaOverdraftResetAt(raw any, now time.Time) *time.Time {

@@ -1086,6 +1086,13 @@ func accountStatusFilterPredicate(status string) dbpredicate.Account {
 // 派生状态：正常 = active 且可调度且不在限流/临时不可调度中；限流中 / 临时不可调度 /
 // 不可调度分别取对应的一段。
 func accountStatusPredicate(status string) dbpredicate.Account {
+	tempUnschedulable := dbpredicate.Account(func(s *entsql.Selector) {
+		col := s.C("temp_unschedulable_until")
+		s.Where(entsql.And(
+			entsql.Not(entsql.IsNull(col)),
+			entsql.GT(col, entsql.Expr("NOW()")),
+		))
+	})
 	notTempUnschedulable := dbpredicate.Account(func(s *entsql.Selector) {
 		col := s.C("temp_unschedulable_until")
 		s.Where(entsql.Or(
@@ -1107,19 +1114,18 @@ func accountStatusPredicate(status string) dbpredicate.Account {
 	case "rate_limited":
 		return dbaccount.And(
 			dbaccount.StatusEQ(service.StatusActive),
-			dbaccount.RateLimitResetAtGT(time.Now()),
-			notTempUnschedulable,
+			dbaccount.Or(
+				dbaccount.And(dbaccount.RateLimitResetAtGT(time.Now()), notTempUnschedulable),
+				dbaccount.And(
+					tempUnschedulable,
+					dbaccount.TempUnschedulableReasonContains(`"source":`+strconv.Quote(service.CodexQuotaOverdraftPauseSource)),
+				),
+			),
 		)
 	case "temp_unschedulable":
 		return dbaccount.And(
 			dbaccount.StatusEQ(service.StatusActive),
-			dbpredicate.Account(func(s *entsql.Selector) {
-				col := s.C("temp_unschedulable_until")
-				s.Where(entsql.And(
-					entsql.Not(entsql.IsNull(col)),
-					entsql.GT(col, entsql.Expr("NOW()")),
-				))
-			}),
+			tempUnschedulable,
 		)
 	case "unschedulable":
 		return dbaccount.And(

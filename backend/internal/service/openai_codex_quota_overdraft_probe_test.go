@@ -177,7 +177,7 @@ func TestCodexQuotaOverdraftSingleProbeQuotaFailurePauses(t *testing.T) {
 	require.Equal(t, codexQuotaOverdraftProbeAttemptLimit, state.Attempts)
 	require.Len(t, models, codexQuotaOverdraftProbeAttemptLimit)
 	require.Equal(t, 1, repo.tempPauseCalls)
-	require.True(t, codexQuotaOverdraftPauseReason(account.TempUnschedulableReason))
+	require.True(t, IsCodexQuotaOverdraftPauseReason(account.TempUnschedulableReason))
 	require.False(t, codexQuotaOverdraftSchedulingAllowed(account, now), "同周期确认失败后不得继续绕过限额")
 }
 
@@ -319,7 +319,7 @@ func TestCodexQuotaOverdraftFailedPauseIsIdempotentForPersistedCycle(t *testing.
 	}
 	account.Extra[CodexQuotaOverdraftProbeExtraKey] = state
 	account.TempUnschedulableUntil = codexQuotaOverdraftTimePtr(recoverAt)
-	account.TempUnschedulableReason = BuildTempUnschedReasonPayload(codexQuotaOverdraftPauseSource, "quota exhausted")
+	account.TempUnschedulableReason = BuildTempUnschedReasonPayload(CodexQuotaOverdraftPauseSource, "quota exhausted")
 	repo := &codexOverdraftProbeRepoStub{account: account}
 	coordinator := &CodexQuotaOverdraftCoordinator{accountRepo: repo, now: func() time.Time { return now }}
 

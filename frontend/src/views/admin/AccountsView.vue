@@ -2357,11 +2357,19 @@ const accountMatchesCurrentFilters = (account: Account) => {
     const isRateLimited = Number.isFinite(rateLimitResetAt) && rateLimitResetAt > now
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
+    let isQuotaPaused = false
+    if (isTempUnschedulable && account.temp_unschedulable_reason) {
+      try {
+        isQuotaPaused = JSON.parse(account.temp_unschedulable_reason)?.source === 'codex_quota_overdraft'
+      } catch {
+        // Non-JSON reasons are ordinary temporary scheduling blocks.
+      }
+    }
 
     if (filters.status === 'active') {
       if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable) return false
     } else if (filters.status === 'rate_limited') {
-      if (account.status !== 'active' || !isRateLimited || isTempUnschedulable) return false
+      if (account.status !== 'active' || (!isQuotaPaused && (!isRateLimited || isTempUnschedulable))) return false
     } else if (filters.status === 'temp_unschedulable') {
       if (account.status !== 'active' || !isTempUnschedulable) return false
     } else if (filters.status === 'unschedulable') {

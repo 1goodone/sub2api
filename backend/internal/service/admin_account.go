@@ -1071,7 +1071,7 @@ func (s *adminServiceImpl) DisableCodexQuotaOverdraft(ctx context.Context, id in
 	if err != nil {
 		return err
 	}
-	clearRuntimeBlock := account != nil && codexQuotaOverdraftPauseReason(account.TempUnschedulableReason)
+	clearRuntimeBlock := account != nil && IsCodexQuotaOverdraftPauseReason(account.TempUnschedulableReason)
 	if cleaner, ok := s.accountRepo.(interface {
 		DisableCodexQuotaOverdraft(context.Context, int64) error
 	}); ok {
