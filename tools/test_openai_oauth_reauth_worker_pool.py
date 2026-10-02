@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 from tools import openai_oauth_reauth_worker as worker
 
 
-def parallel_probe(config):
+def parallel_probe(config, _stop=None):
     root = Path(config.base_url)
     (root / config.worker_id).touch()
     deadline = time.monotonic() + 3
@@ -22,7 +22,7 @@ def parallel_probe(config):
     time.sleep(0.4)
 
 
-def failing_pool_probe(config):
+def failing_pool_probe(config, _stop=None):
     root = Path(config.base_url)
     pid_file = root / "descendant.pid"
     if config.worker_id.endswith("-slot-1"):
