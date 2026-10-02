@@ -8,7 +8,7 @@ vi.mock('@/i18n', () => {
     'nav.subscribe': '订阅',
     'nav.buySubscription': '充值/订阅',
   }
-  return { i18n: { global: { t: (key: string) => messages[key] ?? key } } }
+  return { i18n: { global: { t: (key: string) => messages[key] ?? key, te: (key: string) => key in messages } } }
 })
 
 describe('resolveDocumentTitle', () => {

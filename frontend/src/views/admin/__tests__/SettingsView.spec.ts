@@ -1,7 +1,7 @@
 import { excelBPSImageLimits } from "@/utils/excelBPSImageLimits";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
-import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineComponent, h, reactive } from "vue";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 
 import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
@@ -9,6 +9,27 @@ import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 import MihomoProxySelector from "../settings/MihomoProxySelector.vue";
+
+enableAutoUnmount(afterEach);
+
+const settingsRoute = reactive({ query: {} as Record<string, unknown>, hash: "" });
+const routerReplace = vi.fn(async (location: { query?: Record<string, unknown>; hash?: string }) => {
+  if (location.query) settingsRoute.query = location.query;
+  if (location.hash !== undefined) settingsRoute.hash = location.hash;
+});
+
+vi.mock("vue-router", async (importOriginal) => ({
+  ...await importOriginal<typeof import("vue-router")>(),
+  useRoute: () => settingsRoute,
+  useRouter: () => ({ replace: routerReplace }),
+}));
+
+beforeEach(() => {
+  settingsRoute.query = {};
+  settingsRoute.hash = "";
+  routerReplace.mockClear();
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 const {
   getSettings,
@@ -753,6 +774,44 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("opens a settings card from a deep link after loading and clears stale locations", async () => {
+    settingsRoute.query = { tab: "security" };
+    settingsRoute.hash = "#settings-section-features-risk-control";
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      risk_control_enabled: false,
+      cyber_session_block_enabled: false,
+    });
+    const wrapper = mountView();
+    document.body.appendChild(wrapper.element);
+    await flushPromises();
+
+    expect(wrapper.get("#settings-tab-features").attributes("aria-selected")).toBe("true");
+    const heading = wrapper.get("#settings-section-features-risk-control");
+    expect(heading.isVisible()).toBe(true);
+    expect(document.activeElement).toBe(heading.element);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    const vm = wrapper.vm as unknown as {
+      form: { risk_control_enabled: boolean; cyber_session_block_enabled: boolean };
+    };
+    expect(vm.form.risk_control_enabled).toBe(false);
+    expect(vm.form.cyber_session_block_enabled).toBe(false);
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await wrapper.get("#settings-tab-general").trigger("click");
+    await flushPromises();
+    expect(settingsRoute.hash).toBe("");
+
+    settingsRoute.query = { tab: "invalid" };
+    settingsRoute.hash = "#unknown";
+    await flushPromises();
+    expect(wrapper.get("#settings-tab-general").attributes("aria-selected")).toBe("true");
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+    document.body.innerHTML = "";
   });
 
   it("saves Pelican showcase groups and gallery limits", async () => {
@@ -2096,8 +2155,10 @@ describe("admin SettingsView payment visible method controls", () => {
         },
       },
       setup(props) {
-        receivedProviders = props.providers as Array<Record<string, unknown>>;
-        return () => h("div", { class: "provider-list-capture" });
+        return () => {
+          receivedProviders = props.providers as Array<Record<string, unknown>>;
+          return h("div", { class: "provider-list-capture" });
+        };
       },
     });
 

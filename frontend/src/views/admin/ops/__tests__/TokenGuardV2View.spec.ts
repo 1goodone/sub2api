@@ -16,6 +16,8 @@ const api = vi.hoisted(() => ({
   probeGuard: vi.fn(),
   reloginGuard: vi.fn(),
   saveRules: vi.fn(),
+  saveRuntime: vi.fn(),
+  updateSwitches: vi.fn(),
   getWorker: vi.fn(),
   setWorker: vi.fn(),
   getTaskLog: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock('@/api/admin/accountTokenGuardV2', () => ({
   probeTokenGuardV2Account: api.probeGuard,
   reloginTokenGuardV2Account: api.reloginGuard,
   saveTokenGuardV2Rules: api.saveRules,
+  saveTokenGuardV2Runtime: api.saveRuntime,
+  updateTokenGuardV2Switches: api.updateSwitches,
   getTokenGuardV2Worker: api.getWorker,
   setTokenGuardV2WorkerEnabled: api.setWorker,
   getTokenGuardV2TaskLog: api.getTaskLog,
@@ -63,6 +67,7 @@ beforeEach(() => {
     retry_interval_seconds: 300,
     relogin_cooldown_seconds: 1800,
     fail_streak_threshold: 2,
+    runtime_settings: { engine: 'local_worker', worker_concurrency: 3 },
     accounts: [{
       account_id: 42,
       account_name: 'Primary',
@@ -106,6 +111,8 @@ beforeEach(() => {
     relogin_cooldown_seconds: 1800,
     fail_streak_threshold: 2,
   })
+  api.saveRuntime.mockImplementation(async input => input)
+  api.updateSwitches.mockImplementation(async (_accountId, input) => input)
   api.getWorker.mockResolvedValue({
     enabled: true,
     last_seen_at: '2026-09-28T10:01:00Z',
@@ -509,4 +516,45 @@ describe('managed re-login availability', () => {
     expect(runtime.text()).toContain(`tokenGuardV2.runtimeReasons.${reason}`)
     expect(runtime.text()).toContain('tokenGuardV2.runtimeManaged')
   })
+})
+
+it('selects the global external engine, explains credential sharing and persists it', async () => {
+  wrapper = mount(TokenGuardV2View, {
+    global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, SmartOpsNav: true, Icon: true,
+      BaseDialog: { props: ['show'], template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>' } } },
+  })
+  await flushPromises()
+  expect((wrapper.get('#token-guard-v2-engine').element as HTMLSelectElement).value).toBe('local_worker')
+  await wrapper.get('#token-guard-v2-engine').setValue('session_studio')
+  await flushPromises()
+  expect(api.saveRuntime).toHaveBeenCalledWith({ engine: 'session_studio', worker_concurrency: 3 })
+  expect(wrapper.text()).toContain('tokenGuardV2.sessionStudioGlobalHint')
+  await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.edit')!.trigger('click')
+  expect(wrapper.get('#token-guard-v2-proxy').attributes('disabled')).toBeDefined()
+  await wrapper.get('#token-guard-v2-editor').trigger('submit')
+  await flushPromises()
+  expect(api.updateGuard).toHaveBeenCalledWith(42, expect.objectContaining({ password: '', totp_secret: '' }))
+  expect(api.updateGuard.mock.calls.at(-1)?.[1]).not.toHaveProperty('engine')
+})
+
+it('updates pause through the switch without clobbering the saved engine and keeps email OTP local', async () => {
+  const data = await api.listGuard()
+  data.runtime_settings = { engine: 'session_studio', worker_concurrency: 3 }
+  data.accounts[0].login_config.engine = 'session_studio'
+  data.accounts[0].login_config.credential_mode = 'email_otp_url'
+  data.accounts[0].login_config.otp_url_masked = 'https://mail.example.com/***'
+  api.listGuard.mockResolvedValue(data)
+  wrapper = mount(TokenGuardV2View, {
+    global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, SmartOpsNav: true, Icon: true,
+      BaseDialog: { props: ['show'], template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>' } } },
+  })
+  await flushPromises()
+  expect(wrapper.get('tbody').text()).toContain('tokenGuardV2.localWorkerEngine')
+  await wrapper.get('[data-testid="auto-inspect-42"]').setValue(false)
+  await flushPromises()
+  expect(api.updateSwitches).toHaveBeenCalledWith(42, { enabled: false })
+  expect(api.updateGuard).not.toHaveBeenCalled()
+  await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.edit')!.trigger('click')
+  expect((wrapper.get('#token-guard-v2-engine').element as HTMLSelectElement).value).toBe('session_studio')
+  expect(wrapper.get('#token-guard-v2-proxy').attributes('disabled')).toBeUndefined()
 })

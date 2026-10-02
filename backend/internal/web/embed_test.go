@@ -136,7 +136,7 @@ func TestInjectSiteFavicon(t *testing.T) {
 		html := []byte(`<link rel="icon" href="/logo.png" />`)
 		largeLogo := "data:image/png;base64," + strings.Repeat("A", maxInlineFaviconDataURLLength)
 
-		result := injectSiteFavicon(html, []byte(`{"site_logo":"` + largeLogo + `"}`))
+		result := injectSiteFavicon(html, []byte(`{"site_logo":"`+largeLogo+`"}`))
 
 		assert.Equal(t, string(html), string(result))
 	})
@@ -530,6 +530,7 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		apiPaths := []string{
 			"/api/v1/users",
 			"/models",
+			"/models/gpt-5.5",
 			"/v1/models",
 			"/v1beta/chat",
 			"/backend-api/codex/responses",
@@ -539,6 +540,20 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			"/health",
 			"/responses",
 			"/responses/compact",
+			"/chat/completions",
+			"/messages/count_tokens",
+			"/embeddings",
+			"/contents/generations/tasks",
+			"/contents/generations/tasks/task-123",
+			"/v3/contents/generations/tasks",
+			"/v3/contents/generations/tasks/task-123",
+			"/tts",
+			"/stt",
+			"/custom-voices",
+			"/custom-voices/voice-123",
+			"/realtime",
+			"/web_search",
+			"/x_search",
 		}
 
 		for _, path := range apiPaths {

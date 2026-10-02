@@ -1,7 +1,7 @@
 <template>
   <div class="card" data-testid="pelican-showcase-settings">
     <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+      <h2 id="settings-section-features-pelican-showcase" tabindex="-1" class="text-lg font-semibold text-gray-900 dark:text-white">
         {{ t('admin.settings.features.pelicanShowcase.title') }}
       </h2>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">

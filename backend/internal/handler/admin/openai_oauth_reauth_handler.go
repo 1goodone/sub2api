@@ -88,7 +88,8 @@ func (h *OpenAIOAuthReauthHandler) CreateTask(c *gin.Context) {
 }
 
 type reauthWorkerRequest struct {
-	WorkerID string `json:"worker_id"`
+	WorkerID string   `json:"worker_id"`
+	Engines  []string `json:"engines"`
 }
 
 func (h *OpenAIOAuthReauthHandler) WorkerStatus(c *gin.Context) {
@@ -190,12 +191,28 @@ func (h *OpenAIOAuthReauthHandler) Claim(c *gin.Context) {
 		response.BadRequest(c, "Invalid worker request")
 		return
 	}
-	claim, err := h.service.ClaimTask(c.Request.Context(), req.WorkerID)
+	claim, err := h.service.ClaimTaskWithEngines(c.Request.Context(), req.WorkerID, req.Engines)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, claim)
+}
+
+func (h *OpenAIOAuthReauthHandler) RuntimeSettings(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	cfg, err := h.service.GetRuntimeSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	var count *int
+	if cfg.ConcurrencyConfigured {
+		count = &cfg.WorkerConcurrency
+	}
+	response.Success(c, gin.H{"worker_concurrency": count})
 }
 
 func (h *OpenAIOAuthReauthHandler) Progress(c *gin.Context) {

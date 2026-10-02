@@ -4,6 +4,7 @@
  */
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { settingsLocation } from '@/utils/settingsSearch'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -811,6 +812,8 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior(to, _from, savedPosition) {
+    // SettingsView reveals the async-loaded target tab before scrolling.
+    if (to.path === '/admin/settings' && settingsLocation(to.query.tab, to.hash).linked) return false
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition

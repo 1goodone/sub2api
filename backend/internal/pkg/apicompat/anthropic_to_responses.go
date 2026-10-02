@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 // AnthropicToResponses converts an Anthropic Messages request directly into
@@ -11,6 +13,9 @@ import (
 // Chat Completions intermediary round-trip (e.g. thinking, cache_control,
 // structured system prompts).
 func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
+	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, anthropicReasoningEffort(req)); err != nil {
+		return nil, err
+	}
 	input, err := convertAnthropicToResponsesInput(req.System, req.Messages)
 	if err != nil {
 		return nil, err
@@ -57,6 +62,9 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 
 	// An explicit thinking disable takes precedence over output_config.effort.
 	effort := anthropicReasoningEffort(req)
+	if openai.IsGPT61SolModelSpelling(req.Model) && req.OutputConfig != nil && req.OutputConfig.Effort == "max" && effort != "none" {
+		effort = "max"
+	}
 	out.Reasoning = &ResponsesReasoning{
 		Effort: effort,
 	}
@@ -471,7 +479,7 @@ func boolPtr(v bool) *bool {
 // All gpt-5.x models are reasoning-only; the Responses API returns
 // "Unsupported parameter: temperature" if these fields are present.
 func isReasoningModel(model string) bool {
-	return strings.HasPrefix(model, "gpt-5")
+	return strings.HasPrefix(model, "gpt-5") || openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model)
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

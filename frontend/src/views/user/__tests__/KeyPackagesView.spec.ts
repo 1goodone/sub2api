@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import KeyPackagesView from '../KeyPackagesView.vue'
 import type { ApiKey, ApiKeyPackage, ApiKeyPackagePlan } from '@/types'
 
@@ -264,6 +264,8 @@ function mountView() {
 
 describe('KeyPackagesView', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'))
     vi.clearAllMocks()
     listPlans.mockResolvedValue(plans)
     listPackages.mockResolvedValue([plusPackage])
@@ -287,6 +289,8 @@ describe('KeyPackagesView', () => {
     unbindKey.mockResolvedValue({ ...packageKey, package_id: null })
     copyToClipboard.mockResolvedValue(true)
   })
+
+  afterEach(() => vi.useRealTimers())
 
   it('renders only the five fixed monthly plans and their prices', async () => {
     listPackages.mockResolvedValueOnce([])

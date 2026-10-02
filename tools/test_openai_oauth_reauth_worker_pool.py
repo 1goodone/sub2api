@@ -52,7 +52,7 @@ class ReauthWorkerPoolTests(unittest.TestCase):
                 (root / "src" / name).touch()
             base = {"OPENAI_REAUTH_WORKER_TOKEN": "x" * 32, "TOSUB2_ROOT": directory}
             with patch.dict(os.environ, base, clear=True):
-                self.assertEqual(worker.WorkerConfig.from_env().concurrency, 1)
+                self.assertEqual(worker.WorkerConfig.from_env().concurrency, 3)
             for value in ("0", "17", "-1", "2.5", "NaN"):
                 with patch.dict(os.environ, dict(base, OPENAI_REAUTH_CONCURRENCY=value), clear=True):
                     with self.assertRaises(worker.WorkerError):
@@ -74,7 +74,7 @@ class ReauthWorkerPoolTests(unittest.TestCase):
                 patch.object(worker, "_run_worker_loop") as run:
             worker._worker_loop(config)
         setpgid.assert_called_once_with(0, 0)
-        run.assert_called_once_with(config)
+        run.assert_called_once_with(config, None)
 
     def test_pool_cleanup_signals_the_worker_process_group(self):
         child = Mock(pid=123)
