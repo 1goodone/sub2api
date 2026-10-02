@@ -94,7 +94,8 @@ class ReauthWorkerPoolTests(unittest.TestCase):
     def test_three_real_worker_processes_overlap(self):
         with tempfile.TemporaryDirectory() as directory:
             config = worker.WorkerConfig(directory, "x" * 32, "probe", None, concurrency=3)
-            with patch.object(worker, "_run_worker_loop", parallel_probe):
+            with patch.object(worker.WorkerAPI, "runtime_concurrency", return_value=config.concurrency), \
+                    patch.object(worker, "_run_worker_loop", parallel_probe):
                 with self.assertRaisesRegex(worker.WorkerError, "process exited"):
                     worker.run_worker_pool(config)
             self.assertEqual(len(list(Path(directory).glob("done-*"))), 3)
@@ -103,7 +104,8 @@ class ReauthWorkerPoolTests(unittest.TestCase):
     def test_pool_failure_terminates_protocol_descendants(self):
         with tempfile.TemporaryDirectory() as directory:
             config = worker.WorkerConfig(directory, "x" * 32, "probe", None, concurrency=2)
-            with patch.object(worker, "_run_worker_loop", failing_pool_probe):
+            with patch.object(worker.WorkerAPI, "runtime_concurrency", return_value=config.concurrency), \
+                    patch.object(worker, "_run_worker_loop", failing_pool_probe):
                 with self.assertRaisesRegex(worker.WorkerError, "process exited"):
                     worker.run_worker_pool(config)
             pid = int((Path(directory) / "descendant.pid").read_text(encoding="utf-8"))
