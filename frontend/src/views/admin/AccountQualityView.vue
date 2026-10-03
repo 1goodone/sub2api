@@ -18,10 +18,13 @@
           <header class="panel-heading"><div><h3 id="quality-rules-heading">{{ t('qualityOps.ruleLibrary') }}<span class="count-label">{{ plans.length }}</span></h3><p>{{ t('qualityOps.ruleLibraryHint') }}</p></div></header>
           <div class="rule-search"><Icon name="search" size="sm" /><input v-model="store.search" :aria-label="t('qualityOps.search')" :placeholder="t('qualityOps.searchRule')" /><button v-if="store.search" :aria-label="t('qualityOps.clearSearch')" @click="store.search = ''"><Icon name="x" size="sm" /></button></div>
           <div class="rule-selection-toolbar">
-            <label class="rule-check-all"><input type="checkbox" data-testid="quality-select-rules" :checked="allFilteredSelected" :indeterminate="someFilteredSelected && !allFilteredSelected" :disabled="!filteredPlans.length || busy" @change="toggleFilteredSelection" />{{ t('qualityOps.selectFilteredRules') }}</label>
+            <label class="rule-check-all"><input type="checkbox" data-testid="quality-select-rules" :checked="allFilteredSelected" :indeterminate="someFilteredSelected && !allFilteredSelected" :disabled="!filteredPlans.length || busy || bulkRunning" @change="toggleFilteredSelection" />{{ t('qualityOps.selectFilteredRules') }}</label>
             <span aria-live="polite">{{ t('qualityOps.rulesSelected', { count: selectedRuleIds.length }) }}</span>
-            <button v-if="selectedRuleIds.length" :disabled="busy" data-testid="quality-clear-rules" @click="selectedRuleIds = []">{{ t('qualityOps.clearAccountSelection') }}</button>
-            <button class="btn btn-primary bulk-edit-button" data-testid="quality-bulk-edit" :disabled="!selectedRuleIds.length || busy || selectedRulesPending" @click="editSelectedRules"><Icon name="edit" size="sm" />{{ t('qualityOps.bulkEdit') }}</button>
+            <button v-if="selectedRuleIds.length" :disabled="busy || bulkRunning" data-testid="quality-clear-rules" @click="selectedRuleIds = []">{{ t('qualityOps.clearAccountSelection') }}</button>
+            <div class="bulk-rule-actions">
+              <button class="btn btn-secondary" data-testid="quality-bulk-edit" :disabled="!selectedRuleIds.length || busy || bulkRunning || selectedRulesPending" @click="editSelectedRules"><Icon name="edit" size="sm" />{{ t('qualityOps.bulkEdit') }}</button>
+              <button class="btn btn-primary bulk-run-button" data-testid="quality-bulk-run" :disabled="!selectedRuleIds.length || busy || bulkRunning" @click="runSelectedRules"><Icon name="play" size="sm" />{{ bulkRunning ? t('qualityOps.bulkRunProgress', { completed: bulkRunCompleted, total: bulkRunTotal }) : t('qualityOps.bulkRun') }}</button>
+            </div>
           </div>
           <button class="all-accounts" :class="{ selected: store.selectedPlanId === null }" :aria-pressed="store.selectedPlanId === null" @click="store.selectedPlanId = null"><Icon name="users" size="sm" />{{ t('qualityOps.allAccounts') }}<span>{{ plans.length }}</span></button>
           <div class="rules-scroll" data-testid="rules-scroll" :aria-busy="store.rulesLoading">
@@ -284,6 +287,8 @@ const planTemplate = computed(() => {
 const templateAccountIds = computed(() => new Set(plans.value.filter(plan => planTemplate.value[plan.id] === editingTemplate.value).map(plan => plan.account_id)))
 const selectedRuleIds = ref<number[]>([]), bulkRuleIds = ref<number[]>([])
 const bulkEditing = ref(false), bulkFields = ref<QualityRuleField[]>([]), bulkProgress = ref('')
+const bulkRunning = ref(false), bulkRunCompleted = ref(0), bulkRunTotal = ref(0)
+let bulkRunRequest = 0
 function accountDisabledReason(account: AccountListItem) {
   if (editingTemplate.value && templateAccountIds.value.has(account.id)) return t('qualityOps.accountCoveredByTemplate')
   if (existingAccountIds.value.has(account.id)) return t('qualityOps.accountHasRule')
@@ -330,7 +335,7 @@ watch(plans, (current) => {
   selectedRuleIds.value = selectedRuleIds.value.filter(id => ids.has(id))
 })
 function toggleFilteredSelection() {
-  if (busy.value) return
+  if (busy.value || bulkRunning.value) return
   const ids = new Set(filteredPlans.value.map(plan => plan.id))
   selectedRuleIds.value = allFilteredSelected.value
     ? selectedRuleIds.value.filter(id => !ids.has(id))
@@ -507,7 +512,7 @@ function editTemplate(tpl: QualityRuleTemplate) {
   if (!groups.value.length) void store.refreshGroups()
 }
 function editSelectedRules() {
-  if (busy.value || selectedRulesPending.value) return
+  if (busy.value || bulkRunning.value || selectedRulesPending.value) return
   const selected = plans.value.filter(plan => selectedRuleIds.value.includes(plan.id))
   if (!selected.length) return
   // Start from the first selected rule for convenience, but no field is applied
@@ -707,6 +712,55 @@ function templateFilterSummary(tpl: QualityRuleTemplate) {
   return [group, type, statuses, filter.search ? t('qualityOps.templateSearch', { search: filter.search }) : ''].filter(Boolean).join(' · ')
 }
 async function run(plan: ScheduledTestPlan) { await planAction(plan, 'run', () => runQualityPlan(plan.id)) }
+async function runSelectedRules() {
+  if (busy.value || bulkRunning.value || !selectedRuleIds.value.length) return
+  error.value = ''; notice.value = ''
+  const selected = plans.value.filter(plan => selectedRuleIds.value.includes(plan.id))
+  const runnable = selected.filter(plan => plan.enabled && !running(plan) && !pending.value[plan.id])
+  const skipped = selected.length - runnable.length
+  if (!runnable.length) {
+    if (skipped) notice.value = t('qualityOps.bulkRunSkipped', { count: skipped })
+    return
+  }
+
+  const request = ++bulkRunRequest, scope = identity()
+  const failed: number[] = [], failures: string[] = []
+  let next = 0
+  const current = () => alive && request === bulkRunRequest && scope === identity()
+  bulkRunning.value = true; bulkRunCompleted.value = 0; bulkRunTotal.value = runnable.length
+  for (const plan of runnable) pending.value[plan.id] = 'run'
+
+  const worker = async () => {
+    while (current()) {
+      const plan = runnable[next++]
+      if (!plan) return
+      try {
+        await runQualityPlan(plan.id)
+        if (!current()) return
+        selectedRuleIds.value = selectedRuleIds.value.filter(id => id !== plan.id)
+      } catch (e) {
+        if (!current()) return
+        failed.push(plan.id); failures.push(`#${plan.id}: ${message(e)}`)
+      } finally {
+        if (current()) { delete pending.value[plan.id]; bulkRunCompleted.value++ }
+      }
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, runnable.length) }, worker))
+    if (!current()) return
+    const skippedText = skipped ? t('qualityOps.bulkRunSkipped', { count: skipped }) : ''
+    if (failed.length) error.value = [t('qualityOps.bulkRunPartial', { queued: runnable.length - failed.length, failed: failed.length }), skippedText, failures.join(' / ')].filter(Boolean).join(' ')
+    else notice.value = [t('qualityOps.bulkRunQueued', { count: runnable.length }), skippedText].filter(Boolean).join(' ')
+    await store.refreshRules(true)
+  } finally {
+    if (request === bulkRunRequest) {
+      for (const plan of runnable) if (pending.value[plan.id] === 'run') delete pending.value[plan.id]
+      bulkRunning.value = false; bulkRunCompleted.value = 0; bulkRunTotal.value = 0
+    }
+  }
+}
 async function confirmDelete() {
   if (!deleteTarget.value || deleting.value) return
   deleting.value = true
@@ -765,12 +819,12 @@ function retryDetails() {
   else if (historyPlan.value) void history(historyPlan.value)
 }
 function navigateOperation(offset: number) { const next = filteredOperations.value[operationIndex.value + offset]; if (next) void operationDetails(next) }
-watch(() => identity(), () => { error.value = notice.value = ''; closeDetails(); showForm.value = false; discardPrompt.value = false; deleteTarget.value = null; editingTemplate.value = null; templateDeleteTarget.value = null; templatePending.value = {}; accounts.value = []; knownAccounts.clear(); selectedRuleIds.value = []; bulkRuleIds.value = []; bulkEditing.value = false; accountRequest++; judgeModelsRequest++ })
+watch(() => identity(), () => { bulkRunRequest++; bulkRunning.value = false; bulkRunCompleted.value = bulkRunTotal.value = 0; pending.value = {}; error.value = notice.value = ''; closeDetails(); showForm.value = false; discardPrompt.value = false; deleteTarget.value = null; editingTemplate.value = null; templateDeleteTarget.value = null; templatePending.value = {}; accounts.value = []; knownAccounts.clear(); selectedRuleIds.value = []; bulkRuleIds.value = []; bulkEditing.value = false; accountRequest++; judgeModelsRequest++ })
 onMounted(() => {
   void load()
   poll = setInterval(() => { if (document.visibilityState === 'visible' && !refreshing.value) { void store.refreshRules(); void store.refreshOperations() } }, 30_000)
 })
-onBeforeUnmount(() => { alive = false; accountSelectionRequest++; detailRequest++; answerRequest++; accountRequest++; judgeModelsRequest++; if (poll) clearInterval(poll); loadedAnswers.clear() })
+onBeforeUnmount(() => { alive = false; bulkRunRequest++; accountSelectionRequest++; detailRequest++; answerRequest++; accountRequest++; judgeModelsRequest++; if (poll) clearInterval(poll); loadedAnswers.clear() })
 </script>
 
 <style scoped>
@@ -809,8 +863,10 @@ onBeforeUnmount(() => { alive = false; accountSelectionRequest++; detailRequest+
 .all-accounts { @apply mx-4 mb-3 flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-gray-500 dark:text-gray-400; }
 .rule-selection-toolbar { @apply mx-4 mb-3 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs text-gray-500 dark:text-gray-400; }
 .rule-check-all { @apply flex cursor-pointer items-center gap-2; }
-.rule-selection-toolbar > button:not(.bulk-edit-button) { @apply text-primary-600; }
-.bulk-edit-button { @apply ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs; }
+.rule-selection-toolbar > button { @apply text-primary-600; }
+.bulk-rule-actions { @apply ml-auto flex items-center gap-2; }
+.bulk-rule-actions .btn { @apply inline-flex items-center gap-1.5 px-3 py-2 text-xs; }
+.bulk-run-button { min-width: 8.5rem; @apply justify-center tabular-nums; }
 .rule-checkbox { @apply flex h-8 shrink-0 cursor-pointer items-center; }
 .rule-checkbox input, .rule-check-all input, .bulk-fields input { @apply h-4 w-4 shrink-0 cursor-pointer accent-primary-600; }
 .bulk-editor-intro { @apply space-y-3 rounded-xl border border-primary-100 bg-primary-50/50 p-4 text-sm dark:border-primary-900 dark:bg-primary-950/20; }

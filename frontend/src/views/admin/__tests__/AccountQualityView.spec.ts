@@ -4,7 +4,7 @@ import { createPinia } from 'pinia'
 import AccountQualityView from '../AccountQualityView.vue'
 import * as accountsAPI from '@/api/admin/accounts'
 import scheduledTests from '@/api/admin/scheduledTests'
-import { createQualityTemplate, deleteQualityTemplate, listQualityPlans, listQualityOperations, listQualityTemplates, updateQualityTemplate, type QualityRuleTemplate } from '@/api/admin/accountQuality'
+import { createQualityTemplate, deleteQualityTemplate, listQualityPlans, listQualityOperations, listQualityTemplates, runQualityPlan, updateQualityTemplate, type QualityRuleTemplate } from '@/api/admin/accountQuality'
 import { useAccountQualityStore } from '@/stores/accountQuality'
 import type { ScheduledTestPlan } from '@/types'
 vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { template: '<nav />' } }))
@@ -21,6 +21,7 @@ const mountView = () => mount(AccountQualityView, { global: { plugins: [createPi
 describe('quality operations', () => {
   beforeEach(() => { vi.clearAllMocks(); vi.mocked(scheduledTests.update).mockReset(); vi.mocked(accountsAPI.list).mockReset().mockResolvedValue({ items: [{ id: 1, name: 'Test account', platform: 'openai', type: 'oauth' }], total: 1 } as any); vi.mocked(listQualityPlans).mockResolvedValue([]); vi.mocked(listQualityOperations).mockResolvedValue({items:[],next_cursor:0})
     vi.mocked(listQualityTemplates).mockReset().mockResolvedValue([])
+    vi.mocked(runQualityPlan).mockReset().mockResolvedValue()
     vi.mocked(createQualityTemplate).mockReset().mockResolvedValue({ template: groupRule(), created: 0 })
     vi.mocked(updateQualityTemplate).mockReset().mockResolvedValue({ template: groupRule(), updated: 0, failed: 0, created: 0 })
     vi.mocked(deleteQualityTemplate).mockReset().mockResolvedValue({ deleted: 0 }) })
@@ -30,7 +31,7 @@ describe('quality operations', () => {
       quality: { expected_answer: '', action: 'disable_scheduling', remove_group_ids: [], auto_restore: true } },
     plan_ids: [1], last_synced_at: null, created_at: '', updated_at: '',
   })
-  const rules = (): ScheduledTestPlan[] => [1, 2, 3].map(id => ({
+  const rules = (count = 3): ScheduledTestPlan[] => Array.from({ length: count }, (_, index) => index + 1).map(id => ({
     id, account_id: id, account_name: `Account ${id}`, model_id: `model-${id}`, cron_expression: '*/30 * * * *', enabled: true,
     max_results: 100, auto_recover: false, last_run_at: null, next_run_at: null, created_at: '', updated_at: '',
     pelican_config: { question_kind: 'state_probe', prompt: '', reasoning_effort: 'high', parallel_count: 1,
@@ -62,6 +63,78 @@ describe('quality operations', () => {
     vi.mocked(listQualityPlans).mockResolvedValue([])
     await useAccountQualityStore().refreshRules(true); await flushPromises()
     expect(wrapper.get('[data-testid="quality-bulk-edit"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('runs selected rules with at most three concurrent submissions', async () => {
+    vi.mocked(listQualityPlans).mockResolvedValue(rules(5))
+    const releases = new Map<number, () => void>()
+    let active = 0, maxActive = 0
+    vi.mocked(runQualityPlan).mockImplementation(id => new Promise<void>(resolve => {
+      active++; maxActive = Math.max(maxActive, active)
+      releases.set(id, () => { active--; resolve() })
+    }))
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('[data-testid="quality-select-rules"]').setValue(true)
+    await wrapper.get('[data-testid="quality-bulk-run"]').trigger('click'); await flushPromises()
+    expect(vi.mocked(runQualityPlan).mock.calls.map(([id]) => id)).toEqual([1, 2, 3])
+    expect(maxActive).toBe(3)
+    expect((wrapper.vm as any).bulkRunTotal).toBe(5)
+    expect((wrapper.vm as any).bulkRunCompleted).toBe(0)
+    expect(wrapper.get('[data-testid="quality-bulk-run"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="quality-bulk-run"]').trigger('click'); await flushPromises()
+    expect(runQualityPlan).toHaveBeenCalledTimes(3)
+
+    releases.get(1)!(); await flushPromises()
+    expect(vi.mocked(runQualityPlan).mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 4])
+    expect((wrapper.vm as any).bulkRunCompleted).toBe(1)
+    releases.get(2)!(); await flushPromises()
+    expect(vi.mocked(runQualityPlan).mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 4, 5])
+    for (const id of [3, 4, 5]) releases.get(id)!()
+    await flushPromises()
+    expect(maxActive).toBe(3)
+    expect((wrapper.vm as any).selectedRuleIds).toEqual([])
+    expect(wrapper.text()).toContain('qualityOps.bulkRunQueued')
+    wrapper.unmount()
+  })
+
+  it('skips unavailable rules and keeps only skipped or failed rules selected', async () => {
+    const batch = rules(5)
+    batch[1].enabled = false
+    batch[2].running_until = new Date(Date.now() + 60_000).toISOString()
+    vi.mocked(listQualityPlans).mockResolvedValue(batch)
+    vi.mocked(runQualityPlan).mockImplementation(id => id === 4 ? Promise.reject(new Error('Queue failed')) : Promise.resolve())
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('[data-testid="quality-select-rules"]').setValue(true)
+    await wrapper.get('[data-testid="quality-bulk-run"]').trigger('click'); await flushPromises()
+    expect(vi.mocked(runQualityPlan).mock.calls.map(([id]) => id)).toEqual([1, 4, 5])
+    expect((wrapper.vm as any).selectedRuleIds).toEqual([2, 3, 4])
+    expect(wrapper.text()).toContain('qualityOps.bulkRunPartial')
+    expect(wrapper.text()).toContain('qualityOps.bulkRunSkipped')
+    expect(wrapper.text()).toContain('Queue failed')
+    wrapper.unmount()
+  })
+
+  it('stops submitting queued batch items after unmount', async () => {
+    vi.mocked(listQualityPlans).mockResolvedValue(rules(4))
+    const releases: Array<() => void> = []
+    vi.mocked(runQualityPlan).mockImplementation(() => new Promise<void>(resolve => releases.push(resolve)))
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('[data-testid="quality-select-rules"]').setValue(true)
+    await wrapper.get('[data-testid="quality-bulk-run"]').trigger('click'); await flushPromises()
+    expect(runQualityPlan).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+    for (const release of releases) release()
+    await flushPromises()
+    expect(runQualityPlan).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps the single-rule run action unchanged', async () => {
+    vi.mocked(listQualityPlans).mockResolvedValue(rules())
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('[data-plan-id="1"] .rule-actions button:last-child').trigger('click'); await flushPromises()
+    expect(runQualityPlan).toHaveBeenCalledWith(1)
+    expect(wrapper.text()).toContain('qualityOps.queued')
     wrapper.unmount()
   })
 
