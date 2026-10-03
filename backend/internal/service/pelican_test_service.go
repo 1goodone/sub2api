@@ -76,6 +76,30 @@ func createPelicanOpenAIPayload(modelID string, isOAuth bool, prompt, reasoningE
 	return payload
 }
 
+func createClaudeTestPayloadForContext(ctx context.Context, modelID string) (map[string]any, error) {
+	options, ok := pelicanTestOptionsFromContext(ctx)
+	if !ok {
+		return createTestPayload(modelID)
+	}
+	return createPelicanClaudePayload(modelID, options.prompt)
+}
+
+func createOpenAITestPayloadForContext(ctx context.Context, modelID string, isOAuth bool) map[string]any {
+	options, ok := pelicanTestOptionsFromContext(ctx)
+	if !ok {
+		return createOpenAITestPayload(modelID, isOAuth)
+	}
+	return createPelicanOpenAIPayload(modelID, isOAuth, options.prompt, options.reasoningEffort)
+}
+
+func pelicanTestPromptForContext(ctx context.Context) string {
+	options, ok := pelicanTestOptionsFromContext(ctx)
+	if !ok {
+		return "hi"
+	}
+	return promptOrDefault(options.prompt)
+}
+
 func promptOrDefault(prompt string) string {
 	if value := strings.TrimSpace(prompt); value != "" {
 		return value

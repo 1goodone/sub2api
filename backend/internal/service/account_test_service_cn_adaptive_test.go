@@ -152,6 +152,25 @@ func TestAccountTestService_AdaptiveKimiAlsoTestsResponsesEndpoint(t *testing.T)
 	require.Contains(t, recorder.Body.String(), "已通过原生 /responses 验证")
 }
 
+func TestAccountTestService_PelicanAdaptiveUsesPromptOnEveryNativeEndpoint(t *testing.T) {
+	account := adaptiveCNAccountTestAccount(307, PlatformDeepseek)
+	svc, upstream := adaptiveCNAccountTestService(
+		account,
+		adaptiveCNChatTestResponse(),
+		adaptiveCNAnthropicTestResponse(),
+		adaptiveCNResponsesTestResponse(),
+	)
+	c, _ := newTestContext()
+
+	err := svc.TestPelicanAccountConnection(c, account.ID, "deepseek-chat", "糖果题：三颗糖再加两颗是多少？", "low")
+
+	require.NoError(t, err)
+	require.Len(t, upstream.bodies, 3)
+	require.Equal(t, "糖果题：三颗糖再加两颗是多少？", gjson.GetBytes(upstream.bodies[0], "messages.0.content").String())
+	require.Equal(t, "糖果题：三颗糖再加两颗是多少？", gjson.GetBytes(upstream.bodies[1], "messages.0.content.0.text").String())
+	require.Equal(t, "糖果题：三颗糖再加两颗是多少？", gjson.GetBytes(upstream.bodies[2], "input.0.content.0.text").String())
+}
+
 func TestAccountTestService_AdaptiveStopsAndNamesFailingEndpoint(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(303, PlatformDeepseek)
 	svc, upstream := adaptiveCNAccountTestService(
