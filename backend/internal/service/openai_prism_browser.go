@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,47 @@ import (
 const prismBrowserMaxResponseBytes = 2 << 20
 
 const prismBrowserAttemptsKey = "prism_browser_attempts"
+
+type prismBrowserRuntimeContextKey struct{}
+
+type prismBrowserRuntimeMemo struct {
+	once    sync.Once
+	runtime PrismBrowserRuntime
+}
+
+func withPrismBrowserRuntimeMemo(ctx context.Context) context.Context {
+	if ctx == nil || ctx.Value(prismBrowserRuntimeContextKey{}) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, prismBrowserRuntimeContextKey{}, &prismBrowserRuntimeMemo{})
+}
+
+func (s *OpenAIGatewayService) prismBrowserRuntime(ctx context.Context) PrismBrowserRuntime {
+	load := func() PrismBrowserRuntime {
+		if s != nil && s.settingService != nil {
+			return s.settingService.GetPrismBrowserRuntime(ctx)
+		}
+		if s != nil && s.cfg != nil {
+			return PrismBrowserRuntime{Enabled: s.cfg.Gateway.PrismBrowser.Enabled, BaseURL: s.cfg.Gateway.PrismBrowser.BaseURL, APIKey: s.cfg.Gateway.PrismBrowser.APIKey}
+		}
+		return PrismBrowserRuntime{}
+	}
+	if ctx != nil {
+		if memo, ok := ctx.Value(prismBrowserRuntimeContextKey{}).(*prismBrowserRuntimeMemo); ok {
+			memo.once.Do(func() { memo.runtime = load() })
+			return memo.runtime
+		}
+	}
+	return load()
+}
+
+func prismBrowserRuntimeReady(runtime PrismBrowserRuntime) bool {
+	if !runtime.Enabled || strings.TrimSpace(runtime.APIKey) == "" {
+		return false
+	}
+	_, err := prismBrowserAdapterURL(runtime.BaseURL)
+	return err == nil
+}
 
 // MarkPrismBrowserAttempt separates adapter admission/outcomes from the native
 // account concurrency ramp. Keep all attempts so failover cannot lose the mark.
@@ -348,12 +390,7 @@ func (s *OpenAIGatewayService) callPrismBrowserWithSession(ctx context.Context, 
 }
 
 func (s *OpenAIGatewayService) callPrismBrowserForCaller(ctx context.Context, account *Account, body []byte, sessionID, callerID string) ([]byte, http.Header, int, error) {
-	runtime := PrismBrowserRuntime{}
-	if s.settingService != nil {
-		runtime = s.settingService.GetPrismBrowserRuntime(ctx)
-	} else if s.cfg != nil {
-		runtime = PrismBrowserRuntime{Enabled: s.cfg.Gateway.PrismBrowser.Enabled, BaseURL: s.cfg.Gateway.PrismBrowser.BaseURL, APIKey: s.cfg.Gateway.PrismBrowser.APIKey}
-	}
+	runtime := s.prismBrowserRuntime(ctx)
 	if !accountHasPrismBrowser(account) || !runtime.Enabled {
 		return nil, nil, 0, errors.New("prism adapter is disabled; native fallback is prohibited")
 	}

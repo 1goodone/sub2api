@@ -1991,6 +1991,10 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(ctx, account, req.RequestedModel, req.RequireCompact) {
 		return false, "runtime_blocked"
 	}
+	if s != nil && s.service != nil && account.IsPrismBrowserEnabledForModel(req.RequestedModel) &&
+		!prismBrowserRuntimeReady(s.service.prismBrowserRuntime(ctx)) {
+		return false, "prism_browser_unavailable"
+	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
 	}
@@ -2547,6 +2551,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx = withPrismBrowserRuntimeMemo(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
@@ -2777,7 +2782,8 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	// A failed managed proxy acquisition says nothing about account health.
 	// Keep the existing error response and diagnostics, but do not turn a local
 	// pool outage into an account penalty (or a successful recovery sample).
-	if !success && len(observedErr) > 0 && errors.Is(observedErr[0], errExcelBPSProxyUnavailable) {
+	if !success && len(observedErr) > 0 &&
+		(errors.Is(observedErr[0], errExcelBPSProxyUnavailable) || errors.Is(observedErr[0], errExcelBPSUsagePolicyBlocked)) {
 		return false
 	}
 	accountID := account.ID

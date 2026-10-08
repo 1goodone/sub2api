@@ -188,7 +188,7 @@ func TestExcelBPSImagePolicySettings(t *testing.T) {
 func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 	for _, mode := range []string{"native", "relay"} {
 		for _, stream := range []bool{false, true} {
-			for _, failure := range []string{"", "compact_reject", "compact_failed", "compact_eof", "generation_reject", "invalid_compaction"} {
+			for _, failure := range []string{"", "compact_reject", "compact_policy", "compact_failed", "compact_eof", "generation_reject", "invalid_compaction"} {
 				t.Run(fmt.Sprintf("%s/stream=%v/%s", mode, stream, failure), func(t *testing.T) {
 					svc := openAIClientToolsTestService(nil)
 					svc.cache = newImagePolicyMemoryCache()
@@ -226,6 +226,9 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 							require.Equal(t, 19, count, "new images must not enter compaction")
 							if failure == "compact_reject" {
 								return &http.Response{StatusCode: 429, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+							}
+							if failure == "compact_policy" {
+								return &http.Response{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"403: This request was blocked by our usage policy."}}`))}, nil
 							}
 							response["output"] = []any{map[string]any{"type": "compaction", "id": "cmp-policy", "encrypted_content": "opaque-policy-state"}}
 							if failure == "invalid_compaction" {
@@ -274,6 +277,12 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 					if failure != "" {
 						require.Error(t, err)
 						require.NotContains(t, rec.Body.String(), "continued")
+						if failure == "compact_policy" {
+							require.ErrorIs(t, err, errExcelBPSUsagePolicyBlocked)
+							require.Equal(t, http.StatusForbidden, rec.Code)
+							require.Equal(t, "permission_error", gjson.Get(rec.Body.String(), "error.type").String())
+							require.Equal(t, "content_policy_violation", gjson.Get(rec.Body.String(), "error.code").String())
+						}
 						if failure == "generation_reject" || failure == "compact_failed" || failure == "invalid_compaction" {
 							require.NotNil(t, result)
 							require.Equal(t, 7, result.Usage.InputTokens)

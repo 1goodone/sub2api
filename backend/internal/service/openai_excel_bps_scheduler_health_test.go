@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestOpenAIAccountSchedulingIgnoresBPSProxyAcquisitionFailures(t *testing.T) {
@@ -89,6 +90,62 @@ func TestExcelBPSProxyUnavailableReachesSchedulerWithoutPenalty(t *testing.T) {
 			require.Zero(t, rate)
 			require.Equal(t, float64(ttft), latency)
 			require.True(t, known)
+		})
+	}
+}
+
+func TestExcelBPSUsagePolicy403IsRequestScoped(t *testing.T) {
+	for _, raw := range []string{
+		`{"error":{"message":"403: This request was blocked by our usage policy."}}`,
+		`403: This request was blocked by our usage policy.`,
+	} {
+		t.Run(fmt.Sprintf("json_%t", strings.HasPrefix(raw, "{")), func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(raw)),
+			}}
+			svc := openAIClientToolsTestService(upstream)
+			svc.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			cfg := DefaultPrioritySchedulingConfig()
+			cfg.Enabled = true
+			svc.settingService = priorityGateway(cfg, &priorityReaderStub{}).settingService
+			account := excelAccount()
+			account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+			account.Extra[ExcelBPSAutoMoveOn403Key] = true
+			account.Extra[ExcelBPS403TargetGroupIDKey] = 0
+			disableCalls, moveCalls := 0, 0
+			svc.accountRepo = &excelBPSGroupActionRepo{
+				excelBPSAutoDisableRepo: excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
+					disableCalls++
+					return true, nil
+				}},
+				move: func(context.Context, *Account) (bool, error) {
+					moveCalls++
+					return true, nil
+				},
+			}
+			ttft := 400
+			svc.ReportOpenAIAccountScheduleResult(account, "gpt-6-astra", true, &ttft)
+			beforeRate, beforeLatency, beforeKnown := svc.openaiAccountStats.snapshot(account.ID)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-6-astra","input":"test"}`))
+
+			_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-6-astra","input":"test"}`))
+
+			require.ErrorIs(t, err, errExcelBPSUsagePolicyBlocked)
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.Equal(t, "permission_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+			require.Equal(t, "content_policy_violation", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
+			require.NotContains(t, rec.Body.String(), raw)
+			require.Zero(t, disableCalls)
+			require.Zero(t, moveCalls)
+			require.False(t, svc.ReportOpenAIAccountScheduleResult(account, "gpt-6-astra", false, nil, err))
+			afterRate, afterLatency, afterKnown := svc.openaiAccountStats.snapshot(account.ID)
+			require.Equal(t, beforeRate, afterRate)
+			require.Equal(t, beforeLatency, afterLatency)
+			require.Equal(t, beforeKnown, afterKnown)
 		})
 	}
 }

@@ -380,6 +380,47 @@ func TestExcelBPSImagesFinalErrorsAreNotReplayed(t *testing.T) {
 	}
 }
 
+func TestExcelBPSImagesUsagePolicy403DoesNotDisableAccount(t *testing.T) {
+	var urls []string
+	upstream := &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		return &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"content_policy_violation","message":"PRIVATE_UPSTREAM"}}`))}, nil
+	}}
+	svc := newOpenAIImagesTestService(upstream)
+	account := excelBPSImagesAccount()
+	account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+	account.Extra[ExcelBPSAutoMoveOn403Key] = true
+	account.Extra[ExcelBPS403TargetGroupIDKey] = 0
+	disableCalls, moveCalls := 0, 0
+	svc.accountRepo = &excelBPSGroupActionRepo{
+		excelBPSAutoDisableRepo: excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
+			disableCalls++
+			return true, nil
+		}},
+		move: func(context.Context, *Account) (bool, error) {
+			moveCalls++
+			return true, nil
+		},
+	}
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw"}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+
+	require.Nil(t, result)
+	var upErr *OpenAIImagesUpstreamError
+	require.ErrorAs(t, err, &upErr)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "permission_error", upErr.ErrorType)
+	require.Equal(t, "content_policy_violation", upErr.Code)
+	require.Equal(t, []string{basispoints.ImagesGenerationsURL}, urls)
+	require.Zero(t, disableCalls)
+	require.Zero(t, moveCalls)
+	require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
+}
+
 func TestExcelBPSImagesTransportErrorIsNotReplayed(t *testing.T) {
 	upstream := &httpUpstreamRecorder{err: errors.New("connection reset by peer")}
 	svc := newOpenAIImagesTestService(upstream)

@@ -29,6 +29,43 @@ var excelBPSCatalog basispoints.CatalogCache
 
 type excelBPSSchedulingKey struct{}
 
+const excelBPSUsagePolicyMessage = "this request was blocked by our usage policy"
+
+func excelBPSErrorTypeForStatus(status int) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return "authentication_error"
+	case http.StatusForbidden:
+		return "permission_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error"
+	default:
+		if status >= 500 {
+			return "server_error"
+		}
+		return "invalid_request_error"
+	}
+}
+
+func isExcelBPSUsagePolicyRejection(status int, raw []byte) bool {
+	if status != http.StatusForbidden {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(raw, "error.code").String())) {
+	case "content_policy_violation", "cyber_policy":
+		return true
+	}
+	message := strings.TrimSpace(extractUpstreamErrorMessage(raw))
+	if message == "" && !json.Valid(raw) {
+		message = strings.TrimSpace(string(raw))
+	}
+	message = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(message), "403:"))
+	message = strings.TrimSuffix(message, ".")
+	return message == excelBPSUsagePolicyMessage
+}
+
 // WithExcelBPSScheduling keeps BPS cooldowns out of native-only routes and
 // requests whose capabilities require the native Codex fallback.
 func WithExcelBPSScheduling(ctx context.Context, body []byte) context.Context {
@@ -249,10 +286,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			writeOpenAICompactSSEFailureMessageParam(c, status, code, message, failureParam)
 		} else {
-			errorType := "invalid_request_error"
-			if status >= 500 {
-				errorType = "server_error"
-			}
+			errorType := excelBPSErrorTypeForStatus(status)
 			errorBody := gin.H{"type": errorType, "code": code, "message": message}
 			if len(param) > 0 && param[0] != "" {
 				errorBody["param"] = param[0]
@@ -511,6 +545,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			raw, _ := io.ReadAll(io.LimitReader(cr.Body, 512<<10))
 			_ = cr.Body.Close()
 			s.handleExcelBPSUnauthorized(ctx, account, cr.StatusCode, cr.Header, raw)
+			if isExcelBPSUsagePolicyRejection(cr.StatusCode, raw) {
+				return fail(cr.StatusCode, "content_policy_violation", "Excel BPS blocked image history compaction under its usage policy; generation was not started")
+			}
 			if cr.StatusCode == 403 {
 				s.moveExcelBPSOn403(ctx, account)
 				s.disableExcelBPSOn403(ctx, account)
@@ -653,11 +690,14 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			s.handleExcelBPSUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw)
 			return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS authentication failed; request was not replayed")
 		}
+		if isExcelBPSUsagePolicyRejection(resp.StatusCode, raw) {
+			return fail(resp.StatusCode, "content_policy_violation", "Excel BPS blocked this request under its usage policy; request was not replayed and account scheduling was not changed")
+		}
 		code := gjson.GetBytes(raw, "error.code").String()
 		if code == "basispoints_model_access_changed" {
 			return fail(resp.StatusCode, code, "This model is not available on the account's Excel BPS endpoint")
 		}
-		message := "Excel BPS rejected this request; account scheduling was not changed"
+		message := "Excel BPS rejected this request"
 		errorCode := "basispoints_upstream_error"
 		if resp.StatusCode == http.StatusBadRequest && isExcelBPSInvalidEncryptedContent(raw) {
 			errorCode = "invalid_encrypted_content"
@@ -721,7 +761,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if repairResp.StatusCode < 200 || repairResp.StatusCode >= 300 {
 			raw, _ := io.ReadAll(io.LimitReader(repairResp.Body, 512<<10))
 			s.handleExcelBPSUnauthorized(repairCtx, account, repairResp.StatusCode, repairResp.Header, raw)
-			if repairResp.StatusCode == http.StatusForbidden && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
+			if repairResp.StatusCode == http.StatusForbidden && !isExcelBPSUsagePolicyRejection(repairResp.StatusCode, raw) && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
 				s.moveExcelBPSOn403(repairCtx, account)
 				s.disableExcelBPSOn403(repairCtx, account)
 			}
@@ -748,7 +788,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			raw, _ := io.ReadAll(io.LimitReader(repaired.Body, 512<<10))
 			_ = repaired.Body.Close()
 			s.handleExcelBPSUnauthorized(repairCtx, account, repaired.StatusCode, repaired.Header, raw)
-			if repaired.StatusCode == http.StatusForbidden && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
+			if repaired.StatusCode == http.StatusForbidden && !isExcelBPSUsagePolicyRejection(repaired.StatusCode, raw) && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
 				s.moveExcelBPSOn403(repairCtx, account)
 				s.disableExcelBPSOn403(repairCtx, account)
 			}

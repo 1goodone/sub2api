@@ -22,7 +22,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var errExcelBPSProxyUnavailable = errors.New("BPS proxy unavailable")
+var (
+	errExcelBPSProxyUnavailable   = errors.New("BPS proxy unavailable")
+	errExcelBPSUsagePolicyBlocked = errors.New("BPS request blocked by usage policy")
+)
 
 // Preserve local proxy classification after writing the client error without
 // changing its log message or retaining an acquisition cause with credentials.
@@ -30,8 +33,11 @@ type excelBPSForwardError struct{ code string }
 
 func (e *excelBPSForwardError) Error() string { return "excel BPS: " + e.code }
 func (e *excelBPSForwardError) Unwrap() error {
-	if e.code == "basispoints_proxy_unavailable" {
+	switch e.code {
+	case "basispoints_proxy_unavailable":
 		return errExcelBPSProxyUnavailable
+	case "content_policy_violation":
+		return errExcelBPSUsagePolicyBlocked
 	}
 	return nil
 }

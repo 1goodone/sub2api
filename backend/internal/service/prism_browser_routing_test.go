@@ -15,6 +15,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type prismRuntimeSettingRepo struct {
+	SettingRepository
+	values map[string]string
+	calls  int
+}
+
+func (r *prismRuntimeSettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	r.calls++
+	values := make(map[string]string, len(keys))
+	for _, key := range keys {
+		values[key] = r.values[key]
+	}
+	return values, nil
+}
+
 func TestPrismBrowserResponsesURL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -295,6 +310,38 @@ func TestAccountUsesPrismBrowserRequiresServerAndAccountSwitch(t *testing.T) {
 	}
 }
 
+func TestPrismBrowserUnavailableRuntimeIsFilteredBeforeForward(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values map[string]string
+		want   bool
+		reason string
+	}{
+		{name: "disabled", values: map[string]string{SettingKeyPrismBrowserEnabled: "false", SettingKeyPrismBrowserBaseURL: "http://127.0.0.1:8319/v1", SettingKeyPrismBrowserAPIKey: "key"}, reason: "prism_browser_unavailable"},
+		{name: "missing key", values: map[string]string{SettingKeyPrismBrowserEnabled: "true", SettingKeyPrismBrowserBaseURL: "http://127.0.0.1:8319/v1"}, reason: "prism_browser_unavailable"},
+		{name: "ready", values: map[string]string{SettingKeyPrismBrowserEnabled: "true", SettingKeyPrismBrowserBaseURL: "http://127.0.0.1:8319/v1", SettingKeyPrismBrowserAPIKey: "key"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, account := prismTestService("")
+			account.Status = StatusActive
+			account.Schedulable = true
+			repo := &prismRuntimeSettingRepo{values: tc.values}
+			svc.settingService = &SettingService{settingRepo: repo}
+			scheduler := &defaultOpenAIAccountScheduler{service: svc}
+			ctx := withPrismBrowserRuntimeMemo(context.Background())
+
+			got, reason := scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"})
+			gotAgain, reasonAgain := scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"})
+
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.reason, reason)
+			require.Equal(t, got, gotAgain)
+			require.Equal(t, reason, reasonAgain)
+			require.Equal(t, 1, repo.calls)
+		})
+	}
+}
+
 func TestPrismBrowserAdapterMisconfigurationIsNotTheClientsAuthFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -385,6 +432,9 @@ func TestPrismBrowserAccountsAreNotScheduledForWebSocketSessions(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			cfg := newSchedulerTestOpenAIWSV2Config()
+			cfg.Gateway.PrismBrowser.Enabled = true
+			cfg.Gateway.PrismBrowser.BaseURL = "http://127.0.0.1:8319/v1"
+			cfg.Gateway.PrismBrowser.APIKey = "key"
 			cfg.Gateway.Scheduling.LoadBatchEnabled = mode == "load_batch"
 			svc := &OpenAIGatewayService{
 				accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},

@@ -226,10 +226,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 	}
 	fail := func(status int, code, message string) (*OpenAIForwardResult, bool, error) {
 		SetActualOpenAIUpstreamEndpoint(c, endpoint)
-		errorType := "invalid_request_error"
-		if status >= 500 {
-			errorType = "server_error"
-		}
+		errorType := excelBPSErrorTypeForStatus(status)
 		upErr := &OpenAIImagesUpstreamError{StatusCode: status, ErrorType: errorType, Code: code, Message: message}
 		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
 		return nil, false, upErr
@@ -322,6 +319,9 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 			s.handleExcelBPSUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw)
 			return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS authentication failed; request was not replayed")
 		case http.StatusForbidden:
+			if isExcelBPSUsagePolicyRejection(resp.StatusCode, raw) {
+				return fail(resp.StatusCode, "content_policy_violation", "Excel BPS blocked this request under its usage policy; request was not replayed")
+			}
 			message := "Excel BPS rejected this request; request was not replayed"
 			moved := s.moveExcelBPSOn403(ctx, account)
 			disabled := s.disableExcelBPSOn403(ctx, account)
@@ -335,7 +335,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 			}
 			return fail(resp.StatusCode, "basispoints_upstream_error", message)
 		}
-		return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS rejected this request; account scheduling was not changed")
+		return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS rejected this request")
 	}
 
 	SetActualOpenAIUpstreamEndpoint(c, endpoint)
