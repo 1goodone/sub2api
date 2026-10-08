@@ -42,7 +42,17 @@
             <p class="mt-3 text-xs text-gray-500">{{ t(`${p}.savedState`) }}：{{ t(saved?.cookie_pool.enabled ? `${p}.enabled` : `${p}.disabled`) }}</p>
             <div class="mt-5 grid gap-4 md:grid-cols-2">
               <AstraAccountPicker v-model="draft.cookie_pool.source_account_ids" :label="t(`${p}.sources`)" :accounts="accounts" :disabled="saving" />
-              <AstraAccountPicker v-model="draft.cookie_pool.target_account_ids" :label="t(`${p}.targets`)" :accounts="accounts" :disabled="saving" />
+              <div class="min-w-0 space-y-3">
+                <label class="block text-sm font-medium text-gray-800 dark:text-gray-100">{{ t(`${p}.targetGroup`) }}
+                  <select data-testid="target-group" class="input mt-2 w-full" :disabled="saving || loading" @change="applyTargetGroup(($event.target as HTMLSelectElement).value)">
+                    <option value="">{{ t(`${p}.targetGroupPlaceholder`) }}</option>
+                    <option v-for="group in targetGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                  </select>
+                </label>
+                <p class="text-xs text-gray-500">{{ t(`${p}.targetGroupHint`) }}</p>
+                <p v-if="targetGroupNotice" class="text-xs text-amber-600">{{ targetGroupNotice }}</p>
+                <AstraAccountPicker v-model="draft.cookie_pool.target_account_ids" :label="t(`${p}.targets`)" :accounts="accounts" :disabled="saving" />
+              </div>
             </div>
             <div class="mt-4 flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
               <div>
@@ -128,7 +138,7 @@
 </template>
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { getAllIncludingInactive } from '@/api/admin/groups'
+import { getAll, getAllIncludingInactive } from '@/api/admin/groups'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import Toggle from '@/components/common/Toggle.vue'
@@ -138,10 +148,11 @@ import AstraGatewayHistory from '@/components/admin/AstraGatewayHistory.vue'
 import AstraAccountPicker from '@/components/admin/AstraAccountPicker.vue'
 import { list } from '@/api/admin/accounts'
 import { getAstraGateway, saveAstraGateway, normalizeAstraGateway, resolveAstraDependencies, type AstraGatewaySettings } from '@/api/admin/astraGateway'
+const props = withDefaults(defineProps<{ startExpanded?: boolean }>(), { startExpanded: false })
 const schedulingRecords = ref<{ checked_at: string; account_id: number; schedulable: boolean; reason: string; mode?: string }[]>([])
 const p = 'admin.astraGateway'
 const { t, te } = useI18n()
-const expanded = ref(false)
+const expanded = ref(props.startExpanded)
 const historyExpanded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
@@ -155,7 +166,9 @@ watch(() => draft.value?.scheduling_mode, async mode => {
  if (mode !== 'groups') return
  try { groups.value = await getAllIncludingInactive(); groupsError.value = '' } catch { groupsError.value = t(`${p}.loadError`) }
 })
-const accounts = ref<{ id: number; name: string }[]>([])
+const accounts = ref<{ id: number; name: string; group_ids: number[] }[]>([])
+const targetGroups = ref<{ id: number; name: string }[]>([])
+const targetGroupNotice = ref('')
 const dirty = computed(() => JSON.stringify(draft.value) !== JSON.stringify(saved.value))
 const validation = computed(() => {
   if (!draft.value) return ''
@@ -173,6 +186,20 @@ const validation = computed(() => {
   if (enabledIDs.some(id => !accounts.value.some(a => a.id === id))) return t(`${p}.missingAccounts`)
   return ''
 })
+function applyTargetGroup(raw: string) {
+  if (!draft.value) return
+  const groupID = Number(raw)
+  targetGroupNotice.value = ''
+  if (!Number.isInteger(groupID) || groupID <= 0) return
+  const sources = new Set(draft.value.cookie_pool.source_account_ids)
+  const matched = accounts.value.filter(account => account.group_ids.includes(groupID))
+  const skipped = matched.filter(account => sources.has(account.id)).length
+  const targets = matched.filter(account => !sources.has(account.id)).slice(0, 64)
+  draft.value.cookie_pool.target_account_ids = targets.map(account => account.id)
+  if (!matched.length) targetGroupNotice.value = t(`${p}.targetGroupEmpty`)
+  else if (matched.length - skipped > 64) targetGroupNotice.value = t(`${p}.targetGroupTruncated`, { n: matched.length - skipped })
+  else if (skipped) targetGroupNotice.value = t(`${p}.targetGroupSkippedSources`, { n: skipped })
+}
 function setAffinity(enabled: boolean) {
   if (!draft.value) return
   draft.value.cookie_pool.ip_affinity = enabled
@@ -184,16 +211,22 @@ function setRotation(enabled: boolean) {
   if (enabled) draft.value.cookie_pool.ip_affinity = true
 }
 async function load() {
-  loading.value = true; error.value = ''; savedMessage.value = false
+  loading.value = true; error.value = ''; savedMessage.value = false; targetGroupNotice.value = ''
   try {
     const value = await getAstraGateway()
-    const items: { id: number; name: string }[] = []
-    for (let page = 1; ; page++) {
-      const result = await list(page, 100, { platform: 'openai', type: 'oauth', lite: 'true' })
-      items.push(...result.items.map(a => ({ id: a.id, name: a.name })))
-      if (page >= result.pages || !result.items.length) break
-    }
+    const items: { id: number; name: string; group_ids: number[] }[] = []
+    const [listedGroups] = await Promise.all([
+      getAll('openai').catch(() => [] as { id: number; name: string }[]),
+      (async () => {
+        for (let page = 1; ; page++) {
+          const result = await list(page, 100, { platform: 'openai', type: 'oauth', lite: 'true' })
+          items.push(...result.items.map(a => ({ id: a.id, name: a.name, group_ids: a.group_ids ?? [] })))
+          if (page >= result.pages || !result.items.length) break
+        }
+      })()
+    ])
     accounts.value = items
+    targetGroups.value = listedGroups
     saved.value = normalizeAstraGateway(value); draft.value = normalizeAstraGateway(value)
   } catch { error.value = t(`${p}.loadError`) }
   finally { loading.value = false }

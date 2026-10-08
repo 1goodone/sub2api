@@ -225,6 +225,7 @@ export default {
     channelStatus: 'Channel Status',
     pelicanShowcase: 'Pelican Showcase',
     harvestFlow: 'Ticket harvest flow',
+    gatewayBorrow: 'Gateway borrow',
     riskControl: 'Risk Control',
     securityAudit: 'Security Audit',
     contentModeration: 'Content Moderation',

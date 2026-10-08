@@ -592,7 +592,13 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'admin.accounts.description'
     }
   },
-  { path: '/admin/astra-gateway', redirect: '/admin/harvest-flow' },
+  { path: '/admin/astra-gateway', redirect: '/admin/gateway-borrow' },
+  {
+    path: '/admin/gateway-borrow',
+    name: 'AdminGatewayBorrow',
+    component: () => import('@/views/admin/GatewayBorrowView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Gateway borrow', titleKey: 'admin.astraGateway.borrowTitle', descriptionKey: 'admin.astraGateway.borrowDescription' }
+  },
   {
     path: '/admin/harvest-flow',
     name: 'AdminHarvestFlow',

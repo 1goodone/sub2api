@@ -225,6 +225,7 @@ export default {
     channelStatus: '渠道状态',
     pelicanShowcase: '鹈鹕测智',
     harvestFlow: '打票全流程',
+    gatewayBorrow: '网关借票',
     riskControl: '风控中心',
     securityAudit: '安全审计',
     contentModeration: '内容审计',

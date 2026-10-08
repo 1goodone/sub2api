@@ -3,17 +3,17 @@ import { mount, flushPromises } from '@vue/test-utils'
 import HarvestGatewayBorrowPanel from '../HarvestGatewayBorrowPanel.vue'
 import AstraGatewayRuntime from '@/components/admin/AstraGatewayRuntime.vue'
 import { normalizeAstraGateway } from '@/api/admin/astraGateway'
-const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn() }))
+const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn(), getAll: vi.fn() }))
 vi.mock('@/api/admin/astraGateway', async importOriginal => ({ ...await importOriginal<typeof import('@/api/admin/astraGateway')>(), getAstraGateway: mocks.get, saveAstraGateway: mocks.save }))
 vi.mock('@/components/admin/AstraGatewayRuntime.vue', () => ({ default: { template: '<section />' } }))
 vi.mock('@/components/admin/AstraGatewayHistory.vue', () => ({ default: { template: '<section />' } }))
-vi.mock('@/api/admin/groups', () => ({ getAllIncludingInactive: vi.fn().mockResolvedValue([{ id: 7, name: 'Astra group' }]) }))
+vi.mock('@/api/admin/groups', () => ({ getAllIncludingInactive: vi.fn().mockResolvedValue([{ id: 7, name: 'Astra group' }]), getAll: mocks.getAll }))
 vi.mock('@/api/admin/accounts', () => ({ list: mocks.list }))
 vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key, te: () => true }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 function value() { return { cookie_pool: { enabled: false, source_account_ids: [299], target_account_ids: [300] }, ws_session: { enabled: false, account_ids: [300] }, revision: 'one' } }
 function render() { const wrapper = mount(HarvestGatewayBorrowPanel, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } }); void wrapper.get('[data-testid="expand-borrow"]').trigger('click'); return wrapper }
-beforeEach(() => { vi.clearAllMocks(); mocks.get.mockResolvedValue(value()); mocks.list.mockResolvedValue({ items: [{ id: 299, name: 'source' }, { id: 300, name: 'target' }], pages: 1 }); mocks.save.mockImplementation(v => Promise.resolve({ ...v, revision: 'two' })) })
+beforeEach(() => { vi.clearAllMocks(); mocks.get.mockResolvedValue(value()); mocks.getAll.mockResolvedValue([{ id: 7, name: 'Astra group' }]); mocks.list.mockResolvedValue({ items: [{ id: 299, name: 'source', group_ids: [7] }, { id: 300, name: 'target', group_ids: [7] }, { id: 301, name: 'other', group_ids: [8] }], pages: 1 }); mocks.save.mockImplementation(v => Promise.resolve({ ...v, revision: 'two' })) })
 describe('Astra gateway configuration', () => {
   it('keeps gateway borrowing in its own collapsed card and preserves edits when collapsed', async () => {
     const w = mount(HarvestGatewayBorrowPanel, { global: { stubs: { RouterLink: true } } })
@@ -68,6 +68,15 @@ describe('Astra gateway configuration', () => {
     await w.get('form').trigger('submit'); await flushPromises()
     expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ account_scheduling: true, cookie_pool: expect.objectContaining({ enabled: false, target_account_ids: [300] }) }))
     expect(toggle.attributes('aria-checked')).toBe('true')
+    w.unmount()
+  })
+  it('fills target accounts from the selected group and skips sources', async () => {
+    const w = render(); await flushPromises()
+    await w.get('[data-testid="target-group"]').setValue('7')
+    await w.get('[data-testid="cookie-toggle"]').trigger('click')
+    await w.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ cookie_pool: expect.objectContaining({ target_account_ids: [300] }) }))
+    expect(w.text()).toContain('admin.astraGateway.targetGroupSkippedSources')
     w.unmount()
   })
   it('loads disabled defaults and saves independent switches', async () => {

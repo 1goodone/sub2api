@@ -24,6 +24,7 @@ describe('SmartOpsNav', () => {
       '/admin/account-ops',
       '/admin/token-guard',
       '/admin/token-guard-v2',
+      '/admin/gateway-borrow',
     ])
   })
 })
