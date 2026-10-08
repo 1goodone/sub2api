@@ -141,6 +141,7 @@ func RegisterAdminRoutes(
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
+		registerChannelMonitorV3Routes(admin, h, settingService)
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
@@ -444,6 +445,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
+		accounts.GET("/:id/models/reasoning", h.Admin.Account.GetModelReasoning)
 		accounts.POST("/:id/models/sync-upstream", h.Admin.Account.SyncUpstreamModels)
 		accounts.POST("/batch", h.Admin.Account.BatchCreate)
 		// 账号导出泄露上游凭证原文——要求 step-up 2FA
@@ -936,10 +938,9 @@ func registerAffiliateRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	// Config GET/PUT: feature enabled only (operators can prepare passive monitoring before flipping mode).
-	// Read/matrix endpoints: require mode=v2/v3 so V1 deployments do not serve passive data.
+	// Config remains available for preparation; read endpoints are strictly V2.
 	featureGuard := channelMonitorAdminFeatureGuard(settingService)
-	passiveModeGuard := channelMonitorPassiveModeGuard(settingService)
+	modeV2Guard := channelMonitorModeV2Guard(settingService)
 
 	monitor := admin.Group("/channel-monitor-v2")
 	{
@@ -950,7 +951,7 @@ func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers,
 			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
 		}
 		reads := monitor.Group("")
-		reads.Use(passiveModeGuard)
+		reads.Use(modeV2Guard)
 		{
 			reads.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
 			reads.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
@@ -959,6 +960,27 @@ func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers,
 			reads.GET("/errors", h.ChannelMonitorV2.Errors)
 			reads.GET("/users", h.ChannelMonitorV2.AdminUsers)
 		}
+	}
+}
+
+// registerChannelMonitorV3Routes keeps editing and previewing available before switching modes.
+func registerChannelMonitorV3Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
+	admin.PUT("/channel-monitor-mode", h.ChannelMonitorV3.SetMode)
+
+	monitor := admin.Group("/channel-monitor-v3")
+	monitor.Use(channelMonitorAdminFeatureGuard(settingService))
+	{
+		monitor.GET("/settings", h.ChannelMonitorV3.GetSettings)
+		monitor.PUT("/config", h.ChannelMonitorV3.UpdateConfig)
+		monitor.POST("/categories", h.ChannelMonitorV3.CreateCategory)
+		monitor.PUT("/categories/:id", h.ChannelMonitorV3.UpdateCategory)
+		monitor.DELETE("/categories/:id", h.ChannelMonitorV3.DeleteCategory)
+		monitor.POST("/components", h.ChannelMonitorV3.CreateComponent)
+		monitor.PUT("/components/:id", h.ChannelMonitorV3.UpdateComponent)
+		monitor.DELETE("/components/:id", h.ChannelMonitorV3.DeleteComponent)
+		monitor.POST("/reorder", h.ChannelMonitorV3.Reorder)
+		monitor.GET("/status", h.ChannelMonitorV3.Status)
+		monitor.GET("/incidents", h.ChannelMonitorV3.Incidents)
 	}
 }
 
@@ -973,8 +995,15 @@ func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin
 	}
 }
 
-// channelMonitorPassiveModeGuard requires feature enabled and channel_monitor_mode=v2/v3.
-func channelMonitorPassiveModeGuard(settingService *service.SettingService) gin.HandlerFunc {
+func channelMonitorModeV2Guard(settingService *service.SettingService) gin.HandlerFunc {
+	return channelMonitorModeGuard(settingService, service.ChannelMonitorRuntime.V2Active)
+}
+
+func channelMonitorModeV3Guard(settingService *service.SettingService) gin.HandlerFunc {
+	return channelMonitorModeGuard(settingService, service.ChannelMonitorRuntime.V3Active)
+}
+
+func channelMonitorModeGuard(settingService *service.SettingService, allowed func(service.ChannelMonitorRuntime) bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService == nil {
 			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
@@ -987,7 +1016,7 @@ func channelMonitorPassiveModeGuard(settingService *service.SettingService) gin.
 			c.Abort()
 			return
 		}
-		if !rt.PassiveAggregationAllowed() {
+		if !allowed(rt) {
 			response.ErrorFrom(c, service.ErrChannelMonitorModeMismatch)
 			c.Abort()
 			return

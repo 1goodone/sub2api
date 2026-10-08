@@ -103,6 +103,8 @@ func accountToPluginInfo(account *Account) PluginAccountInfo {
 //     recurse into a stack-overflow panic if the reverse relation is ever
 //     populated. GroupIDs already conveys membership, so drop these for
 //     correctness (not secrecy).
+//   - InitialQualityPlan: internal create-only state that may contain probe
+//     prompts and must never leave the account creation flow.
 //
 // Unexported fields (e.g. the hot-path caches) are never marshaled by encoding/json.
 func accountReadableSnapshotJSON(account *Account) []byte {
@@ -113,6 +115,7 @@ func accountReadableSnapshotJSON(account *Account) []byte {
 	clone.Credentials = nil
 	clone.Groups = nil
 	clone.AccountGroups = nil
+	clone.InitialQualityPlan = nil
 	clone.Extra = redactPluginAccountExtra(account.Extra)
 	if account.Proxy != nil {
 		proxy := *account.Proxy

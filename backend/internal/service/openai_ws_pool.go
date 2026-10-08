@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamroute"
 	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"golang.org/x/sync/errgroup"
 )
@@ -871,7 +872,7 @@ type openAIWSConnPool struct {
 func newOpenAIWSConnPool(cfg *config.Config) *openAIWSConnPool {
 	pool := &openAIWSConnPool{
 		cfg:          cfg,
-		clientDialer: newDefaultOpenAIWSClientDialer(),
+		clientDialer: newConfiguredOpenAIWSClientDialer(cfg),
 		workerStopCh: make(chan struct{}),
 	}
 	pool.startBackgroundWorkers()
@@ -2151,6 +2152,9 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 			return nil, err
 		}
 		req.Headers = headers
+	}
+	if req.Account != nil {
+		ctx = upstreamroute.WithAccountID(ctx, req.Account.ID)
 	}
 	conn, status, handshakeHeaders, err := p.clientDialer.Dial(ctx, req.WSURL, headers, req.ProxyURL)
 	if err != nil {

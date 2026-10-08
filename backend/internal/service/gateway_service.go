@@ -580,7 +580,10 @@ type AccountSelectionResult struct {
 	GroupID     *int64
 	Acquired    bool
 	ReleaseFunc func()
-	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// AccountRequestID is the exact Redis member acquired for Acquired results.
+	// Live transfer moves it into the Live lease instead of double counting.
+	AccountRequestID string
+	WaitPlan         *AccountWaitPlan // nil means no wait allowed
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -1361,6 +1364,7 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	s.rateLimitService.observeQualityResponse(upstreamReq.Context(), account, resp, err)
 	if err != nil {
 		return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Reason: GatewayFailureReason("grok_search_transport")}
 	}

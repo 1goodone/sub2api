@@ -129,14 +129,14 @@ export default {
       saveSuccess: 'V2 monitor config saved',
       saveFailed: 'Failed to save V2 config',
       modeBanner:
-        'System mode is currently {mode}. Passive minute aggregation will not run; this config can be prepared now and takes effect after switching to V2 or V3. Change mode under System Settings → Feature switches.',
+        'System mode is currently {mode}. The V2 page is inactive; this config can be prepared now and takes effect after switching to V2. Change mode under System Settings → Feature switches.',
       modeClosed: 'Channel monitor disabled',
       modeV1: 'V1 active probes',
       modeV2: 'V2 passive monitoring',
       modeV3: 'V3 redesigned monitor',
       enableTitle: 'Enable V2 aggregation',
       enableHint:
-        'Applies when system mode is V2 or V3. Turning this off only stops this config’s aggregation; the system mode switch remains under Feature switches.',
+        'Applies when system mode is V2. Turning this off only stops the V2 summary; the system mode switch remains under Feature switches.',
       refreshTitle: 'Aggregation interval',
       refreshHint: 'Affects matrix time granularity and refresh cadence',
       refreshAria: 'Aggregation interval',

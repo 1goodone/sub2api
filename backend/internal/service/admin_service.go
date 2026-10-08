@@ -422,6 +422,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	InitialQualityPlan *ScheduledTestPlan `json:"-"`
 	Name               string
 	Notes              *string
 	Platform           string

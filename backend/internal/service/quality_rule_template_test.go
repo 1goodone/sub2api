@@ -203,13 +203,13 @@ func plansByAccount(r *templatePlanRepo) map[int64]*ScheduledTestPlan {
 }
 
 func newTemplateService(plans *templatePlanRepo, templates *fakeTemplateRepo) *ScheduledTestService {
-	return ProvideScheduledTestService(plans, &pelicanResults{}, templates, nil)
+	return ProvideScheduledTestService(plans, &pelicanResults{}, templates, nil, nil)
 }
 
 func TestProvideScheduledTestServiceWiresTemplateRepository(t *testing.T) {
 	plans := newTemplatePlanRepo()
 	templates := newFakeTemplateRepo(plans)
-	svc := ProvideScheduledTestService(plans, &pelicanResults{}, templates, nil)
+	svc := ProvideScheduledTestService(plans, &pelicanResults{}, templates, nil, nil)
 	require.Same(t, templates, svc.templateRepo)
 }
 

@@ -652,9 +652,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-			Account:     account,
-			Acquired:    true,
-			ReleaseFunc: result.ReleaseFunc,
+			Account:          account,
+			Acquired:         true,
+			ReleaseFunc:      result.ReleaseFunc,
+			AccountRequestID: result.RequestID,
 		}), false, nil
 	}
 	if acquireErr == nil && result != nil && !result.Acquired && groupHasFocusAccount(req.routingGroup(), accountID) {
@@ -736,6 +737,8 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccountAt(accountID in
 type openAIAccountCandidateScore struct {
 	priorityRecovery         bool
 	priorityRecoveryPressure float64
+	priorityOAuthSpare       int
+	priorityAPIStandby       bool
 	priorityLatencyFactor    float64
 	priorityUnhealthy        bool
 	priorityExploration      bool
@@ -1038,6 +1041,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		loadRateSumSquares += loadRate * loadRate
 	}
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
+	// Priority scheduling supplies its own scores and uses every overflow peer.
+	// Do not read legacy weights or calculate reset/cost factors only to discard them.
+	if s.applyPriorityScheduling(req, &plan) {
+		return plan
+	}
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
 	now := time.Now()
@@ -1142,7 +1150,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		plan.topK = 1
 	}
 
-	s.applyPriorityScheduling(req, &plan)
 	plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
 	return plan
 }
@@ -1394,9 +1401,10 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-			Account:     fresh,
-			Acquired:    true,
-			ReleaseFunc: result.ReleaseFunc,
+			Account:          fresh,
+			Acquired:         true,
+			ReleaseFunc:      result.ReleaseFunc,
+			AccountRequestID: result.RequestID,
 		}), compactBlocked, nil
 	}
 	return nil, compactBlocked, nil
@@ -1485,9 +1493,10 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, account.ID)
 			}
 			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-				Account:     account,
-				Acquired:    true,
-				ReleaseFunc: result.ReleaseFunc,
+				Account:          account,
+				Acquired:         true,
+				ReleaseFunc:      result.ReleaseFunc,
+				AccountRequestID: result.RequestID,
 			}), nil
 		}
 		if s.service.concurrencyService != nil {
@@ -2740,6 +2749,10 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 		return false
 	}
 	if len(requestedModels) > 0 && account.IsExcelBPSEnabledForModel(requestedModels[0]) {
+		return false
+	}
+	// Prism runs one HTTP turn per request; keep WS clients on native accounts.
+	if len(requestedModels) > 0 && account.IsPrismBrowserEnabledForModel(requestedModels[0]) {
 		return false
 	}
 	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {

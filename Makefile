@@ -22,6 +22,11 @@ FRONTEND_CRITICAL_VITEST := \
 	src/stores/__tests__/adminSettings.retry.spec.ts \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/api/__tests__/client.spec.ts \
+	src/api/__tests__/keys.spec.ts \
+	src/features/channel-monitor-v3/__tests__/monitorV3.spec.ts \
+	src/features/channel-monitor-v3/__tests__/StatusPage.spec.ts \
+	src/features/channel-monitor-v3/__tests__/V3SettingsPanel.spec.ts \
+	src/views/admin/__tests__/ChannelMonitorView.modeSwitch.spec.ts \
 	src/api/__tests__/tokenRefresh.spec.ts \
 	src/api/__tests__/keys.bulkUpdate.spec.ts \
 	src/components/keys/__tests__/BulkEditKeysModal.spec.ts \

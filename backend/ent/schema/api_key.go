@@ -37,6 +37,10 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("package_id").
 			Optional().
 			Nillable(),
+		field.Int("concurrency_limit").
+			Default(0).
+			NonNegative().
+			Comment("API key concurrency limit (0 = no additional limit)"),
 		field.String("key").
 			MaxLen(128).
 			NotEmpty().

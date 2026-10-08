@@ -282,11 +282,15 @@ type SystemSettings struct {
 	PaymentBalanceRechargeMultiplier float64  `json:"payment_balance_recharge_multiplier"`
 	PaymentSubscriptionUSDToCNYRate  float64  `json:"payment_subscription_usd_to_cny_rate"`
 	PaymentRechargeFeeRate           float64  `json:"payment_recharge_fee_rate"`
-	PaymentLoadBalanceStrat          string   `json:"payment_load_balance_strategy"`
-	PaymentProductNamePrefix         string   `json:"payment_product_name_prefix"`
-	PaymentProductNameSuffix         string   `json:"payment_product_name_suffix"`
-	PaymentHelpImageURL              string   `json:"payment_help_image_url"`
-	PaymentHelpText                  string   `json:"payment_help_text"`
+	// 充值赠送阶梯与活动文案
+	PaymentRechargeBonusTiers  []RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
+	PaymentRechargeBonusMode   string              `json:"payment_recharge_bonus_mode"`
+	PaymentRechargeBonusNotice string              `json:"payment_recharge_bonus_notice"`
+	PaymentLoadBalanceStrat    string              `json:"payment_load_balance_strategy"`
+	PaymentProductNamePrefix   string              `json:"payment_product_name_prefix"`
+	PaymentProductNameSuffix   string              `json:"payment_product_name_suffix"`
+	PaymentHelpImageURL        string              `json:"payment_help_image_url"`
+	PaymentHelpText            string              `json:"payment_help_text"`
 
 	// Cancel rate limit
 	PaymentCancelRateLimitEnabled bool   `json:"payment_cancel_rate_limit_enabled"`
@@ -315,6 +319,9 @@ type SystemSettings struct {
 	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
 	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
+	PrismBrowserEnabled                  bool   `json:"prism_browser_enabled"`
+	PrismBrowserBaseURL                  string `json:"prism_browser_base_url"`
+	PrismBrowserAPIKeyConfigured         bool   `json:"prism_browser_api_key_configured"`
 
 	// Grok model mapping policy (admin settings; empty account mapping falls back to these).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`

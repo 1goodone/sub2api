@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/qualityqueue"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -472,6 +473,10 @@ func ProvideConcurrencyService(cache ConcurrencyCache, accountRepo AccountReposi
 		}
 	}
 	if cfg != nil {
+		svc.SetAPIKeyQueuePolicy(APIKeyQueuePolicy{
+			MaxWaiting: cfg.Gateway.APIKeyQueue.MaxWaiting,
+			Timeout:    cfg.Gateway.APIKeyQueue.Timeout(),
+		})
 		svc.SetAccountLoadBatchCacheTTL(time.Duration(cfg.Gateway.Scheduling.LoadBatchCacheTTLMS) * time.Millisecond)
 		svc.StartSlotCleanupWorker(accountRepo, cfg.Gateway.Scheduling.SlotCleanupInterval)
 	}
@@ -513,9 +518,16 @@ func ProvideRateLimitService(
 	tokenCacheInvalidator TokenCacheInvalidator,
 	ollamaCloudUsage *OllamaCloudUsageService,
 	accountOps *AccountOpsService,
+	rdb *redis.Client,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
 	svc.accountOps = accountOps
+	if rdb != nil {
+		svc.qualityTrigger = &quality5xxTrigger{queue: qualityqueue.NewRedis(rdb)}
+	}
+	if svc.qualityTrigger != nil {
+		svc.qualityTrigger.immediate, _ = accountRepo.(quality5xxImmediateRepository)
+	}
 	if healthCache, ok := tempUnschedCache.(OpenAIAPIKeyHealthCache); ok {
 		svc.SetOpenAIAPIKeyHealthCache(healthCache)
 	}
@@ -651,10 +663,15 @@ func ProvideScheduledTestService(
 	resultRepo ScheduledTestResultRepository,
 	templateRepo QualityRuleTemplateRepository,
 	showcase *PelicanShowcaseService,
+	accountTests *AccountTestService,
 ) *ScheduledTestService {
 	svc := NewScheduledTestService(planRepo, resultRepo)
 	svc.templateRepo = templateRepo
 	svc.showcase = showcase
+	svc.accountTests = accountTests
+	if accountTests != nil {
+		svc.qualityModels = svc.accountQualityModels
+	}
 	return svc
 }
 
@@ -666,9 +683,13 @@ func ProvideScheduledTestRunnerService(
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
 	judge *QualityJudgeService,
+	rdb *redis.Client,
 	monitor *ChannelMonitorV2Service,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	if rdb != nil {
+		svc.qualityTrigger = &quality5xxTrigger{queue: qualityqueue.NewRedis(rdb)}
+	}
 	svc.judgeQuality = judge.Judge
 	if monitor != nil {
 		svc.candyMonitor = monitor.candy
@@ -1082,6 +1103,7 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorQuotaFetcher,
 	ProvideChannelMonitorV2Service,
 	ProvideChannelMonitorV2Aggregator,
+	ProvideChannelMonitorV3Service,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
 )
@@ -1180,6 +1202,11 @@ func ProvideChannelMonitorV2Service(
 	runner := newGatewayChannelMonitorV2CandyRunner(groups, gateway, openai, concurrency, accountTest)
 	svc.candy = newChannelMonitorV2CandyService(repo, runner, settingService)
 	return svc
+}
+
+// ProvideChannelMonitorV3Service wires the component status page over passive facts.
+func ProvideChannelMonitorV3Service(repo ChannelMonitorV3Repository, groupRepo GroupRepository) *ChannelMonitorV3Service {
+	return NewChannelMonitorV3Service(repo, groupRepo)
 }
 
 // ProvideChannelMonitorV2Aggregator starts the passive minute-rollup worker.

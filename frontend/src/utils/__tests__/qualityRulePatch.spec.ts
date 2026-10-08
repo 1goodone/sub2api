@@ -35,6 +35,15 @@ describe('quality rule partial updates', () => {
     })
   })
 
+  it('replaces the full model selection without overwriting the rule’s grading policy', () => {
+    const source = draft()
+    Object.assign(source.pelican_config, { model_ids: ['second-model', 'second-model'] })
+    const updated = buildQualityRulePatch(plan(), source, ['model'])
+    expect(updated.model_id).toBe('new-model')
+    expect(updated.pelican_config).toMatchObject({ model_ids: ['new-model', 'second-model'],
+      quality: { expected_answer: '7', judge: { model_id: 'own-judge' } } })
+  })
+
   it('preserves different questions, judges and target groups when changing restoration', () => {
     const first = plan(), second = plan()
     second.pelican_config!.quality!.remove_group_ids = [100]
@@ -124,6 +133,17 @@ describe('quality rule partial updates', () => {
     expect(() => buildQualityRulePatch(rule, draft(), ['test'])).toThrow('qualityOps.bpsRequiresProbe')
     input.pelican_config.question_kind = 'state_probe'; input.pelican_config.quality.bps = { ...bps(), failure_threshold: 0 }
     expect(() => buildQualityRulePatch(probePlan(), input, ['action'])).toThrow('qualityOps.bpsTriggerRequired')
+  })
+
+  it('converts explicit BPS candy observations without retaining automatic BPS or restoration', () => {
+    const rule = probePlan()
+    rule.pelican_config!.quality = { ...rule.pelican_config!.quality!, action: 'enable_bps', auto_restore: true, bps: bps() }
+    const input = draft(); input.pelican_config.test_channel = 'bps'
+    const patch = buildQualityRulePatch(rule, input, ['test', 'restore'])
+    expect(patch.pelican_config).toMatchObject({ question_kind: 'candy', test_channel: 'bps', prompt: 'New question',
+      quality: { action: 'observe_only', auto_restore: false, remove_group_ids: [], expected_answer: '42', judge: input.pelican_config.quality.judge } })
+    expect(patch.pelican_config!.quality).not.toHaveProperty('bps')
+    expect(rule.pelican_config!.quality!.action).toBe('enable_bps')
   })
 
   it('reports the first invalid BPS setting', () => {

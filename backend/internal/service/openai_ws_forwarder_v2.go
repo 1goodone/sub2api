@@ -65,6 +65,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	)
 
 	payload := s.buildOpenAIWSCreatePayload(reqBody, account)
+	accelerateHTTPSSE := decision.Reason == openAIOAuthWSSSEAccelerationReason
+	if accelerateHTTPSSE && hasOpenAIWSSSEUnsupportedTool(payload) {
+		return nil, errOpenAIWSSSEUnsupportedTool
+	}
 	payloadStrategy, removedKeys := applyOpenAIWSRetryPayloadStrategy(payload, attempt)
 	turnState := ""
 	turnMetadata := ""
@@ -311,7 +315,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 		return nil, wrapOpenAIWSFallback(classifyOpenAIWSAcquireError(err), err)
 	}
-	// cleanExit 标记正常终端事件退出，此时上游不会再发送帧，连接可安全归还复用。
+	// cleanExit 标记正常终态或尚未发送消息的本地拒绝，连接可安全归还复用。
 	// 所有异常路径（读写错误、error 事件等）已在各自分支中提前调用 MarkBroken，
 	// 因此 defer 中只需处理正常退出时不 MarkBroken 即可。
 	cleanExit := false
@@ -383,32 +387,78 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
-	if err := s.performOpenAIWSGeneratePrewarm(
-		ctx,
-		lease,
-		decision,
-		payload,
-		previousResponseID,
-		reqBody,
-		account,
-		stateStore,
-		groupID,
-	); err != nil {
+	checkBeforeWrite := func() error {
+		latest, err := s.admitOpenAITurn(ctx, c, account, mappedModel)
+		if err == nil {
+			err = s.checkOpenAIWSBinding(latest, mappedModel, lease.conn.turnBinding)
+		}
+		if err != nil {
+			s.invalidateOpenAIWSTurnStateAfterAdmissionFailure(
+				ctx,
+				groupID,
+				sessionHash,
+				previousResponseID,
+				account.ID,
+				err,
+			)
+			lease.MarkBroken()
+		}
+		return err
+	}
+	if err := checkBeforeWrite(); err != nil {
+		return nil, err
+	}
+	// Only the optional cold-prewarm path needs a separate size preflight.
+	// Release its encoder buffer before awaiting the prewarm response. The
+	// usual path still encodes once, directly into the synchronous write.
+	preflightBeforePrewarm := accelerateHTTPSSE && s.isOpenAIWSGeneratePrewarmEnabled() &&
+		previousResponseID == "" && !lease.IsPrewarmed() && !NeedsToolContinuation(reqBody)
+	if preflightBeforePrewarm {
+		err = encodeOpenAIWSSSEPayload(payload, s.openAIWSSSEMaxPayloadBytes(), func(encoded []byte) error {
+			payloadBytes = len(encoded)
+			return nil
+		})
+		if err != nil {
+			cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
+			return nil, err
+		}
+	}
+	if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
+		cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
+		return nil, err
+	}
+	if err := checkBeforeWrite(); err != nil {
 		return nil, err
 	}
 	payload = s.prepareCodexQuotaOverdraftPayload(ctx, account, payload)
-	outboundPayload := payloadAsJSONBytes(payload)
-
-	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(outboundPayload), s.openAIWSWriteTimeout()); err != nil {
-		lease.MarkBroken()
-		logOpenAIWSModeInfo(
-			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
-			account.ID,
-			connID,
-			truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
-			resolvePayloadBytes(),
-		)
-		return nil, wrapOpenAIWSFallback("write_request", err)
+	sendRequest := func(value any) error {
+		if err := lease.WriteJSONWithContextTimeout(ctx, value, s.openAIWSWriteTimeout()); err != nil {
+			lease.MarkBroken()
+			logOpenAIWSModeInfo(
+				"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
+				account.ID,
+				connID,
+				truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
+				resolvePayloadBytes(),
+			)
+			return wrapOpenAIWSFallback("write_request", err)
+		}
+		return nil
+	}
+	if accelerateHTTPSSE {
+		err = encodeOpenAIWSSSEPayload(payload, s.openAIWSSSEMaxPayloadBytes(), func(encoded []byte) error {
+			payloadBytes = len(encoded)
+			return sendRequest(openAIWSPreparedJSON(encoded))
+		})
+		if errors.Is(err, errOpenAIWSSSEPayloadTooLarge) {
+			// No frame write occurred. Preserve the healthy lease.
+			cleanExit = true
+		}
+	} else {
+		err = sendRequest(payload)
+	}
+	if err != nil {
+		return nil, err
 	}
 	if debugEnabled {
 		logOpenAIWSModeDebug(

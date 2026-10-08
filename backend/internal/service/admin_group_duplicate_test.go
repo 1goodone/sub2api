@@ -159,7 +159,6 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		ClaudeCodeOnly:                  true,
 		FallbackGroupID:                 groupDuplicateTestPointer(int64(7)),
 		FallbackGroupIDOnInvalidRequest: groupDuplicateTestPointer(int64(8)),
-		StreamOnly:                      true,
 		ModelRouting:                    map[string][]int64{"gpt-*": {13, 17}},
 		ModelRoutingEnabled:             true,
 		MCPXMLInject:                    true,

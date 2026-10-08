@@ -3,6 +3,7 @@
     <div>{{ t('autoConfig.tier', { current: account.concurrency, max: progress.maximum }) }}</div>
     <progress class="h-1 w-full accent-emerald-500" :value="progress.successes" :max="progress.required" />
     <div>{{ t('autoConfig.progress', { count: progress.successes, required: progress.required, next: Math.min(account.concurrency + progress.step, progress.maximum) }) }}</div>
+    <p v-if="account.extra?.openai_prism_browser === true" class="mt-1">{{ t('admin.accounts.openai.prismBrowserConcurrencyHint') }}</p>
   </div>
 </template>
 <script setup lang="ts">

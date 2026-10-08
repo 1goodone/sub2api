@@ -31,6 +31,31 @@
         <p class="input-hint">{{ t('priorityScheduling.modelAliasesHint') }}</p>
       </div>
 
+      <div
+        v-if="account.platform === 'openai' && account.type === 'oauth' && !isSparkShadow"
+        class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+        data-testid="openai-prism-browser-oauth-settings"
+      >
+        <label class="flex items-center gap-2 text-sm">
+          <input v-model="prismBrowserEnabled" type="checkbox" data-testid="openai-prism-browser-oauth-toggle" />
+          <span>{{ t('admin.accounts.openai.prismBrowser') }}</span>
+        </label>
+        <p class="input-hint">{{ t('admin.accounts.openai.prismBrowserDesc') }}</p>
+        <fieldset v-if="prismBrowserEnabled" class="mt-3" data-testid="prism-model-scope">
+          <legend class="input-label">{{ t('admin.accounts.openai.prismBrowserModels') }}</legend>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label v-for="model in prismSupportedModels" :key="model" class="flex items-center gap-2 text-sm">
+              <input v-model="prismBrowserModels" type="checkbox" :value="model" :data-testid="'prism-model-' + model" />
+              <span>{{ model }}</span>
+            </label>
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.openai.prismBrowserModelsHint') }}</p>
+          <p class="mt-2 text-xs text-primary-600 dark:text-primary-400">
+            {{ t('admin.accounts.openai.prismBrowserManagedEndpoint') }}
+          </p>
+        </fieldset>
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
@@ -3449,6 +3474,9 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const prismBrowserEnabled = ref(false)
+const prismSupportedModels = ['gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-luna']
+const prismBrowserModels = ref<string[]>([...prismSupportedModels])
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -4334,6 +4362,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   excelBPSIgnoreEncryptedContent.value = false
   excelBPSAutoMoveOn403.value = false
   excelBPS403TargetGroupID.value = ''
+  prismBrowserEnabled.value = false
+  prismBrowserModels.value = [...prismSupportedModels]
   copilotSDKEnabled.value = false
   openaiPassthroughEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
@@ -4354,6 +4384,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
+    prismBrowserEnabled.value = newAccount.type === 'oauth' && !isSparkShadow.value && extra?.openai_prism_browser === true
+    if (Object.prototype.hasOwnProperty.call(extra ?? {}, 'openai_prism_browser_models')) {
+      prismBrowserModels.value = Array.isArray(extra?.openai_prism_browser_models)
+        ? extra.openai_prism_browser_models.filter((model): model is string => typeof model === 'string' && prismSupportedModels.includes(model))
+        : []
+    }
     excelBPSEnabled.value = newAccount.type === 'oauth' && extra?.openai_excel_bps === true
     excelBPSMode.value = extra?.openai_excel_bps_config_mode === 'defaults' ? 'defaults' : 'initial'
     excelBPSAllModels.value = excelBPSEnabled.value && !Object.prototype.hasOwnProperty.call(extra ?? {}, 'openai_excel_bps_models')
@@ -5999,6 +6035,13 @@ const handleSubmit = async () => {
       } else {
         newExtra.openai_compact_mode = openAICompactMode.value
       }
+		if (props.account.type === 'oauth' && !isSparkShadow.value && prismBrowserEnabled.value) {
+			newExtra.openai_prism_browser = true
+			newExtra.openai_prism_browser_models = prismSupportedModels.filter(model => prismBrowserModels.value.includes(model))
+		} else {
+			delete newExtra.openai_prism_browser
+			delete newExtra.openai_prism_browser_models
+		}
 		if (props.account.type === 'apikey') {
         if (!openAITextGenerationCapabilityEnabled.value || openAIResponsesMode.value === 'auto') {
           delete newExtra.openai_responses_mode

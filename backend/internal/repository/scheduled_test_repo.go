@@ -73,13 +73,32 @@ func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time
 }
 
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
-	row := r.db.QueryRowContext(ctx, `
+	const query = `
 		UPDATE scheduled_test_plans
 		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6, next_run_at = $7, updated_at = NOW(), pelican_config = $8
 		WHERE id = $1
 		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, pelican_config, running_until
-	`, plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt, marshalPelicanConfig(plan.PelicanConfig))
-	return scanPlan(row)
+	`
+	args := []any{plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt, marshalPelicanConfig(plan.PelicanConfig)}
+	if plan.PelicanConfig == nil || plan.PelicanConfig.Quality == nil || plan.PelicanConfig.Quality.Action != service.QualityActionObserveOnly {
+		return scanPlan(r.db.QueryRowContext(ctx, query, args...))
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	updated, err := scanPlan(tx.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (r *scheduledTestPlanRepository) Delete(ctx context.Context, id int64) error {
@@ -250,11 +269,15 @@ func (r *scheduledTestPlanRepository) ClaimPelican(ctx context.Context, plan *se
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE scheduled_test_plans
  SET running_until = $3, next_run_at = $4
- WHERE id = $1 AND enabled = true AND next_run_at <= $2
- AND (running_until IS NULL OR running_until < $2) AND updated_at = $5
+ WHERE id = $1 AND enabled = true
+ AND (next_run_at <= $2 OR ($7 AND pelican_config->'quality'->>'trigger_on_upstream_5xx'='true'))
+ AND (NOT $7 OR (pelican_config->'quality'->>'trigger_on_upstream_5xx'='true'
+   AND EXISTS (SELECT 1 FROM accounts WHERE accounts.id=account_id AND type='oauth')
+   AND ($8::timestamptz IS NULL OR last_run_at IS NULL OR last_run_at <= $8 OR pelican_config->'quality'->>'action'='remove_models')))
+ AND (running_until IS NULL OR running_until < $2) AND updated_at = $5 AND next_run_at = $6
  AND EXISTS (SELECT 1 FROM accounts WHERE accounts.id = account_id AND deleted_at IS NULL)
  AND NOT EXISTS (SELECT 1 FROM scheduled_test_plans other WHERE other.account_id = scheduled_test_plans.account_id
- AND other.id <> scheduled_test_plans.id AND other.pelican_config IS NOT NULL AND other.running_until > $2)`, plan.ID, now, until, next, plan.UpdatedAt)
+ AND other.id <> scheduled_test_plans.id AND other.pelican_config IS NOT NULL AND other.running_until > $2)`, plan.ID, now, until, next, plan.UpdatedAt, plan.NextRunAt, plan.TriggerSource == "upstream_5xx", plan.TriggerObservedAt)
 	if err != nil {
 		return false, err
 	}
@@ -267,6 +290,11 @@ func (r *scheduledTestPlanRepository) ClaimPelican(ctx context.Context, plan *se
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
  SELECT 1 FROM account_quality_states WHERE plan_id=$1 AND state->>'action'=$2)`,
 			plan.ID, service.QualityActionEnableBPS).Scan(&bpsRecoveryPending); err != nil {
+			return false, err
+		}
+	}
+	if n == 1 && plan.PelicanConfig != nil && plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.Action == service.QualityActionRemoveModel {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT (state->>'quality_5xx_episode')::bigint FROM account_quality_states WHERE plan_id=$1),0)`, plan.ID).Scan(&plan.Quality5xxEpisode); err != nil {
 			return false, err
 		}
 	}
@@ -284,6 +312,13 @@ func (r *scheduledTestPlanRepository) ClaimPelican(ctx context.Context, plan *se
 func (r *scheduledTestPlanRepository) FinishPelican(ctx context.Context, id int64, until, finished time.Time) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until = NULL, last_run_at = $3
  WHERE id = $1 AND running_until = $2`, id, until, finished)
+	return err
+}
+
+func (r *scheduledTestPlanRepository) FinishTriggeredQuality(ctx context.Context, plan *service.ScheduledTestPlan, until, finished, next time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until=NULL,last_run_at=$3,
+ next_run_at=CASE WHEN updated_at=$4 AND next_run_at=$5 AND next_run_at<=$3 THEN $6 ELSE next_run_at END
+ WHERE id=$1 AND running_until=$2`, plan.ID, until, finished, plan.UpdatedAt, plan.NextRunAt, next)
 	return err
 }
 

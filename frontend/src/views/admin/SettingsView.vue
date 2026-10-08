@@ -203,6 +203,55 @@
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <div class="card" data-testid="prism-browser-settings">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.prismBrowser.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.prismBrowser.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div class="flex items-center justify-between gap-4">
+                <label class="font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.settings.prismBrowser.enabled") }}
+                </label>
+                <Toggle v-model="form.prism_browser_enabled" data-testid="prism-browser-enabled" />
+              </div>
+              <label class="block">
+                <span class="mb-1 block text-sm text-gray-600 dark:text-gray-300">
+                  {{ t("admin.settings.prismBrowser.baseUrl") }}
+                </span>
+                <input
+                  v-model="form.prism_browser_base_url"
+                  class="input w-full"
+                  data-testid="prism-browser-base-url"
+                  placeholder="http://127.0.0.1:8319/v1"
+                />
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-sm text-gray-600 dark:text-gray-300">
+                  {{ t("admin.settings.prismBrowser.apiKey") }}
+                </span>
+                <input
+                  v-model="form.prism_browser_api_key"
+                  type="password"
+                  autocomplete="new-password"
+                  class="input w-full"
+                  data-testid="prism-browser-api-key"
+                  :placeholder="form.prism_browser_api_key_configured ? t('admin.settings.prismBrowser.apiKeyConfigured') : ''"
+                />
+              </label>
+              <p
+                v-if="form.prism_browser_enabled && !form.prism_browser_api_key_configured && !form.prism_browser_api_key.trim()"
+                class="text-sm text-amber-600 dark:text-amber-400"
+                data-testid="prism-browser-key-required"
+              >
+                {{ t("admin.settings.prismBrowser.keyRequired") }}
+              </p>
+            </div>
+          </div>
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -8712,6 +8761,14 @@
             </div>
           </div>
 
+          <!-- 充值优惠阶梯（独立卡片，与服务商管理同级） -->
+          <RechargeBonusTierEditor
+            v-if="form.payment_enabled"
+            v-model="form.payment_recharge_bonus_tiers"
+            v-model:mode="form.payment_recharge_bonus_mode"
+            v-model:notice="form.payment_recharge_bonus_notice"
+          />
+
           <!-- Provider Management -->
           <PaymentProviderList
             v-if="form.payment_enabled"
@@ -9293,6 +9350,14 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import MihomoProxySelector from "@/views/admin/settings/MihomoProxySelector.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
+import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
+import {
+  normalizeRechargeBonusMode,
+  normalizeRechargeBonusTiers,
+  sanitizeRechargeBonusTiersForSubmit,
+  type RechargeBonusMode,
+  type RechargeBonusTierDraft,
+} from "@/utils/rechargeBonus";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import PelicanShowcaseSettings from "@/views/admin/settings/PelicanShowcaseSettings.vue";
 import {
@@ -10001,14 +10066,26 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_session_sticky: string;
   payment_visible_method_alipay_source: string;
   payment_visible_method_alipay_enabled: boolean;
+  // 充值赠送阶梯编辑态：允许留空的行，提交时清洗为 RechargeBonusTier[]
+  payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
+  payment_recharge_bonus_mode: RechargeBonusMode;
+  payment_recharge_bonus_notice: string;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
+  prism_browser_api_key: string;
 };
 
 const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
 
+// Omit an unchanged mode so this page cannot overwrite a newer switch made on the monitor page.
+let loadedChannelMonitorMode: 'v1' | 'v2' | 'v3' = 'v1';
+
 const form = reactive<SettingsForm>({
+  prism_browser_enabled: false,
+  prism_browser_base_url: "http://127.0.0.1:8319/v1",
+  prism_browser_api_key_configured: false,
+  prism_browser_api_key: "",
   registration_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
@@ -10065,6 +10142,9 @@ const form = reactive<SettingsForm>({
   payment_balance_recharge_multiplier: 1,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
+  payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
+  payment_recharge_bonus_notice: "",
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
@@ -11375,6 +11455,7 @@ async function loadSettings() {
       settings.channel_monitor_mode === "v2" || settings.channel_monitor_mode === "v3"
         ? settings.channel_monitor_mode
         : "v1";
+    loadedChannelMonitorMode = form.channel_monitor_mode;
     form.channel_monitor_hide_throughput = Boolean(
       settings.channel_monitor_hide_throughput
     );
@@ -11384,6 +11465,13 @@ async function loadSettings() {
     form.channel_monitor_hide_user_ranking = Boolean(
       settings.channel_monitor_hide_user_ranking
     );
+    form.prism_browser_enabled = Boolean(settings.prism_browser_enabled);
+    form.prism_browser_base_url =
+      settings.prism_browser_base_url || "http://127.0.0.1:8319/v1";
+    form.prism_browser_api_key_configured = Boolean(
+      settings.prism_browser_api_key_configured,
+    );
+    form.prism_browser_api_key = "";
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
     form.login_agreement_documents =
@@ -11396,6 +11484,13 @@ async function loadSettings() {
           }))
         : defaultLoginAgreementDocuments();
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(settings));
+    form.payment_recharge_bonus_tiers = normalizeRechargeBonusTiers(
+      settings.payment_recharge_bonus_tiers,
+    );
+    form.payment_recharge_bonus_mode = normalizeRechargeBonusMode(
+      settings.payment_recharge_bonus_mode,
+    );
+    form.payment_recharge_bonus_notice = settings.payment_recharge_bonus_notice || "";
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       settings.account_scheduling_thresholds,
@@ -11868,6 +11963,11 @@ async function saveSettings() {
     form.payment_visible_method_alipay_source = alipayVisibleSource;
 
     const payload: UpdateSettingsRequest = {
+      prism_browser_enabled: form.prism_browser_enabled,
+      prism_browser_base_url: form.prism_browser_base_url,
+      ...(form.prism_browser_api_key.trim()
+        ? { prism_browser_api_key: form.prism_browser_api_key.trim() }
+        : {}),
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
       registration_email_suffix_whitelist:
@@ -12115,6 +12215,11 @@ async function saveSettings() {
       payment_subscription_usd_to_cny_rate:
         Number(form.payment_subscription_usd_to_cny_rate) || 0,
       payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,
+      payment_recharge_bonus_tiers: sanitizeRechargeBonusTiersForSubmit(
+        form.payment_recharge_bonus_tiers,
+      ),
+      payment_recharge_bonus_mode: form.payment_recharge_bonus_mode,
+      payment_recharge_bonus_notice: form.payment_recharge_bonus_notice,
       payment_enabled_types: form.payment_enabled_types,
       payment_load_balance_strategy: form.payment_load_balance_strategy,
       payment_product_name_prefix: form.payment_product_name_prefix,
@@ -12181,7 +12286,10 @@ async function saveSettings() {
       ).filter((e) => e.email.trim() !== ""),
       // Channel Monitor feature switch
       channel_monitor_enabled: form.channel_monitor_enabled,
-      channel_monitor_mode: form.channel_monitor_mode,
+      channel_monitor_mode:
+        form.channel_monitor_mode === loadedChannelMonitorMode
+          ? undefined
+          : form.channel_monitor_mode,
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
       channel_monitor_hide_throughput: Boolean(form.channel_monitor_hide_throughput),
@@ -12276,6 +12384,7 @@ async function saveSettings() {
       updated.openai_codex_ticket_harvest_scope,
     );
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
+    loadedChannelMonitorMode = form.channel_monitor_mode || "v1";
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       updated.account_scheduling_thresholds,
@@ -12306,6 +12415,7 @@ async function saveSettings() {
     form.wechat_connect_open_app_secret = "";
     form.wechat_connect_mp_app_secret = "";
     form.wechat_connect_mobile_app_secret = "";
+    form.prism_browser_api_key = "";
     const updatedWechatCapabilities = resolveWeChatConnectModeCapabilities(
       updated.wechat_connect_open_enabled,
       updated.wechat_connect_mp_enabled,

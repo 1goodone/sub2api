@@ -102,7 +102,7 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// (refresh_token) not handed out by ResolveOutboundIdentity. Groups/AccountGroups
 	// = relational graphs with back-references that would cycle under encoding/json.
 	stripped := map[string]struct{}{
-		"Credentials": {}, "Groups": {}, "AccountGroups": {},
+		"Credentials": {}, "Groups": {}, "AccountGroups": {}, "InitialQualityPlan": {},
 	}
 	// Fields intentionally exposed as readable metadata. Extra and Proxy stay
 	// listed here because the snapshot still serializes them after redacting

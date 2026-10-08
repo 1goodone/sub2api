@@ -74,19 +74,26 @@ export function buildQualityRulePatch(
     patch.cron_expression = draft.cron_expression.trim()
   }
   if (fields.includes('enabled')) patch.enabled = draft.enabled
-  if (!fields.some(field => ['test', 'action', 'restore'].includes(field))) return patch
+  if (!fields.some(field => ['test', 'action', 'restore'].includes(field)) &&
+    !(fields.includes('model') && (draft.pelican_config.model_ids?.length || plan.pelican_config?.model_ids?.length))) return patch
 
   if (!plan.pelican_config?.quality) throw new Error('qualityOps.ruleConfigMissing')
   const config: PelicanTestConfig & { quality: QualityPolicy } = JSON.parse(JSON.stringify(plan.pelican_config))
   const source = draft.pelican_config
+  if (fields.includes('model')) {
+    config.model_ids = [...new Set([draft.model_id.trim(), ...(source.model_ids || []).map(model => model.trim())])]
+    if (config.model_ids.some(model => !model || model.length > 100)) throw new Error('qualityOps.modelRequired')
+  }
   if (fields.includes('test')) {
     config.question_kind = source.question_kind
+    if (source.test_channel) config.test_channel = source.test_channel
+    else delete config.test_channel
     config.reasoning_effort = source.reasoning_effort
     const probe = source.question_kind === STATE_PROBE_QUESTION
     config.prompt = probe ? '' : source.prompt
     config.parallel_count = probe ? 1 : source.parallel_count
     config.quality.expected_answer = probe ? '' : source.quality.expected_answer
-    if (probe) delete config.quality.judge
+    if (probe) { delete config.quality.judge; config.model_ids = [patch.model_id || plan.model_id] }
     else {
       const judge = source.quality.judge
       if (!judge?.group_id || !judge.model_id.trim() || !judge.prompt.trim()) throw new Error('qualityOps.configureJudge')
@@ -97,6 +104,13 @@ export function buildQualityRulePatch(
   if (fields.includes('action')) {
     config.quality.action = source.quality.action
     config.quality.remove_group_ids = source.quality.action === 'remove_groups' ? [...source.quality.remove_group_ids] : []
+    if (source.quality.action === 'remove_models') {
+      config.quality.remove_models = [...(source.quality.remove_models || [])]
+      const recovery = source.quality.recovery_concurrency ?? 5
+      if (!Number.isInteger(recovery) || recovery < 1 || recovery > 10000) throw new Error('qualityOps.invalidRecoveryConcurrency')
+      config.quality.recovery_concurrency = recovery
+    }
+    else { delete config.quality.remove_models; delete config.quality.recovery_concurrency }
     if (config.quality.action === 'remove_groups' && !config.quality.remove_group_ids.length) throw new Error('qualityOps.selectGroups')
     if (config.quality.action === 'enable_bps') {
       if (!source.quality.bps) throw new Error('qualityOps.bpsTriggerRequired')
@@ -105,9 +119,16 @@ export function buildQualityRulePatch(
       config.quality.bps = qualityBPSPayload(source.quality.bps)
     } else delete config.quality.bps
   }
-  // 开 BPS 只认探针结论：批量只改检测方式或只改动作时，也不能留下糖果题 + 开 BPS 的组合。
+  // Explicit BPS observation includes giving up this rule's account actions.
+  if (config.test_channel === 'bps') config.quality.action = 'observe_only'
+  if (config.quality.action === 'observe_only') {
+    config.quality.remove_group_ids = []
+    config.quality.auto_restore = false
+    delete config.quality.bps
+  }
+  // Automatic BPS switching remains a separate native-probe policy.
   if (config.quality.action === 'enable_bps' && config.question_kind !== STATE_PROBE_QUESTION) throw new Error('qualityOps.bpsRequiresProbe')
-  if (fields.includes('restore')) config.quality.auto_restore = source.quality.auto_restore
+  if (fields.includes('restore') && config.quality.action !== 'observe_only') config.quality.auto_restore = source.quality.auto_restore
   // 满血关闭次数和「用量仍高时先不关」跟着「自动恢复」走：勾选修改自动恢复且开着时才用表单里的值，
   // 否则各规则保留自己的；原本不是开 BPS 的规则用默认值。
   if (config.quality.action === 'enable_bps' && config.quality.bps) {
@@ -117,6 +138,10 @@ export function buildQualityRulePatch(
     config.quality.bps.pass_threshold = from.pass_threshold
     config.quality.bps.hold_on_usage = from.hold_on_usage
   }
+  if (config.question_kind === STATE_PROBE_QUESTION && (config.model_ids?.length || 0) > 1) throw new Error('qualityOps.probeSingleModel')
+  const samples = (config.model_ids?.length || 1) * config.parallel_count
+  if (samples > 100 || (config.model_ids?.length || 0) > 50) throw new Error('qualityOps.tooManyModelSamples')
+  if (samples > plan.max_results) patch.max_results = samples
   patch.pelican_config = config
   return patch
 }

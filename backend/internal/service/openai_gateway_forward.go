@@ -11,12 +11,67 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+func accountUsesPrismBrowser(account *Account, cfg *config.Config) bool {
+	return accountHasPrismBrowser(account) && cfg != nil && cfg.Gateway.PrismBrowser.Enabled
+}
+
+func accountHasPrismBrowser(account *Account) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsShadow() {
+		return false
+	}
+	enabled, _ := account.Extra["openai_prism_browser"].(bool)
+	return enabled
+}
+
+func prismBrowserResponsesURL(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return ""
+	}
+	if strings.HasSuffix(base, "/responses") {
+		return base
+	}
+	return base + "/responses"
+}
+
+// normalizeOpenAIResponsesNamespaces keeps initial routing and a late WS-to-HTTP
+// fallback on the same namespace policy, including validation and response names.
+func normalizeOpenAIResponsesNamespaces(c *gin.Context, account *Account, body []byte, transport OpenAIUpstreamTransport, passthroughEnabled, compactPath bool) ([]byte, error) {
+	var err error
+	if shouldFlattenOpenAIResponsesNamespaces(account, transport, passthroughEnabled, compactPath) {
+		body, err = flattenOpenAIResponsesNamespaces(c, body)
+		if err != nil {
+			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"type": "invalid_request_error", "message": err.Error(), "param": "tools",
+			}})
+			return nil, err
+		}
+	}
+	if shouldStripOpenAIResponsesInputNamespaces(account, transport, passthroughEnabled) {
+		keepToolCallNamespaces := shouldKeepOpenAIResponsesToolCallNamespaces(
+			account, transport, passthroughEnabled, compactPath, body,
+		)
+		body, err = stripOpenAIResponsesInputNamespaces(body, keepToolCallNamespaces)
+		if err != nil {
+			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"type": "invalid_request_error", "message": err.Error(), "param": "input",
+			}})
+			return nil, err
+		}
+	}
+
+	return body, nil
+}
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
@@ -63,6 +118,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	modelForBPS := gjson.GetBytes(body, "model").String()
+	if account.IsPrismBrowserEnabledForModel(modelForBPS) {
+		return s.forwardPrismBrowser(ctx, c, account, body, startTime)
+	}
 	if c.GetBool(bpsAccountProbeRequiredContextKey) &&
 		(!account.IsExcelBPSEnabledForModel(modelForBPS) || account.excelBPSNativeFallbackReason(body) != "") {
 		return nil, errors.New("bps probe path is unavailable")
@@ -145,28 +203,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	accelerateHTTPSSE := wsDecision.Reason == openAIOAuthWSSSEAccelerationReason
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled()
 	compactPath := isOpenAIResponsesCompactPath(c)
-	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
-		body, err = flattenOpenAIResponsesNamespaces(c, body)
-		if err != nil {
-			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
-				"type": "invalid_request_error", "message": err.Error(), "param": "tools",
-			}})
-			return nil, err
-		}
-	}
-	if shouldStripOpenAIResponsesInputNamespaces(account, wsDecision.Transport, passthroughEnabled) {
-		keepToolCallNamespaces := shouldKeepOpenAIResponsesToolCallNamespaces(
-			account, wsDecision.Transport, passthroughEnabled, compactPath, body,
-		)
-		body, err = stripOpenAIResponsesInputNamespaces(body, keepToolCallNamespaces)
-		if err != nil {
-			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
-				"type": "invalid_request_error", "message": err.Error(), "param": "input",
-			}})
-			return nil, err
-		}
+	body, err = normalizeOpenAIResponsesNamespaces(c, account, body, wsDecision.Transport, passthroughEnabled, compactPath)
+	if err != nil {
+		return nil, err
 	}
 
 	nativeCNResponses := account.UsesNativeCNResponses()
@@ -378,10 +417,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	apiKey := getAPIKeyFromContext(c)
-	imageGenerationAllowed := GroupAllowsImageGeneration(nil)
-	if apiKey != nil {
-		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
-	}
+	// Prefer the freshest revalidated image permission over the handshake Group
+	// snapshot so a mid-wait relaxation or revocation is honored.
+	imageGenerationAllowed := GroupAllowsImageGenerationLatest(c.Request.Context(), apiKeyGroup(apiKey))
 	codexImageGenerationBridgeEnabled := isCodexCLI &&
 		!isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
 		imageGenerationAllowed &&
@@ -818,7 +856,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	SetOpsUpstreamModel(c, upstreamModel)
 
-	// 原生 WS 保持既有重试；HTTP SSE 加速仅允许在请求尚未发送时回退。
+	// Native WS keeps its retry policy. HTTP SSE acceleration may fall back
+	// only after a local pre-send rejection or an eligible handshake failure.
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
 		// WS 分支需要结构化 payload 与重连恢复，命中后再触发 full-map decode。
 		wsReqBody, err := ensureReqBody()
@@ -1056,12 +1095,33 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 			return nil, wsErr
 		}
-		if !canFallbackOpenAIWSSSEHandshake(ctx, c, wsErr) {
+		fallbackReason := ""
+		if accelerateHTTPSSE {
+			fallbackReason = openAIWSSSEFallbackReason(ctx, c, wsErr)
+		}
+		if fallbackReason == "" {
 			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 			return nil, wsErr
 		}
+		// Discard the unused WS handshake header before HTTP commits its own.
+		c.Writer.Header().Del(openAIWSTurnStateHeader)
+		// WS skipped the HTTP namespace policy above. A local pre-send or
+		// handshake fallback must honor the same request/response mapping as
+		// ordinary HTTP, not just change the transport metadata.
+		body, err = normalizeOpenAIResponsesNamespaces(c, account, body, OpenAIUpstreamTransportHTTPSSE, passthroughEnabled, compactPath)
+		if err != nil {
+			return nil, err
+		}
+		if !account.IsOpenAIApiKey() {
+			body, _, err = dropPreviousResponseIDFromRawPayload(body)
+			if err != nil {
+				return nil, err
+			}
+		}
+		requestView = newOpenAIRequestView(body)
+		reqBody = nil
 		c.Set("openai_ws_transport_decision", string(OpenAIUpstreamTransportHTTPSSE))
-		c.Set("openai_ws_transport_reason", "oauth_ws_sse_handshake_fallback")
+		c.Set("openai_ws_transport_reason", fallbackReason)
 	}
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)

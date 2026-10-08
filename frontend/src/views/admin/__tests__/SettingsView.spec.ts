@@ -529,6 +529,9 @@ const baseSettingsResponse = {
   payment_balance_recharge_multiplier: 1,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
+  payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
+  payment_recharge_bonus_notice: "",
   payment_load_balance_strategy: "round-robin",
   payment_product_name_prefix: "",
   payment_product_name_suffix: "",
@@ -576,6 +579,9 @@ const baseSettingsResponse = {
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [],
+  prism_browser_enabled: false,
+  prism_browser_base_url: "http://127.0.0.1:8319/v1",
+  prism_browser_api_key_configured: false,
   usage_show_long_context_badge: true,
   usage_show_average_tps: true,
   // 平台限额嵌套字段（新后端契约）
@@ -877,9 +883,41 @@ describe("admin SettingsView payment visible method controls", () => {
 
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ channel_monitor_mode: "v3" }),
-    );
+    expect(updateSettings.mock.calls[0]?.[0]?.channel_monitor_mode).toBeUndefined();
+  });
+
+  it("loads and saves Prism browser settings without clearing a stored key", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      prism_browser_enabled: true,
+      prism_browser_base_url: "http://127.0.0.1:9319/v1",
+      prism_browser_api_key_configured: true,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    expect(wrapper.get<HTMLInputElement>('[data-testid="prism-browser-enabled"]').element.checked).toBe(true);
+    expect(wrapper.get<HTMLInputElement>('[data-testid="prism-browser-base-url"]').element.value).toBe("http://127.0.0.1:9319/v1");
+    expect(wrapper.get<HTMLInputElement>('[data-testid="prism-browser-api-key"]').element.value).toBe("");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+      prism_browser_enabled: true,
+      prism_browser_base_url: "http://127.0.0.1:9319/v1",
+    });
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("prism_browser_api_key");
+
+    await wrapper.get('[data-testid="prism-browser-api-key"]').setValue("p".repeat(32));
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[1]?.[0]).toMatchObject({
+      prism_browser_api_key: "p".repeat(32),
+    });
+    expect(wrapper.get<HTMLInputElement>('[data-testid="prism-browser-api-key"]').element.value).toBe("");
+    wrapper.unmount();
   });
 
   it("loads and saves independent Codex ticket model toggles", async () => {
@@ -895,6 +933,33 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_models).toEqual([
       "gpt-6-astra",
     ]);
+    wrapper.unmount();
+  });
+
+  it("leaves the monitor mode alone unless it was changed here", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, channel_monitor_enabled: true, channel_monitor_mode: "v3" });
+    updateSettings.mockImplementationOnce(async (payload) => ({
+      ...baseSettingsResponse,
+      ...payload,
+      channel_monitor_mode: payload.channel_monitor_mode ?? "v3",
+    }));
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    // The monitor page may have switched the mode since this page loaded.
+    expect(updateSettings.mock.calls[0]?.[0]?.channel_monitor_mode).toBeUndefined();
+
+    const featuresTab = wrapper.findAll("button").find((node) => node.text().includes("admin.settings.tabs.features"));
+    await featuresTab?.trigger("click");
+    await flushPromises();
+    const v1ModeButton = wrapper.findAll("button").find((node) =>
+      node.text().includes("channelMonitor.modeV1"),
+    );
+    await v1ModeButton?.trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[1]?.[0]).toMatchObject({ channel_monitor_mode: "v1" });
     wrapper.unmount();
   });
 
@@ -1183,30 +1248,6 @@ describe("admin SettingsView payment visible method controls", () => {
       group_ids: [99],
     });
     wrapper.unmount();
-  });
-
-  it("renders and preserves channel monitor v3 as an independent mode", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      channel_monitor_enabled: true,
-      channel_monitor_mode: "v3",
-    });
-
-    const wrapper = mountView();
-    await flushPromises();
-    await openFeaturesTab(wrapper);
-
-    const modeButtons = wrapper.findAll("button").filter((node) =>
-      ["modeV1", "modeV2", "modeV3"].some((mode) => node.text().includes(`channelMonitor.${mode}`)),
-    );
-    expect(modeButtons).toHaveLength(3);
-    expect(modeButtons.find((node) => node.text().includes("modeV3"))?.attributes("aria-pressed")).toBe("true");
-
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ channel_monitor_mode: "v3" }),
-    );
   });
 
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
@@ -1665,6 +1706,100 @@ describe("admin SettingsView payment visible method controls", () => {
         api_key_acl_trust_forwarded_ip: true,
         forwarded_client_ip_headers: ["Cf-Connecting-Ip", "X-Client-Ip"],
       }),
+    );
+  });
+
+  it("loads, edits, and saves recharge bonus tiers and the notice", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_tiers: [
+        { min_amount: 500, bonus_percent: 30 },
+        { min_amount: 100, bonus_percent: 20 },
+      ],
+      payment_recharge_bonus_notice: "满 100 送 20%",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    // 回填按阈值升序，并渲染区间预览（首段为「不赠送」）
+    let rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows).toHaveLength(2);
+    const minValue = (row: (typeof rows)[number]) =>
+      (row.get('[data-testid="recharge-bonus-tier-min-input"]').element as HTMLInputElement).value;
+    expect(minValue(rows[0]!)).toBe("100");
+    expect(minValue(rows[1]!)).toBe("500");
+    expect(wrapper.get('[data-testid="recharge-bonus-tier-preview"]').text()).toContain(
+      "admin.settings.payment.rechargeBonus.previewRangeNone",
+    );
+
+    await wrapper.get('[data-testid="recharge-bonus-tier-add"]').trigger("click");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows).toHaveLength(3);
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-incomplete"]').exists()).toBe(true);
+
+    // 与已有档位重复的阈值行内报错，改成新阈值后消失
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-min-input"]').setValue("100");
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("25");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(true);
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-min-input"]').setValue("1000");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
+
+    // 切到折扣模式：百分比 ≥ 100 行内报错，改回 < 100 后消失
+    await wrapper.get('[data-testid="recharge-bonus-mode-discount"]').trigger("click");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("100");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.get('[data-testid="recharge-bonus-tier-error"]').text()).toContain("invalidDiscountPercent");
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("25");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="recharge-bonus-tier-preview"]').text()).toContain(
+      "admin.settings.payment.rechargeBonus.previewRangeDiscount",
+    );
+
+    const notice = wrapper.get('[data-testid="recharge-bonus-notice-input"]');
+    expect((notice.element as HTMLTextAreaElement).value).toBe("满 100 送 20%");
+    await notice.setValue("**新活动**");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_bonus_tiers: [
+          { min_amount: 100, bonus_percent: 20 },
+          { min_amount: 500, bonus_percent: 30 },
+          { min_amount: 1000, bonus_percent: 25 },
+        ],
+        payment_recharge_bonus_mode: "discount",
+        payment_recharge_bonus_notice: "**新活动**",
+      }),
+    );
+  });
+
+  it("drops incomplete recharge bonus rows and submits an empty list when cleared", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-bonus-tier-remove"]').trigger("click");
+    await wrapper.get('[data-testid="recharge-bonus-tier-add"]').trigger("click");
+    expect(wrapper.findAll('[data-testid="recharge-bonus-tier-row"]')).toHaveLength(1);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_recharge_bonus_tiers: [] }),
     );
   });
 

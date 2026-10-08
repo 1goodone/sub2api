@@ -281,7 +281,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		attemptImageIntentInvalidated,
 		IsImageGenerationIntent,
 	)
-	if imageIntent && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
+	if imageIntent && !GroupAllowsImageGenerationLatest(c.Request.Context(), apiKeyGroup(apiKey)) {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": gin.H{
@@ -1722,6 +1722,11 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 	}
 	statusCode := openAIStreamFailureStatus(payload, message)
 	detail := ""
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	s.rateLimitService.observeQualityStatus(ctx, account, statusCode)
 	if len(payload) > 0 && s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
 		if maxBytes <= 0 {

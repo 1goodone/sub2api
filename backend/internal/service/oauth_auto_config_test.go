@@ -95,6 +95,33 @@ func TestAutoConfigAdvanceFailureCooldownCapAndManualChange(t *testing.T) {
 	require.Equal(t, 1, state.Successes)
 	require.Equal(t, "r2", state.Revision)
 }
+
+func TestAutoConfigRecoveryRampStopsAtCapturedTarget(t *testing.T) {
+	c := DefaultOAuthAutoConfig()
+	c.Revision = "r1"
+	c.SuccessesPerStep = 1
+	c.UpgradeStep = 2
+	c.MaxConcurrency = 100
+	now := time.Now()
+	state := AutoConfigConcurrencyState{Revision: "r1", Concurrency: 5, RecoveryTarget: 9}
+	good := AccountConcurrencyResult{StartedAt: now, Success: true}
+	state, n := AdvanceConcurrency(state, 5, c, good, now)
+	require.Equal(t, 7, n)
+	state.PausedUntil = now.Add(-time.Second)
+	state, n = AdvanceConcurrency(state, 7, c, good, now)
+	require.Equal(t, 9, n)
+	require.Equal(t, 9, state.RecoveryTarget)
+}
+
+func TestAutoConfigPendingQualityFenceSurvivesCooldown(t *testing.T) {
+	c := DefaultOAuthAutoConfig()
+	c.Revision, c.SuccessesPerStep, c.MaxConcurrency = "r1", 1, 100
+	now := time.Now()
+	state := AutoConfigConcurrencyState{Revision: "r1", Concurrency: 5, RecoveryTarget: 5, PausedUntil: now.Add(-time.Hour)}
+	state, n := AdvanceConcurrency(state, 5, c, AccountConcurrencyResult{StartedAt: now, Success: true}, now)
+	require.Equal(t, 5, n)
+	require.Equal(t, 5, state.RecoveryTarget)
+}
 func TestAutoConfigQueueOverflowFailsClosed(t *testing.T) {
 	s := NewAccountOpsService(nil, nil, nil)
 	c := DefaultOAuthAutoConfig()
@@ -134,6 +161,7 @@ func (r *autoConfigAccountRepo) BindGroups(_ context.Context, _ int64, ids []int
 func TestAutoConfigCRSNewAccountsOnly(t *testing.T) {
 	cfg := DefaultOAuthAutoConfig()
 	cfg.Enabled = true
+	cfg.QualityRule = initialQualityRuleFixture()
 	cfg.Priority = 7
 	cfg.Concurrency = 9
 	cfg.GroupIDs = []int64{5}
@@ -144,6 +172,8 @@ func TestAutoConfigCRSNewAccountsOnly(t *testing.T) {
 	syncer := &CRSSyncService{accountRepo: repo, autoConfigure: policy.ApplyOAuthAutoConfig}
 	a := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Priority: 50, Concurrency: 3, Status: StatusError, Schedulable: false}
 	require.NoError(t, syncer.createSyncedAccount(context.Background(), a))
+	require.NotNil(t, repo.created.InitialQualityPlan)
+	require.Equal(t, "gpt-5.4", repo.created.InitialQualityPlan.ModelID)
 	require.Equal(t, 9, repo.created.Concurrency)
 	require.Equal(t, 7, repo.created.Priority)
 	require.Equal(t, []int64{5}, repo.groups)

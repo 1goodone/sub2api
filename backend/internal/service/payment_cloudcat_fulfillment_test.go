@@ -221,6 +221,7 @@ func TestCloudcatOrderCreationLeavesRechargeCodeEmptyUntilCardDelivery(t *testin
 		5,
 		0,
 		5,
+		0,
 		selection,
 	)
 	require.NoError(t, err)

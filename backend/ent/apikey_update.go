@@ -93,6 +93,27 @@ func (_u *APIKeyUpdate) ClearPackageID() *APIKeyUpdate {
 	return _u
 }
 
+// SetConcurrencyLimit sets the "concurrency_limit" field.
+func (_u *APIKeyUpdate) SetConcurrencyLimit(v int) *APIKeyUpdate {
+	_u.mutation.ResetConcurrencyLimit()
+	_u.mutation.SetConcurrencyLimit(v)
+	return _u
+}
+
+// SetNillableConcurrencyLimit sets the "concurrency_limit" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableConcurrencyLimit(v *int) *APIKeyUpdate {
+	if v != nil {
+		_u.SetConcurrencyLimit(*v)
+	}
+	return _u
+}
+
+// AddConcurrencyLimit adds value to the "concurrency_limit" field.
+func (_u *APIKeyUpdate) AddConcurrencyLimit(v int) *APIKeyUpdate {
+	_u.mutation.AddConcurrencyLimit(v)
+	return _u
+}
+
 // SetKey sets the "key" field.
 func (_u *APIKeyUpdate) SetKey(v string) *APIKeyUpdate {
 	_u.mutation.SetKey(v)
@@ -609,6 +630,11 @@ func (_u *APIKeyUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyUpdate) check() error {
+	if v, ok := _u.mutation.ConcurrencyLimit(); ok {
+		if err := apikey.ConcurrencyLimitValidator(v); err != nil {
+			return &ValidationError{Name: "concurrency_limit", err: fmt.Errorf(`ent: validator failed for field "APIKey.concurrency_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Key(); ok {
 		if err := apikey.KeyValidator(v); err != nil {
 			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "APIKey.key": %w`, err)}
@@ -650,6 +676,12 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ConcurrencyLimit(); ok {
+		_spec.SetField(apikey.FieldConcurrencyLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedConcurrencyLimit(); ok {
+		_spec.AddField(apikey.FieldConcurrencyLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
@@ -983,6 +1015,27 @@ func (_u *APIKeyUpdateOne) SetNillablePackageID(v *int64) *APIKeyUpdateOne {
 // ClearPackageID clears the value of the "package_id" field.
 func (_u *APIKeyUpdateOne) ClearPackageID() *APIKeyUpdateOne {
 	_u.mutation.ClearPackageID()
+	return _u
+}
+
+// SetConcurrencyLimit sets the "concurrency_limit" field.
+func (_u *APIKeyUpdateOne) SetConcurrencyLimit(v int) *APIKeyUpdateOne {
+	_u.mutation.ResetConcurrencyLimit()
+	_u.mutation.SetConcurrencyLimit(v)
+	return _u
+}
+
+// SetNillableConcurrencyLimit sets the "concurrency_limit" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableConcurrencyLimit(v *int) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetConcurrencyLimit(*v)
+	}
+	return _u
+}
+
+// AddConcurrencyLimit adds value to the "concurrency_limit" field.
+func (_u *APIKeyUpdateOne) AddConcurrencyLimit(v int) *APIKeyUpdateOne {
+	_u.mutation.AddConcurrencyLimit(v)
 	return _u
 }
 
@@ -1515,6 +1568,11 @@ func (_u *APIKeyUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyUpdateOne) check() error {
+	if v, ok := _u.mutation.ConcurrencyLimit(); ok {
+		if err := apikey.ConcurrencyLimitValidator(v); err != nil {
+			return &ValidationError{Name: "concurrency_limit", err: fmt.Errorf(`ent: validator failed for field "APIKey.concurrency_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Key(); ok {
 		if err := apikey.KeyValidator(v); err != nil {
 			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "APIKey.key": %w`, err)}
@@ -1573,6 +1631,12 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ConcurrencyLimit(); ok {
+		_spec.SetField(apikey.FieldConcurrencyLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedConcurrencyLimit(); ok {
+		_spec.AddField(apikey.FieldConcurrencyLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)

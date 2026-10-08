@@ -91,6 +91,65 @@ async function submit(wrapper: ReturnType<typeof mountModal>) {
 
 const toggleSelector = '[data-testid="account-auto-bps-toggle"]'
 
+describe('EditAccountModal Prism OAuth switch', () => {
+  beforeEach(() => {
+    Object.values(mocks).forEach(mock => mock.mockReset())
+    mocks.updateAccount.mockImplementation(async (_id: number, payload: Record<string, unknown>) => ({ ...buildOAuthAccount(), ...payload }))
+    mocks.listByAccount.mockResolvedValue([])
+  })
+
+  it('persists the Prism switch while preserving unrelated extra fields', async () => {
+    const wrapper = mountModal(buildOAuthAccount({ extra: { fixture_flag: true } }))
+    await flushPromises()
+    await wrapper.get('[data-testid="openai-prism-browser-oauth-toggle"]').setValue(true)
+    await submit(wrapper)
+    expect(mocks.updateAccount).toHaveBeenCalledTimes(1)
+    expect(mocks.updateAccount.mock.calls[0][1].extra).toMatchObject({
+      fixture_flag: true,
+      openai_prism_browser: true,
+      openai_prism_browser_models: ['gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-luna']
+    })
+  })
+
+  it('removes the flag and model scope when disabled', async () => {
+    const wrapper = mountModal(buildOAuthAccount({ extra: { openai_prism_browser: true, openai_prism_browser_models: ['gpt-6.1-sol'] } }))
+    await flushPromises()
+    await wrapper.get('[data-testid="openai-prism-browser-oauth-toggle"]').setValue(false)
+    await submit(wrapper)
+    expect(mocks.updateAccount.mock.calls[0][1].extra.openai_prism_browser).toBeUndefined()
+    expect(mocks.updateAccount.mock.calls[0][1].extra.openai_prism_browser_models).toBeUndefined()
+  })
+
+  it('defaults legacy Prism accounts to all supported models and persists a subset', async () => {
+    const wrapper = mountModal(buildOAuthAccount({ extra: { openai_prism_browser: true } }))
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="prism-model-scope"] input:checked')).toHaveLength(4)
+    for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-luna']) {
+      await wrapper.get('[data-testid="prism-model-' + model + '"]').setValue(false)
+    }
+    await submit(wrapper)
+    expect(mocks.updateAccount.mock.calls[0][1].extra.openai_prism_browser_models).toEqual(['gpt-6.1-sol'])
+  })
+
+  it.each([[], ['gpt-4o-audio-preview'], 'malformed'])('does not widen an empty or invalid scope: %j', async (models) => {
+    const wrapper = mountModal(buildOAuthAccount({ extra: { openai_prism_browser: true, openai_prism_browser_models: models } }))
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="prism-model-scope"] input:checked')).toHaveLength(0)
+    await submit(wrapper)
+    expect(mocks.updateAccount.mock.calls[0][1].extra.openai_prism_browser_models).toEqual([])
+  })
+
+  it.each([
+    ['API-key account', { type: 'apikey' }],
+    ['setup-token account', { type: 'setup-token' }],
+    ['Spark shadow account', { parent_account_id: 1 }]
+  ])('hides Prism for %s', async (_name, patch) => {
+    const wrapper = mountModal(buildOAuthAccount(patch))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="openai-prism-browser-oauth-toggle"]').exists()).toBe(false)
+  })
+})
+
 describe('EditAccountModal auto BPS switch', () => {
   beforeEach(() => {
     Object.values(mocks).forEach(mock => mock.mockReset())

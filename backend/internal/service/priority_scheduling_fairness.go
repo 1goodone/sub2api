@@ -90,12 +90,19 @@ func prioritySelectionWeight(item openAIAccountCandidateScore, now time.Time) fl
 // The durable session binding is preserved by the caller. Hard response/task
 // ownership never enters this path, and failed load reads retain the binding.
 func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx context.Context, req OpenAIAccountScheduleRequest, sticky *Account) bool {
-	if s == nil || s.service == nil || s.service.concurrencyService == nil ||
+	if s == nil || s.service == nil || s.service.concurrencyService == nil || s.stats == nil || sticky == nil ||
 		req.DisableStickyEscape || req.PreserveStickyBinding || req.PreviousResponseID != "" ||
-		req.Platform != PlatformOpenAI || !req.UseUpstreamTokenCost || req.RequiredImageCapability != "" ||
-		!s.service.prioritySchedulingRuntimeConfig().applies(req.GroupID, req.RequestedModel) {
+		req.Platform != PlatformOpenAI || !req.UseUpstreamTokenCost || req.RequiredImageCapability != "" {
 		return false
 	}
+	cfg := s.service.prioritySchedulingRuntimeConfig()
+	if !cfg.applies(req.GroupID, req.RequestedModel) {
+		return false
+	}
+	quotaSticky := cfg.OAuthQuotaPriority && sticky.IsOpenAIApiKey()
+	// Optional balancing must not hold a healthy sticky turn behind slow dependencies.
+	ctx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	defer cancel()
 	accounts, err := s.service.listSchedulableAccountsForRequest(ctx, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.ExcludedIDs)
 	if err != nil || len(accounts) < 2 {
 		return false
@@ -105,7 +112,7 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 	eligible := make([]*Account, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if account.ID == sticky.ID || !account.IsSchedulable() || account.Priority > sticky.Priority ||
+		if account.ID == sticky.ID || !account.IsSchedulable() || (!quotaSticky && account.Priority > sticky.Priority) ||
 			!s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) ||
 			!s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport, req.RequestedModel) ||
 			s.service.isExcelBPSRateLimited(account, req.RequestedModel) {
@@ -136,6 +143,29 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 	loadMap, err := s.service.concurrencyService.GetAccountsLoadBatch(ctx, loads)
 	if err != nil || loadMap[sticky.ID] == nil {
 		return false
+	}
+	if quotaSticky {
+		historyPool := make([]openAIAccountCandidateScore, 0, len(eligible)+1)
+		for _, account := range eligible {
+			historyPool = append(historyPool, openAIAccountCandidateScore{account: account})
+		}
+		historyPool = append(historyPool, openAIAccountCandidateScore{account: sticky})
+		signals, _ := s.service.prioritySignals(req, cfg, historyPool)
+		now := time.Now()
+		for i := range historyPool {
+			item := &historyPool[i]
+			item.loadInfo = loadMap[item.account.ID]
+			item.loadKnown = item.loadInfo != nil
+			if s.stats != nil {
+				item.errorRate, _, _ = s.stats.snapshot(item.account.ID)
+			}
+			applyPriorityCandidate(cfg, item, signals[item.account.ID], now)
+		}
+		for _, item := range buildPrioritySelectionOrder(historyPool, req) {
+			if item.account.ID == sticky.ID && item.priorityAPIStandby {
+				return true
+			}
+		}
 	}
 	current := loadMap[sticky.ID]
 	utilization := float64(current.CurrentConcurrency) / float64(max(1, sticky.Concurrency))
@@ -221,5 +251,5 @@ func buildPrioritySelectionOrder(pool []openAIAccountCandidateScore, req OpenAIA
 	for i := range choices {
 		order[i] = choices[i].candidate
 	}
-	return order
+	return applyPriorityOAuthStandby(order)
 }

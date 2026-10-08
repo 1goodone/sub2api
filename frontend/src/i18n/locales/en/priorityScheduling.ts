@@ -7,6 +7,10 @@ export default {
     setStart: 'Also set activation time for selected Teams accounts', startHint: 'Only selected Teams accounts are changed. Resetting this time changes the paid window; use the actual activation time for this purchase.',
     recovering: 'Recovering cost', recovered: 'Cost exceeded', progress: 'CNY {gap} to recover · {minutes} minutes left', windowProfit: 'Window profit CNY {profit}'
   },
+  oauthQuotaPriority: 'Consume OAuth quota first; move trailing API keys to standby',
+  oauthQuotaHint: 'When healthy OAuth accounts below the 7d usage threshold have spare capacity, move API keys from the end of the routing order to standby. The count follows OAuth capacity. Full, exhausted or unavailable OAuth accounts automatically release standby keys. Manual account status is unchanged. Requires valid quality evidence and quota data less than 5 minutes old.',
+  oauthQuotaThreshold: 'OAuth preference cutoff (7d used %)',
+  oauthQuotaRoles: { preferred: 'At selection: OAuth quota preference candidate', standby: 'At selection: API key on automatic standby, available for overflow' },
 
   profit: 'Recent profit / margin',
   economics: { usage: 'Usage records', rate: 'Rate estimate', unknown: 'Insufficient profit samples' },

@@ -264,6 +264,9 @@ type UpdateSettingsRequest struct {
 	OpenAICodexTicketUseSavedStaticProxy   bool                             `json:"openai_codex_ticket_use_saved_static_proxy"`
 	OpenAICodexTicketHarvestScope          *service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
 	OpenAICodexTicketModels                *[]string                        `json:"openai_codex_ticket_models"`
+	PrismBrowserEnabled                    bool                             `json:"prism_browser_enabled"`
+	PrismBrowserBaseURL                    string                           `json:"prism_browser_base_url"`
+	PrismBrowserAPIKey                     string                           `json:"prism_browser_api_key"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -317,11 +320,15 @@ type UpdateSettingsRequest struct {
 	PaymentBalanceRechargeMultiplier *float64 `json:"payment_balance_recharge_multiplier"`
 	PaymentSubscriptionUSDToCNYRate  *float64 `json:"payment_subscription_usd_to_cny_rate"`
 	PaymentRechargeFeeRate           *float64 `json:"payment_recharge_fee_rate"`
-	PaymentLoadBalanceStrat          *string  `json:"payment_load_balance_strategy"`
-	PaymentProductNamePrefix         *string  `json:"payment_product_name_prefix"`
-	PaymentProductNameSuffix         *string  `json:"payment_product_name_suffix"`
-	PaymentHelpImageURL              *string  `json:"payment_help_image_url"`
-	PaymentHelpText                  *string  `json:"payment_help_text"`
+	// nil 表示不更新；空数组表示清空阶梯
+	PaymentRechargeBonusTiers  *[]dto.RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
+	PaymentRechargeBonusMode   *string                  `json:"payment_recharge_bonus_mode"`
+	PaymentRechargeBonusNotice *string                  `json:"payment_recharge_bonus_notice"`
+	PaymentLoadBalanceStrat    *string                  `json:"payment_load_balance_strategy"`
+	PaymentProductNamePrefix   *string                  `json:"payment_product_name_prefix"`
+	PaymentProductNameSuffix   *string                  `json:"payment_product_name_suffix"`
+	PaymentHelpImageURL        *string                  `json:"payment_help_image_url"`
+	PaymentHelpText            *string                  `json:"payment_help_text"`
 
 	// Cancel rate limit
 	PaymentCancelRateLimitEnabled *bool   `json:"payment_cancel_rate_limit_enabled"`
@@ -529,6 +536,25 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.OpenAICodexTicketHarvestScope != nil && strings.TrimSpace(req.OpenAICodexTicketHarvestScope.Mode) == "" {
 		response.BadRequest(c, "harvest scope mode is required")
 		return
+	}
+	if req.PrismBrowserEnabled {
+		if strings.TrimSpace(req.PrismBrowserBaseURL) == "" {
+			response.BadRequest(c, "prism browser base URL is required when enabled")
+			return
+		}
+		if strings.TrimSpace(req.PrismBrowserAPIKey) != "" && len(strings.TrimSpace(req.PrismBrowserAPIKey)) < 32 {
+			response.BadRequest(c, "prism browser API key must contain at least 32 characters")
+			return
+		}
+		current, err := h.settingService.GetAllSettings(c.Request.Context())
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		if len(strings.TrimSpace(req.PrismBrowserAPIKey)) < 32 && len(strings.TrimSpace(current.PrismBrowserAPIKey)) < 32 {
+			response.BadRequest(c, "configure a Prism browser API key with at least 32 characters before enabling")
+			return
+		}
 	}
 	if req.RequestCaptureQuotaMiB != nil && (*req.RequestCaptureQuotaMiB < 1 || *req.RequestCaptureQuotaMiB > (1<<63-1)/(1<<20)) {
 		response.BadRequest(c, "Capture quota must be positive MiB within int64 range")
@@ -1588,6 +1614,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
 		RegistrationEnabled:                 req.RegistrationEnabled,
+		PrismBrowserEnabled:                 req.PrismBrowserEnabled,
+		PrismBrowserBaseURL:                 req.PrismBrowserBaseURL,
+		PrismBrowserAPIKey:                  req.PrismBrowserAPIKey,
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
@@ -2344,6 +2373,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			BalanceRechargeMultiplier:     req.PaymentBalanceRechargeMultiplier,
 			SubscriptionUSDToCNYRate:      req.PaymentSubscriptionUSDToCNYRate,
 			RechargeFeeRate:               req.PaymentRechargeFeeRate,
+			RechargeBonusTiers:            rechargeBonusTiersFromDTO(req.PaymentRechargeBonusTiers),
+			RechargeBonusMode:             req.PaymentRechargeBonusMode,
+			RechargeBonusNotice:           req.PaymentRechargeBonusNotice,
 			LoadBalanceStrategy:           req.PaymentLoadBalanceStrat,
 			ProductNamePrefix:             req.PaymentProductNamePrefix,
 			ProductNameSuffix:             req.PaymentProductNameSuffix,
@@ -2401,6 +2433,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                                    updatedSettings.RegistrationEnabled,
+		PrismBrowserEnabled:                                    updatedSettings.PrismBrowserEnabled,
+		PrismBrowserBaseURL:                                    updatedSettings.PrismBrowserBaseURL,
+		PrismBrowserAPIKeyConfigured:                           updatedSettings.PrismBrowserAPIKeyConfigured,
 		EmailVerifyEnabled:                                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       updatedSettings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:                    updatedSettings.RegistrationEmailDomainQuotaEnabled,
@@ -2626,6 +2661,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentBalanceRechargeMultiplier:                       updatedPaymentCfg.BalanceRechargeMultiplier,
 		PaymentSubscriptionUSDToCNYRate:                        updatedPaymentCfg.SubscriptionUSDToCNYRate,
 		PaymentRechargeFeeRate:                                 updatedPaymentCfg.RechargeFeeRate,
+		PaymentRechargeBonusTiers:                              rechargeBonusTiersToDTO(updatedPaymentCfg.RechargeBonusTiers),
+		PaymentRechargeBonusMode:                               rechargeBonusModeToDTO(updatedPaymentCfg.RechargeBonusMode),
+		PaymentRechargeBonusNotice:                             updatedPaymentCfg.RechargeBonusNotice,
 		PaymentLoadBalanceStrat:                                updatedPaymentCfg.LoadBalanceStrategy,
 		PaymentProductNamePrefix:                               updatedPaymentCfg.ProductNamePrefix,
 		PaymentProductNameSuffix:                               updatedPaymentCfg.ProductNameSuffix,
@@ -2726,6 +2764,7 @@ func hasPaymentFields(req UpdateSettingsRequest) bool {
 		req.PaymentEnabledTypes != nil || req.PaymentBalanceDisabled != nil ||
 		req.PaymentBalanceRechargeMultiplier != nil || req.PaymentSubscriptionUSDToCNYRate != nil ||
 		req.PaymentRechargeFeeRate != nil ||
+		req.PaymentRechargeBonusTiers != nil || req.PaymentRechargeBonusMode != nil || req.PaymentRechargeBonusNotice != nil ||
 		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||
 		req.PaymentProductNameSuffix != nil || req.PaymentHelpImageURL != nil ||
 		req.PaymentHelpText != nil || req.PaymentCancelRateLimitEnabled != nil ||

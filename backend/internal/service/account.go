@@ -21,6 +21,8 @@ import (
 )
 
 type Account struct {
+	// InitialQualityPlan is internal create-only state, never imported or exported.
+	InitialQualityPlan      *ScheduledTestPlan `json:"-"`
 	ID                      int64
 	Name                    string
 	Notes                   *string

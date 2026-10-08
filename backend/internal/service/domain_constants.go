@@ -521,6 +521,11 @@ const (
 	// Default false (keep the current ranking tab). Admin endpoints always keep it.
 	SettingKeyChannelMonitorHideUserRanking = "channel_monitor_hide_user_ranking"
 
+	// Prism browser bridge is administrator-managed and disabled by default.
+	SettingKeyPrismBrowserEnabled = "prism_browser_enabled"
+	SettingKeyPrismBrowserBaseURL = "prism_browser_base_url"
+	SettingKeyPrismBrowserAPIKey  = "prism_browser_api_key"
+
 	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
 	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.
 	SettingKeyGrokDefaultTextModel = "grok_default_text_model"

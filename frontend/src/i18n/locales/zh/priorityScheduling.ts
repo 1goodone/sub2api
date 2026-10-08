@@ -7,6 +7,10 @@ export default {
     setStart: '同时设置选中 Teams 的启用时间', startHint: '只写入选中的 Teams；重新设置会改变这次成本窗口，请使用该账号本次实际启用时间。',
     recovering: '回本优先', recovered: '已超过成本', progress: '距回本 ¥{gap} · 剩余 {minutes} 分钟', windowProfit: '本窗口利润 ¥{profit}'
   },
+  oauthQuotaPriority: '优先消耗 OAuth 额度，末位 API Key 自动后备',
+  oauthQuotaHint: '质量正常且 7d 已用低于阈值的 OAuth 有可用容量时，从调度队尾让 API Key 转为后备，数量随 OAuth 容量变化。OAuth 满载、额度不足或不可用时自动恢复；不更改手动启停状态。需要有效质量检测和 5 分钟内的额度数据。',
+  oauthQuotaThreshold: 'OAuth 优先消耗截止值（7d 已用 %）',
+  oauthQuotaRoles: { preferred: '本次选号：OAuth 额度优先候选', standby: '本次选号：API Key 自动后备，可承接溢出' },
 
   profit: '近期利润 / 利润率',
   economics: { usage: '使用记录', rate: '倍率估算', unknown: '利润样本不足' },

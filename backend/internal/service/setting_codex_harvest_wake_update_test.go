@@ -28,7 +28,7 @@ func TestCodexHarvestWakeAfterSuccessfulSettingsWrite(t *testing.T) {
 			<-svc.codexHarvestWakeups()
 			require.NoError(t, update())
 			require.Empty(t, svc.codexHarvestWakeups(), "unchanged settings must not wake")
-			settings.OpenAICodexTicketFailClosed = true
+			settings.OpenAICodexTicketModels = []string{"gpt-5.4"}
 			require.NoError(t, update())
 			require.Len(t, svc.codexHarvestWakeups(), 1)
 			<-svc.codexHarvestWakeups()

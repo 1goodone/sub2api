@@ -21,6 +21,7 @@ import (
 // RateLimitService 处理限流和过载状态管理
 type RateLimitService struct {
 	accountOps            *AccountOpsService
+	qualityTrigger        *quality5xxTrigger
 	accountRepo           AccountRepository
 	usageRepo             UsageLogRepository
 	cfg                   *config.Config

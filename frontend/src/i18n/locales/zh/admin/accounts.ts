@@ -735,6 +735,12 @@ export default {
       // OpenAI specific hints
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',
+        prismBrowser: '自动使用 Prism 浏览器协议',
+        prismBrowserDesc: '使用此 OpenAI OAuth 账号接入服务器管理的 Prism 适配器，无需另填 Prism 凭据。支持以下四个模型的文本请求，以及 6.1 Sol 的客户端函数和自定义工具。',
+        prismBrowserModels: '勾选使用 Prism 的模型',
+        prismBrowserModelsHint: '按账号映射后的模型名称匹配。仅勾选模型走 Prism；未选模型保留原 Codex / Excel 路由。全部取消时不使用 Prism。模型权限仍以上游账号为准。',
+        prismBrowserManagedEndpoint: '所选模型使用 HTTP/SSE。工具请求需同步升级服务器适配器；联网搜索、图片生成等托管工具不受支持。',
+        prismBrowserConcurrencyHint: 'Prism 另受适配器并发限制，其请求不计入本档升降级统计。',
         apiKeyHint: '您的 OpenAI API Key',
         reauth: {
           title: 'OAuth 自动重新登录',
@@ -1757,6 +1763,11 @@ export default {
         reasoningLow: '低',
         reasoningMedium: '中',
         reasoningHigh: '高',
+        reasoningNone: '无',
+        reasoningMinimal: '最低',
+        reasoningXHigh: '超高',
+        reasoningMax: '最大',
+        reasoningUltra: 'Ultra',
         parallel: '并行数',
         parallelHint: '同一账号最多同时生成 8 份结果。',
         results: '新建测试',

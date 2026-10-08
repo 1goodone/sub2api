@@ -48,6 +48,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	builder := r.client.APIKey.Create().
 		SetUserID(key.UserID).
 		SetNillablePackageID(key.PackageID).
+		SetConcurrencyLimit(key.ConcurrencyLimit).
 		SetKey(key.Key).
 		SetName(key.Name).
 		SetStatus(key.Status).
@@ -163,6 +164,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldQuotaUsed,
 			apikey.FieldExpiresAt,
 			apikey.FieldRateLimit5h,
+			apikey.FieldConcurrencyLimit,
 			apikey.FieldRateLimit1d,
 			apikey.FieldRateLimit7d,
 		).
@@ -361,6 +363,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if fields.ConcurrencyLimit {
+		builder.SetConcurrencyLimit(key.ConcurrencyLimit)
+	}
 	if fields.Name {
 		builder.SetName(key.Name)
 	}
@@ -996,32 +1001,33 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		return nil
 	}
 	out := &service.APIKey{
-		ID:            m.ID,
-		UserID:        m.UserID,
-		PackageID:     m.PackageID,
-		Key:           m.Key,
-		Name:          m.Name,
-		Status:        m.Status,
-		GroupID:       m.GroupID,
-		MixedMode:     m.MixedModeEnabled,
-		MixedGroupIDs: append([]int64(nil), m.MixedGroupIds...),
-		IPWhitelist:   m.IPWhitelist,
-		IPBlacklist:   m.IPBlacklist,
-		LastUsedAt:    m.LastUsedAt,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
-		Quota:         m.Quota,
-		QuotaUsed:     m.QuotaUsed,
-		ExpiresAt:     m.ExpiresAt,
-		RateLimit5h:   m.RateLimit5h,
-		RateLimit1d:   m.RateLimit1d,
-		RateLimit7d:   m.RateLimit7d,
-		Usage5h:       m.Usage5h,
-		Usage1d:       m.Usage1d,
-		Usage7d:       m.Usage7d,
-		Window5hStart: m.Window5hStart,
-		Window1dStart: m.Window1dStart,
-		Window7dStart: m.Window7dStart,
+		ID:               m.ID,
+		UserID:           m.UserID,
+		PackageID:        m.PackageID,
+		Key:              m.Key,
+		Name:             m.Name,
+		Status:           m.Status,
+		GroupID:          m.GroupID,
+		MixedMode:        m.MixedModeEnabled,
+		MixedGroupIDs:    append([]int64(nil), m.MixedGroupIds...),
+		IPWhitelist:      m.IPWhitelist,
+		IPBlacklist:      m.IPBlacklist,
+		LastUsedAt:       m.LastUsedAt,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		Quota:            m.Quota,
+		QuotaUsed:        m.QuotaUsed,
+		ExpiresAt:        m.ExpiresAt,
+		RateLimit5h:      m.RateLimit5h,
+		ConcurrencyLimit: m.ConcurrencyLimit,
+		RateLimit1d:      m.RateLimit1d,
+		RateLimit7d:      m.RateLimit7d,
+		Usage5h:          m.Usage5h,
+		Usage1d:          m.Usage1d,
+		Usage7d:          m.Usage7d,
+		Window5hStart:    m.Window5hStart,
+		Window1dStart:    m.Window1dStart,
+		Window7dStart:    m.Window7dStart,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)

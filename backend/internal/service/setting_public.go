@@ -461,6 +461,16 @@ func (r ChannelMonitorRuntime) PassiveAggregationAllowed() bool {
 	return r.Enabled && (r.Mode == ChannelMonitorModeV2 || r.Mode == ChannelMonitorModeV3)
 }
 
+// V2Active reports whether the V2 views and candy probes are active.
+func (r ChannelMonitorRuntime) V2Active() bool {
+	return r.Enabled && r.Mode == ChannelMonitorModeV2
+}
+
+// V3Active reports whether the V3 component status page is active.
+func (r ChannelMonitorRuntime) V3Active() bool {
+	return r.Enabled && r.Mode == ChannelMonitorModeV3
+}
+
 // GetChannelMonitorRuntime reads the channel monitor feature flags directly from
 // the settings store. Fail-open: on error returns Enabled=true, Mode=v1, default interval.
 func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMonitorRuntime {
@@ -496,6 +506,24 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		ShowQuota:              vals[SettingKeyChannelMonitorShowQuota] == "true",
 		HideUserRanking:        isTrueSettingValue(vals[SettingKeyChannelMonitorHideUserRanking]),
 	}
+}
+
+// SetChannelMonitorMode switches only the exclusive monitor implementation.
+func (s *SettingService) SetChannelMonitorMode(ctx context.Context, mode string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	switch normalized {
+	case ChannelMonitorModeV1, ChannelMonitorModeV2, ChannelMonitorModeV3:
+	default:
+		return "", ErrChannelMonitorInvalidMode
+	}
+	if err := s.settingRepo.Set(ctx, SettingKeyChannelMonitorMode, normalized); err != nil {
+		return "", fmt.Errorf("set channel monitor mode: %w", err)
+	}
+	if s.onUpdate != nil {
+		s.onUpdate()
+	}
+	s.notifyChannelMonitorRuntimeListeners()
+	return normalized, nil
 }
 
 // AvailableChannelsRuntime is the lightweight view of the available-channels feature

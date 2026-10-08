@@ -763,6 +763,7 @@ export interface ApiKey {
   created_at: string
   updated_at: string
   current_concurrency: number
+  concurrency_limit: number // 0 = no additional key limit
   group?: Group
   rate_limit_5h: number
   rate_limit_1d: number
@@ -778,8 +779,21 @@ export interface ApiKey {
   reset_7d_at: string | null
 }
 
+export interface ApiKeyConcurrencySnapshot {
+  queue_policy: {
+    max_waiting: number
+    timeout_seconds: number
+  }
+  items: Array<{
+    id: number
+    current_concurrency: number
+    current_waiting: number
+  }>
+}
+
 export interface CreateApiKeyRequest {
   name: string
+  concurrency_limit?: number // 0 = no additional key limit
   group_id?: number | null
   mixed_mode_enabled?: boolean
   mixed_group_ids?: number[]
@@ -795,6 +809,7 @@ export interface CreateApiKeyRequest {
 
 export interface UpdateApiKeyRequest {
   name?: string
+  concurrency_limit?: number // Omitted = no change, 0 = no additional key limit
   group_id?: number | null
   mixed_mode_enabled?: boolean
   mixed_group_ids?: number[]
@@ -999,6 +1014,8 @@ export interface ClaudeModel {
   type: string
   display_name: string
   created_at: string
+  supported_reasoning_levels?: string[]
+  default_reasoning_level?: string
 }
 
 export interface Proxy {
@@ -2640,19 +2657,26 @@ export interface QualityBPSPolicy {
 export interface QualityPolicy {
   judge?: QualityJudgeConfig
   expected_answer: string
-  action: 'remove_groups' | 'disable_scheduling' | 'enable_bps'
+  action: 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
   remove_group_ids: number[]
+  remove_models?: string[]
+  recovery_concurrency?: number
   auto_restore: boolean
   bps?: QualityBPSPolicy
 }
 
 export interface PelicanTestConfig {
+  quality_model_outcomes?: Record<string, 'passed' | 'failed' | 'inconclusive' | 'skipped'>
+  quality_model_actions?: Record<string, string>
+  trigger_source?: string
   quality?: QualityPolicy
   question_kind?: 'candy' | 'pelican' | 'state_probe'
+  test_channel?: 'account' | 'bps'
   prompt: string
   reasoning_effort: string
   parallel_count: number
   model_id?: string
+  model_ids?: string[]
 }
 
 export interface ScheduledTestPlan {

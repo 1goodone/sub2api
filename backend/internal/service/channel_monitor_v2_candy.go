@@ -123,7 +123,7 @@ func (s *ChannelMonitorV2CandyService) RunDue(ctx context.Context, now time.Time
 	if err := s.repo.PruneCandyHistory(ctx, now); err != nil {
 		logger.LegacyPrintf("service.channel_monitor_v2", "candy retention failed: %v", err)
 	}
-	if s.settings == nil || !s.settings.GetChannelMonitorRuntime(ctx).PassiveAggregationAllowed() {
+	if s.settings == nil || !s.settings.GetChannelMonitorRuntime(ctx).V2Active() {
 		return
 	}
 	cfg, err := s.config.GetConfig(ctx)
@@ -158,7 +158,7 @@ func (s *ChannelMonitorV2CandyService) RunDue(ctx context.Context, now time.Time
 }
 
 func (s *ChannelMonitorV2CandyService) runOne(ctx context.Context, probe ChannelMonitorV2CandyProbe, cfg *ChannelMonitorV2Config, tick time.Time) {
-	if ctx.Err() != nil || !s.settings.GetChannelMonitorRuntime(ctx).PassiveAggregationAllowed() {
+	if ctx.Err() != nil || !s.settings.GetChannelMonitorRuntime(ctx).V2Active() {
 		return
 	}
 	group, err := s.runner.GetGroup(ctx, probe.GroupID)

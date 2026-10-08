@@ -558,7 +558,7 @@ describe('PaymentView payment recovery', () => {
     expect(wrapper.findComponent({ name: 'AmountInput' }).props('amounts')).toEqual([5])
   })
 
-  it('uses Cloudcat product amounts as the only selectable recharge amounts', async () => {
+  it('uses Cloudcat product amounts and excludes fixed-value cards from recharge promotions', async () => {
     const cloudcatMethod: MethodLimit = {
       daily_limit: 0,
       daily_used: 0,
@@ -574,6 +574,9 @@ describe('PaymentView payment recovery', () => {
       methods: { alipay: cloudcatMethod },
       global_min: 1,
       global_max: 5,
+      recharge_bonus_tiers: [{ min_amount: 1, bonus_percent: 20 }],
+      recharge_bonus_mode: 'discount',
+      recharge_bonus_notice: '20% off',
     }))
 
     const wrapper = shallowMount(PaymentView, {
@@ -590,11 +593,18 @@ describe('PaymentView payment recovery', () => {
     const amountInput = wrapper.findComponent({ name: 'AmountInput' })
     expect(amountInput.props('amounts')).toEqual([1])
     expect(amountInput.props('selectionOnly')).toBe(true)
+    expect(amountInput.props('bonusTiers')).toEqual([])
+    expect(wrapper.find('[data-testid="recharge-bonus-notice"]').exists()).toBe(false)
 
     amountInput.vm.$emit('update:modelValue', 2)
     await flushPromises()
     const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
     expect(submit?.attributes('disabled')).toBeDefined()
+
+    amountInput.vm.$emit('update:modelValue', 1)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(false)
+    expect(submit?.attributes('disabled')).toBeUndefined()
   })
 
   it.each([false, true])('does not replay Cloudcat creation on gateway failure with isMobile=%s', async (isMobile) => {

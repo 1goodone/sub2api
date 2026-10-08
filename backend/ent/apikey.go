@@ -31,6 +31,8 @@ type APIKey struct {
 	UserID int64 `json:"user_id,omitempty"`
 	// PackageID holds the value of the "package_id" field.
 	PackageID *int64 `json:"package_id,omitempty"`
+	// API key concurrency limit (0 = no additional limit)
+	ConcurrencyLimit int `json:"concurrency_limit,omitempty"`
 	// Key holds the value of the "key" field.
 	Key string `json:"key,omitempty"`
 	// Name holds the value of the "name" field.
@@ -147,7 +149,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
-		case apikey.FieldID, apikey.FieldUserID, apikey.FieldPackageID, apikey.FieldGroupID:
+		case apikey.FieldID, apikey.FieldUserID, apikey.FieldPackageID, apikey.FieldConcurrencyLimit, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
 		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -205,6 +207,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.PackageID = new(int64)
 				*_m.PackageID = value.Int64
+			}
+		case apikey.FieldConcurrencyLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field concurrency_limit", values[i])
+			} else if value.Valid {
+				_m.ConcurrencyLimit = int(value.Int64)
 			}
 		case apikey.FieldKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -418,6 +426,9 @@ func (_m *APIKey) String() string {
 		builder.WriteString("package_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("concurrency_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ConcurrencyLimit))
 	builder.WriteString(", ")
 	builder.WriteString("key=")
 	builder.WriteString(_m.Key)

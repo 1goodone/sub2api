@@ -10,6 +10,7 @@ import type {
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
+import type { RechargeBonusTier } from "@/utils/rechargeBonus";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -696,6 +697,9 @@ export interface SystemSettings {
   payment_balance_recharge_multiplier: number;
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
   payment_product_name_suffix: string;
@@ -747,6 +751,11 @@ export interface SystemSettings {
   subscription_expiry_notify_enabled: boolean;
   account_quota_notify_enabled: boolean;
   account_quota_notify_emails: NotifyEmailEntry[];
+
+  // Prism browser bridge
+  prism_browser_enabled: boolean;
+  prism_browser_base_url: string;
+  prism_browser_api_key_configured: boolean;
 
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
@@ -1044,6 +1053,9 @@ export interface UpdateSettingsRequest {
   payment_balance_recharge_multiplier?: number;
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
   payment_product_name_suffix?: string;
@@ -1083,6 +1095,11 @@ export interface UpdateSettingsRequest {
   subscription_expiry_notify_enabled?: boolean;
   account_quota_notify_enabled?: boolean;
   account_quota_notify_emails?: NotifyEmailEntry[];
+
+  // Prism browser bridge
+  prism_browser_enabled?: boolean;
+  prism_browser_base_url?: string;
+  prism_browser_api_key?: string;
 
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;

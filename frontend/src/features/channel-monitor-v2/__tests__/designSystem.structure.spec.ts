@@ -115,13 +115,13 @@ describe('channel-monitor-v2 design system structure', () => {
     expect(pageCss).toMatch(/\.v3-soft-glass-bar\s*\{[^}]*border-radius:\s*5px/s)
   })
 
-  it('V3 channel status groups cards by platform', () => {
+  it('V3 channel status uses the component status page', () => {
     const src = read('views/user/ChannelStatusV3View.vue')
-    expect(src).toContain('platformSections')
-    expect(src).toContain('layoutBlocks')
-    expect(src).toContain('channel-status-platform-')
-    expect(src).toContain('channel-status-board')
-    expect(src).toContain('channel-status-compact-platforms')
+    expect(src).toContain('StatusPage')
+    expect(src).toContain('IncidentsDialog')
+    expect(src).toContain('getStatus')
+    expect(src).toContain('channelMonitorV3.page.loadFailed')
+    expect(src).not.toContain('getMatrix')
   })
 })
 
