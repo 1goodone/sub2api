@@ -70,9 +70,11 @@ func (e *openAIWSDialError) Unwrap() error {
 }
 
 type openAIWSAcquireRequest struct {
-	Account *Account
-	WSURL   string
-	Headers http.Header
+	// Private experiment connections must never serve a different client scope.
+	AnchorScope string
+	Account     *Account
+	WSURL       string
+	Headers     http.Header
 	// Pinned policy separates ticket-managed connections from native connections.
 	TurnStateOwner string
 	// HeadersFactory is evaluated inside dialConn. It exists so credentials
@@ -90,6 +92,7 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	anchorScope         string
 	turnStateOwner      string
 	betaFeatures        string
 	codexInstallationID string
@@ -312,10 +315,11 @@ type openAIWSConn struct {
 	// unusable 表示空闲期收到数据被判为脏连接：持有令牌不再借出，由池在锁外关闭。
 	unusable atomic.Bool
 
-	waiters       atomic.Int32
-	createdAtNano atomic.Int64
-	lastUsedNano  atomic.Int64
-	prewarmed     atomic.Bool
+	waiters         atomic.Int32
+	createdAtNano   atomic.Int64
+	lastUsedNano    atomic.Int64
+	anchorUntilNano atomic.Int64
+	prewarmed       atomic.Bool
 }
 
 func newOpenAIWSConn(id string, _ int64, ws openAIWSClientConn, handshakeHeaders http.Header) *openAIWSConn {
@@ -1689,7 +1693,7 @@ func (p *openAIWSConnPool) cleanupAccountLocked(ap *openAIWSAccountPool, now tim
 			evicted = append(evicted, conn)
 			continue
 		}
-		if p.isConnPinnedLocked(ap, id) {
+		if now.UnixNano() < conn.anchorUntilNano.Load() || p.isConnPinnedLocked(ap, id) {
 			continue
 		}
 		if !conn.isLeased() && conn.waiters.Load() == 0 &&
@@ -1730,7 +1734,7 @@ func (p *openAIWSConnPool) cleanupAccountLocked(ap *openAIWSAccountPool, now tim
 				continue
 			}
 			// 有等待者的连接不能在清理阶段被淘汰，否则等待中的 acquire 会收到 closed 错误。
-			if conn.isLeased() || conn.waiters.Load() > 0 || p.isConnPinnedLocked(ap, conn.id) {
+			if conn.isLeased() || conn.waiters.Load() > 0 || now.UnixNano() < conn.anchorUntilNano.Load() || p.isConnPinnedLocked(ap, conn.id) {
 				continue
 			}
 			idleConns = append(idleConns, conn)
@@ -2374,6 +2378,7 @@ func (r openAIWSAcquireRequest) handshakeCompatibility() openAIWSHandshakeCompat
 	if r.TurnStateOwner != codexTurnStateOwnerNative {
 		key.turnStateOwner = r.TurnStateOwner
 	}
+	key.anchorScope = r.AnchorScope
 	return key
 }
 

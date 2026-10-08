@@ -68,7 +68,8 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
-	Runtime                 RuntimeConfig                 `mapstructure:"runtime"`
+	Runtime                 RuntimeConfig `mapstructure:"runtime"`
+	astraRoutingLoader      atomic.Pointer[astraRoutingLoader]
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -1056,12 +1057,85 @@ func strictConfigInt(value any) (int, error) {
 }
 
 // GatewayConfig API网关相关配置
+// CodexGatewayPinConfig controls the private HTTP routing experiment.
+// Cookie values are learned from completed Astra responses, never configured.
+type CodexGatewayPinConfig struct {
+	NodeCooldownSeconds int     `mapstructure:"node_cooldown_seconds" json:"node_cooldown_seconds"`
+	RotateNodes         bool    `mapstructure:"rotate_nodes" json:"rotate_nodes"`
+	MaxNodeAttempts     int     `mapstructure:"max_node_attempts" json:"max_node_attempts"`
+	IPAffinity          bool    `mapstructure:"ip_affinity" json:"ip_affinity"`
+	TTLSeconds          int     `mapstructure:"ttl_seconds" json:"ttl_seconds"`
+	Enabled             bool    `mapstructure:"enabled" json:"enabled"`
+	SourceAccountIDs    []int64 `mapstructure:"source_account_ids" json:"source_account_ids"`
+	TargetAccountIDs    []int64 `mapstructure:"target_account_ids" json:"target_account_ids"`
+}
+
+func (c CodexGatewayPinConfig) Validate() error {
+	if c.NodeCooldownSeconds != 0 && (c.NodeCooldownSeconds < 60 || c.NodeCooldownSeconds > 86400) {
+		return fmt.Errorf("astra node cooldown must be 60–86400 seconds")
+	}
+	if c.MaxNodeAttempts < 0 || c.MaxNodeAttempts > 10 {
+		return fmt.Errorf("astra node attempts must be 1–10 (0 uses default 3)")
+	}
+	if c.TTLSeconds != 0 && (c.TTLSeconds < 30 || c.TTLSeconds > 240) {
+		return fmt.Errorf("cookie TTL must be 30–240 seconds")
+	}
+	if !c.Enabled {
+		return nil
+	}
+	if len(c.SourceAccountIDs) == 0 || len(c.TargetAccountIDs) == 0 || len(c.SourceAccountIDs) > 64 || len(c.TargetAccountIDs) > 64 {
+		return fmt.Errorf("gateway.codex_gateway_pin requires 1–64 source_account_ids and target_account_ids")
+	}
+	seen := map[int64]bool{}
+	for _, ids := range [][]int64{c.SourceAccountIDs, c.TargetAccountIDs} {
+		for _, id := range ids {
+			if id <= 0 || seen[id] {
+				return fmt.Errorf("gateway.codex_gateway_pin account IDs must be positive, unique and disjoint")
+			}
+			seen[id] = true
+		}
+	}
+	return nil
+}
+
+// CodexWSAnchorConfig promotes explicitly continued, qualified Astra requests
+// to a pinned WS connection. The account's normal WS switches still apply.
+type CodexWSAnchorConfig struct {
+	TTLSeconds int     `mapstructure:"ttl_seconds" json:"ttl_seconds"`
+	Enabled    bool    `mapstructure:"enabled" json:"enabled"`
+	AccountIDs []int64 `mapstructure:"account_ids" json:"account_ids"`
+}
+
+func (c CodexWSAnchorConfig) Validate() error {
+	if c.TTLSeconds != 0 && (c.TTLSeconds < 60 || c.TTLSeconds > 3600) {
+		return fmt.Errorf("WS TTL must be 60–3600 seconds")
+	}
+	if !c.Enabled {
+		return nil
+	}
+	if len(c.AccountIDs) == 0 || len(c.AccountIDs) > 64 {
+		return fmt.Errorf("gateway.codex_ws_anchor requires 1–64 account_ids")
+	}
+	seen := map[int64]bool{}
+	for _, id := range c.AccountIDs {
+		if id <= 0 || seen[id] {
+			return fmt.Errorf("gateway.codex_ws_anchor account IDs must be positive and unique")
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
 type GatewayConfig struct {
 	UpstreamRouting upstreamroute.Config `mapstructure:"upstream_routing"`
 	// PrismBrowser is the server-managed browser-session adapter for prism.openai.com.
 	// Account settings only select this route; cookies, sandbox state and the adapter
 	// API key remain outside account credentials.
-	PrismBrowser GatewayPrismBrowserConfig `mapstructure:"prism_browser"`
+	PrismBrowser  GatewayPrismBrowserConfig `mapstructure:"prism_browser"`
+	CodexWSAnchor CodexWSAnchorConfig       `mapstructure:"codex_ws_anchor"`
+	// CodexGatewayPin shares qualified source routing cookies with selected targets.
+	// Disabled by default; applies only to ChatGPT HTTP Responses requests.
+	CodexGatewayPin CodexGatewayPinConfig `mapstructure:"codex_gateway_pin"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -2555,6 +2629,17 @@ func setDefaults() {
 	viper.SetDefault("gateway.api_key_queue.max_waiting", defaultAPIKeyQueueMaxWaiting)
 	viper.SetDefault("gateway.api_key_queue.timeout_seconds", defaultAPIKeyQueueTimeoutSeconds)
 	viper.SetDefault("gateway.force_codex_cli", false)
+	viper.SetDefault("gateway.codex_ws_anchor.ttl_seconds", 3600)
+	viper.SetDefault("gateway.codex_gateway_pin.ttl_seconds", 230)
+	viper.SetDefault("gateway.codex_gateway_pin.node_cooldown_seconds", 3600)
+	viper.SetDefault("gateway.codex_gateway_pin.rotate_nodes", false)
+	viper.SetDefault("gateway.codex_gateway_pin.max_node_attempts", 0)
+	viper.SetDefault("gateway.codex_gateway_pin.ip_affinity", false)
+	viper.SetDefault("gateway.codex_ws_anchor.enabled", false)
+	viper.SetDefault("gateway.codex_ws_anchor.account_ids", []int64{})
+	viper.SetDefault("gateway.codex_gateway_pin.enabled", false)
+	viper.SetDefault("gateway.codex_gateway_pin.source_account_ids", []int64{})
+	viper.SetDefault("gateway.codex_gateway_pin.target_account_ids", []int64{})
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
 	viper.SetDefault("gateway.openai_codex_outbound_diagnostics.enabled", false)
@@ -2861,6 +2946,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gateway.upstream_routing: %w", err)
 	}
 	if err := c.validateRuntime(); err != nil {
+		return err
+	}
+	if err := c.Gateway.CodexWSAnchor.Validate(); err != nil {
+		return err
+	}
+	if err := c.Gateway.CodexGatewayPin.Validate(); err != nil {
 		return err
 	}
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)

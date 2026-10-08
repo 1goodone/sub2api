@@ -196,6 +196,9 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 	if cfg != nil {
 		s.upstreamRoutes, s.upstreamRoutesErr = upstreamroute.New(cfg.Gateway.UpstreamRouting)
 	}
+	if cfg != nil && (cfg.HasAstraRoutingLoader() || cfg.Gateway.CodexGatewayPin.Enabled) {
+		return &astraRoutingUpstream{delegate: s, cfg: cfg}
+	}
 	return s
 }
 

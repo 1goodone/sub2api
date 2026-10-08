@@ -138,6 +138,12 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
+	astraGatewayActionMu      sync.Mutex
+	astraSetupMu              sync.Mutex
+	astraSetupCancel          context.CancelFunc
+	astraSetupStatus          AstraSetupStatus
+	astraGatewayTestMu        sync.Mutex
+	astraGatewayLastTest      *AstraGatewayTestResult
 	accountRepo               AccountRepository
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider

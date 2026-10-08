@@ -189,6 +189,8 @@ output/
 /plugins/
 !docs/account-auto-config.md
 !docs/screenshots/auto-config/
+!docs/harvest-gateway-borrow.md
+!docs/screenshots/harvest-gateway-borrow/
 
 # Runtime credential encryption keys must never enter source control.
 **/credential-operations.key

@@ -23,6 +23,7 @@
       </div>
 
       <HarvestControlsPanel :refresh-key="snapshot?.generated_at" :runtime="snapshot?.runtime" @saved="fetchFlow" />
+      <HarvestGatewayBorrowPanel />
       <HarvestManualConsole
         v-if="snapshot"
         :accounts="snapshot.accounts || []"
@@ -236,6 +237,7 @@
 </template>
 
 <script setup lang="ts">
+import HarvestGatewayBorrowPanel from '@/components/admin/HarvestGatewayBorrowPanel.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

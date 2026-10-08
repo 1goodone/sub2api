@@ -317,3 +317,24 @@ func TestRegionalHTTPSCONNECTSuccessPreservesUpstreamTLS(t *testing.T) {
 	require.EqualValues(t, 1, connectHits.Load())
 	require.EqualValues(t, 1, hits.Load())
 }
+
+func TestRegionalRoutingSurvivesAstraWrapper(t *testing.T) {
+	calls := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		require.Equal(t, "api.vendor.test", r.URL.Host)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer proxy.Close()
+	cfg := regionalHTTPConfig(t, proxy.URL, "api.vendor.test")
+	cfg.SetAstraRoutingLoader(func(context.Context) config.AstraRoutingSettings { return config.AstraRoutingSettings{} })
+	up := NewHTTPUpstream(cfg)
+	require.IsType(t, &astraRoutingUpstream{}, up)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.vendor.test/check", nil)
+	require.NoError(t, err)
+	resp, err := up.Do(req, "", 11, 1)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	require.Equal(t, 1, calls)
+}
