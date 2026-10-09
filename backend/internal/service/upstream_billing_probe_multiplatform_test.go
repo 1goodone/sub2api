@@ -107,10 +107,12 @@ func TestUpstreamBillingProbeGrokAccountPersistsSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
 	require.Equal(t, 0.02, snapshot.Data["resolved_rate_multiplier"])
-	require.Equal(t, "https://relay.example/v1/sub2api/billing", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer sk-grok-relay", upstream.lastReq.Header.Get("Authorization"))
+	require.NotEmpty(t, upstream.requests)
+	billingReq := upstream.requests[0]
+	require.Equal(t, "https://relay.example/v1/sub2api/billing", billingReq.URL.String())
+	require.Equal(t, "Bearer sk-grok-relay", billingReq.Header.Get("Authorization"))
 	// 非 OpenAI 平台探测使用默认传输画像。
-	require.Equal(t, HTTPUpstreamProfileDefault, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
+	require.Equal(t, HTTPUpstreamProfileDefault, HTTPUpstreamProfileFromContext(billingReq.Context()))
 
 	persisted := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	require.NotNil(t, persisted)

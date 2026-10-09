@@ -472,15 +472,20 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			return nil, err
 		}
 	}
-	if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
-		cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
-		return nil, err
+	if !isControlledExperiment(ctx) {
+		if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
+			cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
+			return nil, err
+		}
 	}
 	if err := checkBeforeWrite(); err != nil {
 		return nil, err
 	}
 	payload = s.prepareCodexQuotaOverdraftPayload(ctx, account, payload)
 	sendRequest := func(value any) error {
+		if err := controlledSubmission(ctx, "native_ws"); err != nil {
+			return err
+		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, value, s.openAIWSWriteTimeout()); err != nil {
 			lease.MarkBroken()
 			logOpenAIWSModeInfo(

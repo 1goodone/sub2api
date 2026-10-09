@@ -226,6 +226,7 @@ export default {
     pelicanShowcase: 'Pelican Showcase',
     harvestFlow: 'Ticket harvest flow',
     gatewayBorrow: 'Gateway borrow',
+    supportTickets: 'Support Tickets',
     riskControl: 'Risk Control',
     securityAudit: 'Security Audit',
     contentModeration: 'Content Moderation',

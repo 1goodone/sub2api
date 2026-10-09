@@ -1,10 +1,27 @@
 # Excel / BPS 协议（OpenAI OAuth）
 
-在账号管理 → 编辑现有 OpenAI OAuth 账号 → 打开“Excel / BPS 协议”并保存。使用该账号已有的 ChatGPT access token/account ID，不需要 GitHub 登录、sidecar 或新建 API Key 上游账号。原有凭据刷新逻辑继续生效。默认关闭；切换后新开 Codex 会话。
+在账号管理 → 编辑现有 OpenAI OAuth 账号 → 打开“Excel / BPS 协议”并保存。使用该账号的 ChatGPT access token/account ID；遇到旧 Codex 凭据的 BPS 403 时，可通过下方 BPS OAuth 入口取得 Excel 会话。无需 GitHub 登录、sidecar 或新建 API Key 上游账号。原有凭据刷新逻辑继续生效。默认关闭；切换后新开 Codex 会话。
 
 `credentials.plan_type` 为 `free` 的账号禁止开启 BPS（忽略大小写与首尾空格）。创建、编辑和批量编辑会拒绝保存开启配置；质量规则和 403 自动恢复也会跳过 free 账号。旧数据即使保留 BPS 开关，运行时也不会走 BPS，可通过编辑或批量编辑关闭旧开关。套餐未知的账号沿用原有规则；该限制不代表原生 Codex 通道支持相同模型。
 
 本入口面向 HTTP `/v1/responses` 和 `/v1/responses/compact`。强制上游 HTTP/SSE，优先于账号的自动透传、WS mode 和 Codex ticket 注入。保持原始模型名或显式账号映射，不因模型权限不足偷偷切换模型。现有调度、分组授权和并发额度继续生效；开关不会重新启用已停用的账号。
+
+## BPS OAuth 登录
+
+账号管理 → 添加账号 → OpenAI → **BPS OAuth（官方 Excel 登录）**。选择需要走 BPS 的模型后进入授权；默认勾选 Astra、5.6 Sol 和 5.6 Terra，模型是否可用仍由上游决定。其他 OAuth、API Key 和 2FA 入口保持原有行为。
+
+1. 生成授权链接，在官方页面登录并选择工作区。
+2. 页面返回 `bps.openai.com/.../auth/callback?code=...&state=...` 后，复制完整回调 URL 到本后台的授权输入框。独立浏览器缺少 Office 对话窗口时，官方页面可能显示“无法登录”；只要已经得到本轮 code/state，后台仍可核对 state 并兑换。回调 URL 含一次性凭据，不要贴到聊天或日志。
+3. 完成后创建 `openai/oauth` 账号，保存 Excel 客户端的完整 Token 配对，开启所选模型的 BPS。无需数据库新账号类型；编辑、分组、计费仍沿用 OAuth 账号。
+4. 已保存 Excel 客户端的账号重新授权时继续使用 Excel 流程。手动 RT 输入在 BPS OAuth 入口使用 Excel 客户端，普通 OAuth 入口保持 Codex 客户端；不要把两类 RT 混用。
+
+已有完整会话也可从普通 OAuth 的「OAuth 会话 JSON / AT 导入」导入：保留同次会话的 `access_token`、`refresh_token`、`id_token`、`chatgpt_account_id`、`expires_at` 和原 `client_id`。支持顶层及 `tokens`、`credentials`、`session_info` 容器，`tokens.account_id` 也可作为工作区 ID。导入保留客户端身份；不同客户端分开建号，非 Codex 客户端还按工作区隔离，避免覆盖原 Codex 账号。此通用导入入口的 BPS 开关仍由管理员配置。
+
+刷新使用账号保存的 `client_id`。Excel 的交换/刷新端点为 `/oauth/token?unified=true`，刷新不附加 Codex scope 或 Codex 客户端头；未返回新 RT 时保留原配对。存量 Codex 账号仍按原客户端刷新。旧版本误写的 client_id 需通过完整会话重新导入修复，不可凭空推断。
+
+**403 与凭据来源：** 2026-10-08 同账号、同工作区、同代理配置、同 BPS 请求格式的对照中，原 Codex Token 为 403；重新由官方 Excel 授权的 Token 完整生成，刷新后再次生成成功。用原 Codex RT 向 Excel 客户端刷新则收到 `401 invalid_client`。只修改 client_id 或补齐请求头不是转换凭据；目录 `allowed=true` 也不证明生成可用。本次请求 Astra 而响应声明为 `gpt-5.6-luna`，因此只确认测试账号准入恢复，未验证 Astra 能力或所有账号可用。详见 [OAuth 对照记录](bps-oauth-validation-20261008.md)。
+
+[官方 manifest](https://bps.openai.com/basispoints/api/office/manifest.xml)指向的[前端 x-square-G80magJa.js](https://bps.openai.com/basispoints/extension/360590d7-f8f9-4d88-bf75-0edfe0a4b9f3/assets/x-square-G80magJa.js)公开了生产客户端 `app_fnr0pYvVwwFDocDumLG3H2Bp`、授权 scope、回调和刷新参数；2026-10-08 已独立核对。固定官方回调路径是协议依赖，将来变更时需要更新。没有修改凭证守护的密码/2FA 自动重登逻辑；不要将 Codex 自动重登流程绑定到 Excel 会话账号。
 
 ## 托管工具与原生回退策略
 
@@ -108,9 +125,9 @@ English protocol details and client constraints:
 
 ### BPS 限流与账号状态
 
-- BPS 主请求（包括图片和 compact）在尚未输出响应时返回 HTTP 429，会只冷却当前账号的 BPS 路由，并在现有账号切换预算内自动尝试下一个可用 BPS 账号；无需额外开关。全部候选耗尽后，客户端收到 `basispoints_rate_limited` 并保留 HTTP 429；已开始 SSE 的请求不能安全重放，仍收到失败事件。
-- BPS 429 不写入 Codex 用量快照，不触发账号全局冷却或通用运行时封禁；真实 Codex 请求仍沿用原有限流保护。BPS 路由开关位于“账号管理 → 编辑 OpenAI OAuth 账号 → Excel / BPS 协议”，已有账号不会自动开启。
-- 工具纠正请求遇到 429 时立即结束纠正，沿用已有失败终态和用量汇总，不触发 Codex 冷却。成功响应的用量快照更新保持原有行为。BPS 配额仍需等待上游恢复，此改动不会增加可用额度。
+- BPS 主请求（包括图片、原生附件上传和 compact）返回 HTTP 429 时尚未向客户端输出内容，请求交回现有的账号切换流程：本次请求排除该账号，在原有切换预算（最大切换次数、OAuth 429 切换上限）内改用下一个可用账号；客户端已断开时不再切换。所有候选账号都返回 429 后，客户端才收到 HTTP 429、`basispoints_rate_limited`（类型 `rate_limit_error`）和校验过的 `Retry-After`；已开始 SSE 的 compact 请求收到失败事件。上游错误正文只脱敏记入运维记录，不返回客户端。
+- 返回 429 的账号进入 BPS 专用冷却：优先使用上游 `Retry-After`，没有或无效时使用 **系统设置 > 429 默认回避** 的秒数（该设置关闭时不冷却，只在本次请求内排除），范围 1–7200 秒，并发写入不会缩短已有的更长冷却。冷却期间该账号只在设为走 BPS 的模型上暂停调度（与 BPS 优先选号使用同一判断），其他模型不受影响；该次失败不计入账号调度失败率，也不写入 Codex 用量快照、限流重置时间、账号全局冷却或运行时封禁。冷却只保存在当前进程，重启后清空，多实例之间不共享。所有 BPS 候选都在冷却时，新请求直接返回 429（池中有原生账号时仍按原有顺序改用原生账号）。
+- 工具纠正请求遇到 429 时立即结束纠正，沿用已有失败终态和用量汇总，不重放已经输出的请求，只为该账号记录同样的 BPS 冷却。成功响应的用量快照更新保持原有行为。BPS 配额仍需等待上游恢复，此改动不会增加可用额度。
 
 ### 账号工具探测
 
@@ -206,7 +223,7 @@ python backend/scripts/e2e-bps-ignore-images.py --expect ignore --stream --outpu
 
 - 先校验完整请求与所有内联图片，再使用选中账号的 OAuth、ChatGPT Account ID 和业务代理向固定的 BPS attachments 端点提交 multipart 文件，将图片替换为上游返回的附件 ID，最后发送 Responses。启用 Mihomo 时，先取得出口再上传，附件、生成与纠错共享该出口；本次请求已上传附件后不再切换出口重试。用户消息中的内联图片转换为附件 ID；function/custom 工具截图通过相同的字节、格式和容量校验后保留 data URL，不调用附件上传。原生内联工具截图的 detail 缺失或为 null 时补为 auto，显式 low/high/original 保持原值。用户消息中的附件引用（新上传、历史已有或从工具结果移入）在校验后只发送 type 和 file_id，不向 BPS 发送 detail 或其他附加字段；HTTPS URL、相邻文本及工具参数保持原值。
 - 上传过程流式解码，不在本地保存图片文件。仍执行 PNG/JPEG/GIF/WebP、20 MiB 单图、20 张/32 MiB 每请求、64 Mi 像素限制；重复图片也计入请求限制，但同一请求只上传一次。完整请求不合法时不会先上传图片。
-- 每个网关实例最多 32 个实际上传；满额返回 503。每次上传最多 60 秒，跟随请求取消，并禁止重定向。上传响应体关闭后才开始 Responses，兼容账号并发为 1。上传失败立即结束请求，不回退中转、不重放 Responses、不切换账号；429 保留状态码且不修改 Codex 用量、冷却或运行时封禁。
+- 每个网关实例最多 32 个实际上传；满额返回 503。每次上传最多 60 秒，跟随请求取消，并禁止重定向。上传响应体关闭后才开始 Responses，兼容账号并发为 1。上传失败立即结束当前账号的尝试，不回退中转、不重放 Responses；上传返回 429 时按「BPS 限流与账号状态」切换账号并记录 BPS 冷却，其他失败直接返回、不切换账号。两者都不修改 Codex 用量、冷却或运行时封禁。
 - 附件 ID 缓存只保存元数据，最多 512 条，上传开始 30 分钟后到期，读取不续期。键包含图片内容、MIME、账号、凭据、API Key 和会话作用域；同一作用域的并发上传可合并，没有会话标识时仅在当前请求内去重。凭据或账号变化、缓存过期/淘汰、重启后，客户端重发原图会重新上传。附件 ID 在 BPS 错误日志中脱敏。
 - 上游保存图片的期限不由本地缓存 TTL 控制。上传结果只认可有效的 openai_file_id，不根据错误正文执行额外操作。切换为原生模式或关闭图片支持后，旧的本地中转链接停止对外提供；切换时需留意尚未完成的中转请求。
 - 已做离线协议、缓存隔离/并发/取消、上传错误、普通/compact 与流式/非流式、设置持久化和前端回归。尚未使用真实 OAuth 上传或验收视觉结果，接口权限、上游行为与模型视觉能力仍需上线试用时确认。

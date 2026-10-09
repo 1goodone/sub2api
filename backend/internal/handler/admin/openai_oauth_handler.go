@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -103,6 +105,7 @@ func NewOpenAIOAuthHandler(
 type OpenAIGenerateAuthURLRequest struct {
 	ProxyID     *int64 `json:"proxy_id"`
 	RedirectURI string `json:"redirect_uri"`
+	OAuthClient string `json:"oauth_client"`
 }
 
 // GenerateAuthURL generates OpenAI OAuth authorization URL
@@ -110,8 +113,10 @@ type OpenAIGenerateAuthURLRequest struct {
 func (h *OpenAIOAuthHandler) GenerateAuthURL(c *gin.Context) {
 	var req OpenAIGenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// Allow empty body
-		req = OpenAIGenerateAuthURLRequest{}
+		if !errors.Is(err, io.EOF) {
+			response.BadRequest(c, "Invalid OAuth authorization request")
+			return
+		}
 	}
 
 	result, err := h.openaiOAuthService.GenerateAuthURL(
@@ -119,6 +124,7 @@ func (h *OpenAIOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		req.ProxyID,
 		req.RedirectURI,
 		oauthPlatformFromPath(c),
+		req.OAuthClient,
 	)
 	if err != nil {
 		response.ErrorFrom(c, err)

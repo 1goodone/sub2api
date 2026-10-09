@@ -10,11 +10,12 @@ from __future__ import annotations
 import argparse
 import base64
 import codecs
+import multiprocessing
+import uuid
 import html
 import ipaddress
 import json
 import logging
-import multiprocessing
 import os
 import re
 import shutil
@@ -24,7 +25,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -961,6 +961,7 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     password = str(claim.get("password") or "")
     if task_id <= 0 or account_id <= 0 or not email or not password:
         raise WorkerError("claimed password task is missing required fields")
+    # Never infer an external destination or silently fall back to an engine.
     endpoint = str(claim.get("relogin_endpoint") or "").strip()
     try:
         parsed = urlparse(endpoint)
@@ -976,10 +977,8 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         raise WorkerError("Session Studio does not accept an account proxy")
     origin = f"https://{parsed.netloc}"
     headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/x-ndjson, application/json",
-        "Origin": origin,
-        "Referer": origin + "/",
+        "Content-Type": "application/json", "Accept": "application/x-ndjson, application/json",
+        "Origin": origin, "Referer": origin + "/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0",
     }
     extra_headers = claim.get("relogin_headers") or {}
@@ -993,17 +992,15 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             raise WorkerError("Session Studio headers are invalid")
         headers[name] = value.replace("{{uuid}}", str(uuid.uuid4()))
     request = Request(endpoint, method="POST", headers=headers, data=json.dumps({
-        "action": "start",
-        "auth_mode": "password_2fa",
-        "email": email,
-        "password": password,
-        "mfa_secret": str(claim.get("totp_secret") or ""),
+        "action": "start", "auth_mode": "password_2fa", "email": email,
+        "password": password, "mfa_secret": str(claim.get("totp_secret") or ""),
     }).encode("utf-8"))
     LOGGER.info("task=%s account=%s started (session_studio)", task_id, account_id)
     started = time.monotonic()
     _best_effort_progress(api, task_id, "starting")
     _best_effort_progress(api, task_id, "protocol_connecting")
     try:
+        # No redirects: credentials must never be forwarded to another target.
         with NO_REDIRECT_OPENER.open(request, timeout=60) as response:
             payload = _session_studio_result(response)
     except HTTPError as exc:
@@ -1012,6 +1009,7 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         raise WorkerError("Session Studio request failed") from None
     credentials = payload.get("credential")
     if payload.get("error") or str(payload.get("status", "")).lower() in {"failed", "error", "auth_failed"}:
+        # Provider errors may echo secrets. Do not relay their message or code.
         raise WorkerError("Session Studio login failed")
     if not isinstance(credentials, dict) or not all(
         isinstance(credentials.get(key), str) and credentials[key].strip()
@@ -1027,7 +1025,12 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
 
 
 def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
+    oauth_profile = str(claim.get("oauth_profile") or "codex")
+    if oauth_profile not in {"codex", "excel"}:
+        raise WorkerError("unsupported OAuth login profile")
     engine = str(claim.get("engine") or "local_worker")
+    if oauth_profile == "excel" and engine != "local_worker":
+        raise WorkerError("Excel OAuth requires the local password/TOTP worker")
     if engine == "session_studio":
         process_session_studio_claim(api, claim)
         return
@@ -1057,6 +1060,15 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     _best_effort_progress(api, task_id, "protocol_connecting")
     with tempfile.TemporaryDirectory(prefix="sub2api-reauth-") as temp_dir:
         output_path = Path(temp_dir) / "oauth.json"
+        if oauth_profile == "excel":
+            try:
+                from .openai_excel_oauth_adapter import prepare_excel_runtime
+            except ImportError:
+                from openai_excel_oauth_adapter import prepare_excel_runtime
+            try:
+                script = prepare_excel_runtime(root.resolve(), Path(temp_dir))
+            except ValueError as exc:
+                raise WorkerError(str(exc)) from None
         command = [
             node_executable,
             str(script),
@@ -1073,6 +1085,15 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             command.extend(("--proxy", proxy_url))
         child_env = os.environ.copy()
         child_env.pop("OPENAI_REAUTH_WORKER_TOKEN", None)
+        if oauth_profile == "excel":
+            # One bounded fixed-exit attempt. Never rotate proxies to retry a rejected login.
+            child_env["CHATGPT_PROXY_MAX_ATTEMPTS"] = "1"
+            child_env.pop("CHATGPT_BASE", None)
+            child_env.pop("AUTH_BASE", None)
+            child_env.pop("CHATGPT_PROXY_URL", None)
+            child_env.pop("OPENAI_EXCEL_EXPECTED_WORKSPACE", None)
+            if claim.get("expected_workspace"):
+                child_env["OPENAI_EXCEL_EXPECTED_WORKSPACE"] = str(claim["expected_workspace"])
         child_env["CHATGPT_LOGIN_PASSWORD"] = password
         if totp_secret:
             child_env["CHATGPT_TOTP_SECRET"] = totp_secret
@@ -1086,13 +1107,33 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
-                timeout=25 * 60,
+                timeout=10 * 60 if oauth_profile == "excel" else 25 * 60,
                 check=False,
             )
         except subprocess.TimeoutExpired:
             raise WorkerError("password/TOTP protocol timed out") from None
+        if oauth_profile == "excel" and callable(getattr(api, "private_protocol_diagnostics", None)):
+            # Only the explicit isolated CLI implements this hook. The queue API
+            # cannot select a path or persist raw external-runner output.
+            api.private_protocol_diagnostics(result.stdout, result.stderr)
         if result.returncode != 0:
             # The external runner may echo unlabeled secrets that regexes cannot redact.
+            if oauth_profile == "excel":
+                private_output = result.stdout + "\n" + result.stderr
+                stage = "web_login"
+                for marker, label in (("Password accepted", "password_accepted"), ("TOTP 2FA challenge reached", "mfa_challenge"),
+                                      ("2FA verification accepted", "mfa_accepted"), ("Start Codex OAuth flow", "excel_authorize"),
+                                      ("Convert OAuth callback", "excel_token_exchange")):
+                    if marker in private_output:
+                        stage = label
+                reasons = [label for marker, label in (("security-check", "security_check"), ("PROXY_RISK_CONTROL", "security_check"),
+                           ("EXCEL_ADDITIONAL_VERIFICATION_REQUIRED", "additional_verification"),
+                           ("EXCEL_CALLBACK_STATE_MISMATCH", "callback_state_mismatch"),
+                           ("EXCEL_EXPECTED_WORKSPACE_NOT_LISTED", "workspace_not_listed"),
+                           ("Password was rejected", "password_rejected"), ("2FA key was rejected", "totp_rejected"),
+                           ("SESSION_SELECTION_INVALID", "session_selection"), ("CLIENT_ID", "client_id")) if marker in private_output]
+                reason = ",".join(sorted(set(reasons))) or "protocol_error"
+                raise WorkerError(f"Excel password/TOTP login failed (stage={stage}, reason={reason}, exit={result.returncode})")
             raise WorkerError(f"password/TOTP protocol failed (exit {result.returncode})")
         try:
             payload = json.loads(output_path.read_text(encoding="utf-8"))
@@ -1108,6 +1149,15 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         for key in ("access_token", "refresh_token", "id_token")
     ):
         raise WorkerError("password/TOTP protocol returned incomplete OAuth credentials")
+    if oauth_profile == "excel":
+        try:
+            from .openai_excel_oauth_adapter import validate_excel_credentials
+        except ImportError:
+            from openai_excel_oauth_adapter import validate_excel_credentials
+        try:
+            validate_excel_credentials(credentials, email, claim.get("expected_workspace"))
+        except ValueError as exc:
+            raise WorkerError(str(exc)) from None
     _best_effort_progress(api, task_id, "applying_credentials")
     result = api.credentials(task_id, credentials, extra if isinstance(extra, dict) else {})
     if not result or result.get("status") != "succeeded":
@@ -1148,7 +1198,8 @@ def terminate_worker(_signum: int, _frame: Any) -> None:
     raise SystemExit(0)
 
 
-def _run_worker_loop(config: WorkerConfig, stop: Any = None) -> None:
+def _worker_loop(config: WorkerConfig, stop: Any = None) -> None:
+    signal.signal(signal.SIGTERM, terminate_worker)
     protocol = load_protocol(config.protocol_root) if config.protocol_root is not None else None
     api = WorkerAPI(config)
     LOGGER.info("worker=%s ready", config.worker_id)
@@ -1160,39 +1211,15 @@ def _run_worker_loop(config: WorkerConfig, stop: Any = None) -> None:
                 stop.wait(config.poll_seconds)
 
 
-def _worker_loop(config: WorkerConfig, stop: Any = None) -> None:
-    signal.signal(signal.SIGTERM, terminate_worker)
-    if hasattr(os, "setpgid"):
-        try:
-            os.setpgid(0, 0)
-        except OSError as exc:
-            raise WorkerError("could not isolate re-login worker process group") from exc
-    _run_worker_loop(config, stop)
-
-
 def worker_slot_config(config: WorkerConfig, slot: int) -> WorkerConfig:
     suffix = f"-slot-{slot}"
+    # Preserve the existing 128-character worker ownership limit.
     return replace(config, worker_id=config.worker_id[:128-len(suffix)] + suffix, concurrency=1)
 
 
-def signal_worker_group(child: multiprocessing.Process, signum: int) -> None:
-    if hasattr(os, "killpg"):
-        try:
-            os.killpg(child.pid, signum)
-            return
-        except ProcessLookupError:
-            if not child.is_alive():
-                return
-        except OSError:
-            pass
-    if child.is_alive():
-        if signum == signal.SIGTERM:
-            child.terminate()
-        else:
-            child.kill()
-
-
 def reconcile_worker_pool(context: Any, children: dict, config: WorkerConfig, target: int) -> None:
+    # Retiring processes finish their current task before exiting. They do not
+    # claim another task. Never replace a retiring slot until it has exited.
     for slot, (child, stop) in list(children.items()):
         if not child.is_alive():
             child.join()
@@ -1216,39 +1243,28 @@ def run_worker_pool(config: WorkerConfig) -> None:
     api = WorkerAPI(config)
     target = config.concurrency
     next_poll = 0.0
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-    stop_requested = False
-
-    def stop_pool(_signum: int, _frame: Any) -> None:
-        nonlocal stop_requested
-        stop_requested = True
-
-    signal.signal(signal.SIGTERM, stop_pool)
     try:
         while True:
-            if stop_requested:
-                raise SystemExit(0)
             now = time.monotonic()
             if now >= next_poll:
                 try:
                     target = api.runtime_concurrency()
                 except WorkerError:
+                    # Older API versions and temporary outages retain the last
+                    # working count; they never interrupt active credentials.
                     pass
                 next_poll = now + 5
             reconcile_worker_pool(context, children, config, target)
             time.sleep(0.25)
     finally:
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        try:
-            for child, _stop in children.values():
-                signal_worker_group(child, signal.SIGTERM)
-            for child, _stop in children.values():
-                child.join(timeout=5)
-                if child.is_alive():
-                    signal_worker_group(child, signal.SIGKILL)
-                    child.join()
-        finally:
-            signal.signal(signal.SIGTERM, previous_sigterm)
+        for child, _stop in children.values():
+            if child.is_alive():
+                child.terminate()
+        for child, _stop in children.values():
+            child.join(timeout=5)
+            if child.is_alive():
+                child.kill()
+                child.join()
 
 
 def main() -> int:

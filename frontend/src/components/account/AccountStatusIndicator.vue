@@ -1,14 +1,19 @@
 <template>
   <div class="flex flex-col items-start gap-1">
     <span
-      v-if="isExcelBPSEnabled"
+      v-if="protocolEnabled && isExcelBPSEnabled"
       data-testid="bps-status-badge"
       class="inline-flex items-center rounded bg-[#217346] px-1.5 py-0.5 text-[10px] font-semibold leading-3 text-white"
       :title="t('admin.accounts.openai.excelBPS')"
     >bps</span>
     <div class="flex items-center gap-2">
+    <div v-if="isRPMPaused" class="flex flex-col items-center gap-1">
+      <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rpmPaused') }}</span>
+      <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rpmResumeText }}</span>
+    </div>
+
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="isRateLimited && !isCodexQuotaOverdraftPause" class="flex flex-col items-center gap-1">
+    <div v-else-if="isRateLimited && !isCodexQuotaOverdraftPause" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -175,13 +180,16 @@ import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdow
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   account: Account
-}>()
+  globalBpsEnabled?: boolean
+}>(), { globalBpsEnabled: true })
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
+
+const protocolEnabled = computed(() => props.globalBpsEnabled)
 
 // Keep eligibility aligned with Account.IsExcelBPSEnabled on the backend.
 const isExcelBPSEnabled = computed(() => {
@@ -195,6 +203,23 @@ const isExcelBPSEnabled = computed(() => {
   const isPAT = (mode: string) => mode === 'personalaccesstoken' || mode === 'personal_access_token'
   return credential('plan_type') !== 'free' && credential('auth_mode') !== 'agentidentity' &&
     !isPAT(credential('auth_mode')) && !isPAT(credential('openai_auth_mode'))
+})
+
+const isRPMPaused = computed(() =>
+  props.account.platform === 'openai' && props.account.type === 'oauth' &&
+  props.account.status === 'active' && props.account.schedulable &&
+  (props.account.base_rpm ?? 0) > 0 &&
+  (props.account.rpm_paused === true ||
+    (props.account.current_rpm ?? 0) >= (props.account.base_rpm ?? 0))
+)
+
+const rpmResumeText = computed(() => {
+  if (props.account.rpm_reset_at) {
+    return t('admin.accounts.status.rpmPausedUntil', {
+      time: formatDateTime(new Date(props.account.rpm_reset_at * 1000).toISOString())
+    })
+  }
+  return t('admin.accounts.status.rpmPausedRetry')
 })
 
 // Computed: is rate limited (429)

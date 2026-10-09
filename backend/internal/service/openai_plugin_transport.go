@@ -22,6 +22,12 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		releaseChat()
 		return nil, err
 	}
+	if err := controlledSubmission(request.Context(), "native_http"); err != nil {
+		release()
+		releaseChat()
+		return nil, err
+	}
+	defer func() { controlledHTTPResponse(request.Context(), result) }()
 	defer func() {
 		result, resultErr = attachCodexTicketEgressRelease(result, resultErr, func() {
 			release()

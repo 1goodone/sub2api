@@ -620,6 +620,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.ModelPlazaDescription != after.ModelPlazaDescription {
 		changed = append(changed, "model_plaza_description")
 	}
+	if before.SupportTicketEnabled != after.SupportTicketEnabled {
+		changed = append(changed, "support_ticket_enabled")
+	}
+	if supportTicketConfigChanged(before.SupportTicket, after.SupportTicket) {
+		changed = append(changed, "support_ticket_config")
+	}
 	if before.AffiliateEnabled != after.AffiliateEnabled {
 		changed = append(changed, "affiliate_enabled")
 	}
@@ -900,8 +906,16 @@ func stringSetting(value *string, fallback string) string {
 	return *value
 }
 
-// pelicanShowcaseConfigChanged compares normalized configs: the request carries the
-// admin's raw group order, while the stored config is sorted and deduplicated.
+// supportTicketConfigChanged compares normalized configs, so trimming or a zero
+// limit filled with the default is not reported as a change.
+func supportTicketConfigChanged(before, after service.SupportTicketConfig) bool {
+	normalizedBefore, errBefore := service.NormalizeSupportTicketConfig(before)
+	normalizedAfter, errAfter := service.NormalizeSupportTicketConfig(after)
+	return errBefore != nil || errAfter != nil || !reflect.DeepEqual(normalizedBefore, normalizedAfter)
+}
+
+// pelicanShowcaseConfigChanged compares normalized configs: the request may leave limits
+// at zero, which the stored config fills with defaults.
 func pelicanShowcaseConfigChanged(before, after service.PelicanShowcaseConfig) bool {
 	normalizedBefore, errBefore := service.NormalizePelicanShowcaseConfig(before)
 	normalizedAfter, errAfter := service.NormalizePelicanShowcaseConfig(after)

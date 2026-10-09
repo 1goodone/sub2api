@@ -210,6 +210,8 @@ export interface LoginAgreementDocument {
 }
 
 export interface PublicSettings {
+  excel_bps_enabled?: boolean
+  prism_browser_enabled?: boolean
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean
@@ -287,6 +289,8 @@ export interface PublicSettings {
   model_plaza_enabled: boolean
   model_plaza_require_auth: boolean
   plugin_management_enabled: boolean
+  /** Opt-in support tickets (sidebar「网站工单」for users and admins). */
+  support_ticket_enabled?: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
@@ -1136,23 +1140,65 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
+  object: 'sub2api.key_billing' | 'new_api.group_billing'
   schema_version: 1
-  billing_scope: 'token'
-  group_rate_multiplier: number
+  billing_scope: 'token' | 'group'
+  provider?: 'new_api'
+  group?: string
+  token_id?: number
+  group_rate_multiplier?: number
   user_rate_multiplier?: number
-  resolved_rate_multiplier: number
-  peak_rate_enabled: boolean
+  resolved_rate_multiplier?: number
+  peak_rate_enabled?: boolean
   peak_start?: string
   peak_end?: string
   peak_rate_multiplier?: number
   applied_peak_multiplier?: number
-  effective_rate_multiplier: number
+  effective_rate_multiplier?: number
   timezone?: string
   observed_at: string
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
+
+// A spending window reported by the upstream /v1/usage endpoint: subscription
+// limits use daily/weekly/monthly, key rate limits use 5h/1d/7d.
+export interface UpstreamBalanceWindow {
+  window: string
+  limit: number
+  used?: number
+  reset_at?: string
+}
+
+// Sanitized balance fields of the upstream /v1/usage response.
+export interface UpstreamBalanceData {
+  source?: 'new_api'
+  is_valid: boolean
+  mode?: 'unrestricted' | 'quota_limited'
+  key_status?: string
+  plan_name?: string
+  unit?: string
+  // Wallet balance, the smallest subscription headroom, or the key quota
+  // headroom, depending on how the upstream bills the key.
+  remaining?: number
+  wallet_balance?: number
+  // Subscription without any spending limit.
+  unlimited?: boolean
+  quota_limit?: number
+  quota_used?: number
+  expires_at?: string
+  windows?: UpstreamBalanceWindow[]
+}
+
+export interface UpstreamBalanceSnapshot {
+  status: UpstreamBillingProbeStatus
+  data?: UpstreamBalanceData
+  received_at?: string
+  fresh_until?: string
+  last_attempt_at: string
+  http_status?: number
+  last_error?: string
+}
 
 export interface UpstreamBillingProbeSnapshot {
   status: UpstreamBillingProbeStatus
@@ -1164,9 +1210,42 @@ export interface UpstreamBillingProbeSnapshot {
   failure_count?: number
   http_status?: number
   last_error?: string
+  balance?: UpstreamBalanceSnapshot
   // Value this probe wrote into the account rate multiplier; absent when the
   // probe did not sync a rate.
   synced_rate_multiplier?: number
+}
+
+export interface NewAPIUpstreamConfig {
+  account_id: number
+  site_url: string
+  configured: boolean
+  user_id?: number
+  encryption_key_configured: boolean
+  accounts: Array<{ account_id: number; name: string; configured_user_id?: number }>
+}
+
+export interface NewAPIUpstreamConfigRequest {
+  user_id: number
+  access_token?: string
+  account_ids: number[]
+  token_selections?: Record<string, number>
+}
+
+export interface NewAPIUpstreamPreview {
+  site_url: string
+  user_id: number
+  wallet: { amount: number; unit: 'USD' }
+  accounts: Array<{
+    account_id: number
+    name: string
+    matched: boolean
+    token_id?: number
+    group?: string
+    rate?: number
+    error?: string
+    token_options: Array<{ token_id: number; name: string; group: string; masked_key: string }>
+  }>
 }
 
 export interface UpstreamBillingProbeSettings {
@@ -1271,6 +1350,7 @@ export interface Account {
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
+    upstream_billing_provider?: 'new_api'
     upstream_billing_probe_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
     codex_quota_overdraft_enabled?: boolean
@@ -1383,6 +1463,8 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+  rpm_paused?: boolean
+  rpm_reset_at?: number | null
 
   // 影子账号关系（spark 维度影子）
   parent_account_id?: number | null

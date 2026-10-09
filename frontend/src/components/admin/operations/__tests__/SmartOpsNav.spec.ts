@@ -21,6 +21,7 @@ describe('SmartOpsNav', () => {
       '/admin/auto-config',
       '/admin/priority-scheduling',
       '/admin/account-quality',
+      '/admin/controlled-experiments',
       '/admin/account-ops',
       '/admin/token-guard',
       '/admin/token-guard-v2',

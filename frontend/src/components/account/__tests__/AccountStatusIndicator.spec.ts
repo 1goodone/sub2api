@@ -113,7 +113,26 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.find('.badge-warning').text()).toBe('admin.accounts.status.rateLimited')
   })
 
-  it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
+  it('hides the BPS badge when the global protocol switch is off', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({ platform: 'openai', extra: { openai_excel_bps: true } }),
+        globalBpsEnabled: false,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="bps-status-badge"]').exists()).toBe(false)
+  })
+
+  it('shows the RPM pause reason and clears it when refreshed after reset', async () => {
+    const account = makeAccount({ platform: 'openai', base_rpm: 10, current_rpm: 10, rpm_paused: true, rpm_reset_at: 1_900_000_020 })
+    const wrapper = mount(AccountStatusIndicator, { props: { account }, global: { stubs: { Icon: true } } })
+    expect(wrapper.text()).toContain('admin.accounts.status.rpmPaused')
+    expect(wrapper.text()).toContain('admin.accounts.status.rpmPausedUntil')
+    await wrapper.setProps({ account: { ...account, current_rpm: 0, rpm_paused: false, rpm_reset_at: undefined } })
+    expect(wrapper.text()).not.toContain('admin.accounts.status.rpmPaused')
+  })
+  it('Claude 5 系列模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({

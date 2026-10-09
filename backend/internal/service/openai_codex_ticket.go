@@ -456,6 +456,13 @@ func (s *OpenAIGatewayService) markManualHarvestLiveModels(account *Account, mod
 	}
 }
 
+func (s *OpenAIGatewayService) accountHasLiveCodexTicket(account *Account) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	return len(s.manualHarvestLiveModels(account, s.openAICodexTicketConfig().Models)) > 0
+}
+
 func (s *OpenAIGatewayService) openAICodexTicketEnabled() bool {
 	return s.openAICodexTicketEnabledContext(context.Background())
 }

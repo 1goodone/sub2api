@@ -86,3 +86,17 @@ describe('AppSidebar subscription feature flag', () => {
     expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })
+describe('AppSidebar support tickets', () => {
+  it('gates both entries behind the opt-in switch and keeps admins on their own page', () => {
+    expect(componentSource).toContain('const flagSupportTickets = makeSidebarFlag(FeatureFlags.supportTickets)')
+    expect(componentSource).toContain('const flagUserSupportTickets = () => flagSupportTickets() && !authStore.isAdmin')
+    expect(componentSource).toMatch(/path: '\/support-tickets'[^\n]*featureFlag: flagUserSupportTickets[^\n]*badge: \(\) => supportTicketStore\.userUnread/)
+    expect(componentSource).toMatch(/path: '\/admin\/support-tickets'[^\n]*featureFlag: flagSupportTickets[^\n]*badge: \(\) => supportTicketStore\.adminPending/)
+  })
+
+  it('renders badges for every item list and caps the number', () => {
+    expect(componentSource.match(/data-testid="sidebar-nav-badge"/g)).toHaveLength(3)
+    expect(componentSource).toContain("return count > 99 ? '99+' : String(count)")
+    expect(componentSource).toContain('.sidebar-nav-badge-collapsed {')
+  })
+})
