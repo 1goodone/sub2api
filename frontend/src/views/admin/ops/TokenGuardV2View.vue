@@ -234,7 +234,16 @@
         <form id="token-guard-v2-editor" class="editor-form" @submit.prevent="save">
           <p v-if="error" role="alert" class="error-banner">{{ error }}</p>
           <p v-if="!encryptionReady" role="alert" class="error-banner">{{ t('tokenGuardV2.encryption.editorHint') }}</p>
-          <div v-if="!editing" class="account-picker">
+          <div v-if="!editing" class="section-tabs editor-tabs" role="tablist" :aria-label="t('tokenGuardV2.addTitle')">
+            <button type="button" :class="{ active: addMode === 'single' }" :aria-selected="addMode === 'single'" @click="addMode = 'single'">{{ t('tokenGuardV2.singleTab') }}</button>
+            <button type="button" :class="{ active: addMode === 'batch' }" :aria-selected="addMode === 'batch'" @click="addMode = 'batch'">{{ t('tokenGuardV2.batchTab') }}</button>
+          </div>
+          <div v-if="!editing && addMode === 'batch'" class="batch-import">
+            <label class="field-label" for="token-guard-v2-batch">{{ t('tokenGuardV2.batchInput') }}</label>
+            <textarea id="token-guard-v2-batch" v-model="batchText" class="input w-full" rows="8" :placeholder="t('tokenGuardV2.batchPlaceholder')" />
+            <small class="field-hint">{{ t('tokenGuardV2.batchHint') }}</small>
+          </div>
+          <div v-else-if="!editing" class="account-picker">
             <label class="search-box picker-search">
               <Icon name="search" size="sm" />
               <input id="token-guard-v2-account-search" v-model.trim="accountSearch" type="search" :placeholder="t('tokenGuardV2.accountSearchPlaceholder')" />
@@ -253,6 +262,7 @@
             </div>
           </div>
           <div v-else class="selected-account"><span>{{ t('tokenGuardV2.account') }}</span><strong>{{ editing.account_name }} (#{{ editing.account_id }})</strong></div>
+          <template v-if="editing || addMode === 'single'">
           <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<input v-model.trim="draft.login_email" class="input w-full" type="email" required /></label>
           <label class="field-label">{{ t('tokenGuardV2.loginProxy') }}
             <select id="token-guard-v2-proxy" v-model="proxyChoice" :disabled="editorEngine === 'session_studio'" class="input w-full">
@@ -273,11 +283,13 @@
             <label v-if="editing?.login_config?.totp_configured" class="check-row"><input v-model="draft.clear_totp" type="checkbox" />{{ t('tokenGuardV2.clearTotp') }}</label>
           </template>
           <label v-else class="field-label">{{ t('tokenGuardV2.otpUrl') }}<input v-model.trim="draft.otp_url" class="input w-full" type="url" :placeholder="editing?.login_config?.otp_url_masked ? `${editing.login_config.otp_url_masked} · ${t('tokenGuardV2.keepSecret')}` : 'https://mail.example.com/latest'" :required="editing?.login_config?.credential_mode !== 'email_otp_url' || !editing?.login_config?.otp_url_masked" /></label>
+          </template>
 
         </form>
         <template #footer>
           <button type="button" class="btn btn-secondary" :disabled="saving" @click="closeEditor">{{ t('tokenGuardV2.cancel') }}</button>
-          <button type="submit" form="token-guard-v2-editor" class="btn btn-primary" :disabled="saving || !draft.account_id || !encryptionReady">{{ saving ? t('tokenGuardV2.saving') : t('tokenGuardV2.save') }}</button>
+          <button v-if="!editing && addMode === 'batch'" type="button" data-testid="token-guard-v2-batch-import" class="btn btn-primary" :disabled="saving || !encryptionReady || !batchText.trim()" @click="importBatch">{{ saving ? t('tokenGuardV2.batchImporting') : t('tokenGuardV2.batchImport') }}</button>
+          <button v-else type="submit" form="token-guard-v2-editor" class="btn btn-primary" :disabled="saving || !draft.account_id || !encryptionReady">{{ saving ? t('tokenGuardV2.saving') : t('tokenGuardV2.save') }}</button>
         </template>
       </BaseDialog>
     </div>
@@ -297,6 +309,7 @@ import { list as listAccounts } from '@/api/admin/accounts'
 import { getByPlatform as listGroups } from '@/api/admin/groups'
 import { getAllWithCount as listProxies } from '@/api/admin/proxies'
 import { openAIPlanTypeLabel } from '@/utils/planType'
+import { parseTokenGuardBatchImport, type TokenGuardBatchRow } from '@/utils/tokenGuardBatchImport'
 import type { AccountListItem, AdminGroup, Proxy } from '@/types'
 import {
   cancelTokenGuardV2Task,
@@ -340,6 +353,8 @@ const candidates = ref<AccountListItem[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountGroup = ref('')
 const accountSearch = ref('')
+const addMode = ref<'single' | 'batch'>('single')
+const batchText = ref('')
 const proxies = ref<Proxy[]>([])
 const loading = ref(false), saving = ref(false), busyId = ref(0), editorOpen = ref(false)
 const editing = ref<TokenGuardV2Account | null>(null)
@@ -499,7 +514,7 @@ function syncRulesDraft(rules: TokenGuardV2Rules) {
   })
 }
 function handleAccountPageSize(size: number) { accountPageSize.value = size; accountPage.value = 1 }
-function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; accountSearch.value = ''; resetDraft(); editorOpen.value = true }
+function openCreate() { error.value = ''; notice.value = ''; editing.value = null; accountGroup.value = ''; accountSearch.value = ''; addMode.value = 'single'; batchText.value = ''; resetDraft(); editorOpen.value = true }
 function selectAccount(account: AccountListItem) { draft.account_id = account.id; draft.login_email = accountEmail(account) }
 function openEdit(item: TokenGuardV2Account) {
   error.value = ''; notice.value = ''
@@ -636,6 +651,109 @@ async function save() {
   }
 }
 
+async function listAllOpenAIAccounts() {
+  const pageSize = 1000
+  const filters = { platform: 'openai', type: 'oauth', lite: '1' as const }
+  const items: AccountListItem[] = []
+  for (let page = 1; page <= 50; page += 1) {
+    const result = await listAccounts(page, pageSize, filters)
+    const pageItems = result.items || []
+    items.push(...pageItems)
+    const total = result.total ?? items.length
+    if (items.length >= total || pageItems.length < pageSize) break
+  }
+  return items.filter(item => !item.parent_account_id)
+}
+
+function batchPayload(row: TokenGuardBatchRow, accountId: number, existing?: TokenGuardV2Account): SaveTokenGuardV2Account {
+  const config = existing?.login_config
+  const base: SaveTokenGuardV2Account = {
+    account_id: accountId,
+    login_email: row.email,
+    credential_mode: row.mode,
+    proxy_source: config?.proxy_source || 'account',
+    proxy_id: config?.proxy_id ?? null,
+    password: '',
+    totp_secret: '',
+    otp_url: '',
+    clear_totp: false,
+  }
+  if (row.mode === 'password_totp') {
+    base.password = row.password
+    base.totp_secret = row.totp
+    base.clear_totp = !row.totp
+    return base
+  }
+  base.otp_url = row.otpUrl
+  return base
+}
+
+async function importBatch() {
+  if (saving.value || !encryptionReady.value) return
+  const parsed = parseTokenGuardBatchImport(batchText.value)
+  if (parsed.issues.length) {
+    error.value = parsed.issues.map(issue => t(`tokenGuardV2.batch${issue.kind === 'format' ? 'Format' : issue.kind === 'email' ? 'Email' : 'Url'}`, { line: issue.line })).join('\n')
+    return
+  }
+  if (!parsed.rows.length) {
+    error.value = t('tokenGuardV2.batchEmpty')
+    return
+  }
+  saving.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const directory = await listAllOpenAIAccounts()
+    const idsByEmail = new Map<string, Set<number>>()
+    const addEmail = (email: string, accountId: number) => {
+      const key = email.trim().toLowerCase()
+      if (!key || accountId <= 0) return
+      const ids = idsByEmail.get(key) ?? new Set<number>()
+      ids.add(accountId)
+      idsByEmail.set(key, ids)
+    }
+    directory.forEach(account => addEmail(accountEmail(account), account.id))
+    accounts.value.forEach(item => addEmail(item.login_config?.login_email || '', item.account_id))
+    const missing: string[] = []
+    const ambiguous: string[] = []
+    const jobs: Array<{ row: TokenGuardBatchRow; accountId: number }> = []
+    parsed.rows.forEach(row => {
+      const ids = [...(idsByEmail.get(row.email.toLowerCase()) ?? [])]
+      if (!ids.length) missing.push(row.email)
+      else if (ids.length > 1) ambiguous.push(row.email)
+      else jobs.push({ row, accountId: ids[0] })
+    })
+    if (missing.length || ambiguous.length) {
+      error.value = [
+        missing.length ? t('tokenGuardV2.batchMissing', { emails: missing.join('、') }) : '',
+        ambiguous.length ? t('tokenGuardV2.batchAmbiguous', { emails: ambiguous.join('、') }) : '',
+      ].filter(Boolean).join('\n')
+      return
+    }
+    let created = 0
+    let replaced = 0
+    for (const job of jobs) {
+      const existing = accounts.value.find(item => item.account_id === job.accountId)
+      const payload = batchPayload(job.row, job.accountId, existing)
+      if (existing) {
+        await updateTokenGuardV2Account(job.accountId, payload)
+        replaced += 1
+      } else {
+        await createTokenGuardV2Account(payload)
+        created += 1
+      }
+    }
+    notice.value = t('tokenGuardV2.batchSaved', { created, replaced })
+    batchText.value = ''
+    editorOpen.value = false
+    await load(true)
+  } catch (value) {
+    error.value = message(value)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function act(item: TokenGuardV2Account, action: () => Promise<unknown>, successKey: string) {
   if (busyId.value) return
   busyId.value = item.account_id; error.value = ''; notice.value = ''
@@ -715,6 +833,8 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .section-tabs { @apply mb-4 flex w-fit gap-1 rounded-xl bg-gray-100 p-1 dark:bg-dark-800; }
 .section-tabs button { @apply rounded-lg px-4 py-2 text-xs font-medium text-gray-500 transition-colors dark:text-gray-400; }
 .section-tabs button.active { @apply bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white; }
+.editor-tabs { @apply mb-4; }
+.batch-import textarea { @apply min-h-40 resize-y font-mono text-xs leading-5; }
 .list-toolbar { @apply flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4 dark:border-dark-800; }
 .filter-tabs,.group-tabs { @apply flex max-w-full gap-1 overflow-x-auto; }
 .filter-tabs button,.group-tabs button { @apply whitespace-nowrap rounded-lg border border-transparent px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-800; }

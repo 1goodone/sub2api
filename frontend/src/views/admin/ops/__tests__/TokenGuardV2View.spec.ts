@@ -558,3 +558,44 @@ it('updates pause through the switch without clobbering the saved engine and kee
   expect((wrapper.get('#token-guard-v2-engine').element as HTMLSelectElement).value).toBe('session_studio')
   expect(wrapper.get('#token-guard-v2-proxy').attributes('disabled')).toBeUndefined()
 })
+
+const dialogStubs = {
+  AppLayout: { template: '<main><slot /></main>' },
+  SmartOpsNav: true,
+  Icon: true,
+  BaseDialog: { props: ['show'], template: '<section v-if="show"><slot /><footer><slot name="footer" /></footer></section>' },
+}
+
+it('rejects the whole batch when an email has no account and replaces an existing email', async () => {
+  api.createGuard.mockResolvedValue({})
+  wrapper = mount(TokenGuardV2View, { global: { stubs: dialogStubs } })
+  await flushPromises()
+  await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.addAccount')!.trigger('click')
+  await wrapper.findAll('button').find(button => button.text() === 'tokenGuardV2.batchTab')!.trigger('click')
+
+  await wrapper.get('#token-guard-v2-batch').setValue('user@example.com----secret----NEW\nnobody@example.com----https://otp.example.com/latest')
+  await wrapper.get('[data-testid="token-guard-v2-batch-import"]').trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('nobody@example.com')
+  expect(api.createGuard).not.toHaveBeenCalled()
+  expect(api.updateGuard).not.toHaveBeenCalled()
+
+  await wrapper.get('#token-guard-v2-batch').setValue('user@example.com----old----OLD\nuser@example.com----new-pass----NEW2FA\nbackup@example.com----https://otp.example.com/code')
+  await wrapper.get('[data-testid="token-guard-v2-batch-import"]').trigger('click')
+  await flushPromises()
+  expect(api.updateGuard).toHaveBeenCalledWith(42, expect.objectContaining({
+    login_email: 'user@example.com',
+    credential_mode: 'password_totp',
+    password: 'new-pass',
+    totp_secret: 'NEW2FA',
+    proxy_source: 'managed_proxy',
+    proxy_id: 7,
+  }))
+  expect(api.createGuard).toHaveBeenCalledWith(expect.objectContaining({
+    account_id: 43,
+    login_email: 'backup@example.com',
+    credential_mode: 'email_otp_url',
+    otp_url: 'https://otp.example.com/code',
+    proxy_source: 'account',
+  }))
+})
