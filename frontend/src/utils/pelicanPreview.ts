@@ -36,6 +36,11 @@ export function fitPelicanArtwork(artwork: PelicanArtworkSize, available: Pelica
   return { scale, width: artwork.width * scale, height: artwork.height * scale }
 }
 
+export function createPelicanPreviewChannel(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return `pelican-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
 export function readPelicanSizeMessage(event: MessageEvent, source: Window | null, channel: string): PelicanArtworkSize | null {
   // Sandboxed srcdoc intentionally has an opaque origin, so event.origin is not an
   // authentication mechanism. Both the WindowProxy and per-document channel must match.

@@ -3373,6 +3373,7 @@
 
 <script setup lang="ts">
 import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
+import { applyAccountRPMSettings } from '@/components/account/accountRpm'
 import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
 import { DEFAULT_ACCOUNT_COST_MULTIPLIER, isValidAccountCostMultiplier, readAccountCostMultiplier } from '@/utils/accountCost'
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'

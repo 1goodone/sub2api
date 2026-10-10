@@ -42,7 +42,7 @@ let updates = 0
 let observer: ResizeObserver | undefined
 
 watch(() => props.html, (html) => {
-  channel = `pelican-${crypto.randomUUID()}`
+  channel = createPelicanPreviewChannel()
   updates = 0
   viewport.value = getPelicanViewport(html)
   artwork.value = { ...viewport.value }
