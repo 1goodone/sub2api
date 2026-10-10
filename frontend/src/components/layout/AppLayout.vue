@@ -13,7 +13,7 @@
 
       <!-- Main Content -->
       <main class="px-3 py-5 sm:px-4 md:px-5 lg:px-4 lg:pb-7 lg:pt-6">
-        <div class="mx-auto max-w-[1600px]">
+        <div class="w-full">
           <slot />
         </div>
       </main>
