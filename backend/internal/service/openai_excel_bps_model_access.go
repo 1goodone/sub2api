@@ -95,6 +95,9 @@ func (s *OpenAIGatewayService) FetchExcelBPSModelsList(ctx context.Context, acco
 	}
 	token, err := s.getExcelBPSAccessToken(ctx, account)
 	if err != nil {
+		if IsExcelAuthorizationError(err) {
+			return nil, err
+		}
 		return nil, infraerrors.New(502, "EXCEL_BPS_MODELS_AUTH_UNAVAILABLE", "Excel BPS credentials are unavailable")
 	}
 	accountID := excelBPSAccountID(account, token)
@@ -275,12 +278,18 @@ func applyExcelBPSEffortsToManifest(body, access []byte, account *Account) ([]by
 // Independent BPS discovery applies to the actual selected model route. Native
 // models keep their own source; a native source failure cannot invent BPS access.
 func (s *OpenAIGatewayService) fetchExcelBPSAccountModels(ctx context.Context, account *Account) (*OpenAIModelsResponse, error) {
-	access, err := s.FetchExcelBPSModelsList(ctx, account)
-	if err != nil {
-		return nil, err
+	access, accessErr := s.FetchExcelBPSModelsList(ctx, account)
+	if accessErr != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if account.IsExcelOAuth() || account.isExcelBPSAllModelsEnabled() {
+			return nil, accessErr
+		}
+		access = &OpenAIModelsResponse{Body: []byte(`{"object":"list","data":[]}`)}
 	}
 	var native []byte
-	if !account.isExcelBPSAllModelsEnabled() {
+	if !account.IsExcelOAuth() && !account.isExcelBPSAllModelsEnabled() {
 		response, err := s.fetchNativeOpenAIModelsList(ctx, account)
 		if err == nil {
 			native = response.Body
@@ -291,6 +300,12 @@ func (s *OpenAIGatewayService) fetchExcelBPSAccountModels(ctx context.Context, a
 	body, err := mergeExcelBPSAccountModels(native, access.Body, account)
 	if err != nil {
 		return nil, err
+	}
+	if accessErr != nil {
+		_, entries, parseErr := modelCatalogEntries(body, "data")
+		if parseErr != nil || len(entries) == 0 {
+			return nil, accessErr
+		}
 	}
 	return &OpenAIModelsResponse{Body: body, ETag: codexModelsManifestBodyETag(body)}, nil
 }
@@ -318,7 +333,7 @@ func (s *OpenAIGatewayService) fetchExcelBPSCodexManifest(ctx context.Context, a
 	if err != nil {
 		return nil, err
 	}
-	if !account.isExcelBPSAllModelsEnabled() {
+	if !account.IsExcelOAuth() && !account.isExcelBPSAllModelsEnabled() {
 		native, nativeErr := s.fetchNativeCodexModelsManifest(ctx, account, CodexCanonicalClientVersion(), "")
 		if nativeErr == nil {
 			envelope, models, err := modelCatalogEntries(native.Body, "models")

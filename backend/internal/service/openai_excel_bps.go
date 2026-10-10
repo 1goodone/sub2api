@@ -105,6 +105,13 @@ func (s *OpenAIGatewayService) coolDownExcelBPS(ctx context.Context, account *Ac
 	}
 }
 
+func (s *OpenAIGatewayService) isExcelBPSCoolingDown(account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	return s.isExcelBPSRateLimited(account, requestedModel)
+}
+
 func (s *OpenAIGatewayService) isExcelBPSRateLimited(account *Account, model string) bool {
 	if !account.IsExcelBPSEnabledForModel(model) {
 		return false
@@ -130,7 +137,11 @@ func (s *OpenAIGatewayService) handleExcelBPSUnauthorized(ctx context.Context, a
 		if len(tokens) > 0 {
 			stateCtx, cancel := openAIAccountStateContext(ctx)
 			defer cancel()
-			if err := s.excelOAuthReauth.invalidateExcelAccessToken(stateCtx, account.ID, tokens[0]); err != nil {
+			var cache OpenAITokenCache
+			if s.openAITokenProvider != nil {
+				cache = s.openAITokenProvider.tokenCache
+			}
+			if err := s.excelOAuthReauth.invalidateExcelAccessToken(stateCtx, account.ID, tokens[0], cache); err != nil {
 				logger.LegacyPrintf("service.openai_excel_bps", "Excel grant invalidation failed: account_id=%d", account.ID)
 			}
 		}
@@ -461,6 +472,13 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	var catalog *basispoints.CatalogCache
 	if identity != "" {
 		replay, catalog = &excelBPSReplay, &excelBPSCatalog
+		if s.cfg != nil && s.cfg.Gateway.ExcelBPSStateRedisEnabled && !transient {
+			store, ok := s.cache.(basispoints.StateStore)
+			if !ok {
+				return fail(503, "basispoints_state_unavailable", basispoints.ErrStateUnavailable.Error())
+			}
+			replay, catalog = basispoints.NewPersistentCaches(ctx, store)
+		}
 	}
 	var upstreamBody []byte
 	var bridge *basispoints.Bridge
@@ -470,6 +488,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		upstreamBody, bridge, err = basispoints.PrepareWithCatalog(body, scope, replay, catalog)
 	}
 	if err != nil {
+		if errors.Is(err, basispoints.ErrStateUnavailable) {
+			return fail(503, "basispoints_state_unavailable", basispoints.ErrStateUnavailable.Error())
+		}
 		var contentErr *basispoints.ContentValidationError
 		if errors.As(err, &contentErr) {
 			return fail(400, "basispoints_request_invalid", err.Error(), contentErr.Path)
@@ -481,8 +502,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if isExcelBPSClientCancellation(c, err) {
 			return clientCanceled()
 		}
-		if infraerrors.Reason(err) == "OPENAI_EXCEL_AUTH_PENDING" {
-			return fail(503, "basispoints_auth_pending", "Excel authorization is pending; see Credential Operations")
+		if IsExcelAuthorizationError(err) {
+			code := "basispoints_auth_" + strings.ToLower(strings.TrimPrefix(infraerrors.Reason(err), "OPENAI_EXCEL_AUTH_"))
+			return fail(503, code, infraerrors.Message(err))
 		}
 		return fail(502, "basispoints_auth_unavailable", "Excel OAuth credential is unavailable; see Credential Operations")
 	}
@@ -645,6 +667,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			_ = resp.Body.Close()
 		}
 	}()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		observeBPSTestResponse(ctx, resp, model, token, "")
+	}
 	if resp.StatusCode == http.StatusBadRequest {
 		// Read and close before retrying: the HTTP body owns the account's
 		// concurrency slot. Keep the proxy lease for the exact same exit.
@@ -682,6 +707,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				}
 				return fail(502, "basispoints_transport_error", "Excel BPS recovery connection failed; request was not replayed again")
 			}
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				observeBPSTestResponse(ctx, resp, model, token, "")
+			}
 			upstreamBody = retryBody
 		}
 	}
@@ -693,7 +721,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if err := ctx.Err(); resp.StatusCode == http.StatusTooManyRequests && err != nil {
 			return nil, err
 		}
-		// BPS throttles its own endpoint; never write Codex quota/cooldown state.
+		observeBPSTestResponse(ctx, resp, model, token, gjson.GetBytes(raw, "error.code").String())
+		// BPS throttles its own endpoint. A BPS 429 must not write Codex
+		// quota/cooldown state; it cools only the BPS route and fails over.
 		// Preserve the original rejection for Ops without exposing it to clients.
 		// BPS errors can echo request fields, so redact before storing diagnostics.
 		upstreamMessage := fmt.Sprintf("Excel BPS returned HTTP %d", resp.StatusCode)
@@ -729,7 +759,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			return fail(resp.StatusCode, "content_policy_violation", "Excel BPS blocked this request under its usage policy; request was not replayed and account scheduling was not changed")
 		}
 		code := gjson.GetBytes(raw, "error.code").String()
-		if code == "basispoints_model_access_changed" {
+		if isExcelBPSModelPermissionError(resp.StatusCode, code) {
+			if !isQualityObservation(ctx) {
+				s.coolDownExcelBPSModel(account, model)
+			}
 			return fail(resp.StatusCode, code, "This model is not available on the account's Excel BPS endpoint")
 		}
 		message := "Excel BPS rejected this request"
@@ -799,15 +832,22 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		defer func() { _ = repairResp.Body.Close() }()
 		stop := context.AfterFunc(repairCtx, func() { _ = repairResp.Body.Close() })
 		defer stop()
+		if repairResp.StatusCode >= 200 && repairResp.StatusCode < 300 {
+			observeBPSTestResponse(repairCtx, repairResp, model, token, "")
+		}
 		if repairResp.StatusCode < 200 || repairResp.StatusCode >= 300 {
 			raw, _ := io.ReadAll(io.LimitReader(repairResp.Body, 512<<10))
+			observeBPSTestResponse(repairCtx, repairResp, model, token, gjson.GetBytes(raw, "error.code").String())
 			if repairResp.StatusCode == http.StatusTooManyRequests {
 				// Output was already accepted: cool only the BPS route.
 				// Quota headers on this correction must not rewrite Codex windows.
 				s.coolDownExcelBPS(repairCtx, account, nil, nil)
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repairResp.StatusCode, repairResp.Header, raw, token)
-			if repairResp.StatusCode == http.StatusForbidden && !isExcelBPSUsagePolicyRejection(repairResp.StatusCode, raw) && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
+			if isExcelBPSModelPermissionError(repairResp.StatusCode, gjson.GetBytes(raw, "error.code").String()) && !isQualityObservation(repairCtx) {
+				s.coolDownExcelBPSModel(account, model)
+			}
+			if repairResp.StatusCode == http.StatusForbidden && !isExcelBPSModelPermissionError(http.StatusForbidden, gjson.GetBytes(raw, "error.code").String()) {
 				s.moveExcelBPSOn403(repairCtx, account)
 				s.disableExcelBPSOn403(repairCtx, account)
 			}
@@ -836,14 +876,21 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if err != nil {
 			return nil, fmt.Errorf("excel BPS tool correction transport failed")
 		}
+		if repaired.StatusCode >= 200 && repaired.StatusCode < 300 {
+			observeBPSTestResponse(repairCtx, repaired, model, token, "")
+		}
 		if repaired.StatusCode < 200 || repaired.StatusCode >= 300 {
 			raw, _ := io.ReadAll(io.LimitReader(repaired.Body, 512<<10))
+			observeBPSTestResponse(repairCtx, repaired, model, token, gjson.GetBytes(raw, "error.code").String())
 			_ = repaired.Body.Close()
 			if repaired.StatusCode == http.StatusTooManyRequests {
 				s.coolDownExcelBPS(repairCtx, account, nil, nil)
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repaired.StatusCode, repaired.Header, raw, token)
-			if repaired.StatusCode == http.StatusForbidden && !isExcelBPSUsagePolicyRejection(repaired.StatusCode, raw) && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
+			if isExcelBPSModelPermissionError(repaired.StatusCode, gjson.GetBytes(raw, "error.code").String()) && !isQualityObservation(repairCtx) {
+				s.coolDownExcelBPSModel(account, model)
+			}
+			if repaired.StatusCode == http.StatusForbidden && !isExcelBPSModelPermissionError(http.StatusForbidden, gjson.GetBytes(raw, "error.code").String()) {
 				s.moveExcelBPSOn403(repairCtx, account)
 				s.disableExcelBPSOn403(repairCtx, account)
 			}

@@ -278,8 +278,8 @@ func TestExcelBPSCooldownIsScopedAndExpires(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "gpt-6-astra", false))
 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "alias", true))
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "gpt-6-sol", false))
-	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(native, account, "gpt-6-astra", false))
-	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(context.Background(), account, "gpt-6-astra", false))
+	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(native, account, "gpt-6-astra", false))
+	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(context.Background(), account, "gpt-6-astra", false))
 	account.Extra["openai_excel_bps"] = false
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(bps, account, "gpt-6-astra", false))
 	account.Extra["openai_excel_bps"] = true

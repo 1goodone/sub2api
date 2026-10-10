@@ -1572,7 +1572,13 @@ export async function streamManualCodexHarvest(
   }
 }
 
+export async function getOpenAIRequestTimezones(): Promise<{ default: string; timezones: string[] }> {
+  const { data } = await apiClient.get<{ default: string; timezones: string[] }>('/admin/accounts/openai-request-timezones')
+  return data
+}
+
 export const accountsAPI = {
+  getOpenAIRequestTimezones,
   list,
   listWithEtag,
   getOpenAIAccountSummary,

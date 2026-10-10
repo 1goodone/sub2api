@@ -461,6 +461,7 @@ type OpenAIGatewayService struct {
 	excelBPSImagesMu       sync.Mutex
 	excelBPSImages         *basispoints.ImageRelay
 	excelBPSAttachments    basispoints.AttachmentCache
+	excelBPSModelCooldowns excelBPSModelCooldowns
 	accountRepo            AccountRepository
 	usageLogRepo           UsageLogRepository
 	usageBillingRepo       UsageBillingRepository

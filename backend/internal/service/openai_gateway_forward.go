@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -90,11 +91,32 @@ func (s *OpenAIGatewayService) excelBPSGloballyEnabled(ctx context.Context) bool
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, resultErr error) {
+	body = s.normalizeRequestTimezone(ctx, account, body, "http")
 	if astraSchedulingAppliesToRequest(s.cfg.AstraRouting(ctx), account, gjson.GetBytes(body, "model").String(), getOpenAIGroupIDFromContext(c)) {
 		if err := s.checkAstraSchedulingRoute(ctx, account); err != nil {
 			return nil, err
 		}
 	}
+	defer func() {
+		outcome := "success"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		disconnected := result != nil && result.ClientDisconnect
+		if disconnected {
+			outcome = "client_disconnected"
+		}
+		requesttiming.Outcome(ctx, outcome, disconnected)
+	}()
+	defer requesttiming.Observe(ctx, "forward_attempt")()
+	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
+	if admissionErr != nil {
+		if errors.Is(admissionErr, errExcelOAuthRouteUnavailable) {
+			return nil, writeExcelOAuthRouteError(c)
+		}
+		return nil, markOpenAIInitialAdmissionError(admissionErr)
+	}
+	account = latest
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	// A failed account attempt must not leave a bypass reason on a later BPS response.
@@ -141,7 +163,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if err := s.checkControlledRoute(ctx, c, account, modelForBPS); err != nil {
 		return nil, err
 	}
-	if account.IsPrismBrowserEnabledForModel(modelForBPS) && s.prismBrowserGloballyEnabled(ctx) {
+	if !account.IsExcelOAuth() && account.IsPrismBrowserEnabledForModel(modelForBPS) && s.prismBrowserGloballyEnabled(ctx) {
 		return s.forwardPrismBrowser(ctx, c, account, body, startTime)
 	}
 	if c.GetBool(bpsAccountProbeRequiredContextKey) &&
@@ -1701,6 +1723,10 @@ func shouldAdaptDeepSeekResponsesClientTools(account *Account, body []byte, comp
 		needsOpenAIResponsesClientToolAdaptation(body)
 }
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+	defer requesttiming.Observe(ctx, "build_upstream_request")()
+	if codexAccountIdentitySource(c, account).IsExcelOAuth() {
+		return nil, errExcelOAuthRouteUnavailable
+	}
 	body = s.prepareCodexQuotaOverdraftBody(ctx, account, isOpenAIResponsesCompactPath(c), body)
 	// Determine target URL based on account type
 	var targetURL string

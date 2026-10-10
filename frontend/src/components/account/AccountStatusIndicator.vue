@@ -1,5 +1,6 @@
 <template>
   <div class="flex flex-col items-start gap-1">
+    <ExcelBPSCredentialStatus :state="account.excel_bps_credential_state" />
     <span
       v-if="protocolEnabled && isExcelBPSEnabled"
       data-testid="bps-status-badge"
@@ -172,6 +173,7 @@
 </template>
 
 <script setup lang="ts">
+import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

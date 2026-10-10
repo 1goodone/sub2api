@@ -27,9 +27,9 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-function streamResponse(events: Array<Record<string, unknown>>) {
+function streamResponse(events: Array<Record<string, unknown> | string>) {
   const encoder = new TextEncoder()
-  const chunks = events.map((event) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+  const chunks = events.map((event) => encoder.encode(typeof event === 'string' ? event : `data: ${JSON.stringify(event)}\n\n`))
   let index = 0
   return {
     ok: true,
@@ -149,6 +149,49 @@ describe('IQTestModal', () => {
     expect(frames[0].attributes('srcdoc')).toContain('<svg></svg>')
     expect(wrapper.text()).toContain('admin.accounts.pelicanTest.success')
     expect(localStorage.getItem('sub2api-pelican-test:42')).toContain('gpt-6-astra')
+  })
+
+  it('starts Claude accounts on a Claude model and other accounts on the OpenAI default', async () => {
+    const wrapper = mountModal({ platform: 'anthropic', name: 'Claude account' })
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const body = JSON.parse((global.fetch as any).mock.calls[0][1].body)
+    expect(body.model_id).toBe('claude-opus-5-5')
+
+    await wrapper.setProps({ account: { id: 43, name: 'Astra account', platform: 'openai', type: 'oauth', status: 'active' } as any })
+    expect((wrapper.vm as any).modelId).toBe('gpt-6-astra')
+  })
+
+  it('ignores fragmented keepalive comments without changing generated HTML', async () => {
+    const html = '<!doctype html><html><body>verified</body></html>'
+    global.fetch = vi.fn(() => Promise.resolve(streamResponse([
+      ': keep', 'alive\n\n',
+      { type: 'test_start', model: 'gpt-6-astra' },
+      ': keepalive\n\n',
+      { type: 'content', text: html },
+      ': keepalive\n\n',
+      { type: 'test_complete', success: true }
+    ]))) as any
+    const wrapper = mountModal()
+    ;(wrapper.vm as any).selectQuestion('pelican')
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect((wrapper.vm as any).runs[0]).toMatchObject({ status: 'success', output: html })
+    expect(wrapper.get('iframe').attributes('srcdoc')).toContain('<body>verified</body>')
+    expect(wrapper.get('iframe').attributes('srcdoc')).not.toContain('keepalive')
+    wrapper.unmount()
+  })
+
+  it('does not treat keepalive comments as output or successful completion', async () => {
+    global.fetch = vi.fn(() => Promise.resolve(streamResponse([': keepalive\n\n', ': keepalive\n\n']))) as any
+    const wrapper = mountModal()
+    ;(wrapper.vm as any).selectQuestion('pelican')
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect((wrapper.vm as any).runs[0]).toMatchObject({ status: 'error', output: '' })
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('keeps non-HTML output visible but marks it as failed', async () => {

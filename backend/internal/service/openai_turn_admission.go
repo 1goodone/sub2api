@@ -24,8 +24,9 @@ type OpenAITurnAdmissionReader interface {
 // OpenAITurnAdmissionError is a local, PRE-SEND rejection, not an upstream
 // failure. In particular it must not update account/proxy health or cooldown.
 type OpenAITurnAdmissionError struct {
-	Reason string
-	cause  error
+	Reason             string
+	cause              error
+	initialHTTPForward bool
 }
 
 func (e *OpenAITurnAdmissionError) Error() string { return "request admission denied: " + e.Reason }
@@ -34,6 +35,27 @@ func (e *OpenAITurnAdmissionError) Unwrap() error { return e.cause }
 func IsOpenAITurnAdmissionError(err error) bool {
 	var denied *OpenAITurnAdmissionError
 	return errors.As(err, &denied)
+}
+
+// markOpenAIInitialAdmissionError is used only at the entry to an HTTP forward,
+// before any upstream work. Later per-send/WS admission failures must stay
+// unmarked: an earlier send may already have executed the request.
+func markOpenAIInitialAdmissionError(err error) error {
+	var denied *OpenAITurnAdmissionError
+	if !errors.As(err, &denied) || denied.Reason != "account_binding_changed" {
+		return err
+	}
+	copy := *denied
+	copy.initialHTTPForward = true
+	return &copy
+}
+
+// IsOpenAIInitialAdmissionRejection identifies a route change before this HTTP
+// forward started. Callers must still check cancellation, downstream writes,
+// continuation state and their account-switch budget before reselecting.
+func IsOpenAIInitialAdmissionRejection(err error) bool {
+	var denied *OpenAITurnAdmissionError
+	return errors.As(err, &denied) && denied.initialHTTPForward
 }
 
 // invalidateOpenAIWSTurnStateAfterAdmissionFailure removes only the sticky
@@ -143,6 +165,13 @@ func (s *OpenAIGatewayService) AdmitOpenAITurn(
 }
 
 func denyOpenAITurn(reason string) error { return &OpenAITurnAdmissionError{Reason: reason} }
+
+// IsOpenAIModelCapabilityRejection distinguishes a known unsupported model
+// from other admission failures (credentials, capacity, tickets, or DB reads).
+func IsOpenAIModelCapabilityRejection(err error) bool {
+	var denied *OpenAITurnAdmissionError
+	return errors.As(err, &denied) && denied.Reason == "model_not_supported"
+}
 
 func denyOpenAITicket() error {
 	return &OpenAITurnAdmissionError{Reason: "model_ticket_unavailable", cause: ErrOpenAICodexTicketUnavailable}
@@ -335,6 +364,9 @@ func (s *OpenAIGatewayService) admitOpenAITurnWithGroup(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateExcelOAuthRoute(ctx, latest, outboundModel); err != nil {
+		return nil, &OpenAITurnAdmissionError{Reason: excelOAuthRouteErrorCode, cause: err}
+	}
 	// 会话中途被收窄了分组内的可用模型、或后续 turn 换成了不允许的模型时，要求客户端重连重新选号。
 	if enforceGroup && !latest.IsModelAllowedInGroup(&groupID, outboundModel) {
 		return nil, denyOpenAITurn("model_not_allowed_in_group")
@@ -344,6 +376,11 @@ func (s *OpenAIGatewayService) admitOpenAITurnWithGroup(
 	}
 	if openAITurnRouteFingerprint(latest) != openAITurnRouteFingerprint(selected) {
 		return nil, denyOpenAITurn("account_binding_changed")
+	}
+	// Preserve the cause of a model-not-found cooldown before the generic
+	// runtime/rate-limit checks erase it.
+	if latest.modelCapabilityRejected(outboundModel) {
+		return nil, denyOpenAITurn("model_not_supported")
 	}
 	if s.getOpenAIAccountModelTransientState().isBlocked(latest.ID, openAIAccountModelTransientModel(outboundModel), time.Now()) {
 		return nil, denyOpenAITurn("model_runtime_blocked")

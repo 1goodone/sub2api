@@ -232,6 +232,7 @@ type AdminPaymentOrderResult struct {
 	PlanID              *int64     `json:"plan_id,omitempty"`
 	SubscriptionGroupID *int64     `json:"subscription_group_id,omitempty"`
 	SubscriptionDays    *int       `json:"subscription_days,omitempty"`
+	RenewalMode         string     `json:"renewal_mode,omitempty"`
 	ProviderInstanceID  *string    `json:"provider_instance_id,omitempty"`
 	ProviderKey         *string    `json:"provider_key,omitempty"`
 	Status              string     `json:"status"`
@@ -290,6 +291,7 @@ func sanitizeAdminPaymentOrderForResponse(order *dbent.PaymentOrder) *AdminPayme
 		PlanID:              order.PlanID,
 		SubscriptionGroupID: order.SubscriptionGroupID,
 		SubscriptionDays:    order.SubscriptionDays,
+		RenewalMode:         order.SubscriptionRenewalMode,
 		ProviderInstanceID:  order.ProviderInstanceID,
 		ProviderKey:         order.ProviderKey,
 		Status:              order.Status,
