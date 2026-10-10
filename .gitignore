@@ -213,3 +213,12 @@ output/
 !docs/screenshots/channel-monitor-v3/
 !docs/screenshots/usage-tps-single-token/
 !docs/screenshots/support-tickets/
+!docs/openai-2fa-dual-oauth.md
+!docs/openai-2fa-rotation.md
+!docs/astra-account-scheduling.md
+!docs/screenshots/astra-auto-groups/
+!docs/screenshots/monitor-client-rejections/
+!docs/screenshots/pelican-showcase-notice/
+!docs/screenshots/2fa-rotation/
+**/totp-recovery/
+**/*.sealed

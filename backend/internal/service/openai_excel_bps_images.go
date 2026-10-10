@@ -242,7 +242,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 	if err != nil {
 		return nil, false, err
 	}
-	token, _, err := s.GetAccessToken(ctx, account)
+	token, err := s.getExcelBPSAccessToken(ctx, account)
 	if err != nil {
 		return nil, false, err
 	}
@@ -316,7 +316,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 		appendOpsUpstreamError(c, event)
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
-			s.handleExcelBPSUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw)
+			s.handleExcelBPSUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw, token)
 			return fail(resp.StatusCode, "basispoints_upstream_error", "Excel BPS authentication failed; request was not replayed")
 		case http.StatusForbidden:
 			if isExcelBPSUsagePolicyRejection(resp.StatusCode, raw) {

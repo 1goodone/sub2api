@@ -164,6 +164,7 @@ type AccountTokenGuardV2Service struct {
 	reauth   *OpenAIOAuthReauthService
 
 	leaseOwner string
+	startOnce  sync.Once
 	stopOnce   sync.Once
 	stopCh     chan struct{}
 	doneCh     chan struct{}
@@ -222,30 +223,35 @@ func (s *AccountTokenGuardV2Service) Start() {
 	if s == nil || s.repo == nil || s.accounts == nil || s.prober == nil || s.reauth == nil {
 		return
 	}
-	go func() {
-		defer close(s.doneCh)
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		runCycle := func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			if rows, err := s.repo.ListAccounts(ctx); err == nil && len(rows) > 0 {
-				s.reauth.EnsureWorker()
+	s.startOnce.Do(func() {
+		go func() {
+			defer close(s.doneCh)
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			runCycle := func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
+				if rows, err := s.repo.ListAccounts(ctx); err == nil && len(rows) > 0 {
+					s.reauth.EnsureWorker()
+				}
+				if err := s.reauth.QueueMissingExcelAuthorizations(ctx); err != nil {
+					slog.Warn("openai_excel_authorization_cycle_failed", "error", err)
+				}
+				if _, err := s.RunDue(ctx); err != nil {
+					slog.Warn("account_token_guard_v2_cycle_failed", "error", err)
+				}
 			}
-			if _, err := s.RunDue(ctx); err != nil {
-				slog.Warn("account_token_guard_v2_cycle_failed", "error", err)
+			runCycle()
+			for {
+				select {
+				case <-s.stopCh:
+					return
+				case <-ticker.C:
+					runCycle()
+				}
 			}
-		}
-		runCycle()
-		for {
-			select {
-			case <-s.stopCh:
-				return
-			case <-ticker.C:
-				runCycle()
-			}
-		}
-	}()
+		}()
+	})
 }
 
 func (s *AccountTokenGuardV2Service) Stop() {

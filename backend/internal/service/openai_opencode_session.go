@@ -14,6 +14,8 @@ import (
 const (
 	openCodeSessionHeader         = "X-OpenCode-Session"
 	openCodeInboundBodyContextKey = "opencode_inbound_body"
+	// openCodeUpstreamUserAgent 是发往官方 OpenCode 上游的规范 User-Agent。
+	openCodeUpstreamUserAgent = "opencode/1.0.0"
 )
 
 // rememberOpenCodeInboundBody keeps the client request body so protocol
@@ -95,6 +97,45 @@ func isOfficialOpenCodeHost(targetURL string) bool {
 		return false
 	}
 	return strings.EqualFold(parsed.Scheme, "https") && strings.EqualFold(parsed.Hostname(), "opencode.ai")
+}
+
+func isOfficialCommandCodeHost(targetURL string) bool {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, "https") && strings.EqualFold(parsed.Hostname(), "api.commandcode.ai")
+}
+
+// applyOpenCodeUpstreamUserAgent 将发往官方 OpenCode / Command Code 上游的出站
+// User-Agent 收敛为规范客户端身份，覆盖客户端透传值与平台默认 UA。判定规则与
+// x-opencode-session 同源：opencode 平台账号，或（任意平台账号）目标为官方主机。
+// 必须先于 Account.ApplyHeaderOverrides 调用——账号 header_overrides 中显式
+// 配置的 user-agent 仍拥有最终决定权。
+func applyOpenCodeUpstreamUserAgent(account *Account, targetURL string, headers http.Header) {
+	if headers == nil {
+		return
+	}
+
+	userAgent := ""
+	switch {
+	case isOfficialCommandCodeHost(targetURL):
+		userAgent = CodexCanonicalUserAgent()
+	case account != nil && account.IsOpenCodeGo(), isOfficialOpenCodeHost(targetURL):
+		userAgent = openCodeUpstreamUserAgent
+	default:
+		return
+	}
+	if userAgent == "" {
+		return
+	}
+
+	for key := range headers {
+		if strings.EqualFold(key, "User-Agent") {
+			delete(headers, key)
+		}
+	}
+	headers.Set("User-Agent", userAgent)
 }
 
 func resolveOpenCodeSessionID(c *gin.Context, headers http.Header, generate bool, bodies ...[]byte) string {
