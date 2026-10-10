@@ -10300,7 +10300,6 @@ const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
 // The stored monitor mode; the save payload omits an unchanged mode so a switch
 // made on the monitor page is not overwritten by this page's older copy.
 let loadedChannelMonitorMode: 'v1' | 'v2' | 'v3' = 'v1'
-const channelMonitorModes = ['v1', 'v2', 'v3'] as const
 // 平台限额表格的行：平台清单顺序中、已在归一化 map 里的平台（清单晚于设置加载时
 // 不渲染尚未归一化的平台，保持模板非空绑定）。
 function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] {

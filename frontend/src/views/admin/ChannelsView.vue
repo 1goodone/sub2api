@@ -1545,23 +1545,6 @@ async function handleSubmit() {
     }
   }
 
-  // 思考等级倍率同时适用于渠道计价和独立的账号统计计价规则。
-  for (const section of form.platforms.filter(s => s.enabled)) {
-    const entries = [
-      ...section.model_pricing,
-      ...section.account_stats_pricing_rules.flatMap(rule => rule.pricing),
-    ]
-    for (const entry of entries) {
-      const error = validateReasoningEffortMultipliers(entry.reasoning_effort_multipliers, t)
-      if (!error) continue
-      const platformLabel = t('admin.groups.platforms.' + section.platform, catalogPlatformLabel(section.platform))
-      const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
-      appStore.showError(`${platformLabel} - ${modelLabel}: ${error}`)
-      activeTab.value = section.platform
-      return
-    }
-  }
-
   // 校验区间合法性（范围、重叠等）
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
