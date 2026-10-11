@@ -88,13 +88,33 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
         },
         ProxySelector: true,
         GroupSelector: true,
-        Icon: true
+        Icon: true,
+        OpenAIRequestTimezoneField: {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template: '<select data-testid="bulk-request-timezone" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="Asia/Singapore">Asia/Singapore</option><option value="America/New_York">America/New_York</option></select>'
+        }
       }
     }
   })
 }
 
 describe('BulkEditAccountModal', () => {
+  it('writes the request timezone only for OpenAI accounts when the field is selected', async () => {
+    const hidden = mountModal()
+    expect(hidden.find('#bulk-edit-openai-request-timezone-enabled').exists()).toBe(false)
+    hidden.unmount()
+
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth', 'apikey'] })
+    expect(wrapper.get<HTMLInputElement>('#bulk-edit-openai-request-timezone-enabled').element.checked).toBe(false)
+    await wrapper.get('#bulk-edit-openai-request-timezone-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-request-timezone"]').setValue('America/New_York')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { extra: { openai_request_timezone: 'America/New_York' } })
+    wrapper.unmount()
+  })
+
   it('repairs OAuth alias scope without replacing mappings or enabling BPS', async () => {
     const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
     await wrapper.get('[data-testid="enable-model-aliases"]').setValue(true)

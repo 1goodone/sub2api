@@ -1005,6 +1005,25 @@
         </div>
       </div>
 
+      <!-- OpenAI request timezone -->
+      <div v-if="allOpenAI" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label id="bulk-edit-openai-request-timezone-label" class="input-label mb-0" for="bulk-edit-openai-request-timezone-enabled">
+            {{ t('admin.accounts.openai.requestTimezone') }}
+          </label>
+          <input
+            v-model="enableOpenAIRequestTimezone"
+            id="bulk-edit-openai-request-timezone-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-request-timezone"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div id="bulk-edit-openai-request-timezone" :class="!enableOpenAIRequestTimezone && 'pointer-events-none opacity-50'">
+          <OpenAIRequestTimezoneField v-model="openAIRequestTimezone" />
+        </div>
+      </div>
+
       <!-- OpenAI OAuth WS mode -->
       <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1672,6 +1691,7 @@ import {
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -1720,6 +1740,10 @@ const allTargetsGrok = computed(
     targetSelectedPlatforms.value.every((p) => p === 'grok')
 )
 const isMixedPlatform = computed(() => targetSelectedPlatforms.value.length > 1)
+
+const allOpenAI = computed(() => {
+  return targetSelectedPlatforms.value.length === 1 && targetSelectedPlatforms.value[0] === 'openai'
+})
 
 const allOpenAIPassthroughCapable = computed(() => {
   return (
@@ -1829,6 +1853,8 @@ const enableRateMultiplier = ref(false)
 const enableStatus = ref(false)
 const enableGroups = ref(false)
 const enableExcelBPS = ref(false)
+const enableOpenAIRequestTimezone = ref(false)
+const openAIRequestTimezone = ref('Asia/Singapore')
 const enableOpenAIPassthrough = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
 const enableOpenAILongContextBilling = ref(false)
@@ -2191,6 +2217,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     }
   }
 
+  if (enableOpenAIRequestTimezone.value && allOpenAI.value) {
+    ensureExtra().openai_request_timezone = openAIRequestTimezone.value
+  }
+
   if (enableExcelBPS.value && allOpenAIOAuthOnly.value) {
     const extra = ensureExtra()
     extra.openai_excel_bps = excelBPSEnabled.value
@@ -2450,6 +2480,7 @@ const handleSubmit = async () => {
   const hasAnyFieldEnabled =
     enableBaseUrl.value ||
     (enableExcelBPS.value && allOpenAIOAuthOnly.value) ||
+    (enableOpenAIRequestTimezone.value && allOpenAI.value) ||
     enableOpenAIPassthrough.value ||
     enableOpenAIFlattenNamespaces.value ||
     (enableOpenAILongContextBilling.value && allOpenAIPassthroughCapable.value) ||
@@ -2637,6 +2668,8 @@ watch(
       enableStatus.value = false
       enableGroups.value = false
       enableExcelBPS.value = false
+      enableOpenAIRequestTimezone.value = false
+      openAIRequestTimezone.value = 'Asia/Singapore'
       enableOpenAIPassthrough.value = false
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAILongContextBilling.value = false
