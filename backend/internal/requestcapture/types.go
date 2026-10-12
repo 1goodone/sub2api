@@ -40,21 +40,22 @@ func (c Config) Validate() error {
 }
 
 type Task struct {
-	ID         string     `json:"id"`
-	InstanceID string     `json:"instance_id"`
-	TargetType string     `json:"target_type"`
-	TargetID   int64      `json:"target_id"`
-	TargetName string     `json:"target_name"`
-	SaveMedia  bool       `json:"save_media"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	EndedAt    *time.Time `json:"ended_at,omitempty"`
-	Status     string     `json:"status"`
-	Reason     string     `json:"reason,omitempty"`
-	Requests   int64      `json:"requests"`
-	Partial    int64      `json:"partial"`
-	Skipped    int64      `json:"skipped"`
-	Bytes      int64      `json:"bytes"`
+	ID          string     `json:"id"`
+	InstanceID  string     `json:"instance_id"`
+	TargetType  string     `json:"target_type"`
+	TargetID    int64      `json:"target_id"`
+	TargetName  string     `json:"target_name"`
+	SaveMedia   bool       `json:"save_media"`
+	SaveContent bool       `json:"save_content"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	EndedAt     *time.Time `json:"ended_at,omitempty"`
+	Status      string     `json:"status"`
+	Reason      string     `json:"reason,omitempty"`
+	Requests    int64      `json:"requests"`
+	Partial     int64      `json:"partial"`
+	Skipped     int64      `json:"skipped"`
+	Bytes       int64      `json:"bytes"`
 }
 
 type CreateTask struct {
@@ -62,6 +63,7 @@ type CreateTask struct {
 	TargetID        int64  `json:"target_id"`
 	DurationMinutes int    `json:"duration_minutes"`
 	SaveMedia       bool   `json:"save_media"`
+	SaveContent     bool   `json:"save_content"`
 }
 
 type Meta struct {

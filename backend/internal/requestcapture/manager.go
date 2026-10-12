@@ -119,7 +119,7 @@ func New(store Store, dir string, config Config) (*Manager, error) {
 				}
 				kept := 0
 				for _, r := range records {
-					if !r.IsError || r.FinishedAt == nil {
+					if !retainRecord(&r, t.SaveContent) {
 						if _, e = uuid.Parse(r.ID); e != nil {
 							return nil, e
 						}
@@ -155,8 +155,7 @@ func New(store Store, dir string, config Config) (*Manager, error) {
 			break
 		}
 	}
-	// Remove bodies whose final error index was never committed, including crashes
-	// between a successful response and its asynchronous deletion.
+	// Remove bodies with no committed index, and successes a task did not opt to keep.
 	if err = m.cleanOrphanBodies(ctx); err != nil {
 		return nil, err
 	}
@@ -287,7 +286,7 @@ func (m *Manager) Create(ctx context.Context, req CreateTask, name string) (*Tas
 		name = name[:256]
 	}
 	now := time.Now().UTC()
-	t := Task{ID: uuid.NewString(), InstanceID: m.instance, TargetType: req.TargetType, TargetID: req.TargetID, TargetName: name, SaveMedia: req.SaveMedia, CreatedAt: now, ExpiresAt: now.Add(time.Duration(req.DurationMinutes) * time.Minute), Status: "running"}
+	t := Task{ID: uuid.NewString(), InstanceID: m.instance, TargetType: req.TargetType, TargetID: req.TargetID, TargetName: name, SaveMedia: req.SaveMedia, SaveContent: req.SaveContent, CreatedAt: now, ExpiresAt: now.Add(time.Duration(req.DurationMinutes) * time.Minute), Status: "running"}
 	if err := m.store.SaveTask(ctx, &t); err != nil {
 		return nil, err
 	}
@@ -341,21 +340,23 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.signal()
 	return nil
 }
-func (m *Manager) Records(ctx context.Context, task, rid string, _ bool, limit, offset int) ([]Record, error) {
-	if _, err := m.Task(ctx, task); err != nil {
+func (m *Manager) Records(ctx context.Context, task, rid string, onlyErrors bool, limit, offset int) ([]Record, error) {
+	t, err := m.Task(ctx, task)
+	if err != nil {
 		return nil, err
 	}
-	return m.store.Records(ctx, task, rid, true, limit, offset)
+	return m.store.Records(ctx, task, rid, onlyErrors || !t.SaveContent, limit, offset)
 }
 func (m *Manager) Record(ctx context.Context, task, id string) (*Record, error) {
-	if _, err := m.Task(ctx, task); err != nil {
+	t, err := m.Task(ctx, task)
+	if err != nil {
 		return nil, err
 	}
 	r, err := m.store.Record(ctx, task, id)
 	if err != nil {
 		return nil, err
 	}
-	if r.InstanceID != m.instance || !r.IsError || r.FinishedAt == nil {
+	if r.InstanceID != m.instance || !retainRecord(r, t.SaveContent) {
 		return nil, ErrNotFound
 	}
 	return r, nil
@@ -579,7 +580,11 @@ func (m *Manager) cleanExpired() {
 	}
 }
 
-// Recovery is fail-closed: only a finished error index authorizes retained files.
+// Recovery is fail-closed. A finished error index always authorizes its files.
+// A task that opted into content retention also authorizes finished successes.
+func retainRecord(r *Record, saveContent bool) bool {
+	return r != nil && r.FinishedAt != nil && (r.IsError || saveContent)
+}
 func (m *Manager) cleanOrphanBodies(ctx context.Context) error {
 	tasks, err := os.ReadDir(m.dir)
 	if err != nil {
@@ -596,6 +601,12 @@ func (m *Manager) cleanOrphanBodies(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		saveContent := false
+		if meta, err := m.store.Task(ctx, m.instance, task.Name()); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		} else if err == nil {
+			saveContent = meta.SaveContent
+		}
 		for _, record := range records {
 			if !record.IsDir() {
 				continue
@@ -607,7 +618,7 @@ func (m *Manager) cleanOrphanBodies(ctx context.Context) error {
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
-			if err != nil || r.InstanceID != m.instance || !r.IsError || r.FinishedAt == nil {
+			if err != nil || r.InstanceID != m.instance || !retainRecord(r, saveContent) {
 				if err := os.RemoveAll(filepath.Join(m.dir, task.Name(), record.Name())); err != nil {
 					return err
 				}
