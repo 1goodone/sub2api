@@ -578,10 +578,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// SettingKeyClaudeCodeClientVersionSynced 由自动同步任务独占写入，此处不得覆盖。
 	updates[SettingKeyOpenAIRequestTimezoneEnabled] = strconv.FormatBool(settings.OpenAIRequestTimezoneEnabled)
 	updates[SettingKeyOpenAICodexTicketEnabled] = strconv.FormatBool(settings.OpenAICodexTicketEnabled)
+	updates[SettingKeyOpenAICodexTicketFailClosed] = strconv.FormatBool(settings.OpenAICodexTicketFailClosed)
 	if err := ValidateOpenAICodexTicketHarvestProxyURL(settings.OpenAICodexTicketHarvestProxyURL); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
 	}
 	updates[SettingKeyOpenAICodexTicketHarvestProxyURL] = strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL)
+	if value := settings.OpenAICodexTicketStrategy; value != "" && value != "fixed" && value != "standby" {
+		return nil, infraerrors.BadRequest("INVALID_TICKET_STRATEGY", "strategy must be fixed or standby")
+	}
 	scope, scopeErr := NormalizeCodexTicketHarvestScope(settings.OpenAICodexTicketHarvestScope)
 	if scopeErr != nil {
 		return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_SCOPE", scopeErr.Error())
@@ -604,6 +608,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	scopeJSON, _ := json.Marshal(scope)
 	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
+	updates[SettingKeyOpenAICodexTicketStrategy] = NormalizeCodexTicketStrategy(settings.OpenAICodexTicketStrategy)
+	updates[SettingKeyOpenAICodexTicketStrict] = strconv.FormatBool(settings.OpenAICodexTicketStrictResponse)
 	if settings.OpenAICodexTicketStaticProxyURL != "" {
 		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
 	}
@@ -892,6 +898,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateClaudeCodeClientVersionCache()
 	s.InvalidateOpenAIRequestTimezoneEnabledCache()
 	s.InvalidateOpenAICodexTicketEnabledCache()
+	s.InvalidateOpenAICodexTicketFailClosedCache()
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)

@@ -271,6 +271,9 @@ type SystemSettings struct {
 	ClaudeCodeVersionAutoSyncEnabled       bool   // 是否启用 Claude Code 客户端版本号自动同步（默认 true）
 	OpenAIRequestTimezoneEnabled           bool   // Rewrite request timezones; disabled by default.
 	OpenAICodexTicketEnabled               bool   // Codex 292 打票总开关；关闭则不打票不注入
+	OpenAICodexTicketStrictResponse        bool
+	OpenAICodexTicketFailClosed            bool
+	OpenAICodexTicketStrategy              string
 	OpenAICodexTicketHarvestProxyURL       string // Codex 292 打票代理 URL；空则回退 yaml/env
 	OpenAICodexTicketStaticProxyURL        string
 	OpenAICodexTicketHarvestScope          CodexTicketHarvestScope // 后台自动采票范围

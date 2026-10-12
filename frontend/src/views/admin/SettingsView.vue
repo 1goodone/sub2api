@@ -9463,7 +9463,6 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
-import MihomoProxySelector from "@/views/admin/settings/MihomoProxySelector.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
 import {
@@ -10172,7 +10171,7 @@ type SettingsForm = Omit<
   google_oauth_client_secret: string;
   force_email_on_third_party_signup: boolean;
   openai_low_upstream_rate_priority_enabled: boolean;
-  openai_oauth_scheduling_rate_multiplier: number;
+  openai_oauth_scheduling_rate_multiplier: number | null;
   openai_advanced_scheduler_enabled: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled: boolean;
   openai_advanced_scheduler_subscription_priority_enabled: boolean;
