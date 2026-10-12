@@ -663,6 +663,8 @@ export default {
         codexTicketHarvestGroupsEmpty: "No active OpenAI groups available",
         codexTicketHarvestProxy: "Harvest exit",
         codexTicketShapeNotice: "780 only describe the observed state shape and do not measure model quality. Only tickets matching the current validation rules are injected; with account pausing off, a shape mismatch does not block requests.",
+        codexTicketHarvestProxyDesc:
+          "Select the exit for subsequent harvest probes. Stored tickets keep their bound exit. Leave the static proxy blank to retain its saved address.",
         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
         codexTicketHarvestProxyConfigured: "Configured (password hidden). Paste a full new proxy URL to replace it.",
         mihomoProxyPool: "Mihomo proxy pool",
