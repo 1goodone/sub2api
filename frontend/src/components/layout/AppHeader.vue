@@ -1,23 +1,26 @@
 <template>
   <header
-    class="glass sticky top-0 z-30 border-b border-slate-200/80 shadow-glass-sm dark:border-dark-800 lg:top-4 lg:mx-4 lg:mt-4 lg:rounded-2xl lg:border lg:border-white/80 lg:bg-white/95 dark:lg:border-dark-700 dark:lg:bg-dark-900/95"
+    class="app-header sticky top-0 z-30 h-16 border-b border-slate-200 bg-white dark:border-dark-700 dark:bg-dark-900"
   >
-    <div class="flex h-[72px] items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
+    <div class="flex h-full items-center justify-between gap-2 px-3 sm:px-5">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex min-w-0 items-center gap-2 sm:gap-4">
         <button
+          id="mobile-navigation-toggle"
           @click="toggleMobileSidebar"
           class="btn-ghost btn-icon lg:hidden"
           :aria-label="t('common.toggleMenu')"
+          :aria-expanded="appStore.mobileOpen"
+          aria-controls="app-sidebar"
         >
           <Icon name="menu" size="md" />
         </button>
 
-        <div class="hidden min-w-0 lg:block">
-          <h1 class="truncate text-lg font-semibold text-gray-900 dark:text-white">
+        <div class="min-w-0">
+          <h1 class="truncate text-base font-semibold text-gray-900 dark:text-white lg:text-lg">
             {{ pageTitle }}
           </h1>
-          <p v-if="pageDescription" class="truncate text-xs text-gray-500 dark:text-dark-400" :title="pageDescription">
+          <p v-if="pageDescription" class="hidden truncate text-xs text-gray-500 dark:text-dark-400 lg:block" :title="pageDescription">
             {{ pageDescription }}
           </p>
         </div>
@@ -39,18 +42,6 @@
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
         </a>
-
-        <!-- Model Plaza Entry (icon only below sm) -->
-        <router-link
-          v-if="user && modelPlazaEnabled"
-          :to="{ path: '/model-plaza', query: { embedded: '1' } }"
-          :title="t('nav.modelPlaza')"
-          :aria-label="t('nav.modelPlaza')"
-          class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
-        >
-          <Icon name="grid" size="sm" />
-          <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
-        </router-link>
 
         <!-- Language Switcher -->
         <LocaleSwitcher />
@@ -254,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -281,7 +272,6 @@ const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
 const docUrl = computed(() => sanitizeUrl(appStore.docUrl))
-const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
 const availableBalance = computed(() => Number(user.value?.balance || 0))
 const frozenBalance = computed(() => Number(user.value?.frozen_balance || 0))
@@ -347,8 +337,12 @@ const pageDescription = computed(() => {
   return (route.meta.description as string) || ''
 })
 
-function toggleMobileSidebar() {
+async function toggleMobileSidebar() {
   appStore.toggleMobileSidebar()
+  if (appStore.mobileOpen) {
+    await nextTick()
+    document.querySelector<HTMLAnchorElement>('#app-sidebar a')?.focus()
+  }
 }
 
 function toggleDropdown() {
@@ -397,13 +391,5 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.2s ease;
-}
-
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  transform: scale(0.95) translateY(-4px);
-}
+.dropdown-leave-active { transition: none; }
 </style>

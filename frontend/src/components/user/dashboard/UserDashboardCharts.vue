@@ -89,6 +89,7 @@ const modelData = computed(() => !props.models?.length ? null : {
 })
 
 const doughnutOptions = {
+  animation: false as const,
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
