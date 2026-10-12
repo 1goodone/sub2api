@@ -210,7 +210,9 @@ output/
 
 !docs/harvest-gateway-borrow.md
 !docs/screenshots/harvest-gateway-borrow/
+!docs/screenshots/harvest-settings-cleanup/
 !docs/screenshots/channel-monitor-v3/
+!docs/screenshots/channel-monitor-v3-idle-probe/
 !docs/screenshots/usage-tps-single-token/
 !docs/screenshots/support-tickets/
 !docs/openai-2fa-dual-oauth.md

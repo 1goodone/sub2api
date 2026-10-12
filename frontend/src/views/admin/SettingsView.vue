@@ -4552,178 +4552,12 @@
             </div>
             <div class="p-6 space-y-4">
                 <RequestTimezoneSettings v-model="form.openai_request_timezone_enabled" />
-                <div class="flex items-center justify-between gap-4">
-                  <div class="min-w-0">
-                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabled") }}
-                    </h3>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabledDesc") }}
-                    </p>
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="codex-management-links">
+                  <p class="text-sm text-gray-500 dark:text-gray-400">{{ localText('自动打票、模型与票据策略在「打票全流程」管理；采票出口、订阅与节点在「IP 管理」管理。', 'Manage automatic harvesting, models and ticket policies in Harvest Flow; manage exits, subscriptions and nodes in IP Management.') }}</p>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <router-link to="/admin/harvest-flow" class="btn btn-secondary btn-sm">{{ t('nav.harvestFlow') }}</router-link>
+                    <router-link to="/admin/proxies#harvest" class="btn btn-secondary btn-sm">{{ localText('IP 管理', 'IP Management') }}</router-link>
                   </div>
-                  <Toggle
-                    id="codex-ticket-enabled"
-                    v-model="form.openai_codex_ticket_enabled"
-                  />
-                </div>
-                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketModels") }}
-                  </h3>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketModelsDesc") }}
-                  </p>
-                  <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <input
-                        id="codex-ticket-model-astra"
-                        type="checkbox"
-                        :checked="form.openai_codex_ticket_models.includes('gpt-6-astra')"
-                        @change="toggleCodexTicketModel('gpt-6-astra', ($event.target as HTMLInputElement).checked)"
-                      />
-                      <span>Astra (gpt-6-astra)</span>
-                    </label>
-                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <input
-                        id="codex-ticket-model-sol"
-                        type="checkbox"
-                        :checked="form.openai_codex_ticket_models.includes('gpt-5.6-sol')"
-                        @change="toggleCodexTicketModel('gpt-5.6-sol', ($event.target as HTMLInputElement).checked)"
-                      />
-                      <span>Sol (gpt-5.6-sol)</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestScope") }}
-                  </h3>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestScopeDesc") }}
-                  </p>
-                  <Select
-                    id="codex-ticket-harvest-scope"
-                    v-model="form.openai_codex_ticket_harvest_scope.mode"
-                    class="mt-3 max-w-sm"
-                    :options="codexTicketHarvestScopeOptions"
-                    :aria-label="t('admin.settings.gatewayForwarding.codexTicketHarvestScope')"
-                  />
-                  <div
-                    v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'"
-                    class="mt-3 space-y-2"
-                  >
-                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketHarvestGroups") }}
-                    </p>
-                    <label
-                      v-for="group in openAITicketGroups"
-                      :key="group.id"
-                      class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
-                    >
-                      <input
-                        :id="`codex-ticket-harvest-group-${group.id}`"
-                        type="checkbox"
-                        :checked="form.openai_codex_ticket_harvest_scope.group_ids.includes(group.id)"
-                        @change="toggleCodexTicketHarvestGroup(group.id, ($event.target as HTMLInputElement).checked)"
-                      />
-                      <span>{{ group.name }} (#{{ group.id }})</span>
-                    </label>
-                    <p v-if="openAITicketGroups.length === 0" class="text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketHarvestGroupsEmpty") }}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
-                  </h3>
-                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}
-                  </p>
-                  <div class="mt-3 flex flex-wrap gap-2" role="radiogroup" :aria-label="t('admin.settings.gatewayForwarding.codexTicketProxyMode')">
-                    <label
-                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
-                      :class="codexTicketProxyMode === 'mihomo'
-                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
-                    >
-                      <input
-                        class="sr-only"
-                        type="radio"
-                        name="codex-ticket-proxy-mode"
-                        value="mihomo"
-                        :checked="codexTicketProxyMode === 'mihomo'"
-                        @change="selectCodexTicketProxyMode('mihomo')"
-                      />
-                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeMihomo") }}</span>
-                    </label>
-                    <label
-                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
-                      :class="codexTicketProxyMode === 'static'
-                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
-                    >
-                      <input
-                        class="sr-only"
-                        type="radio"
-                        name="codex-ticket-proxy-mode"
-                        value="static"
-                        :checked="codexTicketProxyMode === 'static'"
-                        @change="selectCodexTicketProxyMode('static')"
-                      />
-                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeStatic") }}</span>
-                    </label>
-                    <label
-                      class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
-                      :class="codexTicketProxyMode === 'ip_pool'
-                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                        : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
-                    >
-                      <input
-                        class="sr-only"
-                        type="radio"
-                        name="codex-ticket-proxy-mode"
-                        value="ip_pool"
-                        :checked="codexTicketProxyMode === 'ip_pool'"
-                        @change="selectCodexTicketProxyMode('ip_pool')"
-                      />
-                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyModeIPPool") }}</span>
-                    </label>
-                  </div>
-                  <div
-                    v-if="codexTicketProxyMode === 'mihomo'"
-                    data-testid="mihomo-proxy-pool"
-                    class="mt-3 rounded-md border border-primary-200 bg-primary-50/60 px-3 py-2.5 dark:border-primary-800 dark:bg-primary-900/20"
-                  >
-                    <div class="flex flex-wrap items-center gap-2 text-sm text-primary-800 dark:text-primary-200">
-                      <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyMihomoEndpoint") }}</span>
-                      <code class="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-800/70">{{ CODEX_TICKET_MIHOMO_PROXY_URL }}</code>
-                    </div>
-                    <h4 class="mt-3 text-sm font-semibold">{{ t("admin.settings.gatewayForwarding.mihomoProxyPool") }}</h4>
-                    <MihomoProxySelector @ready="selectMihomoHarvestProxy" />
-                  </div>
-                  <p
-                    v-else-if="codexTicketProxyMode === 'ip_pool'"
-                    data-testid="codex-ticket-proxy-ip-pool-hint"
-                    class="mt-3 rounded-md border border-primary-200 bg-primary-50/60 px-3 py-2.5 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
-                  >
-                    {{ t("admin.settings.gatewayForwarding.codexTicketProxyIPPoolHint") }}
-                  </p>
-                  <input
-                    v-else
-                    id="codex-ticket-harvest-proxy"
-                    v-model="form.openai_codex_ticket_harvest_proxy_url"
-                    type="text"
-                    class="input mt-3 w-full font-mono text-sm"
-                    :placeholder="t('admin.settings.gatewayForwarding.codexTicketHarvestProxyPlaceholder')"
-                    autocomplete="off"
-                  />
-                  <p
-                    v-if="form.openai_codex_ticket_harvest_proxy_configured && codexTicketProxyMode === 'static'"
-                    class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
-                  >
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}
-                  </p>
                 </div>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
@@ -6095,6 +5929,61 @@
                   </p>
                 </div>
                 <Toggle v-model="form.openai_codex_version_auto_sync_enabled" />
+              </div>
+
+              <!-- Claude Code 客户端版本号 -->
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.claudeCodeClientVersion",
+                    )
+                  }}
+                </label>
+                <input
+                  v-model="form.claude_code_client_version"
+                  type="text"
+                  class="input w-full font-mono text-sm"
+                  placeholder="2.1.280"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.claudeCodeClientVersionHint",
+                    )
+                  }}
+                </p>
+              </div>
+
+              <!-- Claude Code 版本号自动同步 -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeCodeVersionAutoSync",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeCodeVersionAutoSyncHint",
+                      )
+                    }}
+                  </p>
+                  <p
+                    v-if="claudeSyncedVersionLabel"
+                    class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {{ claudeSyncedVersionLabel }}
+                  </p>
+                </div>
+                <Toggle v-model="form.claude_code_version_auto_sync_enabled" />
               </div>
 
             </div>
@@ -9534,7 +9423,6 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
-  CodexTicketHarvestScope,
   OpenAIFastPolicyRule,
   PelicanShowcaseConfig,
   WeChatConnectMode,
@@ -9722,7 +9610,6 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
-const openAITicketGroups = ref<AdminGroup[]>([]);
 const pelicanShowcaseGroups = ref<AdminGroup[]>([]);
 const pelicanShowcaseGroupsLoaded = ref(false);
 const pelicanShowcaseGroupsLoadFailed = ref(false);
@@ -10254,6 +10141,7 @@ interface DefaultSubscriptionGroupOption {
 
 type SettingsForm = Omit<
   SystemSettings,
+  | `openai_codex_ticket_${string}`
   | "wechat_connect_open_enabled"
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
@@ -10588,12 +10476,10 @@ const form = reactive<SettingsForm>({
   openai_codex_client_version_synced: "",
   openai_codex_version_auto_sync_enabled: true,
   openai_request_timezone_enabled: false,
-  openai_codex_ticket_enabled: false,
-  openai_codex_ticket_harvest_proxy_url: "",
-  openai_codex_ticket_static_proxy_url: "",
-  openai_codex_ticket_harvest_proxy_configured: false,
-  openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
-  openai_codex_ticket_harvest_scope: { mode: "all", group_ids: [] },
+  claude_code_client_version: "",
+  // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
+  claude_code_client_version_synced: "",
+  claude_code_version_auto_sync_enabled: true,
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -11608,54 +11494,14 @@ const codexSyncedVersionLabel = computed(() => {
   });
 });
 
-const CODEX_TICKET_MIHOMO_PROXY_URL = "http://127.0.0.1:3101";
-const CODEX_TICKET_IP_POOL_PROXY_URL = "ippool://active";
-type CodexTicketProxyMode = "mihomo" | "static" | "ip_pool";
-const codexTicketProxyMode = ref<CodexTicketProxyMode>("static");
-const codexTicketStaticProxyDraft = ref("");
+const claudeSyncedVersionLabel = computed(() => {
+  const synced = form.claude_code_client_version_synced?.trim();
+  if (!synced) return "";
+  return t("admin.settings.gatewayForwarding.claudeCodeVersionSyncedValue", {
+    version: synced,
+  });
+});
 
-function isCodexTicketMihomoProxyURL(value: string): boolean {
-  return value.trim().replace(/\/+$/, "") === CODEX_TICKET_MIHOMO_PROXY_URL;
-}
-
-function isCodexTicketIPPoolProxyURL(value: string): boolean {
-  return value.trim() === CODEX_TICKET_IP_POOL_PROXY_URL;
-}
-
-function codexTicketProxyModeOf(value: string): CodexTicketProxyMode {
-  if (isCodexTicketMihomoProxyURL(value)) return "mihomo";
-  if (isCodexTicketIPPoolProxyURL(value)) return "ip_pool";
-  return "static";
-}
-
-function selectMihomoHarvestProxy(endpoint: string): void {
-  form.openai_codex_ticket_harvest_proxy_url = endpoint;
-  appStore.showSuccess(t("admin.settings.gatewayForwarding.codexTicketProxyMihomoSelected"));
-}
-
-function syncCodexTicketProxyMode(): void {
-  const current = form.openai_codex_ticket_harvest_proxy_url;
-  const mode = codexTicketProxyModeOf(current);
-  codexTicketProxyMode.value = mode;
-  codexTicketStaticProxyDraft.value = mode === "static" ? current : form.openai_codex_ticket_static_proxy_url || "";
-}
-
-function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
-  const previous = codexTicketProxyModeOf(form.openai_codex_ticket_harvest_proxy_url);
-  if (previous === "static") {
-    codexTicketStaticProxyDraft.value =
-      form.openai_codex_ticket_harvest_proxy_url;
-  }
-  codexTicketProxyMode.value = mode;
-  if (mode === "ip_pool") {
-    form.openai_codex_ticket_harvest_proxy_url = CODEX_TICKET_IP_POOL_PROXY_URL;
-  } else if (previous !== "static" && previous !== mode) {
-    // Mihomo writes its endpoint only once the kernel reports ready, so until
-    // then the form keeps the static address rather than the pool sentinel.
-    form.openai_codex_ticket_harvest_proxy_url =
-      codexTicketStaticProxyDraft.value;
-  }
-}
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -11665,18 +11511,18 @@ async function loadSettings() {
       settings.payment_load_balance_strategy || "round-robin";
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
     for (const [key, value] of Object.entries(settings)) {
-      if (value !== null && value !== undefined) {
+      if (!key.startsWith("openai_codex_ticket_") && value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
     }
-    form.openai_codex_ticket_harvest_scope = normalizeCodexTicketHarvestScope(
-      settings.openai_codex_ticket_harvest_scope,
-    );
     form.payment_visible_method_alipay_source = normalizePaymentVisibleMethodSource(
       "alipay",
       settings.payment_visible_method_alipay_source,
     );
-    syncCodexTicketProxyMode();
+    // For this optional override, null explicitly selects per-account rates.
+    if (settings.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
+    }
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11878,17 +11724,6 @@ async function loadSubscriptionGroups() {
   }
 }
 
-async function loadOpenAITicketGroups() {
-  try {
-    openAITicketGroups.value = (await adminAPI.groups.getAll("openai"))
-      .filter((group) => group.platform === "openai" && group.status === "active")
-      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
-  } catch (_error: unknown) {
-    // Keep the IDs loaded from settings so a transient group-list failure cannot clear them.
-    openAITicketGroups.value = [];
-  }
-}
-
 function findNextAvailableSubscriptionGroup(
   existingGroupIDs: number[],
 ): AdminGroup | undefined {
@@ -11962,51 +11797,6 @@ const siteBillingMode = computed<SiteBillingMode>({
 const siteBillingModeHint = computed(() =>
   t(`admin.settings.features.siteBillingMode.hints.${SITE_BILLING_MODE_I18N_KEYS[siteBillingMode.value]}`),
 );
-
-const codexTicketHarvestScopeOptions = computed<SelectOption[]>(() => [
-  {
-    value: "all",
-    label: t("admin.settings.gatewayForwarding.codexTicketHarvestScopeAll"),
-  },
-  {
-    value: "selected",
-    label: t("admin.settings.gatewayForwarding.codexTicketHarvestScopeSelected"),
-  },
-]);
-
-function normalizeCodexTicketHarvestScope(
-  value: unknown,
-): CodexTicketHarvestScope {
-  const raw = value as Partial<CodexTicketHarvestScope> | null | undefined;
-  const ids = Array.isArray(raw?.group_ids)
-    ? raw.group_ids
-        .filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0)
-    : [];
-  return {
-    mode: raw?.mode === "selected" ? "selected" : "all",
-    group_ids: [...new Set(ids)].sort((a, b) => a - b),
-  };
-}
-
-function toggleCodexTicketHarvestGroup(groupID: number, enabled: boolean): void {
-  const ids = new Set(form.openai_codex_ticket_harvest_scope.group_ids);
-  if (enabled) {
-    ids.add(groupID);
-  } else {
-    ids.delete(groupID);
-  }
-  form.openai_codex_ticket_harvest_scope.group_ids = [...ids].sort((a, b) => a - b);
-}
-
-function toggleCodexTicketModel(model: string, enabled: boolean) {
-  const models = new Set(form.openai_codex_ticket_models);
-  if (enabled) {
-    models.add(model);
-  } else {
-    models.delete(model);
-  }
-  form.openai_codex_ticket_models = [...models];
-}
 
 async function saveSettings() {
   saving.value = true;
@@ -12425,14 +12215,9 @@ async function saveSettings() {
       openai_codex_version_auto_sync_enabled:
         form.openai_codex_version_auto_sync_enabled,
       openai_request_timezone_enabled: form.openai_request_timezone_enabled,
-      openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
-      openai_codex_ticket_harvest_proxy_url:
-        form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
-      openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === "static",
-      openai_codex_ticket_models: [...form.openai_codex_ticket_models],
-      openai_codex_ticket_harvest_scope: normalizeCodexTicketHarvestScope(
-        form.openai_codex_ticket_harvest_scope,
-      ),
+      claude_code_client_version: form.claude_code_client_version?.trim() || "",
+      claude_code_version_auto_sync_enabled:
+        form.claude_code_version_auto_sync_enabled,
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -12638,9 +12423,6 @@ async function saveSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
-    form.openai_codex_ticket_harvest_scope = normalizeCodexTicketHarvestScope(
-      updated.openai_codex_ticket_harvest_scope,
-    );
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     loadedChannelMonitorMode = form.channel_monitor_mode || "v1";
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
@@ -13717,7 +13499,6 @@ async function handleDeleteProvider() {
 onMounted(() => {
   loadSettings();
   loadSubscriptionGroups();
-  loadOpenAITicketGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
   loadOllamaCloudUsageSettings();

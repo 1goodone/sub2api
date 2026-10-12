@@ -254,6 +254,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			continue
 		}
 
+		observeAnthropicUpstreamResponseModel(c, []byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -338,7 +339,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		c.JSON(http.StatusOK, ccResp)
 	}
 
-	return &ForwardResult{
+	result := &ForwardResult{
 		RequestID:       requestID,
 		UpstreamHeaders: resp.Header,
 		Usage:           usage,
@@ -347,7 +348,9 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		ReasoningEffort: reasoningEffort,
 		Stream:          false,
 		Duration:        time.Since(startTime),
-	}, nil
+	}
+	applyObservedGatewayResponseModel(c, result)
+	return result, nil
 }
 
 // handleCCStreamingFromAnthropic reads Anthropic SSE events, converts each
@@ -391,7 +394,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *ForwardResult {
-		return &ForwardResult{
+		result := &ForwardResult{
 			RequestID:       requestID,
 			UpstreamHeaders: resp.Header,
 			Usage:           usage,
@@ -402,6 +405,8 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			Duration:        time.Since(startTime),
 			FirstTokenMs:    firstTokenMs,
 		}
+		applyObservedGatewayResponseModel(c, result)
+		return result
 	}
 
 	writeChunk := func(chunk apicompat.ChatCompletionsChunk) bool {
@@ -473,6 +478,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			continue
 		}
 
+		observeAnthropicUpstreamResponseModel(c, []byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue

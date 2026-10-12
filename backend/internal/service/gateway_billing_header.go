@@ -18,7 +18,7 @@ var ccVersionWithFingerprintInBillingRe = regexp.MustCompile(`cc_version=\d+\.\d
 // OAuth mimicry forces the built-in User-Agent after applying account fingerprints.
 func effectiveBillingUserAgent(tokenType string, mimicClaudeCode bool, fingerprint *Fingerprint) string {
 	if tokenType == "oauth" && mimicClaudeCode {
-		return claude.DefaultHeaders["User-Agent"]
+		return claude.DefaultUserAgent()
 	}
 	if fingerprint == nil {
 		return ""

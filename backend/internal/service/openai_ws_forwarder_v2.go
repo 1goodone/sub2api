@@ -215,11 +215,20 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		account.ProxyID != nil && account.Proxy != nil,
 	)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
+	defer acquireCancel()
+	if s.boundCodexTicketFromHeader(ctx, wsHeaders, account) != nil {
+		defer s.holdCodexTicketChat(account)()
 	}
-	if anchor != nil && anchor.connID == "" {
+
+	proxyURL, releaseHarvest, pinErr := s.pinCodexTicketWSAcquire(acquireCtx, wsHeaders, account)
+	if pinErr != nil {
+		return nil, wrapOpenAIWSFallback("codex_ticket_unavailable", pinErr)
+	}
+	defer releaseHarvest()
+	// A bound ticket already supplied the complete Cookie pair and pinned exit.
+	// Do not acquire a second lease or overlay a gateway cookie on that bundle.
+	if anchor != nil && anchor.connID == "" && (!s.UnifiedAstraTicketsEnabled(ctx) || s.boundCodexTicketFromHeader(ctx, wsHeaders, account) == nil) {
 		if pool, ok := s.httpUpstream.(interface {
 			CodexGatewayPinWSRequest(context.Context, http.Header, string, int64, int) (string, string, func(), error)
 		}); ok {
@@ -246,9 +255,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	if anchor != nil {
 		anchorScope = anchor.scope
 	}
-
-	acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
-	defer acquireCancel()
 
 	lease, err := s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
 		AnchorScope:    anchorScope,

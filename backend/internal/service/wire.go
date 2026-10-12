@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/qualityqueue"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -459,6 +460,19 @@ func ProvideOpenAICodexVersionSyncService(
 	return svc
 }
 
+// ProvideClaudeCodeVersionSyncService creates and starts ClaudeCodeVersionSyncService.
+// 出站 Claude Code 身份的版本号靠它跟随官方发布，无需为了跟版本而发新版本；面板可关闭。
+func ProvideClaudeCodeVersionSyncService(
+	settingRepo SettingRepository,
+	settingService *SettingService,
+	githubClient GitHubReleaseClient,
+	cfg *config.Config,
+) *ClaudeCodeVersionSyncService {
+	svc := NewClaudeCodeVersionSyncService(settingRepo, settingService, githubClient, claudeCodeVersionSyncInterval)
+	startBackgroundService(cfg, svc)
+	return svc
+}
+
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
 func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
@@ -875,6 +889,10 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	SetCodexCanonicalUserAgentResolver(func() string {
 		return svc.GetOpenAICodexCanonicalUserAgent(context.Background())
 	})
+	// Claude CLI 伪装版本号同理：运行期解析（面板手动值 → 后台同步值 → 内置基线）。
+	claude.SetCLIVersionResolver(func() string {
+		return svc.GetClaudeCodeClientVersion(context.Background())
+	})
 	return svc
 }
 
@@ -1136,6 +1154,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Service,
 	ProvideChannelMonitorV2Aggregator,
 	ProvideChannelMonitorV3Service,
+	ProvideChannelMonitorV3Prober,
 	NewSupportTicketService,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
@@ -1240,6 +1259,14 @@ func ProvideChannelMonitorV2Service(
 // ProvideChannelMonitorV3Service wires the component status page over passive facts.
 func ProvideChannelMonitorV3Service(repo ChannelMonitorV3Repository, groupRepo GroupRepository) *ChannelMonitorV3Service {
 	return NewChannelMonitorV3Service(repo, groupRepo)
+}
+
+// ProvideChannelMonitorV3Prober starts the opt-in idle probes of V3, which send
+// requests only for checked groups while the site shows V3.
+func ProvideChannelMonitorV3Prober(repo ChannelMonitorV3Repository, groups *PelicanGroupTestService, settingService *SettingService, cfg *config.Config) *ChannelMonitorV3Prober {
+	prober := NewChannelMonitorV3Prober(repo, groups, settingService)
+	startBackgroundService(cfg, prober)
+	return prober
 }
 
 // ProvideChannelMonitorV2Aggregator starts the passive minute-rollup worker.

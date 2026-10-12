@@ -318,7 +318,7 @@ func generateSessionString() (string, error) {
 	}
 	hex64 := hex.EncodeToString(b)
 	sessionUUID := uuid.New().String()
-	uaVersion := ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
+	uaVersion := ExtractCLIVersion(claude.DefaultUserAgent())
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
@@ -653,6 +653,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Apply Claude Code client headers
 	for key, value := range claude.DefaultHeaders {
+		if strings.EqualFold(key, "User-Agent") {
+			value = claude.DefaultUserAgent()
+		}
 		req.Header.Set(key, value)
 	}
 

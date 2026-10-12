@@ -1252,178 +1252,19 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings.mock.calls[0]?.[0].openai_request_timezone_enabled).toBe(!enabled);
   });
 
-  it("submits the Codex ticket harvest toggle", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_enabled: false,
+  it("keeps harvest policy and exit settings in their dedicated pages", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
+      openai_codex_ticket_enabled: true,
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
     });
     const wrapper = mountView();
     await flushPromises();
-    const toggle = wrapper.get("#codex-ticket-enabled");
-    await toggle.setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_enabled).toBe(true);
-    wrapper.unmount();
-  });
-
-  it("loads and saves a selected Codex ticket harvest group", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_scope: { mode: "selected", group_ids: [42] },
-    });
-    getGroups.mockImplementation(async (platform?: string) =>
-      platform === "openai"
-        ? [{ id: 42, name: "OpenAI primary", platform: "openai", status: "active", sort_order: 1 }]
-        : [],
-    );
-    const wrapper = mountView();
-    await flushPromises();
-    expect(wrapper.get("#codex-ticket-harvest-group-42").element.checked).toBe(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({
-      mode: "selected",
-      group_ids: [42],
-    });
-    wrapper.unmount();
-  });
-
-  it("keeps selected Codex harvest IDs when the group list fails", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_scope: { mode: "selected", group_ids: [99] },
-    });
-    getGroups.mockImplementation(async (platform?: string) => {
-      if (platform === "openai") throw new Error("group list unavailable");
-      return [];
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({
-      mode: "selected",
-      group_ids: [99],
-    });
-    wrapper.unmount();
-  });
-
-  it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
-      openai_codex_ticket_harvest_proxy_configured: true,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    const input = wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy");
-    expect(input.element.value).toBe("http://user:***@old.example.com:8080");
-    await input.setValue("socks5h://user:new-secret@new.example.com:1080");
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("socks5h://user:new-secret@new.example.com:1080");
-    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
-    wrapper.unmount();
-  });
-
-  it("shows the Mihomo pool and saves its selected endpoint only on submit", async () => {
-    const existingProxy = "http://user:***@old.example.com:8080";
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: existingProxy,
-      openai_codex_ticket_harvest_proxy_configured: true,
-    });
-    const wrapper = mountView();
-    try {
-      await flushPromises();
-      await openGatewayTab(wrapper);
-      await wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="mihomo"]').setValue(true);
-      expect(wrapper.get('[data-testid="mihomo-proxy-pool"]').isVisible()).toBe(true);
-      expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
-      expect(updateSettings).not.toHaveBeenCalled();
-
-      wrapper.getComponent(MihomoProxySelector).vm.$emit("ready", "http://127.0.0.1:3101");
-      await flushPromises();
-      expect(wrapper.text()).toContain("http://127.0.0.1:3101");
-      expect(updateSettings).not.toHaveBeenCalled();
-
-      await wrapper.find("form").trigger("submit.prevent");
-      await flushPromises();
-      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-        openai_codex_ticket_harvest_proxy_url: "http://127.0.0.1:3101",
-      }));
-    } finally {
-      wrapper.unmount();
-    }
-  });
-
-  it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "",
-      openai_codex_ticket_harvest_proxy_configured: false,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="mihomo"]')
-      .setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("");
-    wrapper.unmount();
-  });
-
-  it("saves the IP management pool as the harvest proxy and restores the static address when leaving it", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
-      openai_codex_ticket_harvest_proxy_configured: true,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]')
-      .setValue(true);
+    expect(wrapper.find("#codex-ticket-enabled").exists()).toBe(false);
     expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
-    expect(wrapper.find('[data-testid="codex-ticket-proxy-ip-pool-hint"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="codex-management-links"]').exists()).toBe(true);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      openai_codex_ticket_harvest_proxy_url: "ippool://active",
-      openai_codex_ticket_use_saved_static_proxy: false,
-    }));
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
-      .setValue(true);
-    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
-      .toBe("http://user:***@old.example.com:8080");
-    wrapper.unmount();
-  });
-
-  it("restores the IP management pool mode from saved settings", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "ippool://active",
-      openai_codex_ticket_harvest_proxy_configured: true,
-      openai_codex_ticket_static_proxy_url: "http://user:***@saved.example.com:8080",
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    expect(wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]').element.checked)
-      .toBe(true);
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
-      .setValue(true);
-    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
-      .toBe("http://user:***@saved.example.com:8080");
+    expect(Object.keys(updateSettings.mock.calls[0]?.[0] ?? {}).filter(key => key.startsWith('openai_codex_ticket_'))).toEqual([]);
     wrapper.unmount();
   });
 

@@ -726,6 +726,10 @@ func (s *stubAdminService) CheckProxyQuality(ctx context.Context, id int64) (*se
 	}, nil
 }
 
+func (s *stubAdminService) CreateMihomoNodeProxies(ctx context.Context, kernel service.MihomoStaticNodeBinder, names []string) (*service.MihomoNodeProxyImportResult, error) {
+	return &service.MihomoNodeProxyImportResult{}, nil
+}
+
 func (s *stubAdminService) ListRedeemCodes(ctx context.Context, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]service.RedeemCode, int64, error) {
 	s.lastListRedeemCodes.codeType = codeType
 	s.lastListRedeemCodes.status = status
