@@ -197,6 +197,19 @@ func (r *accountTokenGuardV2Repository) MarkReauthRequested(ctx context.Context,
 	return err
 }
 
+func (r *accountTokenGuardV2Repository) RetireAccount(ctx context.Context, accountID int64, detail string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE account_token_guard_v2_accounts
+		SET enabled = FALSE,
+			auto_relogin_enabled = FALSE,
+			blocked_reason = 'account_retired',
+			probe_detail = $2,
+			updated_at = NOW()
+		WHERE account_id = $1
+	`, accountID, detail)
+	return err
+}
+
 func (r *accountTokenGuardV2Repository) RescheduleEnabled(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE account_token_guard_v2_accounts

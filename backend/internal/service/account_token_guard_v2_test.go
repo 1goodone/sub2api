@@ -94,6 +94,16 @@ func (r *accountTokenGuardV2TestRepo) RescheduleEnabled(context.Context) error {
 	r.rescheduled = true
 	return nil
 }
+func (r *accountTokenGuardV2TestRepo) RetireAccount(_ context.Context, accountID int64, detail string) error {
+	if r.record == nil {
+		r.record = &AccountTokenGuardV2Record{AccountID: accountID}
+	}
+	r.record.Enabled = false
+	r.record.AutoReloginEnabled = false
+	r.record.BlockedReason = "account_retired"
+	r.record.ProbeDetail = detail
+	return nil
+}
 
 type accountTokenGuardV2TestSettings struct{ raw string }
 
@@ -281,6 +291,19 @@ func TestAccountTokenGuardV2RunDuePrunesBeforeClaim(t *testing.T) {
 			require.Zero(t, n, "cleanup must be idempotent")
 		})
 	}
+}
+
+func TestRetiredAccountReasonAndMarker(t *testing.T) {
+	require.True(t, isRetiredAccountReason("WorkerError: account_retired: You do not have an account because it has been deleted or deactivated"))
+	require.True(t, isRetiredAccountReason("[Codex] 账号已废（account_deactivated）"))
+	require.False(t, isRetiredAccountReason("password/TOTP protocol failed (exit 1)"))
+	repo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{AccountID: 32, Enabled: true, AutoReloginEnabled: true}}
+	svc := NewAccountTokenGuardV2Service(repo, nil, nil, nil, nil)
+	require.NoError(t, svc.MarkAccountRetired(context.Background(), 32, retiredAccountDetail))
+	require.False(t, repo.record.Enabled)
+	require.False(t, repo.record.AutoReloginEnabled)
+	require.Equal(t, "account_retired", repo.record.BlockedReason)
+	require.Contains(t, repo.record.ProbeDetail, "deleted or deactivated")
 }
 
 func TestAccountTokenGuardV2RunDuePruneFailurePreservesRecords(t *testing.T) {

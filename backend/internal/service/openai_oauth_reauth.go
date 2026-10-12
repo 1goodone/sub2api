@@ -230,6 +230,7 @@ type OpenAIOAuthReauthService struct {
 	encryptionKeyConfigured bool
 	tokenCacheInvalidator   TokenCacheInvalidator
 	runtimeBlocker          AccountRuntimeBlocker
+	markRetired             func(context.Context, int64, string) error
 	acquireMihomoProxy      func(context.Context, string) (string, func(), error)
 	mihomoLeaseMu           sync.Mutex
 	mihomoLeases            map[int64]func()
@@ -1220,6 +1221,13 @@ func (s *OpenAIOAuthReauthService) failCallback(ctx context.Context, taskID int6
 	return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_FAILED", public)
 }
 
+func (s *OpenAIOAuthReauthService) SetRetiredAccountMarker(mark func(context.Context, int64, string) error) {
+	if s == nil {
+		return
+	}
+	s.markRetired = mark
+}
+
 func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, workerID, reason string) error {
 	if err := s.ensureReady(); err != nil {
 		return err
@@ -1228,11 +1236,29 @@ func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, w
 	if reason == "" {
 		reason = "worker reported a re-login failure"
 	}
+	record, _ := s.repo.GetTask(ctx, taskID)
 	if err := s.repo.MarkFailed(ctx, taskID, strings.TrimSpace(workerID), reason); err != nil {
 		return infraerrors.New(http.StatusConflict, "OPENAI_REAUTH_TASK_NOT_ACTIVE", "re-login task is no longer active")
 	}
+	if record != nil && isRetiredAccountReason(reason) && s.markRetired != nil {
+		if err := s.markRetired(ctx, record.AccountID, retiredAccountDetail); err != nil {
+			slog.Warn("openai_oauth_reauth_retire_account_failed", "account_id", record.AccountID, "task_id", taskID)
+		}
+	}
 	s.releaseMihomoLease(taskID)
 	return nil
+}
+
+const retiredAccountDetail = "You do not have an account because it has been deleted or deactivated"
+
+func isRetiredAccountReason(reason string) bool {
+	text := strings.ToLower(reason)
+	return strings.Contains(text, "account_retired") ||
+		strings.Contains(text, "account_deactivated") ||
+		strings.Contains(text, "account_deleted") ||
+		strings.Contains(text, "account_banned") ||
+		strings.Contains(text, "do not have an account because it has been deleted") ||
+		strings.Contains(reason, "账号已废")
 }
 
 func (s *OpenAIOAuthReauthService) applyCredentials(ctx context.Context, taskID int64, workerID string, account *Account, expectedCredentials, credentials, extra map[string]any) (bool, error) {
