@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col items-start gap-1">
-    <ExcelBPSCredentialStatus :state="account.excel_bps_credential_state" />
+    <ExcelBPSCredentialStatus :state="account.excel_bps_credential_state" :account-id="account.id" />
     <span
       v-if="protocolEnabled && isExcelBPSEnabled"
       data-testid="bps-status-badge"

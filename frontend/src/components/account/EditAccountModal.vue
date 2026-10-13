@@ -1988,7 +1988,7 @@
       </div>
 
       <OpenAIRequestTimezoneField v-if="account?.platform === 'openai'" v-model="openAIRequestTimezone" />
-      <ExcelBPSCredentialStatus :state="account?.excel_bps_credential_state" />
+      <ExcelBPSCredentialStatus :state="account?.excel_bps_credential_state" :account-id="account?.id" />
 
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div

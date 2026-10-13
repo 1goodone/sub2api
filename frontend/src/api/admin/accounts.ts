@@ -503,6 +503,13 @@ export async function startOpenAIOAuthReauth(id: number): Promise<OpenAIOAuthRea
   return data
 }
 
+export async function startExcelOAuthReauth(id: number): Promise<OpenAIOAuthReauthTask> {
+  const { data } = await apiClient.post<OpenAIOAuthReauthTask>(`/admin/accounts/${id}/openai-reauth`, {
+    oauth_profile: 'excel',
+  })
+  return data
+}
+
 /**
  * Get account usage statistics
  * @param id - Account ID
@@ -1598,6 +1605,7 @@ export const accountsAPI = {
   getOpenAIOAuthReauthStatus,
   saveOpenAIOAuthReauthConfig,
   startOpenAIOAuthReauth,
+  startExcelOAuthReauth,
   getStats,
   getOfficialUsage,
   clearError,

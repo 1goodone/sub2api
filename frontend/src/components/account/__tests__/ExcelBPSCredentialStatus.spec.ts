@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ExcelBPSCredentialStatus from '../ExcelBPSCredentialStatus.vue'
 import { excelCredentialStatus } from '@/utils/excelBpsCredentialState'
+const startExcelOAuthReauth = vi.fn()
+vi.mock('@/api/admin', () => ({ adminAPI: { accounts: { startExcelOAuthReauth: (...args: unknown[]) => startExcelOAuthReauth(...args) } } }))
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'), useI18n: () => ({ t: (key: string) => key }) }))
 describe('Excel BPS credential diagnosis', () => {
   it('distinguishes token expiry from verified upstream authentication', () => {
@@ -14,6 +16,17 @@ describe('Excel BPS credential diagnosis', () => {
     expect(wrapper.text()).toContain('bpsCredentialState.revoked')
     expect(wrapper.text()).toContain('token_revoked')
     expect(wrapper.text()).toContain('bpsCredentialState.manualResume')
+    expect(wrapper.find('[data-testid="excel-reauthorize"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('starts an Excel authorization beside a pending grant', async () => {
+    startExcelOAuthReauth.mockResolvedValueOnce({ id: 9, status: 'queued' })
+    const wrapper = mount(ExcelBPSCredentialStatus, { props: { accountId: 88, state: { status: 'pending' } } })
+    const button = wrapper.get('[data-testid="excel-reauthorize"]')
+    expect(button.text()).toContain('bpsCredentialState.reauthorize')
+    await button.trigger('click')
+    expect(startExcelOAuthReauth).toHaveBeenCalledWith(88)
+    expect(wrapper.text()).toContain('bpsCredentialState.reauthorizeStarted')
     wrapper.unmount()
   })
 })
