@@ -19,13 +19,13 @@ describe('request capture page', () => {
     await wrapper.findAll('select')[1]!.setValue('7')
     await wrapper.find('input[type=number]').setValue('0'); await wrapper.find('form').trigger('submit'); expect(mocks.createTask).not.toHaveBeenCalled()
     await wrapper.find('input[type=number]').setValue('1440'); await wrapper.find('form').trigger('submit'); await flushPromises()
-    expect(mocks.createTask).toHaveBeenCalledWith({ target_type: 'user', target_id: 7, duration_minutes: 1440, save_media: false }); wrapper.unmount()
+    expect(mocks.createTask).toHaveBeenCalledWith({ target_type: 'user', target_id: 7, duration_minutes: 1440, save_media: false, save_content: true }); wrapper.unmount()
   })
   it('renders capture content as text and replaces preview pages', async () => {
     const wrapper = mount(View, options); await flushPromises()
     await wrapper.findAll('button').find(b => b.text().includes('#7'))!.trigger('click'); await flushPromises()
-    expect(mocks.listRecords).toHaveBeenLastCalledWith('task', 1, '', true)
-    expect(wrapper.findAll('input[type=checkbox]')).toHaveLength(1) // Only media remains configurable.
+    expect(mocks.listRecords).toHaveBeenLastCalledWith('task', 1, '', false)
+    expect(wrapper.findAll('input[type=checkbox]')).toHaveLength(3) // Content, media, and the error-only filter.
     await wrapper.findAll('button').find(b => b.text() === 'request-id')!.trigger('click'); await flushPromises()
     expect(wrapper.find('img').exists()).toBe(false); expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
     mocks.getContent.mockResolvedValueOnce({ text: 'next page', next_offset: 19, has_more: false })

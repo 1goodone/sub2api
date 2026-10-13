@@ -27,6 +27,7 @@
           <button type="button" class="btn btn-secondary" :disabled="targetPage <= 1 || searching" @click="loadTargets(targetPage - 1)">{{ t('admin.requestCapture.previous') }}</button>
           <button type="button" class="btn btn-secondary" :disabled="!targetMore || searching" @click="loadTargets(targetPage + 1)">{{ t('admin.requestCapture.next') }}</button>
         </div>
+        <label class="flex items-center gap-2 text-sm"><input v-model="saveContent" type="checkbox" class="checkbox" />{{ t('admin.requestCapture.saveContent') }}</label>
         <label class="flex items-center gap-2 text-sm"><input v-model="saveMedia" type="checkbox" class="checkbox" />{{ t('admin.requestCapture.saveMedia') }}</label>
         <p class="text-xs text-gray-500">{{ t('admin.requestCapture.targetHint') }}</p>
         <button class="btn btn-primary" :disabled="busy || !targetID || !validDuration">{{ t('admin.requestCapture.start') }}</button>
@@ -35,7 +36,7 @@
         <div class="overflow-x-auto"><table class="w-full text-left text-sm">
           <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800"><tr><th class="p-3">{{ t('admin.requestCapture.target') }}</th><th class="p-3">{{ t('admin.requestCapture.status') }}</th><th class="p-3">{{ t('admin.requestCapture.remaining') }}</th><th class="p-3">{{ t('admin.requestCapture.records') }}</th><th class="p-3">{{ t('admin.requestCapture.incomplete') }}</th><th class="p-3">{{ t('admin.requestCapture.size') }}</th><th class="p-3">{{ t('admin.requestCapture.actions') }}</th></tr></thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="task in tasks" :key="task.id" :class="{ 'bg-blue-50 dark:bg-blue-950': selectedTask?.id === task.id }">
-            <td class="p-3"><button class="text-primary-600 underline" @click="selectTask(task)">{{ t('admin.requestCapture.' + task.target_type) }} #{{ task.target_id }} {{ task.target_name }}</button><div class="text-xs text-gray-500">{{ task.save_media ? t('admin.requestCapture.mediaIncluded') : t('admin.requestCapture.metadataOnly') }}</div></td>
+            <td class="p-3"><button class="text-primary-600 underline" @click="selectTask(task)">{{ t('admin.requestCapture.' + task.target_type) }} #{{ task.target_id }} {{ task.target_name }}</button><div class="text-xs text-gray-500">{{ task.save_content ? t('admin.requestCapture.contentIncluded') : t('admin.requestCapture.errorsOnlyStored') }} · {{ task.save_media ? t('admin.requestCapture.mediaIncluded') : t('admin.requestCapture.metadataOnly') }}</div></td>
             <td class="p-3">{{ task.status }}<div v-if="task.reason" class="text-xs text-amber-700">{{ task.reason }}</div></td><td class="p-3">{{ remaining(task) }}</td><td class="p-3">{{ task.requests }}</td><td class="p-3">{{ task.partial }} / {{ task.skipped }}</td><td class="p-3">{{ bytes(task.bytes) }}</td>
             <td class="p-3"><div class="flex gap-2"><button v-if="task.status === 'running'" class="btn btn-secondary" :disabled="busy" @click="stop(task)">{{ t('admin.requestCapture.stop') }}</button><button v-else class="btn btn-secondary" :disabled="busy || !streamExport" @click="download(task.id)">{{ t('admin.requestCapture.export') }}</button><button class="btn btn-secondary text-red-600" :disabled="busy" @click="remove(task)">{{ t('admin.requestCapture.delete') }}</button></div></td>
           </tr><tr v-if="!tasks.length"><td colspan="7" class="p-6 text-center text-gray-500">{{ t('admin.requestCapture.empty') }}</td></tr></tbody>
@@ -45,7 +46,7 @@
       <p v-if="!streamExport" class="text-sm text-gray-500">{{ t('admin.requestCapture.exportBrowser') }}</p>
       <section v-if="selectedTask" class="card space-y-4 p-5">
         <h2 class="font-semibold">{{ t('admin.requestCapture.records') }} - {{ selectedTask.target_name }}</h2>
-        <form class="flex flex-wrap items-center gap-3" @submit.prevent="recordPage = 1; loadRecords()"><input v-model.trim="requestID" class="input max-w-md" placeholder="Request ID" /><span class="text-sm text-gray-500">{{ t('admin.requestCapture.errorsOnly') }}</span><button class="btn btn-secondary">{{ t('admin.requestCapture.filter') }}</button></form>
+        <form class="flex flex-wrap items-center gap-3" @submit.prevent="recordPage = 1; loadRecords()"><input v-model.trim="requestID" class="input max-w-md" placeholder="Request ID" /><label class="flex items-center gap-2 text-sm text-gray-500"><input v-model="errorsOnly" type="checkbox" class="checkbox" @change="recordPage = 1; loadRecords()" />{{ t('admin.requestCapture.errorsOnly') }}</label><button class="btn btn-secondary">{{ t('admin.requestCapture.filter') }}</button></form>
         <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr><th class="p-2">Request ID</th><th class="p-2">{{ t('admin.requestCapture.model') }}</th><th class="p-2">{{ t('admin.requestCapture.status') }}</th><th class="p-2">{{ t('admin.requestCapture.size') }}</th></tr></thead><tbody><tr v-for="record in records" :key="record.id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2"><button class="break-all text-primary-600 underline" @click="viewRecord(record)">{{ record.request_id || record.id }}</button><div class="text-xs text-gray-500">{{ record.created_at }} / {{ record.protocol }}<span v-if="record.turn"> / {{ t('admin.requestCapture.turn') }} {{ record.turn }}</span></div></td><td class="p-2">{{ record.model }}</td><td class="p-2"><span>HTTP {{ record.status }}</span><span v-if="record.is_error" class="ml-2 text-red-600" data-testid="capture-outcome">{{ captureOutcome(record) }}</span><div v-if="record.error_code" class="break-all text-xs text-red-600">{{ record.error_code }}</div><span v-if="record.partial" class="ml-2 text-amber-700">{{ record.reason || t('admin.requestCapture.partial') }}</span></td><td class="p-2">{{ bytes(record.bytes) }}</td></tr></tbody></table></div>
         <div class="flex justify-end gap-3"><button class="btn btn-secondary" :disabled="recordPage <= 1" @click="recordPage--; loadRecords()">{{ t('admin.requestCapture.previous') }}</button><span class="self-center">{{ recordPage }}</span><button class="btn btn-secondary" :disabled="!recordMore" @click="recordPage++; loadRecords()">{{ t('admin.requestCapture.next') }}</button></div>
       </section>
@@ -80,11 +81,11 @@ const router = useRouter()
 const settings = useAdminSettingsStore()
 const kinds: CaptureTarget[] = ['user', 'account', 'group']
 const stages = ['client_request', 'upstream_request', 'upstream_response', 'client_response']
-const targetType = ref<CaptureTarget>('user'), targetID = ref(0), duration = ref(10), saveMedia = ref(false), search = ref('')
+const targetType = ref<CaptureTarget>('user'), targetID = ref(0), duration = ref(10), saveMedia = ref(false), saveContent = ref(true), search = ref('')
 const targets = ref<Array<{ id: number; label: string }>>([]), targetPage = ref(1), targetMore = ref(false), searching = ref(false)
 const tasks = ref<CaptureTask[]>([]), stats = ref<CaptureStats>(), taskPage = ref(1), taskMore = ref(false)
 const selectedTask = ref<CaptureTask>(), records = ref<CaptureRecord[]>([]), recordPage = ref(1), recordMore = ref(false)
-const requestID = ref(''), detail = ref<CaptureRecord>(), stage = ref(stages[0]), part = ref<CapturePart>()
+const requestID = ref(''), errorsOnly = ref(false), detail = ref<CaptureRecord>(), stage = ref(stages[0]), part = ref<CapturePart>()
 const content = ref(''), contentOffset = ref(0), nextOffset = ref(0), contentMore = ref(false), contentLoading = ref(false)
 const loading = ref(false), busy = ref(false), error = ref(''), now = ref(Date.now())
 const streamExport = api.canStreamExport()
@@ -113,10 +114,10 @@ async function loadTargets(page = 1) {
     targetPage.value = page; targetMore.value = page * 20 < result.total
   } catch (err) { if (!controller.signal.aborted) report(err) } finally { if (searchAbort === controller) searching.value = false }
 }
-async function loadRecords() { if (!selectedTask.value) return; const id = selectedTask.value.id; try { const result = await api.listRecords(id, recordPage.value, requestID.value, true); if (!disposed && selectedTask.value?.id === id) { records.value = result.items; recordMore.value = result.has_more } } catch (err) { report(err) } }
+async function loadRecords() { if (!selectedTask.value) return; const id = selectedTask.value.id; try { const result = await api.listRecords(id, recordPage.value, requestID.value, errorsOnly.value); if (!disposed && selectedTask.value?.id === id) { records.value = result.items; recordMore.value = result.has_more } } catch (err) { report(err) } }
 async function refresh() { if (loading.value || disposed) return; loading.value = true; try { const result = await api.listTasks(taskPage.value); if (disposed) return; tasks.value = result.items; stats.value = result.stats; taskMore.value = result.has_more; if (selectedTask.value) { selectedTask.value = result.items.find(item => item.id === selectedTask.value?.id) || selectedTask.value; await loadRecords() } } catch (err) { report(err) } finally { loading.value = false } }
 async function action(fn: () => Promise<void>) { busy.value = true; error.value = ''; try { await fn(); await refresh() } catch (err) { report(err) } finally { busy.value = false } }
-async function create() { if (!targetID.value || !validDuration.value) return; await action(async () => { const task = await api.createTask({ target_type: targetType.value, target_id: targetID.value, duration_minutes: duration.value, save_media: saveMedia.value }); taskPage.value = 1; selectTask(task) }) }
+async function create() { if (!targetID.value || !validDuration.value) return; await action(async () => { const task = await api.createTask({ target_type: targetType.value, target_id: targetID.value, duration_minutes: duration.value, save_media: saveMedia.value, save_content: saveContent.value }); taskPage.value = 1; selectTask(task) }) }
 async function stop(task: CaptureTask) { await action(() => api.stopTask(task.id)) }
 async function remove(task: CaptureTask) { if (!window.confirm(t('admin.requestCapture.deleteConfirm'))) return; await action(async () => { await api.deleteTask(task.id); if (selectedTask.value?.id === task.id) { selectedTask.value = undefined; detail.value = undefined; records.value = []; detailVersion++; contentVersion++ } }) }
 async function download(task: string, record?: string) { await action(() => api.exportCapture(task, record)) }

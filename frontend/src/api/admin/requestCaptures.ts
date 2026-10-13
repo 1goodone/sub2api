@@ -3,7 +3,7 @@ import { apiClient } from '../client'
 export type CaptureTarget = 'user' | 'account' | 'group'
 export interface CaptureTask {
   id: string; instance_id: string; target_type: CaptureTarget; target_id: number; target_name: string
-  save_media: boolean; created_at: string; expires_at: string; ended_at?: string
+  save_media: boolean; save_content: boolean; created_at: string; expires_at: string; ended_at?: string
   status: string; reason?: string; requests: number; partial: number; skipped: number; bytes: number
 }
 export interface CapturePart {
@@ -26,7 +26,7 @@ const base = '/admin/request-captures'
 export async function listTasks(page = 1) {
   return (await apiClient.get<{ items: CaptureTask[]; stats: CaptureStats; has_more: boolean }>(base, { params: { page, page_size: 20 } })).data
 }
-export async function createTask(input: { target_type: CaptureTarget; target_id: number; duration_minutes: number; save_media: boolean }) {
+export async function createTask(input: { target_type: CaptureTarget; target_id: number; duration_minutes: number; save_media: boolean; save_content: boolean }) {
   return (await apiClient.post<CaptureTask>(base, input)).data
 }
 export async function stopTask(id: string) { await apiClient.post(base + '/' + id + '/stop') }

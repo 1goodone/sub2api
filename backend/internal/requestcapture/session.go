@@ -841,8 +841,8 @@ func (m *Manager) writePart(r *recordState, p *partState, data []byte) error {
 }
 func recordKey(task string, turn int) string { return fmt.Sprintf("%s:%d", task, turn) }
 
-// Only the worker finalizes records. Successful and unclassified payloads are
-// removed before processing subsequent events; they never receive a DB index.
+// Only the worker finalizes records. Successful payloads are removed unless the
+// task opted into content retention. Unclassified payloads never receive a DB index.
 func (m *Manager) finishRecord(r *recordState, t *runtimeTask, snapshot *Record) {
 	r.Meta, r.Turn = snapshot.Meta, snapshot.Turn
 	r.Status, r.IsError = snapshot.Status, snapshot.IsError
@@ -857,8 +857,9 @@ func (m *Manager) finishRecord(r *recordState, t *runtimeTask, snapshot *Record)
 			r.Reason = "task_stopped"
 		}
 	}
+	retain := r.IsError || t.task.SaveContent
 	for _, p := range r.parts {
-		if !p.ended && r.IsError {
+		if !p.ended && retain {
 			tail, reason := p.filter.End()
 			p.part.Omitted = reason
 			r.Partial = true
@@ -876,7 +877,7 @@ func (m *Manager) finishRecord(r *recordState, t *runtimeTask, snapshot *Record)
 		r.Parts = append(r.Parts, p.part)
 	}
 	sort.Slice(r.Parts, func(i, j int) bool { return r.Parts[i].Name < r.Parts[j].Name })
-	if !r.IsError {
+	if !retain {
 		if r.Partial {
 			m.mu.Lock()
 			t.task.Skipped++

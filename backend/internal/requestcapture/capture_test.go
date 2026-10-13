@@ -152,7 +152,7 @@ func testManager(t *testing.T) (*Manager, *memoryStore) {
 }
 func task(t *testing.T, m *Manager, kind string, id int64, media bool) *Task {
 	t.Helper()
-	v, err := m.Create(context.Background(), CreateTask{kind, id, 10, media}, kind)
+	v, err := m.Create(context.Background(), CreateTask{TargetType: kind, TargetID: id, DurationMinutes: 10, SaveMedia: media}, kind)
 	require.NoError(t, err)
 	return v
 }

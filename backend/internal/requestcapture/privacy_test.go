@@ -49,6 +49,59 @@ func TestSuccessfulCaptureNeverPublishedAndDeletedAtCompletion(t *testing.T) {
 	store.mu.Unlock()
 }
 
+func TestSaveContentRetainsSuccessfulRequestBody(t *testing.T) {
+	m, _ := testManager(t)
+	target, err := m.Create(context.Background(), CreateTask{TargetType: "user", TargetID: 1, DurationMinutes: 10, SaveContent: true}, "user")
+	require.NoError(t, err)
+	s := m.Begin(Meta{UserID: 1, RequestID: "success"})
+	s.ClientRequest([]byte(`{"input":"PRIVATE_SUCCESS"}`), "application/json", nil)
+	s.Finish(200)
+	drain(t, m)
+	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.False(t, rows[0].IsError)
+	require.NotNil(t, rows[0].FinishedAt)
+	full, err := m.Record(context.Background(), target.ID, rows[0].ID)
+	require.NoError(t, err)
+	require.Contains(t, partsText(t, m, *full), "PRIVATE_SUCCESS")
+	errorsOnly, err := m.Records(context.Background(), target.ID, "", true, 10, 0)
+	require.NoError(t, err)
+	require.Empty(t, errorsOnly)
+	v, err := m.Task(context.Background(), target.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, v.Requests)
+	require.NotZero(t, v.Bytes)
+}
+
+func TestRestartKeepsFinishedContentWhenEnabled(t *testing.T) {
+	store := newMemoryStore()
+	dir := t.TempDir()
+	m, err := New(store, dir, Config{true, 1024, 7})
+	require.NoError(t, err)
+	target, err := m.Create(context.Background(), CreateTask{TargetType: "user", TargetID: 1, DurationMinutes: 10, SaveContent: true}, "user")
+	require.NoError(t, err)
+	instance := m.instance
+	m.Close()
+	now := time.Now().UTC()
+	r := Record{ID: uuid.NewString(), TaskID: target.ID, InstanceID: instance, CreatedAt: now, FinishedAt: &now, IsError: false, Bytes: 7}
+	require.NoError(t, store.SaveRecord(context.Background(), &r))
+	path := filepath.Join(dir, target.ID, r.ID)
+	require.NoError(t, os.MkdirAll(path, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "body.txt"), []byte("private"), 0600))
+	m, err = New(store, dir, Config{true, 1024, 7})
+	require.NoError(t, err)
+	defer m.Close()
+	rows, err := store.Records(context.Background(), target.ID, "", false, 10, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	got, err := m.Record(context.Background(), target.ID, r.ID)
+	require.NoError(t, err)
+	require.False(t, got.IsError)
+	_, err = os.Stat(filepath.Join(path, "body.txt"))
+	require.NoError(t, err)
+}
+
 func TestErrorRetentionClassifiesBusinessFailuresOnly(t *testing.T) {
 	cases := []struct {
 		name         string
