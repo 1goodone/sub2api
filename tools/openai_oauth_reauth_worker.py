@@ -679,6 +679,20 @@ def _best_effort_progress(api: WorkerAPI, task_id: int, stage: str) -> None:
         LOGGER.warning("task=%s progress=%s failed: %s", task_id, stage, sanitize_error(str(exc)))
 
 
+def protocol_output_is_retired(value: str) -> bool:
+    # OpenAI returns this from mfa/verify after the password is accepted when the
+    # account has been deleted or deactivated. Match the code or that sentence
+    # only; do not keep the rest of the runner output.
+    return re.search(
+        r"(?:account|user)_(?:deactivated|deleted|suspended|disabled)"
+        r"|do not have an account because it has been deleted"
+        r"|account has been (?:deleted|deactivated)"
+        r"|账号已废",
+        str(value or ""),
+        re.IGNORECASE,
+    ) is not None
+
+
 def sanitize_error(value: str) -> str:
     text = URL_RE.sub("[redacted URL]", str(value or ""))
     text = SENSITIVE_PARAM_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
@@ -1142,6 +1156,11 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             api.private_protocol_diagnostics(result.stdout, result.stderr)
         if result.returncode != 0:
             # The external runner may echo unlabeled secrets that regexes cannot redact.
+            protocol_output = (result.stdout or "") + "\n" + (result.stderr or "")
+            if protocol_output_is_retired(protocol_output):
+                raise WorkerError(
+                    "account_retired: You do not have an account because it has been deleted or deactivated"
+                )
             if oauth_profile == "excel":
                 private_output = result.stdout + "\n" + result.stderr
                 stage = "web_login"

@@ -1611,6 +1611,7 @@
                 v-model="allowedModels"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
+                :model-mappings="modelMappings"
                 @upstream-synced="upstreamModelsPreviewed = true"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2098,6 +2099,7 @@
               v-model="allowedModels"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
+              :model-mappings="modelMappings"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2439,6 +2441,7 @@
               v-model="allowedModels"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
+              :model-mappings="modelMappings"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -4529,7 +4532,7 @@ function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol
 }
 
 const syncPreviewCredentials = computed(() => {
-  if (!apiKeyValue.value) return undefined
+  if (!apiKeyValue.value.trim()) return undefined
   const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
     ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
     : apiKeyBaseUrl.value.trim()
@@ -4542,7 +4545,8 @@ const syncPreviewCredentials = computed(() => {
     platform: form.platform,
     type: form.type,
     base_url: baseUrl || undefined,
-    api_key: apiKeyValue.value,
+    api_key: apiKeyValue.value.trim(),
+    proxy_id: authStore.isObserver ? undefined : form.proxy_id ?? undefined,
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })

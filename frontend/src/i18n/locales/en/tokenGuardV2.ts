@@ -243,6 +243,8 @@ export default {
   removedNotice: 'Removed {account}',
   removeConfirm: 'Remove {account} from Credential Operations? Its login configuration remains available to the existing re-login flow.',
   error: 'The operation failed. Try again later.',
+  retired: 'Retired',
+  retiredDetail: 'Upstream says this account was deleted or deactivated. Automatic inspection and re-login were turned off.',
   probeStates: {
     pending: 'Pending',
     ok: 'Healthy',

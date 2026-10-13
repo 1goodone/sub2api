@@ -104,6 +104,7 @@ type AccountTokenGuardV2Repository interface {
 	CompleteProbe(ctx context.Context, accountID int64, owner string, result AccountTokenGuardV2ProbeCompletion) error
 	MarkReauthRequested(ctx context.Context, accountID int64, requestedAt, cooldownUntil time.Time) error
 	RescheduleEnabled(ctx context.Context) error
+	RetireAccount(ctx context.Context, accountID int64, detail string) error
 }
 
 type AccountTokenGuardV2Settings interface {
@@ -172,11 +173,22 @@ type AccountTokenGuardV2Service struct {
 
 func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings AccountTokenGuardV2Settings, accounts AccountTokenGuardV2AccountReader, prober AccountTokenGuardV2Prober, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
 	host, _ := os.Hostname()
-	return &AccountTokenGuardV2Service{
+	svc := &AccountTokenGuardV2Service{
 		repo: repo, settings: settings, accounts: accounts, prober: prober, reauth: reauth,
 		leaseOwner: fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.NewString()),
 		stopCh:     make(chan struct{}), doneCh: make(chan struct{}),
 	}
+	if reauth != nil {
+		reauth.SetRetiredAccountMarker(svc.MarkAccountRetired)
+	}
+	return svc
+}
+
+func (s *AccountTokenGuardV2Service) MarkAccountRetired(ctx context.Context, accountID int64, detail string) error {
+	if s == nil || s.repo == nil || accountID <= 0 {
+		return nil
+	}
+	return s.repo.RetireAccount(ctx, accountID, detail)
 }
 
 func (s *AccountTokenGuardV2Service) GetRules(ctx context.Context) (AccountTokenGuardV2Rules, error) {
@@ -445,6 +457,9 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 	completion.ProbeState = state
 	completion.ProbeDetail = detail
 	completion.BlockedReason = ""
+	if state != AccountTokenGuardV2ProbeOK && record.BlockedReason == "account_retired" {
+		completion.BlockedReason = "account_retired"
+	}
 	switch state {
 	case AccountTokenGuardV2ProbeOK:
 		completion.FailStreak = 0

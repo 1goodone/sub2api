@@ -546,7 +546,6 @@ type OpenAIGatewayService struct {
 	openaiCodexTurnStateWrites  atomic.Uint64
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，按套餐长度校验。
 	openaiCodexTickets             sync.Map
-	codex780Routes                 codex780RouteCache
 	openaiCodexTicketStateMu       sync.Mutex
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketProbeCooldown sync.Map // accountID\x00model -> time.Time
@@ -637,6 +636,9 @@ func NewOpenAIGatewayService(
 	}
 	if openAITokenProvider != nil {
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
+	}
+	if registrar, ok := httpUpstream.(interface{ SetAstraTicketLifecycle(AstraTicketLifecycle) }); ok {
+		registrar.SetAstraTicketLifecycle(svc)
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc

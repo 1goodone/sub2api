@@ -112,10 +112,13 @@ func TestWSHTTPBridgeCompressedCancellationClosesBeforeSlotRelease(t *testing.T)
 				allowClose := func() { allowOnce.Do(func() { close(body.allowClose) }) }
 				defer allowClose()
 				transport := &bridgeRealTransport{HTTPUpstream: testutil.NewRealHTTPUpstream(cfg), encoding: encoding, body: body}
-				svc := service.NewOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, transport, nil, nil, nil, nil, nil, nil, nil, nil)
+				accountRepo := &openAIWSUsageHandlerAccountRepoStub{}
+				svc := service.NewOpenAIGatewayService(accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, transport, nil, nil, nil, nil, nil, nil, nil, nil)
 				account := &service.Account{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Concurrency: 1,
 					Credentials: map[string]any{"base_url": upstream.URL, "api_key": "sk-test"},
 					Extra:       map[string]any{"openai_apikey_responses_websockets_v2_mode": service.OpenAIWSIngressModeHTTPBridge}}
+				account.Status, account.Schedulable = service.StatusActive, true
+				accountRepo.account = *account
 				cache := &helperConcurrencyCacheStub{userSeq: []bool{true}}
 				helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second)
 				ctx, cancel := context.WithCancel(context.Background())

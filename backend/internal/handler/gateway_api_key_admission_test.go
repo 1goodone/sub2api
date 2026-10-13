@@ -109,10 +109,13 @@ func TestWSAPIKeyAdmissionSecondTurnRejectsWithoutUpstreamRetry(t *testing.T) {
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 1
-	svc := service.NewOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, testutil.NewRealHTTPUpstream(cfg), nil, nil, nil, nil, nil, nil, nil, nil)
+	accountRepo := &openAIWSUsageHandlerAccountRepoStub{}
+	svc := service.NewOpenAIGatewayService(accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, testutil.NewRealHTTPUpstream(cfg), nil, nil, nil, nil, nil, nil, nil, nil)
 	account := &service.Account{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Concurrency: 3,
 		Credentials: map[string]any{"base_url": upstream.URL, "api_key": "sk-test"},
 		Extra:       map[string]any{"openai_apikey_responses_websockets_v2_mode": service.OpenAIWSIngressModeHTTPBridge}}
+	account.Status, account.Schedulable = service.StatusActive, true
+	accountRepo.account = *account
 	firstSettled := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -219,6 +219,9 @@ type SystemSettings struct {
 	OpenAICodexVersionAutoSyncEnabled       bool                            `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAIRequestTimezoneEnabled            bool                            `json:"openai_request_timezone_enabled"`
 	OpenAICodexTicketEnabled                bool                            `json:"openai_codex_ticket_enabled"`
+	OpenAICodexTicketStrictResponse         bool                            `json:"openai_codex_ticket_strict_response,omitempty"`
+	OpenAICodexTicketFailClosed             bool                            `json:"openai_codex_ticket_fail_closed"`
+	OpenAICodexTicketStrategy               string                          `json:"openai_codex_ticket_strategy"`
 	OpenAICodexTicketHarvestProxyURL        string                          `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketStaticProxyURL         string                          `json:"openai_codex_ticket_static_proxy_url,omitempty"`
 	OpenAICodexTicketHarvestProxyConfigured bool                            `json:"openai_codex_ticket_harvest_proxy_configured"`

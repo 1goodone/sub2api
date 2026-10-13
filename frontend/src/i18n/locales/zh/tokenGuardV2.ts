@@ -243,6 +243,8 @@ export default {
   removedNotice: '已移除 {account}',
   removeConfirm: '确认从凭证运营移除 {account}？登录配置仍会保留供现有重登流程使用。',
   error: '操作失败，请稍后重试',
+  retired: '已废',
+  retiredDetail: '上游返回该账号已被删除或停用，已关闭自动巡检和自动重登。',
   probeStates: {
     pending: '待巡检',
     ok: '正常',

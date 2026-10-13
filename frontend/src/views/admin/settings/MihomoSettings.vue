@@ -69,7 +69,10 @@
     <template v-if="section === 'dynamic' || section === 'nodes'">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h2 class="font-semibold">{{ section === 'dynamic' ? text('动态代理', 'Dynamic proxies') : text('节点管理', 'Node management') }}</h2><p class="mt-1 text-xs text-gray-500">{{ text('检测仅测试网络连接，不调用模型。订阅节点从所属订阅移除；动态代理可单独删除。', 'Checks test connectivity without model calls. Remove subscription nodes through their source; dynamic proxies can be deleted individually.') }}</p></div>
-        <button v-if="section === 'dynamic'" type="button" class="btn btn-primary" :disabled="busy || !status?.installed" @click="dynamicDialog = true">{{ text('导入动态代理', 'Import dynamic proxies') }}</button>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="btn btn-primary" :disabled="busy || !status?.running || !selectedNodeTargets.length" @click="openStaticProxyDialog(selectedNodeTargets)">{{ text('批量添加为静态代理', 'Add selected as static proxies') }}</button>
+          <button v-if="section === 'dynamic'" type="button" class="btn btn-primary" :disabled="busy || !status?.installed" @click="dynamicDialog = true">{{ text('导入动态代理', 'Import dynamic proxies') }}</button>
+        </div>
       </div>
       <div class="flex flex-wrap gap-3">
         <input v-model="search" type="search" class="input sm:max-w-xs" :placeholder="text('搜索节点名称或地区', 'Search node names or regions')" :aria-label="text('搜索节点', 'Search nodes')" />
@@ -81,13 +84,14 @@
           <option v-for="source in status?.subscription_items || []" :key="source.id" :value="source.id">{{ source.label }}</option>
         </select>
       </div>
-      <DataTable :columns="nodeColumns" :data="pagedNodes" row-key="name" :loading="loading">
-        <template #cell-display_name="{ row }">{{ row.display_name || row.name }}</template>
+      <DataTable v-model:selected-keys="selectedNodes" :columns="nodeColumns" :data="pagedNodes" row-key="name" selectable :loading="loading">
+        <template #cell-display_name="{ row }"><span>{{ row.display_name || row.name }}</span><span v-if="row.static_proxy" class="badge badge-primary ml-2">{{ text('已添加静态代理', 'Static proxy added') }}</span></template>
         <template #cell-source="{ row }">{{ nodeSourceLabel(row) }}</template>
         <template #cell-state="{ row }"><span class="badge" :class="row.state === 'enabled' ? 'badge-success' : 'badge-gray'">{{ stateLabel(row.state) }}</span></template>
         <template #cell-country_code="{ row }">{{ row.dynamic ? text('供应商控制', 'Provider managed') : row.country_code || text('未知', 'Unknown') }}</template>
         <template #cell-actions="{ row }">
           <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-primary btn-sm" :disabled="busy || !status?.running || row.state !== 'enabled'" @click="openStaticProxyDialog([row])">{{ text('添加为静态代理', 'Add as static proxy') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !status?.running" @click="operate('probe/' + row.name)">{{ text('检测', 'Test') }}</button>
             <button v-if="!row.dynamic" type="button" class="btn btn-secondary btn-sm" :disabled="busy || !status?.running" @click="operate('country_probe/' + row.name)">{{ text('检测地区', 'Check region') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || row.state === 'country_excluded'" @click="operate((row.state === 'enabled' ? 'disable/' : 'recover/') + row.name)">{{ row.state === 'enabled' ? text('停用', 'Disable') : text('恢复', 'Recover') }}</button>
@@ -109,10 +113,21 @@
       </div>
       <label v-if="status?.installed" class="flex items-center gap-2 text-sm"><input type="checkbox" :checked="status.use_once" :disabled="busy" @change="operate(status.use_once ? 'once_off' : 'once_on')" />{{ text('打票节点用后移出（需手动恢复）', 'Retire harvest nodes after use (manual recovery)') }}</label>
       <MihomoCountryFilter v-if="status?.installed" :filter="status.country_filter" :codes="status.country_codes || []" :nodes="status.node_states || []" :busy="busy" @save="operate('country_filter', { country_filter: $event })" @scan="operate('country_scan')" />
-      <p class="text-xs text-gray-500">{{ text('这里的配置独立保存。打票代理在系统设置中选择，账号业务代理在账号设置中选择。', 'Configuration is saved here independently. Select ticket proxies in system settings and account proxies in account settings.') }}</p>
+      <p class="text-xs text-gray-500">{{ text('这里的配置独立保存。采票出口在本页「采票出口」中选择，账号业务代理在账号设置中选择。', 'Configuration is saved here independently. Select the harvest exit in the Harvest Exit tab and account proxies in account settings.') }}</p>
     </template>
     <p v-if="status && !status.installed && section !== 'kernel'" class="text-sm text-amber-700">{{ text('请先在“内核与规则”中安装内核。', 'Install the kernel in Kernel and rules first.') }}</p>
 
+    <BaseDialog :show="staticProxyDialog" :title="text('添加为静态代理', 'Add as static proxies')" @close="!pending && (staticProxyDialog = false)">
+      <div class="space-y-3 text-sm">
+        <p>{{ text(`将 ${staticProxyTargets.length} 个节点添加到“静态代理 / IP 代理池”，之后可在账号设置中单独选择。已添加的节点会复用现有代理。`, `Add ${staticProxyTargets.length} nodes to the static proxy pool, then select them in individual account settings. Existing proxies will be reused.`) }}</p>
+        <p class="text-gray-500">{{ text('固定使用所选节点。Mihomo 停止、节点停用或从来源移除后，该代理将不可用；不会自动切换到其他节点。', 'Each proxy uses only its selected node. It becomes unavailable when Mihomo stops or the node is disabled or removed; it will not switch to another node.') }}</p>
+        <p v-if="staticProxyTargets.some(node => node.dynamic)" class="text-amber-700">{{ text('包含动态代理：固定的是代理配置，实际公网 IP 仍由供应商控制，可能随连接变化。', 'Includes dynamic proxies: the proxy configuration is fixed, but the provider may change the public IP between connections.') }}</p>
+        <ul class="max-h-48 overflow-auto rounded-lg bg-gray-50 p-3 dark:bg-dark-700"><li v-for="node in staticProxyTargets" :key="node.name">{{ node.display_name || node.name }}</li></ul>
+        <p v-if="staticProxyTargets.some(node => node.state !== 'enabled')" role="alert" class="text-amber-700">{{ text('请先恢复所选节点，并确认地区规则允许使用这些节点。', 'Restore selected nodes and allow their regions before adding them.') }}</p>
+        <p v-if="staticProxyError" role="alert" class="text-red-600">{{ staticProxyError }}</p>
+      </div>
+      <template #footer><button type="button" class="btn btn-primary" :disabled="busy || !staticProxyTargets.length || staticProxyTargets.some(node => node.state !== 'enabled')" @click="addStaticProxies">{{ pending ? text('正在添加…', 'Adding…') : text('确认添加', 'Confirm add') }}</button></template>
+    </BaseDialog>
     <BaseDialog :show="subscriptionDialog" :title="editing ? text('编辑订阅', 'Edit subscription') : text('添加订阅', 'Add subscription')" @close="subscriptionDialog = false">
       <div class="space-y-4">
         <label class="block text-sm">{{ text('订阅名称（单条订阅，可选）', 'Subscription name (single source, optional)') }}<input v-model="subscriptionName" maxlength="80" class="input mt-2" data-testid="subscription-name" /></label>
@@ -148,18 +163,21 @@ http://username:password@hostname:port</pre></details>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiClient } from '@/api/client'
+import { useAppStore } from '@/stores/app'
 import DataTable from '@/components/common/DataTable.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import MihomoCountryFilter from './MihomoCountryFilter.vue'
 import type { CountryFilter, CountryNode } from './mihomoCountry'
 const props = withDefaults(defineProps<{ section?: 'subscriptions' | 'dynamic' | 'nodes' | 'kernel' }>(), { section: 'subscriptions' })
+const emit = defineEmits<{ 'static-proxies-added': [] }>()
 const { locale } = useI18n()
+const appStore = useAppStore()
 const text = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en
 type SubscriptionDownloadMode = 'auto' | 'proxy' | 'direct'
 interface WarmPoolStatus { ready_subscription?: number; ready_dynamic?: number; target: number; ready: number; checking: number; cooling: number; failure_reasons?: Record<string, number> }
 interface Subscription { id: string; label: string; enabled: boolean; nodes: number; cached: boolean; updated_at?: string }
-interface ManagedNode extends CountryNode { subscription_ids?: string[] }
+interface ManagedNode extends CountryNode { subscription_ids?: string[]; static_proxy?: boolean }
 interface Status { subscription_download_mode?: SubscriptionDownloadMode; bps_warm_pool?: WarmPoolStatus; bps_ip_warm_pool?: WarmPoolStatus; installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; subscription_items?: Subscription[]; dynamic_proxies?: number; endpoint: string; use_once?: boolean; node_states?: ManagedNode[]; country_filter?: CountryFilter; country_codes?: string[] }
 interface Payload { subscriptions?: string[]; dynamic_proxies?: string[]; country_filter?: CountryFilter; name?: string }
 const status = ref<Status>()
@@ -180,6 +198,10 @@ const dynamicProxies = ref('')
 const dynamicProtocol = ref('http')
 const replaceDynamic = ref(false)
 const selected = ref<Array<string | number>>([])
+const selectedNodes = ref<Array<string | number>>([])
+const staticProxyDialog = ref(false)
+const staticProxyTargets = ref<ManagedNode[]>([])
+const staticProxyError = ref('')
 const search = ref('')
 const nodeState = ref('')
 const nodeSource = ref('')
@@ -207,13 +229,58 @@ const filteredNodes = computed(() => (status.value?.node_states || []).filter(n 
 ))
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredNodes.value.length / 50)))
 const pagedNodes = computed(() => filteredNodes.value.slice((page.value - 1) * 50, page.value * 50))
-watch([search, nodeState, nodeSource, () => props.section], () => { page.value = 1; selected.value = [] })
+const selectedNodeTargets = computed(() => {
+  const selected = new Set(selectedNodes.value)
+  return filteredNodes.value.filter(node => selected.has(node.name))
+})
+watch([search, nodeState, nodeSource, () => props.section], () => { page.value = 1; selected.value = []; selectedNodes.value = [] })
 watch(() => props.section, () => { search.value = ''; nodeSource.value = ''; nodeState.value = '' })
 watch(totalPages, count => { page.value = Math.min(page.value, count) })
 function nodeSourceLabel(node: ManagedNode) {
   if (node.dynamic) return text('动态代理', 'Dynamic proxy')
   return node.subscription_ids?.map(id => status.value?.subscription_items?.find(s => s.id === id)?.label || id.slice(0, 8)).join(', ') || text('订阅（待更新来源）', 'Subscription (refresh to identify)')
 }
+function openStaticProxyDialog(nodes: ManagedNode[]) {
+  staticProxyTargets.value = [...nodes]
+  staticProxyError.value = ''
+  staticProxyDialog.value = true
+}
+async function addStaticProxies() {
+  if (pending.value || !staticProxyTargets.value.length) return
+  pending.value = true
+  staticProxyError.value = ''
+  let created = 0
+  let existing = 0
+  const failedNames = new Set<string>()
+  const targets = [...staticProxyTargets.value]
+  try {
+    for (let offset = 0; offset < targets.length; offset += 100) {
+      const { data } = await apiClient.post<{ created: unknown[]; existing: unknown[]; failed: Array<{ name: string; reason: string }> }>('/admin/system/mihomo/nodes/static-proxies', { names: targets.slice(offset, offset + 100).map(node => node.name) }, { timeout: 180000 })
+      created += data.created.length
+      existing += data.existing.length
+      for (const failure of data.failed) failedNames.add(failure.name)
+      if (disposed) return
+    }
+    emit('static-proxies-added')
+    const summary = text(`新增 ${created} 个静态代理，复用 ${existing} 个，失败 ${failedNames.size} 个。可在账号设置中选择代理。`, `Created ${created} static proxies, reused ${existing}, failed ${failedNames.size}. Select them in account settings.`)
+    if (failedNames.size) {
+      staticProxyTargets.value = targets.filter(node => failedNames.has(node.name))
+      staticProxyError.value = summary
+      appStore.showWarning(summary)
+    } else {
+      staticProxyDialog.value = false
+      selectedNodes.value = []
+      appStore.showSuccess(summary)
+    }
+  } catch (cause) {
+    staticProxyError.value = causeMessage(cause, text('添加未完成，请重试；已创建的代理会自动复用。', 'Could not finish adding proxies. Retry to reuse any proxies already created.'))
+    emit('static-proxies-added')
+  } finally {
+    pending.value = false
+    if (!disposed) await refresh()
+  }
+}
+const causeMessage = (cause: unknown, fallback: string) => (cause as { message?: string })?.message || fallback
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 function scheduleRefresh() {

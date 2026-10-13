@@ -639,12 +639,20 @@ export default {
         openaiCodexVersionAutoSync: 'Auto-sync Codex version',
         openaiCodexVersionAutoSyncHint: 'Fetches the latest stable client version from the official repository every 6 hours, so you never need to upgrade this service just to keep the version current. When disabled, only the version above or the built-in default is used.',
         openaiCodexVersionSyncedValue: 'Currently synced: {version}',
+        claudeCodeClientVersion: 'Claude Code client version',
+        claudeCodeClientVersionHint: "The client version this gateway declares upstream when impersonating the official Claude Code CLI. Leave empty to use the auto-synced latest official release; setting a value pins it and stops following auto-sync. The SUB2API_CLAUDE_CLI_VERSION environment variable or built-in version is used only when neither the manual nor synced value is valid.",
+        claudeCodeVersionAutoSync: 'Auto-sync Claude Code version',
+        claudeCodeVersionAutoSyncHint: 'Fetches the latest Claude Code client version from the official release channel every hour, so you never need to upgrade this service just to keep the version current. When disabled, fetching stops but the previously synced version remains available. The manual version above always takes priority.',
+        claudeCodeVersionSyncedValue: 'Currently synced: {version}',
         codexHardeningTitle: "Codex Settings",
         requestTimezoneEnabled: 'Bind request timezone',
         requestTimezoneEnabledDesc: 'Use each OpenAI account’s timezone (Asia/Singapore by default) for existing environment context and web search timezone fields. Dates and ordinary text remain unchanged. Disabled means no timezone rewriting. This does not guarantee improved model quality.',
-        codexTicketEnabled: "780 ticket harvest",
+        codexTicketEnabled: "Automatic ticket harvesting",
         codexTicketEnabledDesc:
-          "When off, the gateway neither harvests nor injects x-codex-turn-state and forwards traffic as usual. When on, it harvests tickets in the background and overwrites that header on production requests.",
+          "Controls background harvesting and ticket injection into model requests. Manual harvesting is started from Harvest Flow.",
+        codexTicketFailClosed: "Pause target models without a ticket",
+        codexTicketFailClosedDesc:
+          "Off by default. When off, a missing, expired, or mismatched ticket only disables injection and the account remains schedulable. When on, target-model accounts without a valid ticket are paused.",
         codexTicketModels: "Ticket models",
         codexTicketModelsDesc: "Harvest and inject tickets only for selected models. Unselected models use the normal forwarding path.",
         codexTicketHarvestScope: "Ticket harvest scope",
@@ -653,10 +661,10 @@ export default {
         codexTicketHarvestScopeSelected: "Selected groups only",
         codexTicketHarvestGroups: "OpenAI groups",
         codexTicketHarvestGroupsEmpty: "No active OpenAI groups available",
-        codexTicketHarvestProxy: "Codex harvest proxy",
-        codexTicketHarvestProxyDesc:
-          "Used only for minting Codex tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",
+        codexTicketHarvestProxy: "Harvest exit",
         codexTicketShapeNotice: "780 only describe the observed state shape and do not measure model quality. Only tickets matching the current validation rules are injected; with account pausing off, a shape mismatch does not block requests.",
+        codexTicketHarvestProxyDesc:
+          "Select the exit for subsequent harvest probes. Stored tickets keep their bound exit. Leave the static proxy blank to retain its saved address.",
         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
         codexTicketHarvestProxyConfigured: "Configured (password hidden). Paste a full new proxy URL to replace it.",
         mihomoProxyPool: "Mihomo proxy pool",
@@ -667,9 +675,7 @@ export default {
         codexTicketProxyIPPoolHint:
           "Rotates ticket harvesting across every active, unexpired proxy in IP management and moves to the next exit on failure. Each ticket remembers the exit it was harvested on, and later conversations stay on that exit. Proxy changes apply within about 15 seconds. Parallel multi-lane collection still requires the Mihomo kernel.",
         codexTicketProxyMihomoEndpoint: "Kernel local endpoint",
-        codexTicketProxyMihomoSelected: 'Mihomo selected for ticket harvesting. Click "Save Settings" to apply.',
-        codexTicketProxyMihomoHint:
-          "Uses the Mihomo airport subscription running on this server. Run install-mihomo-codex.sh from the release package first; normal account proxies are unchanged.",
+        codexTicketProxyMihomoSelected: 'Mihomo selected. Click "Save harvest exit" to apply.',
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:
           "Only affects OpenAI OAuth accounts with 'Codex official clients only' enabled (global). Beyond User-Agent/Originator, harden the decision with a version range, an engine-fingerprint gate, and black/whitelists.",

@@ -34,7 +34,23 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			releaseChat()
 		})
 		if resultErr == nil {
-			s.observeCodexTicketResponse(request, result, account)
+			// Fast admission may have installed the ticket inside the upstream
+			// adapter. Capture the binding before observation can revoke it.
+			observedRequest := request
+			if result != nil && result.Request != nil && s.UnifiedAstraTicketsEnabled(request.Context()) && s.codexTicketRequestBound(result.Request, account) {
+				// Timing/fallback layers clone request headers before the routing
+				// adapter installs a newly acquired bundle. Observe the sent copy.
+				observedRequest = result.Request
+			}
+			responseBound := boundTicket != nil || s.codexTicketRequestBound(observedRequest, account)
+			s.observeCodexTicketResponse(observedRequest, result, account)
+			if responseBound && codexResponseMismatches(observedRequest, result, account) && s.settingService.CodexTicketStrictResponse(request.Context()) {
+				if result.Body != nil {
+					_ = result.Body.Close()
+				}
+				result = nil
+				resultErr = ErrCodexTicketResponseRejected
+			}
 		}
 	}()
 	if s.pluginManager != nil {

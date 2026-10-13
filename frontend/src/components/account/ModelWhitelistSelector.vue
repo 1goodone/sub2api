@@ -163,12 +163,8 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountId?: number
-  syncCredentials?: {
-    platform: string
-    type: string
-    base_url?: string
-    api_key: string
-  }
+  syncCredentials?: SyncUpstreamPreviewParams
+  modelMappings?: { from: string; to: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -263,6 +259,11 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
+  const mapping = props.modelMappings?.find(item => item.from === model && item.to.trim() && item.to !== model)
+  if (mapping) {
+    appStore.showInfo(t('admin.accounts.modelMappingConflict', mapping))
+    return
+  }
   emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
 }
@@ -292,7 +293,7 @@ const syncUpstreamModels = async () => {
     if (props.accountId) {
       result = await accountsAPI.syncUpstreamModels(props.accountId)
     } else if (props.syncCredentials) {
-      result = await accountsAPI.syncUpstreamModelsPreview(props.syncCredentials as SyncUpstreamPreviewParams)
+      result = await accountsAPI.syncUpstreamModelsPreview(props.syncCredentials)
     } else {
       return
     }
@@ -337,7 +338,9 @@ const syncUpstreamModels = async () => {
       appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('admin.accounts.syncUpstreamModelsFailed')
+    const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' && error.message.trim()
+      ? error.message
+      : t('admin.accounts.syncUpstreamModelsFailed')
     appStore.showError(t('admin.accounts.syncUpstreamModelsError', { message }))
   } finally {
     isSyncingUpstream.value = false

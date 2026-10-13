@@ -99,7 +99,7 @@
                     <label class="inline-flex items-center gap-2" :title="t('tokenGuardV2.autoReloginHint')"><input type="checkbox" role="switch" class="automation-switch" :checked="item.auto_relogin_enabled" :aria-label="t('tokenGuardV2.autoRelogin')" :data-testid="'auto-relogin-' + item.account_id" :disabled="busyId !== 0 || loading" @change="toggleSwitch(item, 'auto_relogin_enabled', $event)" />{{ t('tokenGuardV2.autoRelogin') }}</label>
                   </div>
                 </td>
-                <td><span class="badge" :class="probeClass(item.probe_state)">{{ t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`) }}</span><small>{{ item.blocked_reason || item.probe_detail || '-' }}</small></td>
+                <td><span class="badge" :class="probeClass(item)">{{ probeLabel(item) }}</span><small>{{ statusDetail(item) }}</small></td>
                 <td class="tabular-nums">{{ item.fail_streak }}</td>
                 <td>{{ date(item.last_probe_at) }}<small v-if="item.enabled">{{ t('tokenGuardV2.next') }} {{ date(item.next_probe_at) }}</small><small v-else>{{ t('tokenGuardV2.paused') }}</small></td>
                 <td>
@@ -491,7 +491,10 @@ const proxyLabel = (source: TokenGuardV2ProxySource = 'account', proxyId?: numbe
   const proxy = proxies.value.find(item => item.id === proxyId)
   return proxy ? proxyOptionLabel(proxy) : `#${proxyId}`
 }
-const probeClass = (state: string) => state === 'ok' ? 'ok' : state === 'auth' ? 'danger' : ''
+const isRetired = (item: TokenGuardV2Account) => item.blocked_reason === 'account_retired'
+const probeLabel = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retired') : t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`)
+const probeClass = (item: TokenGuardV2Account) => isRetired(item) || item.probe_state === 'auth' ? 'danger' : item.probe_state === 'ok' ? 'ok' : ''
+const statusDetail = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retiredDetail') : (item.blocked_reason || item.probe_detail || '-')
 const taskLabel = (task: TokenGuardV2Task) => task.error ? `${task.status}: ${task.error}` : `${task.status} · ${task.stage}`
 const canStopTask = (task?: TokenGuardV2Task) => Boolean(task && ['queued', 'running', 'callback_processing'].includes(task.status))
 const configurationDetail = (item: TokenGuardV2Account) => {

@@ -1038,6 +1038,7 @@ export interface Proxy {
   protocol: ProxyProtocol
   host: string
   port: number
+  mihomo_node_id?: string
   username: string | null
   password?: string | null
   status: 'active' | 'inactive' | 'expired'

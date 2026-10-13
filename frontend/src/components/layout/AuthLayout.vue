@@ -46,3 +46,12 @@ const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle
 const currentYear = new Date().getFullYear()
 onMounted(() => { if (!appStore.publicSettingsLoaded) appStore.fetchPublicSettings() })
 </script>
+
+<style scoped>
+.auth-layout :deep(.input) { box-shadow: none; border-radius: 6px; min-height: 46px; transition: none; }
+.auth-layout :deep(.btn) { box-shadow: none; border-radius: 6px; transition: none; transform: none; }
+.auth-layout :deep(.btn-primary) { background: #076d79; color: white; }
+.dark .auth-layout :deep(.btn-primary) { background: #75d3d9; color: #07141e; }
+.auth-layout :deep(:is(button,a,input):focus-visible) { outline: 2px solid #087d89; outline-offset: 3px; }
+.dark .auth-layout :deep(:is(button,a,input):focus-visible) { outline-color: #75d3d9; }
+</style>

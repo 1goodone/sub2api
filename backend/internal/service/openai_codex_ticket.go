@@ -45,6 +45,9 @@ const (
 var ErrOpenAICodexTicketUnavailable = errors.New("codex turn-state ticket unavailable")
 
 type openAICodexTicket struct {
+	Acquisition         string             `json:"acquisition,omitempty"`
+	SourceAccountID     int64              `json:"source_account_id,omitempty"`
+	ProbeVerified       bool               `json:"probe_verified,omitempty"`
 	AccountID           int64              `json:"account_id"`
 	Model               string             `json:"model"`
 	State               string             `json:"state"`
@@ -612,6 +615,9 @@ func (t *openAICodexTicket) valid(now time.Time, targetLen int) bool {
 		return false
 	}
 	if t.Length == 780 {
+		if !t.ProbeVerified {
+			return false
+		}
 		shape, err := parseOpenAICodexTicketShape(t.State)
 		if err != nil || shape.IssuedAt.After(now.Add(30*time.Second)) || !now.Before(shape.IssuedAt.Add(openAICodexCredentialTTL)) || (t.Transport != "sse" && t.Transport != "websocket") || !codexTicketCookiesFresh(t, now) {
 			return false
@@ -722,14 +728,10 @@ func (s *OpenAIGatewayService) lookupOpenAICodexTicketLocked(account *Account, m
 		if protocol == "" {
 			protocol = "sse"
 		}
-		gateway := controls.TargetGateway
-		if gateway == "" {
-			gateway = "unified-88"
-		}
-		if mem != nil && (mem.Transport != protocol || !codex780GatewayAllowed(mem.Gateway, gateway)) {
+		if mem != nil && mem.Transport != protocol {
 			mem = nil
 		}
-		if extra != nil && (extra.Transport != protocol || !codex780GatewayAllowed(extra.Gateway, gateway)) {
+		if extra != nil && extra.Transport != protocol {
 			extra = nil
 		}
 	}
@@ -818,6 +820,9 @@ func normalizeOpenAICodexTicketShape(ticket *openAICodexTicket) bool {
 func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, account *Account, ticket *openAICodexTicket) error {
 	if s == nil || account == nil || ticket == nil || account.ID <= 0 {
 		return errors.New("invalid ticket store input")
+	}
+	if ticket.Length == 780 && !ticket.valid(time.Now(), 780) {
+		return errors.New("ticket probe validation required before storage")
 	}
 	incoming := *ticket
 	expectedBlocks := openAICodexTicketExpectedBlocks(account)
@@ -1160,7 +1165,6 @@ func (s *OpenAIGatewayService) StartOpenAICodexTicketHarvester() {
 	}()
 	logger.L().Info("openai_codex_ticket harvester started",
 		zap.Int("ttl_seconds", s.openAICodexTicketConfig().TTLSeconds),
-		zap.Int("target_length", s.openAICodexTicketConfig().TargetLength),
 		zap.Strings("models", s.openAICodexTicketConfig().Models),
 	)
 }
