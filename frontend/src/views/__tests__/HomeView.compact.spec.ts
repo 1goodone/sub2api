@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, RouterLinkStub } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, mount, RouterLinkStub } from '@vue/test-utils'
 
 import HomeView from '../HomeView.vue'
+
+enableAutoUnmount(afterEach)
 
 const { appStore, authStore } = vi.hoisted(() => ({
   appStore: {
@@ -50,6 +52,7 @@ function mountHome(settings: Record<string, unknown> = {}) {
         RouterLink: RouterLinkStub,
         LocaleSwitcher: { template: '<div data-testid="locale-switcher" />' },
         Icon: { template: '<span data-testid="icon" />' },
+        OrbitScene: { template: '<div data-testid="orbit-scene" />', props: ['dark', 'paused'] },
       },
     },
   })
@@ -57,13 +60,6 @@ function mountHome(settings: Record<string, unknown> = {}) {
 
 function compactDestination(wrapper: ReturnType<typeof mountHome>) {
   return wrapper.get('[data-testid="compact-home"] main').findComponent(RouterLinkStub).props('to')
-}
-
-function modelPlazaDestination(wrapper: ReturnType<typeof mountHome>) {
-  return wrapper
-    .findAllComponents(RouterLinkStub)
-    .find((link) => link.props('to') === '/model-plaza')
-    ?.props('to')
 }
 
 describe('HomeView compact mode', () => {
@@ -74,7 +70,16 @@ describe('HomeView compact mode', () => {
     authStore.checkAuth.mockClear()
     appStore.fetchPublicSettings.mockClear()
     localStorage.clear()
-    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
   })
 
   it('renders custom HTML ahead of compact mode', () => {
@@ -131,54 +136,55 @@ describe('HomeView compact mode', () => {
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
   })
 
-  it('shows the model plaza link to anonymous visitors when public access is enabled', () => {
-    const wrapper = mountHome({
-      compact_home_enabled: true,
-      model_plaza_enabled: true,
-      model_plaza_require_auth: false,
-    })
-
-    expect(modelPlazaDestination(wrapper)).toBe('/model-plaza')
+  it.each([true, false])('does not expose the removed model plaza route: %s', (compact) => {
+    const wrapper = mountHome({ compact_home_enabled: compact, model_plaza_enabled: true })
+    expect(wrapper.findAllComponents(RouterLinkStub).some(link => link.props('to') === '/model-plaza')).toBe(false)
   })
 
-  it('hides the model plaza link from anonymous visitors when sign-in is required', () => {
-    const wrapper = mountHome({
-      compact_home_enabled: true,
-      model_plaza_enabled: true,
-      model_plaza_require_auth: true,
-    })
+  it('renders replacement connection paths in the default home', async () => {
+    const wrapper = mountHome()
 
-    expect(modelPlazaDestination(wrapper)).toBeUndefined()
+    expect(wrapper.get('.integration-paths').findAll('li')).toHaveLength(4)
+    expect(wrapper.get('.home-nav a[href="#clients"]').text()).toBe('home.orbit.ecosystem')
+    await wrapper.get('.home-menu-btn').trigger('click')
+    expect(wrapper.get('.home-menu a[href="#clients"]').text()).toBe('home.orbit.ecosystem')
   })
 
-  it('shows the model plaza link to authenticated visitors when sign-in is required', () => {
+  it.each([true, false])('respects registration availability in the default home: %s', (enabled) => {
+    const wrapper = mountHome({ registration_enabled: enabled })
+    expect(wrapper.get('.hero-links').findComponent(RouterLinkStub).props('to')).toBe(enabled ? '/register' : '/login')
+  })
+
+  it.each([false, true])('sends signed-in visitors to the correct workspace (admin: %s)', (admin) => {
     authStore.isAuthenticated = true
-
-    const wrapper = mountHome({
-      compact_home_enabled: true,
-      model_plaza_enabled: true,
-      model_plaza_require_auth: true,
-    })
-
-    expect(modelPlazaDestination(wrapper)).toBe('/model-plaza')
+    authStore.isAdmin = admin
+    const wrapper = mountHome({ registration_enabled: true })
+    expect(wrapper.get('.hero-links').findComponent(RouterLinkStub).props('to')).toBe(admin ? '/admin/dashboard' : '/dashboard')
   })
 
-  it('shows the model plaza link in the default home header', () => {
-    const wrapper = mountHome({
-      model_plaza_enabled: true,
-      model_plaza_require_auth: false,
-    })
-
-    expect(modelPlazaDestination(wrapper)).toBe('/model-plaza')
+  it('lets visitors pause and resume the decorative animation', async () => {
+    const wrapper = mountHome()
+    const scene = wrapper.getComponent('[data-testid="orbit-scene"]')
+    expect(scene.props('paused')).toBe(false)
+    await wrapper.get('.orbit-motion').trigger('click')
+    expect(scene.props('paused')).toBe(true)
+    expect(wrapper.get('.orbit-motion').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('.orbit-motion').trigger('click')
+    expect(scene.props('paused')).toBe(false)
   })
 
-  it('hides the model plaza link when the feature is disabled', () => {
-    const wrapper = mountHome({
-      compact_home_enabled: true,
-      model_plaza_enabled: false,
-      model_plaza_require_auth: false,
-    })
+  it('respects reduced motion before the scene starts', () => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    vi.mocked(window.matchMedia).mockImplementation((query) => ({
+      ...mediaQuery, media: query, matches: query.includes('prefers-reduced-motion'),
+    }))
+    const wrapper = mountHome()
+    expect(wrapper.getComponent('[data-testid="orbit-scene"]').props('paused')).toBe(true)
+    expect(wrapper.find('.orbit-motion').exists()).toBe(false)
+  })
 
-    expect(modelPlazaDestination(wrapper)).toBeUndefined()
+  it.each(['https://gateway.example.test', 'https://gateway.example.test/v1/'])('uses the configured API endpoint: %s', (apiBaseUrl) => {
+    const wrapper = mountHome({ api_base_url: apiBaseUrl })
+    expect(wrapper.get('.endpoint-url code').text()).toBe('https://gateway.example.test/v1')
   })
 })

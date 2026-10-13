@@ -1,0 +1,48 @@
+/* The console is one continuous workspace. Keep feedback, remove decoration. */
+html:has(.app-shell) { scroll-behavior: auto; }
+.app-shell .sidebar { border-radius: 0; box-shadow: none; }
+.app-shell .sidebar :is(.sidebar-brand, .sidebar-label, .sidebar-section-title-text),
+.app-shell .sidebar-section-title::after,
+.app-shell :is(button, a, input, select, textarea, .tab),
+.app-shell :is(.sidebar-link, .card, .glass-card, .card-glass, .table-container, .btn, .input, .dropdown) {
+  transition: none;
+}
+.app-shell :is(.card, .glass-card, .card-glass, .table-container) {
+  border-radius: 6px;
+  box-shadow: none;
+  backdrop-filter: none;
+  background-color: #fff;
+}
+.dark .app-shell :is(.card, .glass-card, .card-glass, .table-container) { background-color: #10222e; }
+.app-shell :is(.btn, .sidebar-link-active),
+.app-shell .btn:hover,
+.app-shell .sidebar-link-active:hover { box-shadow: none; }
+.app-shell .btn:not(:disabled):hover,
+.app-shell .card-hover:hover { transform: none; }
+.app-shell :is(.sidebar-link, .btn, .input) { border-radius: 5px; }
+.app-shell :is(.btn-primary) { background: #076d79; color: #fff; }
+.dark .app-shell .btn-primary { background: #75d3d9; color: #07141e; }
+.app-shell .sidebar-link-active { box-shadow: inset 3px 0 #087d89; }
+.dark .app-shell .sidebar-link-active { box-shadow: inset 3px 0 #75d3d9; }
+.app-shell .sidebar-link:hover { transform: none; }
+.app-shell .sidebar-section { margin-bottom: 20px; }
+.app-shell :is(.dropdown, .animate-fade-in, .animate-slide-up, .animate-scale-in, .skeleton, .animate-pulse) {
+  animation: none;
+}
+.app-shell :is(.fade-enter-active, .fade-leave-active, .slide-enter-active, .slide-leave-active) { transition: none; }
+.app-shell [class*="backdrop-blur"] { backdrop-filter: none; }
+.app-shell :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #087d89;
+  outline-offset: 3px;
+}
+.dark .app-shell :is(button, a, input, select, textarea):focus-visible { outline-color: #75d3d9; }
+/* Teleported dialogs share the console's immediate open/close behavior. */
+body:has(.app-shell) > :is(.modal-overlay, .dialog-overlay) { backdrop-filter: none; }
+body:has(.app-shell) :is(.modal-enter-active, .modal-leave-active, .dialog-enter-active, .dialog-leave-active) {
+  transition: none;
+}
+body:has(.app-shell) :is(.modal-enter-active, .modal-leave-active) .modal-content { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  .app-shell *, .app-shell *::before, .app-shell *::after { transition: none !important; }
+}

@@ -118,6 +118,10 @@ export default defineConfig(({ mode }) => {
          */
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
+            // Marketing visuals must never enter the console's shared bundle.
+            if (id.includes('/three/') || id.includes('/gsap/')) {
+              return 'vendor-orbit'
+            }
             // 仅在公告、文档或引导页面使用，避免污染登录页公共包。
             if (id.includes('/marked/') || id.includes('/dompurify/')) {
               return 'vendor-markdown'
