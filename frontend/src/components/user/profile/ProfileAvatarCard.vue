@@ -15,8 +15,8 @@
     <div :class="props.embedded ? 'space-y-3' : 'flex flex-col gap-5 px-6 py-6 sm:flex-row sm:items-start'">
       <div
         :class="props.embedded
-          ? 'flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 text-xl font-bold text-white shadow-lg shadow-primary-500/20'
-          : 'flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 text-3xl font-bold text-white shadow-lg shadow-primary-500/20'"
+          ? 'profile-avatar-preview flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full text-xl font-semibold'
+          : 'profile-avatar-preview flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full text-3xl font-semibold'"
       >
         <img
           v-if="avatarPreviewUrl"
@@ -42,16 +42,17 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-3">
-          <label class="btn btn-secondary btn-sm cursor-pointer">
-            <input
-              data-testid="profile-avatar-file-input"
-              type="file"
-              accept="image/*"
-              class="hidden"
-              @change="handleAvatarFileChange"
-            >
+          <input
+            ref="avatarFileInput"
+            data-testid="profile-avatar-file-input"
+            type="file"
+            accept="image/*"
+            class="hidden"
+            @change="handleAvatarFileChange"
+          >
+          <button type="button" class="btn btn-secondary btn-sm" @click="avatarFileInput?.click()">
             {{ t('profile.avatar.uploadAction') }}
-          </label>
+          </button>
 
           <button
             data-testid="profile-avatar-save"
@@ -102,6 +103,7 @@ const targetAvatarUploadBytes = 20 * 1024
 const avatarScaleSteps = [1, 0.92, 0.84, 0.76, 0.68, 0.6, 0.52, 0.44, 0.36]
 const avatarQualitySteps = [0.92, 0.84, 0.76, 0.68, 0.6, 0.52, 0.44, 0.36]
 const avatarDraft = ref('')
+const avatarFileInput = ref<HTMLInputElement | null>(null)
 const avatarSaving = ref(false)
 
 const displayName = computed(() => props.user?.username?.trim() || props.user?.email?.trim() || t('profile.user'))

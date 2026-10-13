@@ -827,7 +827,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
 		args = append(args, filters.GroupID)
 	}
-	conditions, args = appendUsageLogModelWhereCondition(conditions, args, filters.Model, filters.ModelFilterSource)
+	conditions, args = appendUsageLogModelWhereCondition(conditions, args, filters.Model, filters.ModelFilterSource, filters.ModelProvider)
 	conditions, args = appendRequestTypeOrStreamWhereCondition(conditions, args, filters.RequestType, filters.Stream)
 	conditions, args = appendNativeCompactionV2WhereCondition(conditions, args, filters.NativeCompactionV2, "")
 	if filters.BillingType != nil {
@@ -973,6 +973,28 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 
 	stats.TotalAccountCost = &totalAccountCost
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
+
+	if filters.UserID > 0 {
+		// Daily user markers survive detail retention, but contain no personal cost.
+		// Report missing history rather than inventing its billed amount.
+		var available sql.NullTime
+		query := `WITH retained AS (
+			SELECT created_at FROM usage_logs ORDER BY created_at LIMIT 1
+		) SELECT (SELECT created_at FROM retained), EXISTS (
+			SELECT 1 FROM usage_dashboard_daily_users
+			WHERE user_id = $1
+			AND ($2::timestamptz IS NULL OR bucket_date + INTERVAL '1 day' > $2 AT TIME ZONE $4)
+			AND ($3::timestamptz IS NULL OR bucket_date < $3 AT TIME ZONE $4)
+			AND (NOT EXISTS (SELECT 1 FROM retained)
+			     OR bucket_date + INTERVAL '1 day' <= (SELECT created_at AT TIME ZONE $4 FROM retained))
+		)`
+		if err := scanSingleRow(ctx, r.sql, query, []any{filters.UserID, filters.StartTime, filters.EndTime, timezone.Name()}, &available, &stats.HistoryIncomplete); err != nil {
+			return nil, err
+		}
+		if available.Valid {
+			stats.RecordsAvailableFrom = &available.Time
+		}
+	}
 
 	return stats, nil
 }

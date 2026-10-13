@@ -1,14 +1,12 @@
 <template>
-  <div class="space-y-6">
+  <div class="profile-info">
     <section
       data-testid="profile-overview-hero"
-      class="card overflow-hidden border border-primary-100/80 bg-gradient-to-br from-primary-50 via-white to-amber-50/70 dark:border-primary-900/40 dark:from-primary-950/40 dark:via-dark-900 dark:to-dark-950"
+      class="profile-overview"
     >
-      <div class="px-6 py-6 md:px-8">
-        <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <div
-            class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-primary-500 to-primary-600 text-2xl font-bold text-white shadow-lg shadow-primary-500/20"
-          >
+      <div class="profile-overview-main">
+        <div class="profile-identity">
+          <div class="profile-avatar">
             <img
               v-if="avatarUrl"
               :src="avatarUrl"
@@ -18,171 +16,81 @@
             <span v-else>{{ avatarInitial }}</span>
           </div>
 
-          <div class="min-w-0 flex-1 space-y-5">
-            <div class="space-y-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <h2 class="truncate text-2xl font-semibold text-gray-900 dark:text-white">
-                  {{ displayName }}
-                </h2>
-                <span :class="['badge', user?.role === 'admin' ? 'badge-primary' : 'badge-gray']">
-                  {{ user?.role === 'admin' ? t('profile.administrator') : t('profile.user') }}
-                </span>
-                <span
-                  :class="['badge', user?.status === 'active' ? 'badge-success' : 'badge-danger']"
-                >
-                  {{
-                    user?.status === 'active'
-                      ? t('common.active')
-                      : t('common.disabled')
-                  }}
-                </span>
-              </div>
-
-              <div class="space-y-1">
-                <p class="truncate text-sm text-gray-600 dark:text-gray-300">
-                  {{ primaryEmailDisplay }}
-                </p>
-                <div
-                  v-if="sourceHints.length"
-                  class="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400"
-                >
-                  <span
-                    v-for="hint in sourceHints"
-                    :key="hint.key"
-                    class="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 ring-1 ring-primary-100 dark:bg-dark-900/70 dark:ring-primary-900/40"
-                  >
-                    <Icon name="link" size="sm" />
-                    {{ hint.text }}
-                  </span>
-                </div>
-              </div>
+          <div class="profile-identity-copy">
+            <div class="profile-name-row">
+              <h2 :title="displayName">{{ displayName }}</h2>
+              <span class="badge badge-gray">
+                {{ user?.role === 'admin' ? t('profile.administrator') : t('profile.user') }}
+              </span>
             </div>
-
-            <div class="grid gap-3 sm:grid-cols-3">
-              <div
-                data-testid="profile-overview-metric-balance"
-                class="rounded-2xl bg-white/85 px-4 py-3 shadow-sm ring-1 ring-white/70 dark:bg-dark-900/60 dark:ring-dark-700"
-              >
-                <p class="text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
-                  {{ t('profile.accountBalance') }}
-                </p>
-                <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
-                  {{ formatCurrency(user?.balance || 0) }}
-                </p>
-              </div>
-              <div
-                data-testid="profile-overview-metric-concurrency"
-                class="rounded-2xl bg-white/85 px-4 py-3 shadow-sm ring-1 ring-white/70 dark:bg-dark-900/60 dark:ring-dark-700"
-              >
-                <p class="text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
-                  {{ t('profile.concurrencyLimit') }}
-                </p>
-                <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
-                  {{ user?.concurrency || 0 }}
-                </p>
-              </div>
-              <div
-                data-testid="profile-overview-metric-member-since"
-                class="rounded-2xl bg-white/85 px-4 py-3 shadow-sm ring-1 ring-white/70 dark:bg-dark-900/60 dark:ring-dark-700"
-              >
-                <p class="text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
-                  {{ t('profile.memberSince') }}
-                </p>
-                <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
-                  {{ memberSinceLabel }}
-                </p>
-              </div>
+            <p class="profile-account-status" :class="{ 'is-disabled': user?.status !== 'active' }">
+              <span aria-hidden="true" />
+              {{ user?.status === 'active' ? t('common.active') : t('common.disabled') }}
+            </p>
+            <div v-if="sourceHints.length" class="profile-source-hints">
+              <span v-for="hint in sourceHints" :key="hint.key" class="inline-flex items-center gap-1">
+                <Icon name="link" size="sm" />
+                {{ hint.text }}
+              </span>
             </div>
           </div>
         </div>
+        <dl class="profile-account-metrics">
+          <div data-testid="profile-overview-metric-balance">
+            <dt>{{ t('profile.accountBalance') }}</dt>
+            <dd>{{ formatCurrency(user?.balance || 0) }}</dd>
+          </div>
+          <div data-testid="profile-overview-metric-concurrency">
+            <dt>{{ t('profile.concurrencyLimit') }}</dt>
+            <dd>{{ user?.concurrency || 0 }}</dd>
+          </div>
+        </dl>
+        <button type="button" class="btn btn-primary btn-sm profile-edit-action" data-testid="profile-edit-action" @click="editing = true">
+          <Icon name="edit" size="sm" />
+          {{ t('common.edit') }}
+        </button>
+      </div>
+      <div class="profile-overview-footer">
+        <span v-if="primaryEmailDisplay" class="profile-email" :title="primaryEmailDisplay">
+          <Icon name="mail" size="sm" />
+          <strong>{{ primaryEmailDisplay }}</strong>
+        </span>
+        <span data-testid="profile-overview-metric-member-since" class="profile-member-since">
+          <Icon name="calendar" size="sm" />
+          {{ t('profile.memberSince') }}
+          <strong>{{ memberSinceLabel }}</strong>
+        </span>
       </div>
     </section>
 
-    <div class="space-y-6">
-      <div data-testid="profile-main-column" class="space-y-6">
-        <section
-          data-testid="profile-basics-panel"
-          class="card border border-gray-100 bg-white/90 p-6 dark:border-dark-700 dark:bg-dark-900/50"
-        >
-          <div class="mb-5 flex items-start justify-between gap-4">
-            <div>
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('profile.basicsTitle') }}
-              </h3>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t('profile.basicsDescription') }}
-              </p>
-            </div>
-          </div>
+    <section data-testid="profile-auth-bindings-panel" class="profile-bindings">
+      <ProfileIdentityBindingsSection
+        :user="user"
+        :linuxdo-enabled="linuxdoEnabled"
+        :dingtalk-enabled="dingtalkEnabled"
+        :oidc-enabled="oidcEnabled"
+        :oidc-provider-name="oidcProviderName"
+        :wechat-enabled="wechatEnabled"
+        :wechat-open-enabled="wechatOpenEnabled"
+        :wechat-mp-enabled="wechatMpEnabled"
+        compact
+      />
+    </section>
 
-          <div class="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
-            <div class="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 dark:border-dark-700 dark:bg-dark-900/30">
-              <ProfileAvatarCard
-                :user="user"
-                embedded
-              />
-            </div>
-
-            <div class="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 dark:border-dark-700 dark:bg-dark-900/30">
-              <ProfileEditForm
-                :initial-username="user?.username || ''"
-                embedded
-              />
-            </div>
-          </div>
-        </section>
-
-        <section
-          data-testid="profile-auth-bindings-panel"
-          class="card border border-gray-100 bg-white/90 p-6 dark:border-dark-700 dark:bg-dark-900/50"
-        >
-          <ProfileIdentityBindingsSection
-            :user="user"
-            :linuxdo-enabled="linuxdoEnabled"
-            :dingtalk-enabled="dingtalkEnabled"
-            :oidc-enabled="oidcEnabled"
-            :oidc-provider-name="oidcProviderName"
-            :wechat-enabled="wechatEnabled"
-            :wechat-open-enabled="wechatOpenEnabled"
-            :wechat-mp-enabled="wechatMpEnabled"
-            embedded
-            compact
-          />
-        </section>
+    <BaseDialog :show="editing" :title="t('profile.editProfile')" width="wide" @close="editing = false">
+      <div data-testid="profile-basics-panel" class="profile-edit-grid">
+        <ProfileAvatarCard :user="user" embedded />
+        <ProfileEditForm :initial-username="user?.username || ''" embedded />
       </div>
-
-      <div data-testid="profile-side-column" class="space-y-6">
-        <section
-          v-if="sourceHints.length"
-          class="card border border-gray-100 bg-white/90 p-6 dark:border-dark-700 dark:bg-dark-900/50"
-        >
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-            {{ t('profile.linkedProfileSources') }}
-          </h3>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {{ t('profile.linkedProfileSourcesDescription') }}
-          </p>
-
-          <div class="mt-5 grid gap-3">
-            <div
-              v-for="hint in sourceHints"
-              :key="hint.key"
-              class="flex items-start gap-3 rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-dark-700 dark:bg-dark-900/30 dark:text-gray-300"
-            >
-              <Icon name="link" size="sm" class="mt-0.5 text-gray-400 dark:text-gray-500" />
-              <span>{{ hint.text }}</span>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
+    </BaseDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import ProfileAvatarCard from '@/components/user/profile/ProfileAvatarCard.vue'
 import ProfileEditForm from '@/components/user/profile/ProfileEditForm.vue'
 import ProfileIdentityBindingsSection from '@/components/user/profile/ProfileIdentityBindingsSection.vue'
@@ -208,6 +116,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const editing = ref(false)
 
 function normalizeBindingStatus(binding: boolean | UserAuthBindingStatus | undefined): boolean | null {
   if (typeof binding === 'boolean') {
@@ -258,7 +167,8 @@ const memberSinceLabel = computed(() => {
 
   return new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
-    month: 'short',
+    month: '2-digit',
+    day: '2-digit',
   }).format(date)
 })
 
@@ -379,3 +289,55 @@ const sourceHints = computed(() => {
   return hints
 })
 </script>
+
+<style scoped>
+.profile-info { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.profile-overview { overflow: hidden; border: 1px solid var(--console-line); border-radius: var(--console-radius); background: var(--console-surface); box-shadow: var(--console-shadow); }
+.profile-overview-main { display: flex; align-items: center; gap: 32px; min-height: 180px; padding: 28px; }
+.profile-identity { display: flex; align-items: center; gap: 22px; flex: 1; min-width: 0; }
+.profile-avatar { display: grid; place-items: center; flex-shrink: 0; width: 84px; height: 84px; overflow: hidden; border: 1px solid var(--console-line); border-radius: 50%; background: var(--console-accent-soft); color: var(--console-accent); font-size: 28px; font-weight: 600; }
+.profile-identity-copy { min-width: 0; }
+.profile-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.profile-name-row h2 { min-width: 0; overflow-wrap: anywhere; font-size: 22px; line-height: 30px; font-weight: 650; }
+.profile-name-row .badge { padding: 2px 7px; border: 1px solid var(--console-line); border-radius: 4px; background: var(--console-raised); font-size: 10px; font-weight: 500; color: var(--console-muted); }
+.profile-account-status { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--console-muted); font-size: 12px; }
+.profile-account-status > span { width: 5px; height: 5px; border-radius: 50%; background: #269763; }
+.profile-account-status.is-disabled > span { background: #dc5252; }
+.profile-source-hints { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 11px; color: var(--console-muted); }
+.profile-account-metrics { display: flex; gap: 32px; margin-left: auto; }
+.profile-account-metrics > div + div { padding-left: 32px; border-left: 1px solid var(--console-line); }
+.profile-account-metrics dt { font-size: 12px; color: var(--console-muted); }
+.profile-account-metrics dd { margin-top: 6px; font-size: 24px; line-height: 32px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profile-edit-action { align-self: flex-start; flex-shrink: 0; }
+.profile-overview-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 24px; min-height: 44px; padding: 12px 24px; border-top: 1px solid var(--console-divider); background: var(--console-raised); color: var(--console-muted); font-size: 11px; }
+.profile-overview-footer > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.profile-overview-footer strong { min-width: 0; overflow-wrap: anywhere; color: var(--console-text); font-weight: 550; }
+.profile-overview-footer svg { flex-shrink: 0; }
+.profile-member-since { margin-left: auto; }
+.profile-bindings :deep(.card > :first-child) { padding: 18px 24px; }
+.profile-bindings :deep(h2) { font-size: 15px; }
+.profile-bindings :deep(h2 + p) { font-size: 12px; }
+.profile-edit-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 32px; }
+.profile-edit-grid > :last-child { padding-left: 32px; border-left: 1px solid var(--console-line); }
+@media (max-width: 900px) {
+  .profile-overview-main { flex-wrap: wrap; gap: 22px; padding: 24px; }
+  .profile-account-metrics { order: 3; width: 100%; margin-left: 106px; }
+}
+@media (max-width: 600px) {
+  .profile-overview-main { gap: 18px 12px; padding: 20px 16px; }
+  .profile-identity { gap: 12px; }
+  .profile-avatar { width: 56px; height: 56px; font-size: 22px; }
+  .profile-name-row h2 { font-size: 18px; line-height: 26px; }
+  .profile-name-row { gap: 5px 8px; }
+  .profile-account-metrics { margin-left: 0; padding-top: 18px; border-top: 1px solid var(--console-divider); gap: 24px; }
+  .profile-account-metrics > div { flex: 1; min-width: 0; }
+  .profile-account-metrics > div + div { padding-left: 24px; }
+  .profile-account-metrics dd { font-size: 22px; overflow-wrap: anywhere; }
+  .profile-overview-footer { padding: 12px 16px; gap: 8px; }
+  .profile-overview-footer > span { width: 100%; }
+  .profile-member-since { margin-left: 0; }
+  .profile-bindings :deep(.card > :first-child) { padding: 16px; }
+  .profile-edit-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .profile-edit-grid > :last-child { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--console-line); }
+}
+</style>

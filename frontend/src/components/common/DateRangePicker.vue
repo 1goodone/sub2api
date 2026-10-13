@@ -89,6 +89,7 @@ interface DatePreset {
 interface Props {
   startDate: string
   endDate: string
+  allowAll?: boolean
 }
 
 interface Emits {
@@ -133,7 +134,8 @@ const formatDateToString = (date: Date): string => {
   return `${year}-${month}-${day}`
 }
 
-const presets: DatePreset[] = [
+const presets = computed<DatePreset[]>(() => [
+  ...(props.allowAll ? [{ labelKey: 'common.all', value: 'all', getRange: () => ({ start: '', end: '' }) }] : []),
   {
     labelKey: 'dates.today',
     value: 'today',
@@ -216,11 +218,11 @@ const presets: DatePreset[] = [
       return { start, end }
     }
   }
-]
+])
 
 const displayValue = computed(() => {
   if (activePreset.value) {
-    const preset = presets.find((p) => p.value === activePreset.value)
+    const preset = presets.value.find((p) => p.value === activePreset.value)
     if (preset) return t(preset.labelKey)
   }
 
@@ -254,7 +256,7 @@ const selectPreset = (preset: DatePreset) => {
 const onDateChange = () => {
   // Check if current dates match any preset
   activePreset.value = null
-  for (const preset of presets) {
+  for (const preset of presets.value) {
     const range = preset.getRange()
     if (range.start === localStartDate.value && range.end === localEndDate.value) {
       activePreset.value = preset.value
@@ -324,10 +326,13 @@ onUnmounted(() => {
 .date-picker-trigger {
   @apply flex items-center gap-2;
   @apply rounded-lg px-3 py-2 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-700 dark:text-gray-300;
-  @apply transition-all duration-200;
+  @apply border;
+  @apply transition duration-150;
+  min-height: 38px;
+  background: var(--console-surface);
+  border-color: var(--console-control-line);
+  color: var(--console-text);
+  transition-property: background-color, border-color, box-shadow;
   @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
   @apply hover:border-gray-300 dark:hover:border-dark-500;
   @apply cursor-pointer;
@@ -351,10 +356,10 @@ onUnmounted(() => {
 
 .date-picker-dropdown {
   @apply absolute left-0 z-[100] mt-2;
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
-  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
+  @apply rounded-lg border;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  box-shadow: var(--console-popup-shadow);
   @apply overflow-hidden;
   @apply min-w-[320px];
 }
@@ -393,9 +398,11 @@ onUnmounted(() => {
 
 .date-picker-input {
   @apply w-full rounded-md px-2 py-1.5 text-sm;
-  @apply bg-gray-50 dark:bg-dark-700;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-900 dark:text-gray-100;
+  @apply border;
+  min-width: 0;
+  background: var(--console-raised);
+  border-color: var(--console-control-line);
+  color: var(--console-text);
   @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
 }
 
@@ -418,9 +425,13 @@ onUnmounted(() => {
 
 .date-picker-apply {
   @apply rounded-lg px-4 py-1.5 text-sm font-medium;
-  @apply bg-primary-600 text-white;
-  @apply hover:bg-primary-700;
+  background: var(--console-accent);
+  color: var(--console-on-accent);
   @apply transition-colors duration-150;
+}
+
+.date-picker-apply:hover {
+  background: color-mix(in srgb, var(--console-accent) 90%, var(--console-text));
 }
 
 /* Dropdown animation */

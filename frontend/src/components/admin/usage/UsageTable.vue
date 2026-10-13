@@ -54,7 +54,7 @@
         </template>
 
         <template #cell-model="{ row }">
-          <div class="space-y-0.5 text-xs">
+          <div class="space-y-0.5 text-xs" :class="{ 'font-mono': compact }">
             <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
               <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
                    class="break-all"
@@ -119,7 +119,7 @@
         </template>
 
         <template #cell-group="{ row }">
-          <span v-if="row.group" class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+          <span v-if="row.group" :class="compact ? 'text-xs text-gray-700 dark:text-gray-300' : 'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'">
             {{ row.group.name }}
           </span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -206,10 +206,29 @@
           </div>
         </template>
 
+        <template #cell-input_tokens="{ row }">
+          <span class="text-xs tabular-nums" :title="t('usage.tokenDetails')">{{ row.input_tokens?.toLocaleString() || '0' }}</span>
+        </template>
+        <template #cell-output_tokens="{ row }">
+          <span class="text-xs tabular-nums">{{ row.output_tokens?.toLocaleString() || '0' }}</span>
+        </template>
+        <template #cell-cache_read_tokens="{ row }">
+          <span class="text-xs tabular-nums" :title="`${t('usage.cacheCreationTokensLabel')}: ${(row.cache_creation_tokens || 0).toLocaleString()}`">{{ formatCacheTokens(row.cache_read_tokens || 0) }}</span>
+        </template>
+        <template #cell-first_token_ms="{ row }">
+          <span class="text-xs tabular-nums">{{ formatDuration(row.first_token_ms) }}</span>
+        </template>
+        <template #cell-duration_ms="{ row }">
+          <span class="text-xs tabular-nums">{{ formatDuration(row.duration_ms) }}</span>
+        </template>
+        <template #cell-tps="{ row }">
+          <span class="text-xs tabular-nums" :title="t('usage.latencyTpsHint')">{{ showAverageTps ? formatUsageOutputTps(row) || '-' : '-' }}</span>
+        </template>
+
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <span class="font-medium" :class="compact ? 'text-gray-900 dark:text-white' : 'text-green-600 dark:text-green-400'">${{ (row.actual_cost || 0).toFixed(compact ? 4 : 6) }}</span>
               <span
                 v-if="showLongContextBadge && row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
@@ -264,7 +283,7 @@
         </template>
 
         <template #cell-created_at="{ value }">
-          <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(value) }}</span>
+          <span class="text-sm text-gray-600 dark:text-gray-400" :title="compact ? formatDateTime(value) : undefined">{{ compact ? formatDateTime(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : formatDateTime(value) }}</span>
         </template>
 
         <template #cell-request_id="{ row }">
@@ -615,6 +634,7 @@ interface Props {
   showUpstreamEndpoint?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  compact?: boolean
 }
 
 const observerMode = inject(observerUsageContext, false)
@@ -629,7 +649,8 @@ const props = withDefaults(defineProps<Props>(), {
   showAccountBilling: true,
   enableTimingDetails: false,
   showUpstreamEndpoint: true,
-  flat: false
+  flat: false,
+  compact: false
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]

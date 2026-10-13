@@ -5,12 +5,15 @@ import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
+import UsageHeatmap from '@/components/user/UsageHeatmap.vue'
+import UsageTrendChart from '@/components/user/UsageTrendChart.vue'
 
 const {
   query,
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
+  getDashboardTrend,
   listMyErrorRequests,
   list,
   getAvailable,
@@ -23,6 +26,7 @@ const {
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
+  getDashboardTrend: vi.fn(),
   listMyErrorRequests: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
@@ -33,6 +37,8 @@ const {
 }))
 
 const messages: Record<string, string> = {
+  'usage.personal.requestLogs': 'Request Logs',
+  'usage.personal.totalCost': 'Standard Cost',
   'admin.dashboard.timeRange': 'Time range',
   'admin.dashboard.granularity': 'Granularity',
   'admin.dashboard.day': 'Day',
@@ -56,6 +62,7 @@ const messages: Record<string, string> = {
   'usage.tabs.usage': 'Usage records',
   'usage.tabs.errors': 'Error records',
   'usage.apiKeyFilter': 'API Key',
+  'usage.totalRequests': 'Total Requests',
   'usage.model': 'Model',
   'usage.type': 'Type',
   'usage.ws': 'WS',
@@ -72,6 +79,7 @@ const messages: Record<string, string> = {
   'usage.exportSuccess': 'Export success',
   'usage.exportFailed': 'Export failed',
   'common.refresh': 'Refresh',
+  'common.all': 'All',
   'common.reset': 'Reset',
 }
 
@@ -81,6 +89,7 @@ vi.mock('@/api', () => ({
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
+    getDashboardTrend,
     listMyErrorRequests,
   },
   keysAPI: {
@@ -109,7 +118,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: { date?: string }) => (messages[key] ?? key) + (params?.date ? ' ' + params.date : ''),
     }),
   }
 })
@@ -160,6 +169,9 @@ function mountUsageView() {
         Icon: true,
         UsageStatsCards: chartStub,
         UsageTable: { ...chartStub, props: ['columns'] },
+        UsageHeatmap: true,
+        UsageTrendChart: true,
+        PlatformIcon: true,
         UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
@@ -172,10 +184,12 @@ function mountUsageView() {
 
 describe('user UsageView', () => {
   beforeEach(() => {
+    localStorage.removeItem('user-usage-hidden-columns')
     query.mockReset()
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
+    getDashboardTrend.mockReset()
     listMyErrorRequests.mockReset()
     list.mockReset()
     getAvailable.mockReset()
@@ -211,6 +225,7 @@ describe('user UsageView', () => {
       trend: [],
       groups: [],
     })
+    getDashboardTrend.mockResolvedValue({ trend: [] })
     listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
@@ -220,7 +235,10 @@ describe('user UsageView', () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
-    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toContain('latency')
+    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toEqual([
+      'created_at', 'api_key', 'group', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost', 'first_token_ms', 'duration_ms',
+      'reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens',
+    ])
     expect(query).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
     expect(getDashboardModels).toHaveBeenCalled()
@@ -232,6 +250,285 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+    expect(getDashboardTrend).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' }))
+    expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
+    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the annual heatmap independent from date selection and shows separate hourly bars for a single day', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    ;(wrapper.vm as any).filters.api_key_id = 1
+    const heatmap = wrapper.findComponent(UsageHeatmap)
+    const annualRange = { startDate: heatmap.props('startDate'), endDate: heatmap.props('endDate') }
+    getDashboardTrend.mockClear()
+    expect(wrapper.find('[data-testid="usage-all-dates"]').exists()).toBe(false)
+    expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
+    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-13', endDate: '2026-10-13', preset: 'today' })
+    await flushPromises()
+    expect(heatmap.props()).toMatchObject(annualRange)
+    expect(getDashboardTrend).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(UsageTrendChart).props('granularity')).toBe('hour')
+    expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ granularity: 'hour', start_date: '2026-10-13', end_date: '2026-10-13', api_key_id: 1 }))
+
+    wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-01', endDate: '2026-10-13', preset: null })
+    await flushPromises()
+    expect(heatmap.props()).toMatchObject(annualRange)
+    expect(getDashboardTrend).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps time first, shows first token before total duration, and only hides IP, user agent and TPS by default', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    await wrapper.find('[data-testid="usage-column-settings"]').trigger('click')
+    expect(wrapper.find('[data-testid="usage-column-toggle-first_token_ms"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="usage-column-toggle-duration_ms"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="usage-column-toggle-ip_address"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('[data-testid="usage-column-toggle-user_agent"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('[data-testid="usage-column-toggle-tps"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('[data-testid="usage-column-toggle-latency"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="usage-column-toggle-created_at"]').exists()).toBe(false)
+    for (const key of ['reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens']) {
+      expect(wrapper.find(`[data-testid="usage-column-toggle-${key}"]`).attributes('aria-checked')).toBe('true')
+    }
+    wrapper.unmount()
+  })
+
+  it('filters by requested model vendor independently of duplicate group platforms', async () => {
+    getAvailable.mockResolvedValue([
+      { id: 1, name: 'OpenAI relay', platform: 'openai' },
+      { id: 2, name: 'Second relay', platform: 'openai' },
+      { id: 3, name: 'Mixed relay', platform: 'composite' },
+    ])
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findAll('.usage-group-tabs button')).toHaveLength(5)
+    expect(wrapper.findAll('.usage-group-tabs button[aria-label]').map(button => button.attributes('aria-label'))).toEqual(['OpenAI', 'Claude', 'Grok', 'Gemini'])
+    ;(wrapper.vm as any).filters.group_id = 3
+    ;(wrapper.vm as any).filters.model = 'gpt-5.4'
+    await wrapper.find('.usage-group-tabs button[aria-label="Claude"]').trigger('click')
+    await flushPromises()
+    const expected = { model_provider: 'anthropic', group_id: 3, model: undefined }
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining(expected), expect.anything())
+    for (const endpoint of [getStats, getDashboardModels, getDashboardSnapshotV2, getDashboardTrend]) {
+      expect(endpoint).toHaveBeenLastCalledWith(expect.objectContaining(expected))
+    }
+    expect(wrapper.find('.usage-group-tabs button[aria-label="Claude"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.find('.usage-group-tabs button').trigger('click')
+    await flushPromises()
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ model_provider: undefined, group_id: 3 }))
+    wrapper.unmount()
+  })
+
+  it('queries all dates without a default week and keeps the heatmap independent', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const picker = wrapper.findComponent(DateRangePicker)
+    expect(picker.props('allowAll')).toBe(true)
+    getDashboardTrend.mockClear()
+    picker.vm.$emit('change', { startDate: '', endDate: '', preset: 'all' })
+    await flushPromises()
+    const expected = { period: 'all', start_date: undefined, end_date: undefined }
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining(expected), expect.anything())
+    for (const endpoint of [getStats, getDashboardModels, getDashboardSnapshotV2]) {
+      expect(endpoint).toHaveBeenLastCalledWith(expect.objectContaining(expected))
+    }
+    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    expect(wrapper.findAll('.usage-stat')[0].attributes('title')).toContain('All')
+    expect(getDashboardTrend).not.toHaveBeenCalled()
+    await wrapper.find('.usage-group-tabs button[aria-label="Grok"]').trigger('click')
+    await flushPromises()
+    expect(getDashboardTrend).toHaveBeenLastCalledWith(expect.objectContaining({
+      period: undefined, model_provider: 'grok',
+      start_date: wrapper.findComponent(UsageHeatmap).props('startDate'),
+      end_date: wrapper.findComponent(UsageHeatmap).props('endDate'),
+    }))
+    wrapper.unmount()
+  })
+
+  it('discloses missing historical spending without replacing actual billed amounts', async () => {
+    getStats.mockResolvedValue({
+      total_requests: 12, total_input_tokens: 100, total_output_tokens: 50,
+      total_cache_tokens: 0, total_tokens: 150, total_cost: 100, total_actual_cost: 12.34,
+      average_duration_ms: 100, history_incomplete: true,
+      records_available_from: '2026-07-15T08:58:02Z',
+    })
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findAll('.usage-stat-value')[0].text()).toBe('$12.34')
+    expect(wrapper.find('.usage-history-notice').text()).toContain('2026-07-15')
+    expect(wrapper.find('.usage-history-notice').text()).toContain('usage.personal.retainedHistory')
+    getStats.mockResolvedValue({ total_requests: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, history_incomplete: false })
+    wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-01', endDate: '2026-10-13', preset: null })
+    await flushPromises()
+    expect(wrapper.find('.usage-history-notice').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('preserves saved column choices while adding the total duration column', async () => {
+    localStorage.setItem('user-usage-hidden-columns', JSON.stringify(['model', 'ip_address', 'user_agent', 'latency']))
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const keys = wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)
+    expect(keys).toContain('duration_ms')
+    expect(keys).toContain('reasoning_effort')
+    expect(keys).not.toContain('model')
+    wrapper.unmount()
+    localStorage.removeItem('user-usage-hidden-columns')
+  })
+
+  it('updates all summary cards for the selected dates and ignores older statistics', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    getDashboardTrend.mockClear()
+    let resolveOld!: (value: unknown) => void
+    getStats.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    const picker = wrapper.findComponent(DateRangePicker)
+    picker.vm.$emit('change', { startDate: '2026-10-01', endDate: '2026-10-05', preset: null })
+    await flushPromises()
+    expect(wrapper.findAll('.usage-stat-value').map((card) => card.text())).toEqual(['-', '-', '-', '-'])
+
+    const latest = {
+      total_requests: 12, total_input_tokens: 100, total_output_tokens: 50,
+      total_cache_read_tokens: 75, total_cache_creation_tokens: 25,
+      total_tokens: 250, total_cost: 0.3, total_actual_cost: 0.24, average_duration_ms: 100,
+    }
+    getStats.mockResolvedValueOnce(latest)
+    picker.vm.$emit('change', { startDate: '2026-10-13', endDate: '2026-10-13', preset: 'today' })
+    await flushPromises()
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ start_date: '2026-10-13', end_date: '2026-10-13' }))
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ start_date: '2026-10-13', end_date: '2026-10-13', page: 1 }), expect.anything())
+    expect(wrapper.findAll('.usage-stat-value').map((card) => card.text())).toEqual(['$0.24', '$0.30', '12', '250'])
+    expect(wrapper.findAll('.usage-stat')[1].text()).toContain('Standard Cost')
+    expect(wrapper.findAll('.usage-stat')[2].text()).toContain('Total Requests')
+    expect(wrapper.findAll('.usage-stat')[2].attributes('title')).toContain('2026-10-13 ~ 2026-10-13')
+    expect(getDashboardTrend).not.toHaveBeenCalled()
+    resolveOld({ ...latest, total_requests: 999 })
+    await flushPromises()
+    expect(wrapper.findAll('.usage-stat-value')[2].text()).toBe('12')
+    wrapper.unmount()
+  })
+
+  it('clears the previous date statistics if the new range fails to load', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    getStats.mockRejectedValueOnce(new Error('offline'))
+    wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-13', endDate: '2026-10-13', preset: null })
+    await flushPromises()
+    expect(wrapper.findAll('.usage-stat-value').map((card) => card.text())).toEqual(['-', '-', '-', '-'])
+    expect(showError).toHaveBeenCalledWith('Failed to load')
+    wrapper.unmount()
+  })
+
+  it('keeps large totals compact with exact values available on hover', async () => {
+    getStats.mockResolvedValueOnce({
+      total_requests: 274_768_999, total_input_tokens: 100, total_output_tokens: 50,
+      total_cache_read_tokens: 75, total_cache_creation_tokens: 25,
+      total_tokens: 250, total_cost: 12_345_678.9, total_actual_cost: 12_345_678.9, average_duration_ms: 100,
+    })
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const cards = wrapper.findAll('.usage-stat')
+    expect(cards[0].find('.usage-stat-value').text()).toBe('$12.3M')
+    expect(cards[0].attributes('title')).toContain('$12345678.90')
+    expect(cards[1].find('.usage-stat-value').text()).toBe('$12.3M')
+    expect(cards[1].attributes('title')).toContain('$12345678.90')
+    expect(cards[2].find('.usage-stat-value').text()).toBe('274.8M')
+    expect(cards[2].attributes('title')).toContain((274_768_999).toLocaleString())
+    wrapper.unmount()
+  })
+
+  it('shows spending, original cost, requests and tokens without cache hit rate or timing cards', async () => {
+    getStats.mockResolvedValueOnce({
+      total_requests: 1, total_input_tokens: 100, total_output_tokens: 9000,
+      total_cache_read_tokens: 800, total_cache_creation_tokens: 100,
+      total_cache_tokens: 900, total_tokens: 10000, total_cost: 1, total_actual_cost: 0.8,
+      average_duration_ms: 100,
+    })
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findAll('.usage-stat')).toHaveLength(4)
+    expect(wrapper.findAll('.usage-stat-value').map(card => card.text())).toEqual(['$0.80', '$1.00', '1', '10.0K'])
+    expect(wrapper.find('.usage-summary').text()).not.toMatch(/Cache Hit|首字|TPS|80.0%/)
+    expect(wrapper.findAll('.usage-stat')[3].find('icon-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('selects a heatmap day into hourly bars without losing other filters', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    ;(wrapper.vm as any).filters.api_key_id = 1
+    query.mockClear()
+    getStats.mockClear()
+    getDashboardTrend.mockClear()
+    wrapper.findComponent(UsageHeatmap).vm.$emit('select', '2026-03-08')
+    await flushPromises()
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-03-08', end_date: '2026-03-08', api_key_id: 1, page: 1 }), expect.anything())
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-03-08', end_date: '2026-03-08', api_key_id: 1 }))
+    expect(getDashboardTrend).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
+    expect(wrapper.findComponent(UsageTrendChart).props()).toMatchObject({ startDate: '2026-03-08', endDate: '2026-03-08', granularity: 'hour' })
+    wrapper.unmount()
+  })
+
+  it('uses Monday-aligned periods and never navigates past today', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const heatmap = wrapper.findComponent(UsageHeatmap)
+    const firstStart = heatmap.props('startDate')
+    expect(new Date(`${firstStart}T00:00:00Z`).getUTCDay()).toBe(1)
+    heatmap.vm.$emit('navigate', -1)
+    await flushPromises()
+    expect(heatmap.props('endDate')).toBe(new Date(new Date(`${firstStart}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10))
+    expect(heatmap.props('canGoNext')).toBe(true)
+    heatmap.vm.$emit('navigate', 1)
+    await flushPromises()
+    expect(heatmap.props('startDate')).toBe(firstStart)
+    expect(heatmap.props('canGoNext')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('ignores a stale heatmap response after filters change', async () => {
+    let resolveFirst!: (value: { trend: unknown[] }) => void
+    getDashboardTrend.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const latest = [{ date: '2026-03-08', requests: 2 }]
+    getDashboardTrend.mockResolvedValueOnce({ trend: latest })
+    ;(wrapper.vm as any).filters.model = 'gpt-5.4'
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+    resolveFirst({ trend: [{ date: '2026-03-07', requests: 999 }] })
+    await flushPromises()
+    expect(wrapper.findComponent(UsageHeatmap).props('data')).toEqual(latest)
+    wrapper.unmount()
+  })
+
+  it('exposes a retry state on heatmap failure and clears it after retrying', async () => {
+    getDashboardTrend.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findComponent(UsageHeatmap).props('error')).toBe(true)
+    wrapper.findComponent(UsageHeatmap).vm.$emit('retry')
+    await flushPromises()
+    expect(wrapper.findComponent(UsageHeatmap).props('error')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not mount analysis charts until their tab is selected', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ModelDistributionChart' }).exists()).toBe(false)
+    await wrapper.find('[role="tab"][id="usage-tab-models"]').trigger('click')
+    expect(wrapper.findComponent(UsageTable).exists()).toBe(false)
+    expect(wrapper.find('#usage-view-panel').attributes('aria-labelledby')).toBe('usage-tab-models')
+    await wrapper.find('#usage-tab-usage').trigger('click')
+    expect(wrapper.findComponent(UsageTable).exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('includes API keys after the first page in both record filters and queries by the selected key', async () => {

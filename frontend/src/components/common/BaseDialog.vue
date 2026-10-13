@@ -12,9 +12,10 @@
         @mousedown="handleOverlayMousedown"
         @mouseup="handleOverlayMouseup"
         @click.self="handleClose"
+        @keydown.tab="handleTab"
       >
         <!-- Modal panel -->
-        <div ref="dialogRef" :class="['modal-content', widthClasses, contentClass, { 'drawer-content': placement === 'right', 'modal-fullscreen': fullscreen }]" @click.stop>
+        <div ref="dialogRef" tabindex="-1" :class="['modal-content', widthClasses, contentClass, { 'drawer-content': placement === 'right', 'modal-fullscreen': fullscreen }]" @click.stop>
           <!-- Header -->
           <div class="modal-header">
             <h3 :id="dialogId" class="modal-title">
@@ -142,6 +143,24 @@ const handleEscape = (event: KeyboardEvent) => {
   }
 }
 
+const focusableElements = () => Array.from(dialogRef.value?.querySelectorAll<HTMLElement>(
+  'button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+) ?? []).filter((element) => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.closest('[inert]'))
+
+const handleTab = (event: KeyboardEvent) => {
+  if (event.defaultPrevented || [...openDialogs].pop() !== dialogId) return
+  const elements = focusableElements()
+  const first = elements[0]
+  const last = elements[elements.length - 1]
+  if (!first || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+    event.preventDefault()
+    event.stopPropagation()
+    const target = event.shiftKey ? last : first
+    target?.focus()
+    if (!first) dialogRef.value?.focus()
+  }
+}
+
 const updateScrollLock = (isOpen: boolean) => {
   if (isOpen) openDialogs.add(dialogId)
   else openDialogs.delete(dialogId)
@@ -164,10 +183,8 @@ watch(
         modalBodyRef.value.scrollTop = 0
       }
       if (dialogRef.value) {
-        const firstFocusable = dialogRef.value.querySelector<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-        firstFocusable?.focus()
+        const target = focusableElements()[0] ?? dialogRef.value
+        target.focus()
       }
     } else {
       updateScrollLock(false)

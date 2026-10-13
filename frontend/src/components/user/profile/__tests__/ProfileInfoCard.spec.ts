@@ -85,7 +85,7 @@ describe('ProfileInfoCard', () => {
     expect(wrapper.text()).toContain('alice@example.com')
     expect(wrapper.text()).toContain('alice')
     expect(wrapper.text()).toContain('User')
-    expect(wrapper.get('[data-testid="profile-basics-panel"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="profile-edit-action"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="profile-auth-bindings-panel"]').exists()).toBe(true)
   })
 
@@ -172,7 +172,7 @@ describe('ProfileInfoCard', () => {
     expect(wrapper.text()).not.toContain('legacy-user@wechat-connect.invalid')
   })
 
-  it('renders the approved overview hero and two-column content shell', () => {
+  it('renders account metadata in the overview and keeps bindings available', () => {
     const wrapper = mount(ProfileInfoCard, {
       props: {
         user: createUser()
@@ -189,9 +189,29 @@ describe('ProfileInfoCard', () => {
     expect(wrapper.get('[data-testid="profile-overview-metric-concurrency"]').text()).toContain('Concurrency Limit')
     expect(wrapper.get('[data-testid="profile-overview-metric-member-since"]').text()).toContain('Member Since')
     expect(wrapper.find('[data-testid="profile-info-summary-grid"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="profile-main-column"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="profile-side-column"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="profile-basics-panel"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="profile-edit-action"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="profile-auth-bindings-panel"]').exists()).toBe(true)
+  })
+
+  it('opens profile editing and restores focus to its trigger after closing', async () => {
+    const wrapper = mount(ProfileInfoCard, {
+      attachTo: document.body,
+      props: { user: createUser() },
+      global: { stubs: { Icon: true, teleport: true } }
+    })
+
+    const trigger = wrapper.get<HTMLButtonElement>('[data-testid="profile-edit-action"]')
+    expect(wrapper.find('[data-testid="profile-basics-panel"]').exists()).toBe(false)
+    trigger.element.focus()
+    await trigger.trigger('click')
+
+    expect(wrapper.get('[role="dialog"]').attributes('aria-modal')).toBe('true')
+    expect(wrapper.get<HTMLInputElement>('#username').element.value).toBe('alice')
+    expect(wrapper.get('[data-testid="profile-avatar-file-input"]').exists()).toBe(true)
+    await wrapper.get('[aria-label="Close modal"]').trigger('click')
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
   })
 })

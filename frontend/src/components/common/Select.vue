@@ -541,11 +541,13 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
+  @apply rounded-md px-3 py-2 text-sm border;
+  @apply transition duration-150;
+  min-height: 38px;
+  background: var(--console-surface);
+  border-color: var(--console-control-line);
+  color: var(--console-text);
+  transition-property: background-color, border-color, box-shadow;
   @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
   @apply hover:border-gray-300 dark:hover:border-dark-500;
   @apply cursor-pointer;
@@ -581,11 +583,11 @@ onUnmounted(() => {
 <style>
 .select-dropdown-portal {
   @apply w-max min-w-[200px];
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
-  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
+  @apply rounded-lg border;
   @apply overflow-hidden;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  box-shadow: var(--console-popup-shadow);
   pointer-events: auto !important;
 }
 
@@ -630,7 +632,7 @@ onUnmounted(() => {
 .select-dropdown-portal .select-option-group {
   @apply cursor-default select-none;
   @apply bg-gray-50 dark:bg-dark-900;
-  @apply text-[11px] font-bold uppercase tracking-wider;
+  @apply text-[11px] font-semibold;
   @apply text-gray-500 dark:text-gray-400;
 }
 

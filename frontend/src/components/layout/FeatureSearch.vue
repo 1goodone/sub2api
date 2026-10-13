@@ -1,5 +1,5 @@
 <template>
-  <div class="px-3 pb-2">
+  <div class="sidebar-search shrink-0 px-3 pt-4">
     <button
       type="button"
       class="flex h-10 w-full items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 transition-colors hover:border-primary-300 hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-600 dark:bg-dark-800 dark:text-dark-300 dark:hover:text-primary-400"

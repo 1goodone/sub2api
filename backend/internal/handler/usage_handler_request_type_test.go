@@ -22,6 +22,7 @@ type userUsageRepoCapture struct {
 	statsFilters usagestats.UsageLogFilters
 	trendFilters usagestats.UsageLogFilters
 	groupFilters usagestats.UsageLogFilters
+	modelFilters usagestats.UsageLogFilters
 	listRows     []service.UsageLog
 	stats        *usagestats.UsageStats
 	modelStats   []usagestats.ModelStat
@@ -45,6 +46,21 @@ func (s *userUsageRepoCapture) GetStatsWithFilters(ctx context.Context, filters 
 		return s.stats, nil
 	}
 	return &usagestats.UsageStats{}, nil
+}
+
+func (s *userUsageRepoCapture) GetUsageTrendWithUsageFilters(_ context.Context, _, _ time.Time, _ string, filters usagestats.UsageLogFilters) ([]usagestats.TrendDataPoint, error) {
+	s.trendFilters = filters
+	return []usagestats.TrendDataPoint{}, nil
+}
+
+func (s *userUsageRepoCapture) GetModelStatsWithUsageFiltersBySource(_ context.Context, _, _ time.Time, filters usagestats.UsageLogFilters, _ string) ([]usagestats.ModelStat, error) {
+	s.modelFilters = filters
+	return s.modelStats, nil
+}
+
+func (s *userUsageRepoCapture) GetGroupStatsWithUsageFilters(_ context.Context, _, _ time.Time, filters usagestats.UsageLogFilters) ([]usagestats.GroupStat, error) {
+	s.groupFilters = filters
+	return s.groupStats, nil
 }
 
 func (s *userUsageRepoCapture) GetUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]usagestats.TrendDataPoint, error) {
@@ -90,6 +106,7 @@ func newUserUsageRequestTypeTestRouter(repo *userUsageRepoCapture) *gin.Engine {
 	router.GET("/usage", handler.List)
 	router.GET("/usage/stats", handler.Stats)
 	router.GET("/usage/dashboard/models", handler.DashboardModels)
+	router.GET("/usage/dashboard/trend", handler.DashboardTrend)
 	router.GET("/usage/dashboard/snapshot-v2", handler.DashboardSnapshotV2)
 	return router
 }
@@ -364,5 +381,43 @@ func TestUserUsageSnapshotRejectsInvalidIncludeFlags(t *testing.T) {
 		router.ServeHTTP(rec, req)
 
 		require.Equal(t, http.StatusBadRequest, rec.Code, query)
+	}
+}
+
+func TestUserUsageAllDatesAndModelProvider(t *testing.T) {
+	for _, path := range []string{"/usage", "/usage/stats", "/usage/dashboard/models", "/usage/dashboard/trend", "/usage/dashboard/snapshot-v2"} {
+		t.Run(path, func(t *testing.T) {
+			repo := &userUsageRepoCapture{}
+			router := newUserUsageRequestTypeTestRouter(repo)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?period=all&model_provider=anthropic&user_id=999&include_model_stats=true&include_group_stats=true&include_trend=true", nil))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			filters := repo.listFilters
+			switch path {
+			case "/usage/stats":
+				filters = repo.statsFilters
+			case "/usage/dashboard/models":
+				filters = repo.modelFilters
+			case "/usage/dashboard/trend", "/usage/dashboard/snapshot-v2":
+				filters = repo.trendFilters
+			}
+			require.Equal(t, int64(42), filters.UserID)
+			require.Equal(t, "anthropic", filters.ModelProvider)
+			if path == "/usage" {
+				require.Nil(t, filters.StartTime)
+				require.Nil(t, filters.EndTime)
+			} else {
+				require.NotNil(t, filters.StartTime)
+				require.Equal(t, 1970, filters.StartTime.Year())
+				require.NotNil(t, filters.EndTime)
+			}
+			if path == "/usage/dashboard/snapshot-v2" {
+				require.Equal(t, "anthropic", repo.modelFilters.ModelProvider)
+				require.Equal(t, "anthropic", repo.groupFilters.ModelProvider)
+			}
+			rec = httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?model_provider=invalid", nil))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+		})
 	}
 }

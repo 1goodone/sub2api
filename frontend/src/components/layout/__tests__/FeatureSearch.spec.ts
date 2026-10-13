@@ -46,6 +46,7 @@ function messageFunctions(value: unknown): unknown {
 }
 
 async function setup() {
+  vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{ width: 100, height: 30 }] as unknown as DOMRectList)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [

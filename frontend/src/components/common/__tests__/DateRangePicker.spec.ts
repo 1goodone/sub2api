@@ -5,6 +5,7 @@ import { ref } from 'vue'
 import DateRangePicker from '../DateRangePicker.vue'
 
 const messages: Record<string, string> = {
+  'common.all': 'All',
   'dates.today': 'Today',
   'dates.yesterday': 'Yesterday',
   'dates.last24Hours': 'Last 24 Hours',
@@ -34,6 +35,23 @@ const formatLocalDate = (date: Date): string => {
 }
 
 describe('DateRangePicker', () => {
+  it('only offers all dates when enabled and can return to today', async () => {
+    const today = formatLocalDate(new Date())
+    const wrapper = mount(DateRangePicker, { props: { startDate: today, endDate: today }, global: { stubs: { Icon: true } } })
+    await wrapper.find('.date-picker-trigger').trigger('click')
+    expect(wrapper.findAll('.date-picker-preset').some(button => button.text() === 'All')).toBe(false)
+    await wrapper.setProps({ allowAll: true })
+    await wrapper.findAll('.date-picker-preset').find(button => button.text() === 'All')!.trigger('click')
+    await wrapper.find('.date-picker-apply').trigger('click')
+    expect(wrapper.emitted('change')?.[0]).toEqual([{ startDate: '', endDate: '', preset: 'all' }])
+    await wrapper.setProps({ startDate: '', endDate: '' })
+    expect(wrapper.find('.date-picker-trigger').text()).toBe('All')
+    await wrapper.find('.date-picker-trigger').trigger('click')
+    await wrapper.findAll('.date-picker-preset').find(button => button.text() === 'Today')!.trigger('click')
+    await wrapper.find('.date-picker-apply').trigger('click')
+    expect(wrapper.emitted('change')?.[1]).toEqual([{ startDate: today, endDate: today, preset: 'today' }])
+    wrapper.unmount()
+  })
   it('uses last 24 hours as the default recognized preset', () => {
     const now = new Date()
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)

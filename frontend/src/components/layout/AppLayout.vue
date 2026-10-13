@@ -1,18 +1,16 @@
 <template>
-  <div class="app-shell min-h-screen bg-[#f5f8f9] dark:bg-dark-950">
+  <div class="app-shell min-h-screen" :class="{ 'sidebar-is-collapsed': sidebarCollapsed }">
+    <a class="console-skip" href="#app-main">{{ t('home.orbit.skip') }}</a>
     <!-- Sidebar -->
     <AppSidebar />
 
     <!-- Main Content Area -->
-    <div
-      class="relative min-h-screen min-w-0"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
-    >
+    <div class="app-frame relative min-h-screen min-w-0">
       <!-- Header -->
       <AppHeader />
 
       <!-- Main Content -->
-      <main class="min-w-0 px-3 py-5 sm:px-5">
+      <main id="app-main" class="app-main min-w-0" tabindex="-1">
         <div class="w-full">
           <slot />
         </div>
@@ -24,6 +22,7 @@
 <script setup lang="ts">
 import '@/styles/onboarding.css'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { useOnboardingTour } from '@/composables/useOnboardingTour'
@@ -32,6 +31,7 @@ import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
 const appStore = useAppStore()
+const { t } = useI18n()
 const authStore = useAuthStore()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const isAdmin = computed(() => authStore.user?.role === 'admin')

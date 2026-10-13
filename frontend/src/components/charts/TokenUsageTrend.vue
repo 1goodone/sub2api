@@ -1,5 +1,5 @@
 <template>
-  <div class="card p-4">
+  <div class="card p-5">
     <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
       {{ t('admin.dashboard.tokenUsageTrend') }}
     </h3>
@@ -56,15 +56,16 @@ const props = defineProps<{
 }>()
 
 const isDarkMode = useDark({ storageKey: 'theme' })
+const chartFont = { family: '"Noto Sans SC Variable", sans-serif', size: 11 }
 
 const chartColors = computed(() => ({
   text: isDarkMode.value ? '#e5e7eb' : '#374151',
-  grid: isDarkMode.value ? '#374151' : '#e5e7eb',
-  input: '#3b82f6',
-  output: '#10b981',
-  cacheCreation: '#f59e0b',
-  cacheRead: '#06b6d4',
-  cacheHitRate: '#8b5cf6'
+  grid: isDarkMode.value ? '#30363f' : '#edf0f6',
+  input: '#4f7ee3',
+  output: '#65a99c',
+  cacheCreation: '#c3a16b',
+  cacheRead: '#7395ba',
+  cacheHitRate: '#9690b1'
 }))
 
 const chartData = computed(() => {
@@ -126,6 +127,7 @@ const lineOptions = computed(() => ({
   animation: false as const,
   responsive: true,
   maintainAspectRatio: false,
+  elements: { line: { borderWidth: 2 }, point: { radius: 0, hoverRadius: 4, hitRadius: 10 } },
   interaction: {
     intersect: false,
     mode: 'index' as const
@@ -136,14 +138,16 @@ const lineOptions = computed(() => ({
       labels: {
         color: chartColors.value.text,
         usePointStyle: true,
-        pointStyle: 'circle',
-        padding: 15,
-        font: {
-          size: 11
-        }
+        pointStyle: 'rectRounded',
+        boxWidth: 7,
+        boxHeight: 7,
+        padding: 16,
+        font: chartFont
       }
     },
     tooltip: {
+      titleFont: chartFont,
+      bodyFont: chartFont,
       callbacks: {
         label: (context: any) => {
           if (context.dataset.yAxisID === 'yPercent') {
@@ -165,13 +169,13 @@ const lineOptions = computed(() => ({
   scales: {
     x: {
       grid: {
-        color: chartColors.value.grid
+        display: false
       },
       ticks: {
         color: chartColors.value.text,
-        font: {
-          size: 10
-        }
+        maxRotation: 0,
+        maxTicksLimit: 5,
+        font: chartFont
       }
     },
     y: {
@@ -180,9 +184,8 @@ const lineOptions = computed(() => ({
       },
       ticks: {
         color: chartColors.value.text,
-        font: {
-          size: 10
-        },
+        maxTicksLimit: 4,
+        font: chartFont,
         callback: (value: string | number) => formatTokens(Number(value))
       }
     },
@@ -195,9 +198,8 @@ const lineOptions = computed(() => ({
       },
       ticks: {
         color: chartColors.value.cacheHitRate,
-        font: {
-          size: 10
-        },
+        maxTicksLimit: 3,
+        font: chartFont,
         callback: (value: string | number) => `${value}%`
       }
     }

@@ -16,6 +16,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => appStoreMocks }))
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { i18n } from '@/i18n'
 
 import en from '@/i18n/locales/en/admin/resources'
 import zh from '@/i18n/locales/zh/admin/resources'
@@ -941,6 +942,65 @@ describe('admin UsageTable deleted-user badge', () => {
 
     expect(wrapper.text()).not.toContain('Deleted')
     expect(wrapper.text()).toContain('active@test.com')
+  })
+})
+
+describe('UsageTable compact user records', () => {
+  it('formats separate first-token and total-duration columns without confusing their values', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [null, 0, 345, 5200, 61_000, 3_720_000].map((duration_ms, index) => ({ ...baseImageRow, request_id: `duration-${index}`, duration_ms, first_token_ms: index ? (index - 1) * 100 : null })),
+        compact: true,
+        columns: [{ key: 'first_token_ms', label: 'First Token' }, { key: 'duration_ms', label: 'Total Duration' }],
+      },
+      global: {
+        stubs: {
+          DataTable: {
+            props: ['data'],
+            template: '<div><div v-for="row in data" :key="row.request_id"><div data-testid="first-token"><slot name="cell-first_token_ms" :row="row" /></div><div data-testid="duration"><slot name="cell-duration_ms" :row="row" /></div></div></div>',
+          },
+          EmptyState: true, Icon: true, Teleport: true,
+        },
+      },
+    })
+    expect(wrapper.findAll('[data-testid="duration"]').map((cell) => cell.text())).toEqual(['-', '0ms', '345ms', '5.20s', '1m 1s', '1h 2m'])
+    expect(wrapper.findAll('[data-testid="first-token"]').map((cell) => cell.text())).toEqual(['-', '0ms', '100ms', '200ms', '300ms', '400ms'])
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['en', '10/13, 09:47'],
+    ['zh', '10/13 09:47'],
+  ] as const)('keeps the date and minute intact in %s and preserves administrator precision', async (language, expectedTime) => {
+    const previousLocale = i18n.global.locale.value
+    i18n.global.locale.value = language
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, created_at: new Date(2026, 9, 13, 9, 47).toISOString() }],
+        compact: true,
+        columns: [{ key: 'created_at', label: 'Time' }, { key: 'cost', label: 'Cost' }],
+      },
+      global: {
+        stubs: {
+          DataTable: {
+            props: ['data'],
+            template: '<div><div v-for="row in data" :key="row.request_id"><div data-testid="time"><slot name="cell-created_at" :value="row.created_at" /></div><slot name="cell-cost" :row="row" /></div></div>',
+          },
+          EmptyState: true, Icon: true, Teleport: true,
+        },
+      },
+    })
+    try {
+      expect(wrapper.find('[data-testid="time"]').text()).toBe(expectedTime)
+      expect(wrapper.find('[data-testid="time"] span').attributes('title')).toContain('2026')
+      expect(wrapper.text()).toContain('$0.4000')
+      await wrapper.setProps({ compact: false })
+      expect(wrapper.find('[data-testid="time"]').text()).toContain('2026')
+      expect(wrapper.text()).toContain('$0.400000')
+    } finally {
+      wrapper.unmount()
+      i18n.global.locale.value = previousLocale
+    }
   })
 })
 

@@ -2,7 +2,7 @@
   <AppLayout>
     <div
       data-testid="profile-shell"
-      class="mx-auto max-w-[950px] space-y-6"
+      class="profile-shell"
     >
       <ProfileInfoCard
         :user="user"
@@ -17,34 +17,46 @@
 
       <div
         v-if="contactInfo"
-        class="card border-primary-200 bg-primary-50 p-6 dark:bg-primary-900/20"
+        class="profile-support"
       >
-        <div class="flex items-center gap-4">
-          <div class="rounded-xl bg-primary-100 p-3 text-primary-600">
-            <Icon name="chat" size="lg" />
-          </div>
-          <div>
-            <h3 class="font-semibold text-primary-800 dark:text-primary-200">
-              {{ t('common.contactSupport') }}
-            </h3>
-            <p class="text-sm font-medium">{{ contactInfo }}</p>
-          </div>
+        <Icon name="chat" size="md" />
+        <div>
+          <h3 class="font-semibold">{{ t('common.contactSupport') }}</h3>
+          <p class="text-sm font-medium">{{ contactInfo }}</p>
         </div>
       </div>
 
-      <ProfilePasswordForm />
+      <section class="profile-security" :aria-label="t('profile.securityTitle')">
+        <div class="profile-section-heading">
+          <h2>{{ t('profile.securityTitle') }}</h2>
+          <p>{{ t('profile.securityDescription') }}</p>
+        </div>
+        <details class="profile-setting">
+          <summary>
+            <span class="profile-setting-icon"><Icon name="lock" size="sm" /></span>
+            <div class="profile-setting-copy">
+              <strong>{{ t('profile.changePassword') }}</strong>
+              <p>{{ t('profile.passwordHint') }}</p>
+            </div>
+            <span class="profile-setting-action"><span>{{ t('common.edit') }}</span><Icon name="chevronRight" size="sm" /></span>
+          </summary>
+          <div class="profile-setting-body"><ProfilePasswordForm embedded /></div>
+        </details>
+        <div class="profile-security-methods">
+          <ProfileTotpCard />
+          <ProfilePasskeyCard :enabled="passkeyEnabled" />
+        </div>
+      </section>
 
       <ProfileBalanceNotifyCard
         v-if="user && balanceLowNotifyEnabled"
+        class="profile-notifications"
         :enabled="user.balance_notify_enabled ?? true"
         :threshold="user.balance_notify_threshold"
         :extra-emails="user.balance_notify_extra_emails ?? []"
         :system-default-threshold="systemDefaultThreshold"
         :user-email="user.email"
       />
-
-      <ProfileTotpCard />
-      <ProfilePasskeyCard :enabled="passkeyEnabled" />
     </div>
   </AppLayout>
 </template>

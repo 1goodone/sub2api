@@ -5,8 +5,11 @@
       :disabled="switching"
       class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
       :title="currentLocale?.name"
+      :aria-label="currentLocale?.name"
+      :aria-expanded="isOpen"
+      aria-haspopup="true"
     >
-      <span class="text-base">{{ currentLocale?.flag }}</span>
+      <Icon name="globe" size="sm" aria-hidden="true" />
       <span class="hidden sm:inline">{{ currentLocale?.code.toUpperCase() }}</span>
       <Icon
         name="chevronDown"

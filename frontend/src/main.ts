@@ -6,6 +6,8 @@ import i18n, { initI18n } from './i18n'
 import { useAppStore } from '@/stores/app'
 import { updateFavicon } from '@/utils/branding'
 import { isIOSDevice } from '@/utils/device'
+import '@fontsource-variable/noto-sans-sc'
+import '@fontsource-variable/manrope'
 import './style.css'
 import './styles/console.css'
 

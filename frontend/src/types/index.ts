@@ -2203,6 +2203,8 @@ export interface DashboardStats {
 }
 
 export interface UsageStatsResponse {
+  records_available_from?: string
+  history_incomplete?: boolean
   period?: string
   total_requests: number
   total_input_tokens: number
@@ -2450,6 +2452,8 @@ export interface UserErrorListParams {
 }
 
 export interface UsageQueryParams {
+  period?: 'all'
+  model_provider?: 'openai' | 'anthropic' | 'grok' | 'gemini'
   page?: number
   page_size?: number
   api_key_id?: number

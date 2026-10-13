@@ -967,17 +967,14 @@ defineExpose({
   position: sticky;
   top: 0;
   z-index: 200;
-  background-color: rgb(249 250 251);
-}
-
-.dark .table-wrapper .table-header {
-  background-color: rgb(31 41 55);
+  background-color: var(--console-raised);
 }
 
 /* 表体保持在表头下方 */
 .table-body {
   position: relative;
   z-index: 0;
+  background-color: var(--console-surface);
 }
 
 /* 所有表头单元格固定在顶部 */
@@ -985,11 +982,7 @@ defineExpose({
   position: sticky;
   top: 0;
   z-index: 210; /* 必须高于所有表体内容 */
-  background-color: rgb(249 250 251);
-}
-
-.dark .sticky-header-cell {
-  @apply bg-dark-800;
+  background-color: var(--console-raised);
 }
 
 /* Sticky 列基础样式 */
@@ -1025,20 +1018,12 @@ defineExpose({
 
 /* 表体 sticky 列背景 */
 tbody .sticky-col {
-  background-color: white;
-}
-
-.dark tbody .sticky-col {
-  @apply bg-dark-900;
+  background-color: var(--console-surface);
 }
 
 /* hover 状态保持 */
 tbody tr:hover .sticky-col {
-  background-color: rgb(249 250 251);
-}
-
-.dark tbody tr:hover .sticky-col {
-  @apply bg-dark-800;
+  background-color: var(--console-raised);
 }
 
 /* 阴影只在可滚动时显示 */

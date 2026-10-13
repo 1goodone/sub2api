@@ -47,7 +47,7 @@ onUnmounted(() => {
 /* 桌面端：Flexbox 布局 */
 .table-page-layout {
   @apply flex flex-col gap-4;
-  height: calc(100dvh - 64px - 2.5rem);
+  height: calc(100dvh - var(--console-header-height, 64px) - 2 * var(--console-page-inset, 20px));
 }
 
 .layout-section-fixed {
@@ -60,7 +60,9 @@ onUnmounted(() => {
 
 /* 表格滚动容器 - 增强版表体滚动方案 */
 .table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full bg-white dark:bg-dark-900 rounded-md border border-gray-200 dark:border-dark-700;
+  @apply flex flex-col overflow-hidden h-full rounded-md border;
+  background: var(--console-surface);
+  border-color: var(--console-line);
 }
 
 .table-scroll-container :deep(.table-wrapper) {
@@ -98,6 +100,10 @@ onUnmounted(() => {
 
 .table-page-layout.mobile-mode .layout-section-scrollable {
   @apply flex-none min-h-fit;
+}
+
+.table-page-layout.mobile-mode {
+  height: auto;
 }
 
 .table-page-layout.mobile-mode .table-scroll-container :deep(table) {

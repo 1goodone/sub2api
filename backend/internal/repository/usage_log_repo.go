@@ -8,6 +8,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	gocache "github.com/patrickmn/go-cache"
 )
@@ -102,7 +103,10 @@ func appendUsageLogBillingModeQueryFilter(query string, args []any, billingMode 
 	return query + " AND " + conditions[0], args
 }
 
-func appendUsageLogModelWhereCondition(conditions []string, args []any, model string, source string) ([]string, []any) {
+func appendUsageLogModelWhereCondition(conditions []string, args []any, model string, source string, providers ...string) ([]string, []any) {
+	if len(providers) > 0 {
+		conditions, args = appendUsageLogProviderWhereCondition(conditions, args, providers[0], "")
+	}
 	if strings.TrimSpace(source) == "" {
 		return appendRawUsageLogModelWhereCondition(conditions, args, model)
 	}
@@ -126,7 +130,14 @@ func appendRawUsageLogModelQueryFilter(query string, args []any, model string) (
 	return query, args
 }
 
-func appendUsageLogModelQueryFilter(query string, args []any, model string, source string) (string, []any) {
+func appendUsageLogModelQueryFilter(query string, args []any, model string, source string, providers ...string) (string, []any) {
+	if len(providers) > 0 {
+		conditions, nextArgs := appendUsageLogProviderWhereCondition(nil, args, providers[0], "")
+		args = nextArgs
+		if len(conditions) > 0 {
+			query += " AND " + conditions[0]
+		}
+	}
 	if strings.TrimSpace(source) == "" {
 		return appendRawUsageLogModelQueryFilter(query, args, model)
 	}
@@ -136,6 +147,25 @@ func appendUsageLogModelQueryFilter(query string, args []any, model string, sour
 	query += fmt.Sprintf(" AND %s = $%d", resolveModelDimensionExpression(source), len(args)+1)
 	args = append(args, model)
 	return query, args
+}
+
+func appendUsageLogProviderWhereCondition(conditions []string, args []any, provider, alias string) ([]string, []any) {
+	if provider == "" {
+		return conditions, args
+	}
+	patterns := map[string]string{
+		"openai":    "(^|[/ :])(gpt|chatgpt|o[134]([-. /:]|$)|codex|dall-e|whisper|tts-1|text-embedding|text-moderation|sora)",
+		"anthropic": "(^|[/ :])claude",
+		"grok":      "(^|[/ :])grok",
+		"gemini":    "(^|[/ :])(gemini|gemma|learnlm|imagen|veo)",
+	}
+	pattern, ok := patterns[provider]
+	if !ok {
+		return append(conditions, "FALSE"), args
+	}
+	model := resolveModelDimensionExpressionWithAlias(usagestats.ModelSourceRequested, alias)
+	conditions = append(conditions, fmt.Sprintf("%s ~* $%d", model, len(args)+1))
+	return conditions, append(args, pattern)
 }
 
 type usageLogRepository struct {

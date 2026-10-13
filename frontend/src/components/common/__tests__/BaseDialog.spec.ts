@@ -9,8 +9,49 @@ vi.mock('vue-i18n', () => ({
 
 describe('BaseDialog', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     document.body.innerHTML = ''
     document.body.classList.remove('modal-open')
+  })
+
+  it('keeps Tab navigation inside the dialog and skips disabled controls', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    const wrapper = mount(BaseDialog, {
+      attachTo: document.body,
+      props: { show: true, title: 'Edit Profile' },
+      slots: { default: '<input type="hidden" /><button disabled>Disabled</button><input /><button id="last-control">Save</button>' },
+      global: { stubs: { Icon: true } }
+    })
+    await nextTick()
+    const first = document.body.querySelector<HTMLButtonElement>('[aria-label="Close modal"]')!
+    const last = document.body.querySelector<HTMLButtonElement>('#last-control')!
+
+    first.focus()
+    const backward = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+    first.dispatchEvent(backward)
+    expect(backward.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(last)
+
+    const forward = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    last.dispatchEvent(forward)
+    expect(forward.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(first)
+    wrapper.unmount()
+  })
+
+  it('focuses the panel when the dialog has no interactive controls', async () => {
+    const wrapper = mount(BaseDialog, {
+      attachTo: document.body,
+      props: { show: true, title: 'Details', showCloseButton: false },
+      slots: { default: '<p>Details</p>' }
+    })
+    await nextTick()
+    const panel = document.body.querySelector<HTMLElement>('.modal-content')!
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    panel.dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(panel)
+    wrapper.unmount()
   })
 
   it('resets body scroll position when reopened', async () => {

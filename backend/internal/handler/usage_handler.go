@@ -160,6 +160,13 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 	}
 
 	userTZ := c.Query("timezone")
+	provider := strings.TrimSpace(c.Query("model_provider"))
+	switch provider {
+	case "", "openai", "anthropic", "grok", "gemini":
+	default:
+		response.BadRequest(c, "Invalid model_provider")
+		return nil, false
+	}
 	now := timezone.NowInUserLocation(userTZ)
 	var startTime, endTime time.Time
 	var startPtr, endPtr *time.Time
@@ -188,6 +195,8 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 	if requireRange {
 		if startPtr == nil {
 			switch c.DefaultQuery("period", "") {
+			case "all":
+				startTime = time.Date(1970, 1, 1, 0, 0, 0, 0, now.Location())
 			case "today":
 				startTime = timezone.StartOfDayInUserLocation(now, userTZ)
 			case "week":
@@ -215,6 +224,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			APIKeyID:           apiKeyID,
 			GroupID:            groupID,
 			Model:              strings.TrimSpace(c.Query("model")),
+			ModelProvider:      provider,
 			ModelFilterSource:  usagestats.ModelSourceRequested,
 			RequestType:        requestType,
 			Stream:             stream,
