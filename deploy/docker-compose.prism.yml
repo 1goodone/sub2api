@@ -1,0 +1,37 @@
+services:
+  prism-adapter:
+    image: ${PRISM_ADAPTER_IMAGE:?PRISM_ADAPTER_IMAGE is required}
+    pull_policy: never
+    container_name: sub2api-prism-adapter
+    restart: unless-stopped
+    profiles:
+      - prism
+    network_mode: "service:sub2api"
+    init: true
+    environment:
+      PRISM_ADAPTER_API_KEY: ${PRISM_ADAPTER_API_KEY:?PRISM_ADAPTER_API_KEY is required}
+      PRISM_ADAPTER_CLIENT_TOOLS_ENABLED: "true"
+      PRISM_ADAPTER_MODE: browser
+      PRISM_ADAPTER_MAX_SESSIONS: "1"
+      PRISM_ADAPTER_SESSION_TTL_SECONDS: "300"
+    volumes:
+      - prism_adapter_state:/var/lib/sub2api-prism
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    shm_size: 256m
+    pids_limit: 256
+    mem_limit: 900m
+    memswap_limit: 900m
+    cpus: "1.0"
+    stop_grace_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      sub2api:
+        condition: service_healthy
+
+volumes:
+  prism_adapter_state:
