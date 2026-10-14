@@ -100,6 +100,112 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  describe('OAuth reserved slots', () => {
+    const oauthProps = { selectedPlatforms: ['openai'], selectedTypes: ['oauth'] }
+    const submit = async (wrapper: ReturnType<typeof mountModal>) => {
+      await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+    }
+    const enable = async (wrapper: ReturnType<typeof mountModal>) => {
+      await wrapper.get('#bulk-edit-slot-reservation-enabled').setValue(true)
+      await wrapper.get('[data-testid="slot-reservation-enabled"]').setValue(true)
+    }
+
+    it('keeps existing reservations untouched until the update field is selected', async () => {
+      const wrapper = mountModal(oauthProps)
+      expect(wrapper.get<HTMLInputElement>('#bulk-edit-slot-reservation-enabled').element.checked).toBe(false)
+      expect(wrapper.get('#bulk-edit-slot-reservation-body').attributes('disabled')).toBeDefined()
+      await wrapper.get('#bulk-edit-cost-multiplier-enabled').setValue(true)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { extra: { cost_multiplier: 0.1 } })
+      wrapper.unmount()
+    })
+
+    it.each([60, 1, 120, 3600])('enables reservations for %i seconds alongside other extra fields', async (seconds) => {
+      const wrapper = mountModal(oauthProps)
+      await enable(wrapper)
+      expect(wrapper.get<HTMLInputElement>('[data-testid="slot-reservation-seconds"]').element.value).toBe('60')
+      await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(seconds)
+      await wrapper.get('#bulk-edit-cost-multiplier-enabled').setValue(true)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+        extra: { slot_reservation_enabled: true, slot_reservation_seconds: seconds, cost_multiplier: 0.1 }
+      })
+      wrapper.unmount()
+    })
+
+    it('can explicitly disable reservations', async () => {
+      const wrapper = mountModal(oauthProps)
+      await enable(wrapper)
+      await wrapper.get('[data-testid="slot-reservation-enabled"]').setValue(false)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+        extra: { slot_reservation_enabled: false, slot_reservation_seconds: 60 }
+      })
+      wrapper.unmount()
+    })
+
+    it.each([0, -1, 3601, 1.5, ''])('rejects invalid seconds %s before calling the API', async (seconds) => {
+      const wrapper = mountModal(oauthProps)
+      await enable(wrapper)
+      await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(seconds)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+      expect(showError).toHaveBeenLastCalledWith('admin.accounts.slotReservation.invalid')
+      wrapper.unmount()
+    })
+
+    it('omits reservations and their validation when update is unchecked again', async () => {
+      const wrapper = mountModal(oauthProps)
+      await enable(wrapper)
+      await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(0)
+      await wrapper.get('#bulk-edit-slot-reservation-enabled').setValue(false)
+      await wrapper.get('#bulk-edit-cost-multiplier-enabled').setValue(true)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { extra: { cost_multiplier: 0.1 } })
+      wrapper.unmount()
+    })
+
+    it.each([
+      { types: ['apikey'] }, { types: ['setup-token'] },
+      { types: ['oauth', 'apikey'] }, { types: ['oauth', 'setup-token'] }, { types: [] }
+    ])('hides the field for non-OAuth or mixed types $types', ({ types }) => {
+      const wrapper = mountModal({ ...oauthProps, selectedTypes: types })
+      expect(wrapper.find('#bulk-edit-slot-reservation-enabled').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('uses filtered target types and supports OAuth across platforms', async () => {
+      const wrapper = mountModal({
+        target: { mode: 'filtered', filters: { type: 'oauth' }, previewCount: 10, selectedPlatforms: ['openai', 'anthropic'], selectedTypes: ['oauth'] }
+      })
+      await enable(wrapper)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith({
+        filters: { type: 'oauth' }, extra: { slot_reservation_enabled: true, slot_reservation_seconds: 60 }
+      })
+      await wrapper.setProps({ target: { mode: 'filtered', filters: {}, selectedTypes: ['oauth', 'apikey'] } })
+      vi.mocked(adminAPI.accounts.bulkUpdate).mockClear()
+      expect(wrapper.find('#bulk-edit-slot-reservation-enabled').exists()).toBe(false)
+      await submit(wrapper)
+      expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('resets update selection, enabled state and seconds after closing', async () => {
+      const wrapper = mountModal(oauthProps)
+      await enable(wrapper)
+      await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(120)
+      await wrapper.setProps({ show: false })
+      await wrapper.setProps({ show: true })
+      expect(wrapper.get<HTMLInputElement>('#bulk-edit-slot-reservation-enabled').element.checked).toBe(false)
+      expect(wrapper.get<HTMLInputElement>('[data-testid="slot-reservation-enabled"]').element.checked).toBe(false)
+      await enable(wrapper)
+      expect(wrapper.get<HTMLInputElement>('[data-testid="slot-reservation-seconds"]').element.value).toBe('60')
+      wrapper.unmount()
+    })
+  })
+
   it('writes the request timezone only for OpenAI accounts when the field is selected', async () => {
     const hidden = mountModal()
     expect(hidden.find('#bulk-edit-openai-request-timezone-enabled').exists()).toBe(false)

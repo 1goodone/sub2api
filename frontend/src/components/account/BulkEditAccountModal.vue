@@ -31,6 +31,19 @@
         </p>
       </div>
 
+      <div v-if="allOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label id="bulk-edit-slot-reservation-label" for="bulk-edit-slot-reservation-enabled" class="mb-3 flex items-center justify-between gap-4 input-label">
+          {{ t('admin.accounts.slotReservation.apply') }}
+          <input v-model="enableSlotReservation" id="bulk-edit-slot-reservation-enabled" type="checkbox"
+            aria-controls="bulk-edit-slot-reservation-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        </label>
+        <fieldset id="bulk-edit-slot-reservation-body" :disabled="!enableSlotReservation" aria-labelledby="bulk-edit-slot-reservation-label"
+          :class="!enableSlotReservation && 'pointer-events-none opacity-50'">
+          <SlotReservationSettings v-model:enabled="slotReservationEnabled" v-model:seconds="slotReservationSeconds" />
+        </fieldset>
+      </div>
+
       <!-- Excel / BPS protocol (ChatGPT OAuth only) -->
       <div v-if="allOpenAIOAuthOnly && globalBpsEnabled" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1654,6 +1667,7 @@ import { DEFAULT_ACCOUNT_COST_MULTIPLIER, isValidAccountCostMultiplier } from '@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ExcelBPSModeSwitches from './ExcelBPSModeSwitches.vue'
+import SlotReservationSettings from './SlotReservationSettings.vue'
 import type { ExcelBPSMode } from '@/utils/excelBPSDefaults'
 import { useExcelBPSDefaults } from '@/composables/useExcelBPSDefaults'
 import { DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES, MAX_BPS_RECOVERY_INTERVAL_MINUTES, isValidBPSRecoveryInterval, bpsRecoveryIntervalOrDefault } from '@/utils/excelBPSRecovery'
@@ -1740,6 +1754,9 @@ const allTargetsGrok = computed(
     targetSelectedPlatforms.value.every((p) => p === 'grok')
 )
 const isMixedPlatform = computed(() => targetSelectedPlatforms.value.length > 1)
+const allOAuth = computed(() =>
+  targetSelectedTypes.value.length > 0 && targetSelectedTypes.value.every(type => type === 'oauth')
+)
 
 const allOpenAI = computed(() => {
   return targetSelectedPlatforms.value.length === 1 && targetSelectedPlatforms.value[0] === 'openai'
@@ -1853,6 +1870,9 @@ const enableRateMultiplier = ref(false)
 const enableStatus = ref(false)
 const enableGroups = ref(false)
 const enableExcelBPS = ref(false)
+const enableSlotReservation = ref(false)
+const slotReservationEnabled = ref(false)
+const slotReservationSeconds = ref(60)
 const enableOpenAIRequestTimezone = ref(false)
 const openAIRequestTimezone = ref('Asia/Singapore')
 const enableOpenAIPassthrough = ref(false)
@@ -2221,6 +2241,12 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     ensureExtra().openai_request_timezone = openAIRequestTimezone.value
   }
 
+  if (enableSlotReservation.value && allOAuth.value) {
+    const extra = ensureExtra()
+    extra.slot_reservation_enabled = slotReservationEnabled.value
+    extra.slot_reservation_seconds = slotReservationSeconds.value
+  }
+
   if (enableExcelBPS.value && allOpenAIOAuthOnly.value) {
     const extra = ensureExtra()
     extra.openai_excel_bps = excelBPSEnabled.value
@@ -2479,6 +2505,7 @@ const handleSubmit = async () => {
 
   const hasAnyFieldEnabled =
     enableBaseUrl.value ||
+    (enableSlotReservation.value && allOAuth.value) ||
     (enableExcelBPS.value && allOpenAIOAuthOnly.value) ||
     (enableOpenAIRequestTimezone.value && allOpenAI.value) ||
     enableOpenAIPassthrough.value ||
@@ -2554,6 +2581,12 @@ const handleSubmit = async () => {
 
   if (enableCostMultiplier.value && !isValidAccountCostMultiplier(costMultiplier.value)) {
     appStore.showError(t('admin.accounts.costMultiplierInvalid'))
+    return
+  }
+
+  if (enableSlotReservation.value && allOAuth.value &&
+    (!Number.isInteger(slotReservationSeconds.value) || slotReservationSeconds.value < 1 || slotReservationSeconds.value > 3600)) {
+    appStore.showError(t('admin.accounts.slotReservation.invalid'))
     return
   }
 
@@ -2668,6 +2701,9 @@ watch(
       enableStatus.value = false
       enableGroups.value = false
       enableExcelBPS.value = false
+      enableSlotReservation.value = false
+      slotReservationEnabled.value = false
+      slotReservationSeconds.value = 60
       enableOpenAIRequestTimezone.value = false
       openAIRequestTimezone.value = 'Asia/Singapore'
       enableOpenAIPassthrough.value = false
