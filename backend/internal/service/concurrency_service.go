@@ -360,22 +360,49 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
-	acquired, err := s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
+	state, session := reservationState(ctx)
+	reservationCache, reservationSupported := s.cache.(AccountSlotReservationCache)
+	var acquired bool
+	var err error
+	if reservationSupported && session != "" {
+		acquired, err = reservationCache.AcquireReservedAccountSlot(ctx, accountID, maxConcurrency, requestID, session)
+	} else {
+		acquired, err = s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	if acquired {
+		var lease *reservedAccountLease
+		if reservationSupported && session != "" {
+			lease = &reservedAccountLease{cache: reservationCache, accountID: accountID}
+			state.mu.Lock()
+			state.leases[accountID] = lease
+			state.mu.Unlock()
+		}
 		return &AcquireResult{
 			Acquired:  true,
 			RequestID: requestID,
-			ReleaseFunc: func() {
+			ReleaseFunc: sync.OnceFunc(func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
+				if lease != nil {
+					lease.mu.Lock()
+					defer lease.mu.Unlock()
+					seconds := 0
+					if !lease.invalidated && (lease.keep || (!lease.completed && lease.started && errors.Is(ctx.Err(), context.Canceled))) {
+						seconds = lease.seconds
+					}
+					if err := reservationCache.FinishReservedAccountSlot(bgCtx, accountID, requestID, session, seconds); err != nil {
+						logger.LegacyPrintf("service.concurrency", "finish reserved account slot %d: %v", accountID, err)
+					}
+					return
+				}
 				if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
 					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
 				}
-			},
+			}),
 		}, nil
 	}
 

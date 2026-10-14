@@ -1708,6 +1708,8 @@
         :type="account.type"
       />
 
+      <SlotReservationSettings v-if="account.type === 'oauth'" v-model:enabled="slotReservationEnabled" v-model:seconds="slotReservationSeconds" />
+
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
@@ -3372,6 +3374,7 @@
 </template>
 
 <script setup lang="ts">
+import SlotReservationSettings from './SlotReservationSettings.vue'
 import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
 import { applyAccountRPMSettings } from '@/components/account/accountRpm'
 import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
@@ -4396,6 +4399,8 @@ const mixedChannelWarningMessageText = computed(() => {
   return mixedChannelWarningRawMessage.value
 })
 
+const slotReservationEnabled = ref(false)
+const slotReservationSeconds = ref(60)
 const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const costMultiplierAutoSync = ref(true)
 
@@ -4516,6 +4521,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
+  slotReservationEnabled.value = newAccount.extra?.slot_reservation_enabled === true
+  slotReservationSeconds.value = Number(newAccount.extra?.slot_reservation_seconds ?? 60)
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   costMultiplier.value = readAccountCostMultiplier(newAccount.extra)
@@ -6453,6 +6460,14 @@ const handleSubmit = async () => {
       costExtra.cost_multiplier_auto_sync = costMultiplierAutoSync.value
     } else {
       delete costExtra.cost_multiplier_auto_sync
+    }
+    if (props.account.type === 'oauth') {
+      if (!Number.isInteger(slotReservationSeconds.value) || slotReservationSeconds.value < 1 || slotReservationSeconds.value > 3600) {
+        appStore.showError(t('admin.accounts.slotReservation.invalid'))
+        return
+      }
+      costExtra.slot_reservation_enabled = slotReservationEnabled.value
+      costExtra.slot_reservation_seconds = slotReservationSeconds.value
     }
     updatePayload.extra = costExtra
 

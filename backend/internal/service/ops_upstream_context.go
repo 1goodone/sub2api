@@ -382,6 +382,9 @@ func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage
 	if c == nil {
 		return
 	}
+	if c.Request != nil && (upstreamStatusCode == 401 || upstreamStatusCode == 402 || upstreamStatusCode == 403 || upstreamStatusCode == 429 || upstreamStatusCode >= 500) {
+		invalidateActiveSlotReservations(c.Request.Context())
+	}
 	if upstreamStatusCode > 0 {
 		c.Set(OpsUpstreamStatusCodeKey, upstreamStatusCode)
 	}

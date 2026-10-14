@@ -2652,3 +2652,36 @@ describe('Excel BPS default template integration', () => {
 
 
 })
+
+
+describe('OAuth slot reservation settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    authIsSimpleMode.value = true
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(buildOpenAIOAuthParentAccount())
+  })
+  it('saves the opt-in and duration and restores them on reopen', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="slot-reservation-seconds"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="slot-reservation-enabled"]').setValue(true)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="slot-reservation-seconds"]').element.value).toBe('60')
+    await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(120)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    const payload = updateAccountMock.mock.calls[0][1]
+    expect(payload.extra).toMatchObject({ slot_reservation_enabled: true, slot_reservation_seconds: 120 })
+    wrapper.unmount()
+    const reopened = mountModal({ ...account, extra: payload.extra })
+    expect(reopened.get<HTMLInputElement>('[data-testid="slot-reservation-enabled"]').element.checked).toBe(true)
+    expect(reopened.get<HTMLInputElement>('[data-testid="slot-reservation-seconds"]').element.value).toBe('120')
+  })
+  it.each([0, -1, 1.5, 3601])('rejects invalid seconds %s', async (seconds) => {
+    const wrapper = mountModal(buildOpenAIOAuthParentAccount())
+    await wrapper.get('[data-testid="slot-reservation-enabled"]').setValue(true)
+    await wrapper.get('[data-testid="slot-reservation-seconds"]').setValue(seconds)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalled()
+  })
+})

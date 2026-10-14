@@ -101,7 +101,7 @@ var (
 		local exists = redis.call('ZSCORE', key, requestID)
 		if exists ~= false then
 			redis.call('ZADD', key, now, requestID)
-			redis.call('EXPIRE', key, ttl)
+			redis.call('EXPIRE', key, math.max(ttl, redis.call('TTL', key)))
 			return {1, now}
 		end
 
@@ -109,7 +109,7 @@ var (
 		local count = redis.call('ZCARD', key) + redis.call('ZCARD', liveKey)
 		if count < maxConcurrency then
 			redis.call('ZADD', key, now, requestID)
-			redis.call('EXPIRE', key, ttl)
+			redis.call('EXPIRE', key, math.max(ttl, redis.call('TTL', key)))
 			return {1, now}
 		end
 
@@ -539,7 +539,7 @@ var (
 		if redis.call('ZCARD', key) == 0 then
 			redis.call('DEL', key)
 		else
-			redis.call('EXPIRE', key, ttl)
+			redis.call('EXPIRE', key, math.max(ttl, redis.call('TTL', key)))
 		end
 		return 1
 	`)
@@ -554,7 +554,7 @@ var (
 		local removed = 0
 		local members = redis.call('ZRANGE', key, 0, -1)
 		for _, member in ipairs(members) do
-			if string.sub(member, 1, string.len(activePrefix)) ~= activePrefix then
+			if string.sub(member, 1, string.len(activePrefix)) ~= activePrefix and string.sub(member, 1, 9) ~= 'reserved:' then
 				removed = removed + redis.call('ZREM', key, member)
 			end
 		end
@@ -562,7 +562,7 @@ var (
 		if remaining == 0 then
 			redis.call('DEL', key)
 		else
-			redis.call('EXPIRE', key, slotTTL)
+			redis.call('EXPIRE', key, math.max(slotTTL, redis.call('TTL', key)))
 		end
 		return {removed, remaining}
 	`)

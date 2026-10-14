@@ -131,6 +131,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	SetAccountSlotReservationSession(ctx, sessionHash)
 	if groupIDs, state, ok := mixedGroupSelectionIDs(ctx, groupID); ok {
 		var lastErr error
 		for _, candidateGroupID := range groupIDs {
@@ -218,6 +219,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 
+	if reservedID := s.concurrencyService.reservedSessionAccount(ctx); reservedID > 0 {
+		stickyAccountID = reservedID
+		stickySource = "reservation"
+	}
 	// [DEBUG-STICKY] 调度器入口日志
 	slog.Info("sticky.scheduler_entry",
 		"group_id", derefGroupID(groupID),

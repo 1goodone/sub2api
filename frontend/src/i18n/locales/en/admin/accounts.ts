@@ -1289,6 +1289,13 @@ export default {
       costMultiplier: 'Cost multiplier',
       costMultiplierHint: 'Default 0.1. With Follow upstream enabled, a successful probe updates this saved value using the effective rate at probe time. Turn it off to enter actual cost; failed, expired, or unsupported probes preserve the saved value. Zero is valid, billing stays independent, and changes do not rewrite historical bills.',
       costMultiplierAutoSync: 'Follow upstream',
+      slotReservation: {
+        title: 'Reserve session slot',
+        hint: 'Keep an OAuth account slot for the same user and session after a request ends. Rate limits and upstream errors cancel the reservation.',
+        seconds: 'Duration (seconds)',
+        countdown: 'Reserved slot, {seconds} seconds remaining',
+        invalid: 'Reservation duration must be an integer from 1 to 3600 seconds.',
+      },
       costMultiplierInvalid: 'Cost multiplier must be a finite number between 0 and 1000000.',
       billingRateMultiplierHint: '0 = free, affects account billing only',
 
