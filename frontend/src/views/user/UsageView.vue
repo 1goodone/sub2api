@@ -835,8 +835,6 @@ const allColumns = computed<Column[]>(() => [
   { key: 'output_tokens', label: t('usage.out'), sortable: false },
   { key: 'cache_read_tokens', label: t('usage.cacheHit'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
-  { key: 'first_token_ms', label: t('usage.latencyFirstToken'), sortable: false },
-  { key: 'duration_ms', label: t('usage.personal.totalDuration'), sortable: false },
   { key: 'tps', label: t('usage.latencyTps'), sortable: false },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
@@ -845,6 +843,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
+  { key: 'latency', label: t('usage.latency'), sortable: false },
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())

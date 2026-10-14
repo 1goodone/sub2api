@@ -236,8 +236,8 @@ describe('user UsageView', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toEqual([
-      'created_at', 'api_key', 'group', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost', 'first_token_ms', 'duration_ms',
-      'reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens',
+      'created_at', 'api_key', 'group', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost',
+      'reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens', 'latency',
     ])
     expect(query).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
@@ -281,16 +281,18 @@ describe('user UsageView', () => {
     wrapper.unmount()
   })
 
-  it('keeps time first, shows first token before total duration, and only hides IP, user agent and TPS by default', async () => {
+  it('keeps time first and combined response timing last, and only hides IP, user agent and TPS by default', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
     await wrapper.find('[data-testid="usage-column-settings"]').trigger('click')
-    expect(wrapper.find('[data-testid="usage-column-toggle-first_token_ms"]').attributes('aria-checked')).toBe('true')
-    expect(wrapper.find('[data-testid="usage-column-toggle-duration_ms"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="usage-column-toggle-latency"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="usage-column-toggle-first_token_ms"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="usage-column-toggle-duration_ms"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="usage-column-toggle-ip_address"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.find('[data-testid="usage-column-toggle-user_agent"]').attributes('aria-checked')).toBe('false')
     expect(wrapper.find('[data-testid="usage-column-toggle-tps"]').attributes('aria-checked')).toBe('false')
-    expect(wrapper.find('[data-testid="usage-column-toggle-latency"]').exists()).toBe(false)
+    await wrapper.find('[data-testid="usage-column-toggle-user_agent"]').trigger('click')
+    expect(wrapper.findComponent(UsageTable).props('columns').at(-1).key).toBe('latency')
     expect(wrapper.find('[data-testid="usage-column-toggle-created_at"]').exists()).toBe(false)
     for (const key of ['reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens']) {
       expect(wrapper.find(`[data-testid="usage-column-toggle-${key}"]`).attributes('aria-checked')).toBe('true')
@@ -369,16 +371,34 @@ describe('user UsageView', () => {
     wrapper.unmount()
   })
 
-  it('preserves saved column choices while adding the total duration column', async () => {
+  it('preserves saved choices including the combined timing column', async () => {
     localStorage.setItem('user-usage-hidden-columns', JSON.stringify(['model', 'ip_address', 'user_agent', 'latency']))
     const wrapper = mountUsageView()
     await flushPromises()
     const keys = wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)
-    expect(keys).toContain('duration_ms')
+    expect(keys).not.toContain('latency')
+    expect(keys).not.toContain('duration_ms')
+    expect(keys).not.toContain('first_token_ms')
     expect(keys).toContain('reasoning_effort')
     expect(keys).not.toContain('model')
     wrapper.unmount()
     localStorage.removeItem('user-usage-hidden-columns')
+  })
+
+  it('shows combined timing with saved preferences for the removed standalone columns', async () => {
+    localStorage.setItem('user-usage-hidden-columns', JSON.stringify(['model', 'first_token_ms', 'duration_ms', 'tps']))
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const keys = wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)
+    expect(keys).toContain('latency')
+    expect(keys).not.toContain('model')
+    expect(keys).not.toContain('first_token_ms')
+    expect(keys).not.toContain('duration_ms')
+    await wrapper.find('[data-testid="usage-column-settings"]').trigger('click')
+    await wrapper.find('[data-testid="usage-column-toggle-latency"]').trigger('click')
+    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).not.toContain('latency')
+    expect(JSON.parse(localStorage.getItem('user-usage-hidden-columns')!)).toContain('latency')
+    wrapper.unmount()
   })
 
   it('updates all summary cards for the selected dates and ignores older statistics', async () => {
