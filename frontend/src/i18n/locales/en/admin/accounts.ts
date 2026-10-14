@@ -1290,6 +1290,7 @@ export default {
       costMultiplierHint: 'Default 0.1. With Follow upstream enabled, a successful probe updates this saved value using the effective rate at probe time. Turn it off to enter actual cost; failed, expired, or unsupported probes preserve the saved value. Zero is valid, billing stays independent, and changes do not rewrite historical bills.',
       costMultiplierAutoSync: 'Follow upstream',
       slotReservation: {
+        apply: 'Update reserved slot settings',
         title: 'Reserve session slot',
         hint: 'Keep an OAuth account slot for the same user and session after a request ends. Rate limits and upstream errors cancel the reservation.',
         seconds: 'Duration (seconds)',

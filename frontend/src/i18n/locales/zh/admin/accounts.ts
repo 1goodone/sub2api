@@ -1360,6 +1360,7 @@ export default {
       costMultiplierHint: '默认 0.1。开启「跟随上游」时，成功探测会按当时有效倍率更新此值；关闭后可手填实际成本，失败、过期或不支持的探测始终保留已保存值。0 表示零成本；独立于账号计费和用户扣费，修改后重估近期利润，不改历史账单。',
       costMultiplierAutoSync: '跟随上游',
       slotReservation: {
+        apply: '更新预留坑位设置',
         title: '预留坑位',
         hint: 'OAuth 请求结束后，为同一用户的同一会话保留账号并发位。限流或上游错误会取消预留。',
         seconds: '预留时长（秒）',
