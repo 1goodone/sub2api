@@ -3496,6 +3496,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				service.BeginAccountSlotReservation(ctx, account, c)(turnErr, result != nil && result.SucceededForScheduling())
 				turnStart := getTurnStart(turn)
 				cyberTurnContext := takeCyberTurnBody(turn)
 				cyberBlockBody := cyberTurnContext.body

@@ -1437,7 +1437,8 @@ export interface Account {
   proxy_fallback_origin_name?: string | null
   concurrency: number
   load_factor?: number | null
-  current_concurrency?: number // Real-time concurrency count from Redis
+  current_concurrency?: number // Includes idle reserved account slots
+  reserved_slot_expires_at?: number[] // Unix seconds; idle slots only
   scheduler_score?: {
     base_score: number
     sticky_score?: number

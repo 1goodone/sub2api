@@ -14,6 +14,7 @@ import (
 )
 
 func nextWithAPIKeyAdmissionOwner(c *gin.Context, apiKeyService *service.APIKeyService, credential string, trustedClientIP string, key *service.APIKey, googleStyle bool) {
+	c.Request = c.Request.WithContext(service.WithAccountSlotReservation(c.Request.Context(), key.UserID, service.ExtractClientSessionID(c)))
 	var writer *apiKeyAdmissionWriter
 	// A WS connection outlives one capacity decision: install the revalidator
 	// (and its lightweight control owner) even when the handshake key is

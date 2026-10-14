@@ -3106,6 +3106,8 @@
         :type="form.type"
       />
 
+      <SlotReservationSettings v-if="form.type === 'oauth'" v-model:enabled="slotReservationEnabled" v-model:seconds="slotReservationSeconds" />
+
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
@@ -4027,6 +4029,7 @@
 </template>
 
 <script setup lang="ts">
+import SlotReservationSettings from './SlotReservationSettings.vue'
 import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
 import { DEFAULT_ACCOUNT_COST_MULTIPLIER, isValidAccountCostMultiplier } from '@/utils/accountCost'
 
@@ -4170,9 +4173,17 @@ const oauthStepTitle = computed(() => {
 
 // Platform-specific hints for API Key type
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
+const slotReservationEnabled = ref(false)
+const slotReservationSeconds = ref(60)
 const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const upstreamRequestIdHeader = ref('')
 const withAccountExtraSettings = (extra?: Record<string, unknown>): Record<string, unknown> => {
+  if (form.type === 'oauth') {
+    if (!Number.isInteger(slotReservationSeconds.value) || slotReservationSeconds.value < 1 || slotReservationSeconds.value > 3600) {
+      throw new Error(t('admin.accounts.slotReservation.invalid'))
+    }
+    extra = { ...extra, slot_reservation_enabled: slotReservationEnabled.value, slot_reservation_seconds: slotReservationSeconds.value }
+  }
   if (!isValidAccountCostMultiplier(costMultiplier.value)) {
     throw new Error(t('admin.accounts.costMultiplierInvalid'))
   }
@@ -5519,6 +5530,8 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
+  slotReservationEnabled.value = false
+  slotReservationSeconds.value = 60
   form.concurrency = 10
   form.load_factor = null
   form.priority = 1

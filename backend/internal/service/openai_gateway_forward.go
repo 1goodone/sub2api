@@ -91,6 +91,9 @@ func (s *OpenAIGatewayService) excelBPSGloballyEnabled(ctx context.Context) bool
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, resultErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(resultErr, result != nil && result.SucceededForScheduling()) }()
+
 	body = s.normalizeRequestTimezone(ctx, account, body, "http")
 	if astraSchedulingAppliesToRequest(s.cfg.AstraRouting(ctx), account, gjson.GetBytes(body, "model").String(), getOpenAIGroupIDFromContext(c)) {
 		if err := s.checkAstraSchedulingRoute(ctx, account); err != nil {

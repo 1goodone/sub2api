@@ -7,6 +7,18 @@
       </svg>
     </CapacityBadge>
 
+    <div v-if="reservedSeconds.length" class="flex flex-wrap gap-1" data-testid="reserved-slots">
+      <span v-for="(seconds, index) in reservedSeconds" :key="index"
+        class="inline-flex items-center gap-1 rounded border border-dashed border-amber-500 px-1 py-0.5 text-[10px] tabular-nums text-amber-700 dark:text-amber-300"
+        :title="t('admin.accounts.slotReservation.countdown', { seconds })"
+        :aria-label="t('admin.accounts.slotReservation.countdown', { seconds })">
+        <svg aria-hidden="true" class="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2">
+          <rect x="2" y="2" width="12" height="12" rx="3" />
+        </svg>
+        {{ seconds }}s
+      </span>
+    </div>
+
     <AccountConcurrencyProgress :account="account" />
 
     <!-- 5h窗口费用限制 -->
@@ -37,6 +49,11 @@
   </div>
 </template>
 
+<script lang="ts">
+import { createSharedComposable, useNow } from '@vueuse/core'
+const useReservationClock = createSharedComposable(() => useNow({ interval: 1000 }))
+</script>
+
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -52,7 +69,12 @@ const props = defineProps<{
 const { t } = useI18n()
 
 // ====== 并发 ======
-const currentConcurrency = computed(() => props.account.current_concurrency || 0)
+const now = useReservationClock()
+const reservedSeconds = computed(() => (props.account.reserved_slot_expires_at ?? [])
+  .map(expires => Math.max(0, Math.ceil(expires - now.value.getTime() / 1000)))
+  .filter(seconds => seconds > 0))
+const currentConcurrency = computed(() => Math.max(0, (props.account.current_concurrency || 0)
+  - (props.account.reserved_slot_expires_at?.length ?? 0) + reservedSeconds.value.length))
 
 const concurrencyClass = computed(() => {
   const current = currentConcurrency.value

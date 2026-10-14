@@ -32,7 +32,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	account *Account,
 	body []byte,
 	parsed *ParsedRequest,
-) (*ForwardResult, error) {
+) (slotResult *ForwardResult, slotErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(slotErr, slotResult != nil) }()
+
 	startTime := time.Now()
 
 	// 1. Parse Chat Completions request

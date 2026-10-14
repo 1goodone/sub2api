@@ -1001,6 +1001,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"quota_weekly_reset_hour",
 		"quota_reset_timezone",
 		"mixed_scheduling",
+		service.SlotReservationEnabled,
+		service.SlotReservationSeconds,
 		"window_cost_limit",
 		"window_cost_sticky_reserve",
 		"max_sessions",

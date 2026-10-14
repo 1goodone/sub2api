@@ -32,7 +32,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (slotResult *OpenAIForwardResult, slotErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(slotErr, slotResult != nil && slotResult.SucceededForScheduling()) }()
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)

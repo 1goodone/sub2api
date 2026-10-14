@@ -27,7 +27,10 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	c *gin.Context,
 	account *Account,
 	body []byte,
-) (*ForwardResult, error) {
+) (slotResult *ForwardResult, slotErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(slotErr, slotResult != nil) }()
+
 	startTime := time.Now()
 
 	var ccReq apicompat.ChatCompletionsRequest

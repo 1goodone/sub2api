@@ -1359,6 +1359,13 @@ export default {
       costMultiplier: '成本倍率',
       costMultiplierHint: '默认 0.1。开启「跟随上游」时，成功探测会按当时有效倍率更新此值；关闭后可手填实际成本，失败、过期或不支持的探测始终保留已保存值。0 表示零成本；独立于账号计费和用户扣费，修改后重估近期利润，不改历史账单。',
       costMultiplierAutoSync: '跟随上游',
+      slotReservation: {
+        title: '预留坑位',
+        hint: 'OAuth 请求结束后，为同一用户的同一会话保留账号并发位。限流或上游错误会取消预留。',
+        seconds: '预留时长（秒）',
+        countdown: '预留坑位，剩余 {seconds} 秒',
+        invalid: '预留时长必须为 1–3600 秒的整数。',
+      },
       costMultiplierInvalid: '成本倍率必须是 0 到 1000000 之间的有效数字。',
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
 

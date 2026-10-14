@@ -58,7 +58,10 @@ func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	account *Account,
 	body []byte,
 	_ *ParsedRequest,
-) (*ForwardResult, error) {
+) (slotResult *ForwardResult, slotErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(slotErr, slotResult != nil) }()
+
 	if err := s.validateAntigravityCompatAccount(c, account); err != nil {
 		return nil, err
 	}
@@ -105,7 +108,10 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 	account *Account,
 	body []byte,
 	_ *ParsedRequest,
-) (*ForwardResult, error) {
+) (slotResult *ForwardResult, slotErr error) {
+	finishReservation := BeginAccountSlotReservation(ctx, account, c)
+	defer func() { finishReservation(slotErr, slotResult != nil) }()
+
 	if err := s.validateAntigravityCompatAccount(c, account); err != nil {
 		return nil, err
 	}

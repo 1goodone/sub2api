@@ -174,6 +174,9 @@ func (s *OpenAIGatewayService) GenerateExplicitSessionHash(c *gin.Context, body 
 // sticky seed with the client-requested model so switching models does not
 // inherit a stale account binding (grok2api affinityKey pattern).
 func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) string {
+	if c != nil && c.Request != nil {
+		SetAccountSlotReservationSession(c.Request.Context(), ExtractOpenAIClientSessionID(c, body))
+	}
 	if c == nil {
 		return ""
 	}
@@ -1186,6 +1189,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
+	SetAccountSlotReservationSession(ctx, sessionHash)
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	routingGroup := openAIAccountRoutingGroup(ctx, groupID)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
@@ -1203,6 +1207,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash); err == nil {
 			stickyAccountID = accountID
 		}
+	}
+	if reservedID := s.concurrencyService.reservedSessionAccount(ctx); reservedID > 0 {
+		stickyAccountID = reservedID
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		localExcluded := cloneExcludedAccountIDs(excludedIDs)

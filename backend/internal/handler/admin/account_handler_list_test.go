@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,55 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type reservationListCache struct{ service.ConcurrencyCache }
+
+func (*reservationListCache) AcquireReservedAccountSlot(context.Context, int64, int, string, string) (bool, error) {
+	return false, nil
+}
+func (*reservationListCache) FinishReservedAccountSlot(context.Context, int64, string, string, int) error {
+	return nil
+}
+func (*reservationListCache) CancelAccountSlotReservation(context.Context, int64, string) error {
+	return nil
+}
+func (*reservationListCache) GetReservedSessionAccount(context.Context, string) (int64, error) {
+	return 0, nil
+}
+func (*reservationListCache) GetAccountConcurrencyBatch(context.Context, []int64) (map[int64]int, error) {
+	return map[int64]int{501: 2}, nil
+}
+func (*reservationListCache) GetAccountSlotReservationsBatch(context.Context, []int64) (map[int64][]int64, error) {
+	return map[int64][]int64{501: {2000000000}}, nil
+}
+
+func TestAccountHandlerListReservationRuntime(t *testing.T) {
+	for _, lite := range []string{"0", "1"} {
+		t.Run(lite, func(t *testing.T) {
+			adminSvc := newStubAdminService()
+			adminSvc.accounts = []service.Account{{ID: 501, Name: "reserved", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Concurrency: 3}}
+			h := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			h.concurrencyService = service.NewConcurrencyService(&reservationListCache{})
+			router := gin.New()
+			router.GET("/accounts", h.List)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/accounts?lite="+lite, nil))
+			require.Equal(t, 200, rec.Code)
+			var payload struct {
+				Data struct {
+					Items []struct {
+						Count     int     `json:"current_concurrency"`
+						Deadlines []int64 `json:"reserved_slot_expires_at"`
+					} `json:"items"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			require.Len(t, payload.Data.Items, 1)
+			require.Equal(t, 2, payload.Data.Items[0].Count)
+			require.Equal(t, []int64{2000000000}, payload.Data.Items[0].Deadlines)
+		})
+	}
+}
 
 func TestAccountHandlerListLiteUsesCompactDTOAndETag(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
