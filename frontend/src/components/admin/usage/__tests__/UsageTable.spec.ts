@@ -36,6 +36,8 @@ const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
 
 const messages: Record<string, string> = {
   'usage.latencyTps': 'Avg TPS',
+  'usage.latencyFirstToken': '首字',
+  'usage.latencyDuration': '总耗时',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -946,25 +948,49 @@ describe('admin UsageTable deleted-user badge', () => {
 })
 
 describe('UsageTable compact user records', () => {
-  it('formats separate first-token and total-duration columns without confusing their values', () => {
+  it('combines first-response and total-duration values in two rows without duplicating TPS', () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [null, 0, 345, 5200, 61_000, 3_720_000].map((duration_ms, index) => ({ ...baseImageRow, request_id: `duration-${index}`, duration_ms, first_token_ms: index ? (index - 1) * 100 : null })),
         compact: true,
-        columns: [{ key: 'first_token_ms', label: 'First Token' }, { key: 'duration_ms', label: 'Total Duration' }],
+        columns: [{ key: 'latency', label: 'Latency' }, { key: 'tps', label: 'Avg TPS' }],
       },
       global: {
         stubs: {
           DataTable: {
             props: ['data'],
-            template: '<div><div v-for="row in data" :key="row.request_id"><div data-testid="first-token"><slot name="cell-first_token_ms" :row="row" /></div><div data-testid="duration"><slot name="cell-duration_ms" :row="row" /></div></div></div>',
+            template: '<div><div v-for="row in data" :key="row.request_id"><div data-testid="timing"><slot name="cell-latency" :row="row" /></div><div data-testid="tps"><slot name="cell-tps" :row="row" /></div></div></div>',
           },
           EmptyState: true, Icon: true, Teleport: true,
         },
       },
     })
-    expect(wrapper.findAll('[data-testid="duration"]').map((cell) => cell.text())).toEqual(['-', '0ms', '345ms', '5.20s', '1m 1s', '1h 2m'])
-    expect(wrapper.findAll('[data-testid="first-token"]').map((cell) => cell.text())).toEqual(['-', '0ms', '100ms', '200ms', '300ms', '400ms'])
+    expect(wrapper.findAll('[data-testid="timing"]').map((cell) => cell.text())).toEqual([
+      '首字-总耗时-', '首字0ms总耗时0ms', '首字100ms总耗时345ms', '首字200ms总耗时5.20s', '首字300ms总耗时1m 1s', '首字400ms总耗时1h 2m',
+    ])
+    expect(wrapper.find('[data-testid="latency-tps"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="tps"]')).toHaveLength(6)
+    wrapper.unmount()
+  })
+
+  it('uses the administrator timing colors and labels for the personal two-line cell', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, first_token_ms: 12_320, duration_ms: 21_570 }],
+        compact: true,
+        columns: [{ key: 'latency', label: 'Latency' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const cell = wrapper.find('[data-testid="latency-bar"]').element.parentElement!
+    expect(cell.textContent).toContain('首字')
+    expect(cell.textContent).toContain('总耗时')
+    expect(cell.textContent).toContain('12.32s')
+    expect(cell.textContent).toContain('21.57s')
+    expect(cell.querySelector('.text-amber-600')?.textContent).toBe('12.32s')
+    expect(cell.querySelector('.text-emerald-600')?.textContent).toBe('21.57s')
+    expect(wrapper.find('[data-testid="latency-bar"]').classes()).toEqual(expect.arrayContaining(['from-amber-400', 'to-emerald-500']))
+    expect(wrapper.find('[data-testid="latency-tps"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -1139,7 +1165,7 @@ describe('admin UsageTable latency TPS', () => {
 
     expect(wrapper.find('[data-row="req-tps-hidden"] [data-testid="latency-tps"]').exists()).toBe(false)
     expect(barClasses(wrapper, 'req-tps-hidden')).toEqual(
-      expect.arrayContaining(['from-amber-400', 'via-emerald-500', 'to-emerald-500']),
+      expect.arrayContaining(['from-amber-400', 'to-emerald-500']),
     )
   })
 })

@@ -215,12 +215,6 @@
         <template #cell-cache_read_tokens="{ row }">
           <span class="text-xs tabular-nums" :title="`${t('usage.cacheCreationTokensLabel')}: ${(row.cache_creation_tokens || 0).toLocaleString()}`">{{ formatCacheTokens(row.cache_read_tokens || 0) }}</span>
         </template>
-        <template #cell-first_token_ms="{ row }">
-          <span class="text-xs tabular-nums">{{ formatDuration(row.first_token_ms) }}</span>
-        </template>
-        <template #cell-duration_ms="{ row }">
-          <span class="text-xs tabular-nums">{{ formatDuration(row.duration_ms) }}</span>
-        </template>
         <template #cell-tps="{ row }">
           <span class="text-xs tabular-nums" :title="t('usage.latencyTpsHint')">{{ showAverageTps ? formatUsageOutputTps(row) || '-' : '-' }}</span>
         </template>
@@ -267,7 +261,7 @@
               <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
-              <template v-if="showAverageTps">
+              <template v-if="showAverageTps && !compact">
                 <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
                 <span
                   v-if="formatUsageOutputTps(row)"
@@ -782,13 +776,17 @@ const formatDuration = (ms: number | null | undefined): string => {
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
 
-// 延迟色条三段依次对应首字/总耗时/TPS 三行（30%/50%/70% 分别落在三行内）；无首字或无 TPS 的段沿用总耗时档
+// 个人页两段色条对应首字/总耗时；管理员开启 TPS 时用三段。缺失指标沿用总耗时档。
 const latencyBarClasses = (row: AdminUsageLog): string[] => {
   const duration = durationSeverity(row.duration_ms ?? 0)
+  const first = row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration
+  if (props.compact || !showAverageTps.value) {
+    return ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[first], LATENCY_BAR_TO_CLASSES[duration]]
+  }
   const tps = usageOutputTps(row)
   return [
     'bg-gradient-to-b from-30% via-50% to-70%',
-    LATENCY_BAR_FROM_CLASSES[row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration],
+    LATENCY_BAR_FROM_CLASSES[first],
     LATENCY_BAR_VIA_CLASSES[duration],
     LATENCY_BAR_TO_CLASSES[showAverageTps.value && tps != null ? tpsSeverity(tps) : duration],
   ]
