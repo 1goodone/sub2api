@@ -101,7 +101,7 @@ func TestSlotReservationCompletionPolicy(t *testing.T) {
 			now := time.Now().Truncate(time.Second)
 			mr.SetTime(now)
 			client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-			defer client.Close()
+			t.Cleanup(func() { require.NoError(t, client.Close()) })
 			cache := NewConcurrencyCache(client, 15, 900)
 			svc := service.NewConcurrencyService(cache)
 			ctx, cancel := context.WithCancel(service.WithAccountSlotReservation(context.Background(), 1, "s"))
@@ -134,7 +134,7 @@ func TestSlotReservationCompletionPolicy(t *testing.T) {
 func TestSlotReservationParallelAndAccountError(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	cache := NewConcurrencyCache(client, 15, 900)
 	svc := service.NewConcurrencyService(cache)
 	account := &service.Account{ID: 10, Type: service.AccountTypeOAuth, Extra: map[string]any{service.SlotReservationEnabled: true}}
@@ -179,7 +179,7 @@ func TestSlotReservationParallelAndAccountError(t *testing.T) {
 func TestSlotReservationErrorFencesOlderInFlightSuccess(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	cache := NewConcurrencyCache(client, 15, 900)
 	svc := service.NewConcurrencyService(cache)
 	account := &service.Account{ID: 10, Type: service.AccountTypeOAuth, Extra: map[string]any{service.SlotReservationEnabled: true}}
@@ -203,7 +203,7 @@ func TestSlotReservationLongTTLAndStartup(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	mr.SetTime(now)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	cache := NewConcurrencyCache(client, 1, 60).(*concurrencyCache)
 	svc := service.NewConcurrencyService(cache)
 	ctx := service.WithAccountSlotReservation(context.Background(), 1, "long")
