@@ -255,6 +255,7 @@ type AdminBoundAuthIdentityChannel struct {
 type CreateGroupInput struct {
 	Name                      string
 	Description               string
+	I18n                      GroupI18n // 名称与描述的界面语言译文
 	Platform                  string
 	RateMultiplier            float64
 	CacheReadReductionPercent float64
@@ -339,6 +340,7 @@ type CreateGroupInput struct {
 type UpdateGroupInput struct {
 	Name                      string
 	Description               *string
+	I18n                      *GroupI18n // nil 表示不修改；非 nil 整体替换
 	Platform                  string
 	RateMultiplier            *float64 // 使用指针以支持设置为0
 	CacheReadReductionPercent *float64
@@ -645,6 +647,7 @@ type ProxyQualityCheckItem struct {
 
 // ProxyExitInfo represents proxy exit information from ip-api.com
 type ProxyExitInfo struct {
+	Timezone    string
 	IP          string
 	City        string
 	Region      string

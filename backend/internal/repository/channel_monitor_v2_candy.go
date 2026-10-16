@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -49,7 +50,7 @@ func (r *channelMonitorV2Repository) CandyHistory(ctx context.Context, ids []int
 }
 
 func (r *channelMonitorV2Repository) PruneCandyHistory(ctx context.Context, now time.Time) error {
-	// A crashed worker's claim must never block a group indefinitely. The lease
+	// A crashed worker's claim must never block that probe indefinitely. The lease
 	// is longer than the 90-second probe timeout; old workers cannot overwrite it.
 	if _, err := r.db.ExecContext(ctx, `UPDATE channel_monitor_v2_candy_results SET verdict='error',reason='interrupted',finished_at=NOW() WHERE verdict='running' AND checked_at<$1`, now.Add(-3*time.Minute)); err != nil {
 		return err

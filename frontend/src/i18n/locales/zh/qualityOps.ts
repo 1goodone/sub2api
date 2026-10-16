@@ -1,4 +1,13 @@
 export default {
+  "isolateModels": "按模型隔离，全部降智才移出分组",
+  "isolationHelp": "按检测模型分别处置：明确答错才隔离该模型；所有检测模型本轮均明确降智才移出所选分组。超时、未知或跳过不触发整组移除。隔离持续至复测通过，不影响正常模型及账号并发；模型隔离对该账号的所有分组生效。",
+  "isolationRestoreHelp": "开启后，每个模型独立复测通过即可恢复；至少一个模型通过时恢复本规则移出的原分组，其余模型保持隔离。持有隔离时请先恢复再改动作、目标或删除规则；暂停不会解除隔离。",
+  "isolationRequiresCandy": "按模型隔离需要使用答题检测，不能使用账号状态探针",
+  "modelAction": "本轮模型处置",
+  "modelIsolated": "已隔离，等待复测通过",
+  "modelRestored": "已恢复该模型",
+  "modelUnchanged": "保持当前状态",
+
   "cooldownPerModelHint": "冷却与恢复按每个模型自己的检测结果处理：仅冷却检测失败的模型；通过的模型不受其他模型影响，未检测或不支持的模型不新增冷却。5xx 先降低账号并发，等待检测结果后决定模型冷却。",
 
   "skipped": "已跳过",
@@ -145,6 +154,9 @@ export default {
   "queued": "已加入检测队列，预计一分钟内开始。",
   "deleteConfirm": "删除此规则及检测记录？已移出的分组、关闭的调度或本规则开启的 BPS 不会自动恢复，请先在账户页处理。",
   "outcomes": {
+    "models_isolated": "降智模型已隔离，分组保留",
+    "groups_restored_models_isolated": "已恢复原分组，其余降智模型保持隔离",
+
     "models_cooled": "未通过的模型已冷却",
     "model_cooldown_refreshed": "模型冷却已续期",
     "models_partially_restored": "已恢复部分模型",
@@ -266,6 +278,9 @@ export default {
   "discard": "放弃修改",
   "disableSchedulingShort": "关闭调度，保留分组",
   "actionHelp": {
+    "models_isolated": "仅隔离明确答错的模型，正常模型继续服务。模型隔离持续至独立复测通过，不会按时间自动解除。",
+    "groups_restored_models_isolated": "至少一个模型复测通过，已恢复本规则移出的原分组。其他未恢复的模型继续保持隔离。",
+
     "models_cooled": "本规则仅冷却了检测失败的模型；通过、跳过或未检测的模型不新增冷却。逐模型结果见下表。",
     "model_cooldown_refreshed": "仍未通过的模型保留本规则的冷却，恢复通过的模型独立处理；其他规则或人工设置保持不变。",
     "models_partially_restored": "已恢复本规则冷却且检测通过的模型；其余模型继续等待明确的恢复结果。",

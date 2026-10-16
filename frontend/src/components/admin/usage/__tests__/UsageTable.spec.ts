@@ -1042,12 +1042,13 @@ const DataTableStubWithLatency = {
 }
 
 describe('admin UsageTable latency TPS', () => {
-  const mountLatency = (data: Record<string, unknown>[]) =>
+  const mountLatency = (data: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
     mount(UsageTable, {
       props: {
         data: data as any,
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
+        ...extra,
       },
       global: {
         stubs: {

@@ -372,8 +372,20 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 	if signal.Samples >= c.MinSamples {
 		latency = 1 / (1 + signal.P90TTFTMs/float64(c.TargetTTFTMs))
 		if signal.P90TTFTMs > float64(c.TargetTTFTMs) {
-			degraded = true
-			out.Reasons = append(out.Reasons, "latency_above_target")
+			// The deadline belongs to the latest valid usage sample, not the
+			// scoring/cache refresh. Old evidence cannot continuously re-arm it.
+			if c.LatencyPenaltyMinutes > 0 && signal.LatestLatencyAt != nil {
+				until := signal.LatestLatencyAt.Add(time.Duration(c.LatencyPenaltyMinutes) * time.Minute)
+				out.LatencyPenaltyUntil = &until
+				out.LatencyRecovery = !now.Before(until)
+			}
+			if out.LatencyRecovery {
+				unknown = true
+				out.Reasons = append(out.Reasons, "latency_recovery")
+			} else {
+				degraded = true
+				out.Reasons = append(out.Reasons, "latency_above_target")
+			}
 		}
 	} else {
 		unknown = true
@@ -593,7 +605,8 @@ func applyPriorityCandidate(c PrioritySchedulingConfig, item *openAIAccountCandi
 		float64(score.QualityPassed)/float64(score.QualitySamples)*100 >= float64(c.MinQualityPercent)
 	item.priorityExploration = (item.account.IsOpenAIOAuth() || item.account.IsOpenAIApiKey()) &&
 		score.Tier == "insufficient" && qualityReady &&
-		(score.ProfitSamples < c.MinSamples || score.Samples < c.MinSamples) &&
+		(!score.LatencyRecovery || (score.LatestQualityPassed != nil && *score.LatestQualityPassed)) &&
+		(score.ProfitSamples < c.MinSamples || score.Samples < c.MinSamples || score.LatencyRecovery) &&
 		item.loadKnown && score.LoadPercent != nil && *score.LoadPercent < c.MaxLoadPercent
 	item.priorityOAuthSpare = priorityOAuthQuotaSpare(c, *item, score, now)
 	item.priorityAPIStandby = false

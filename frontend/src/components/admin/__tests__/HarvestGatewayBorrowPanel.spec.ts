@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import HarvestGatewayBorrowPanel from '../HarvestGatewayBorrowPanel.vue'
-import AstraGatewayRuntime from '@/components/admin/AstraGatewayRuntime.vue'
 import { normalizeAstraGateway } from '@/api/admin/astraGateway'
 const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn(), getAll: vi.fn() }))
 vi.mock('@/api/admin/astraGateway', async importOriginal => ({ ...await importOriginal<typeof import('@/api/admin/astraGateway')>(), getAstraGateway: mocks.get, saveAstraGateway: mocks.save }))
@@ -40,13 +39,12 @@ describe('Astra gateway configuration', () => {
     w.unmount()
   })
 
-  it('requires selected groups and persists each scheduling mode', async () => {
-    mocks.get.mockResolvedValue({ ...value(), account_scheduling: true })
+  it('preserves the latest ticket scheduling policy when saving borrowing settings', async () => {
     const w = render(); await flushPromises()
-    expect(w.get('[data-testid="scheduling-mode"]').element).toHaveProperty('value', 'account')
-    await w.get('[data-testid="scheduling-mode"]').setValue('groups'); await flushPromises()
-    expect(w.get('[data-testid="save"]').attributes('disabled')).toBeDefined()
-    await w.get('[data-testid="scheduling-groups"] input').setValue(true)
+    expect(w.find('[data-testid="account-scheduling-toggle"]').exists()).toBe(false)
+    expect(w.find('[data-testid="scheduling-records"]').exists()).toBe(false)
+    mocks.get.mockResolvedValue({ ...value(), account_scheduling: false, ticket_pool_scheduling: true, scheduling_mode: 'groups', scheduling_group_ids: [7] })
+    await w.get('[data-testid="cookie-toggle"]').trigger('click')
     await w.get('form').trigger('submit'); await flushPromises()
     expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ scheduling_mode: 'groups', scheduling_group_ids: [7] }))
     await w.get('[data-testid="scheduling-mode"]').setValue('model')
@@ -97,6 +95,7 @@ describe('Astra gateway configuration', () => {
     expect(log.text()).not.toContain('admin.astraGateway.disabled')
     w.unmount()
   })
+
   it('loads disabled defaults and saves independent switches', async () => {
     const w = render(); await flushPromises()
     expect(w.get('[data-testid="cookie-toggle"]').attributes('aria-checked')).toBe('false')

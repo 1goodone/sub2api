@@ -980,7 +980,13 @@ func (s *GatewayService) resolveGroupByID(ctx context.Context, groupID int64) (*
 	if group := s.groupFromContext(ctx, groupID); group != nil {
 		return group, nil
 	}
-	group, err := s.groupRepo.GetByIDLite(ctx, groupID)
+	var group *Group
+	var err error
+	if s.schedulerSnapshot != nil && s.schedulerSnapshot.localSnapshotReader != nil {
+		group, err = s.schedulerSnapshot.GetGroupByIDLite(ctx, groupID)
+	} else {
+		group, err = s.groupRepo.GetByIDLite(ctx, groupID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get group failed: %w", err)
 	}

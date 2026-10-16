@@ -23,7 +23,7 @@
               <p class="text-sm leading-6 text-gray-500">{{ t('priorityScheduling.rule') }}</p>
               <p class="text-xs leading-5 text-gray-500">{{ t('priorityScheduling.costHint') }}</p>
             </section>
-            <section><h2 class="mb-3 font-medium">{{ t('priorityScheduling.thresholds') }}</h2><div class="grid gap-3 sm:grid-cols-2"><label v-for="field in fields" :key="field.key"><span class="field-title">{{ t(`priorityScheduling.${field.key}`) }}</span><input v-model.number="draft[field.key]" type="number" :min="field.min" :max="field.max" step="1" required class="input w-full" /></label></div></section>
+            <section><h2 class="mb-3 font-medium">{{ t('priorityScheduling.thresholds') }}</h2><div class="grid gap-3 sm:grid-cols-2"><label v-for="field in fields" :key="field.key"><span class="field-title">{{ t(`priorityScheduling.${field.key}`) }}</span><input v-model.number="draft[field.key]" type="number" :data-testid="field.key" :min="field.min" :max="field.max" step="1" required class="input w-full" /></label></div><p class="mt-3 text-xs leading-5 text-gray-500">{{ t('priorityScheduling.latencyPenaltyHint') }}</p></section>
           </div>
           <section class="space-y-3 rounded-xl border border-primary-200 p-4 dark:border-primary-900">
             <label class="flex items-center gap-2 font-medium"><input v-model="draft.teams.enabled" data-testid="teams-recovery" type="checkbox" />{{ t('priorityScheduling.teams.enabled') }}</label>
@@ -71,7 +71,7 @@ const modes = ['experience', 'balanced', 'profit', 'custom'] as const
 const presets = { experience: [40,35,20,5], balanced: [30,25,25,20], profit: [20,15,20,45] }
 const weightKeys = ['quality_weight','latency_weight','load_weight','cost_weight'] as const
 const fields = [
-  { key: 'target_ttft_ms', min: 100, max: 120000 }, { key: 'max_load_percent', min: 10, max: 100 },
+  { key: 'target_ttft_ms', min: 100, max: 120000 }, { key: 'latency_penalty_minutes', min: 0, max: 1440 }, { key: 'max_load_percent', min: 10, max: 100 },
   { key: 'min_quality_percent', min: 0, max: 100 }, { key: 'window_minutes', min: 5, max: 1440 },
   { key: 'min_samples', min: 1, max: 1000 }, { key: 'quality_max_age_hours', min: 1, max: 168 }
 ] as const

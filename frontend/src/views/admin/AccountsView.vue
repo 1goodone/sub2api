@@ -574,6 +574,7 @@ import AccountTableFilters from '@/components/admin/account/AccountTableFilters.
 import OpenAIAccountSummaryCards from '@/components/admin/account/OpenAIAccountSummaryCards.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import OpenAISessionExportDialog from '@/components/admin/account/OpenAISessionExportDialog.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -706,6 +707,7 @@ const togglingCodexOverdraft = ref<number | null>(null)
 const updatingRoutingGroupId = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null}>({ show: false, acc: null, anchorRect: null })
 const exportingData = ref(false)
+const sessionExportAccount = ref<Account | null>(null)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
@@ -1549,6 +1551,7 @@ const isAnyModalOpen = computed(() => {
     showSync.value ||
     showImportData.value ||
     showExportDataDialog.value ||
+    sessionExportAccount.value !== null ||
     showBulkEdit.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||

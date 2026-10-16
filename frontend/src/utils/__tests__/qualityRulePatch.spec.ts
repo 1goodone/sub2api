@@ -178,3 +178,29 @@ describe('BPS recovery interval in quality rules', () => {
     expect(qualityBPSError({ ...bps(), recovery_interval_minutes: minutes })).toBe('admin.accounts.openai.excelBPS403RecoveryIntervalInvalid')
   })
 })
+
+describe('composed model isolation', () => {
+  it('uses tested models and selected groups without legacy cooldown or concurrency fields', () => {
+    const input = draft()
+    input.pelican_config.quality.action = 'isolate_models'
+    input.pelican_config.quality.remove_models = ['stale-target']
+    input.pelican_config.quality.recovery_concurrency = 2
+    input.pelican_config.model_ids = ['sol', 'astra']
+    const patch = buildQualityRulePatch(plan(), input, ['action', 'model'])
+    expect(patch.pelican_config).toMatchObject({ model_ids: ['new-model', 'sol', 'astra'], quality: {
+      action: 'isolate_models', remove_group_ids: [21], expected_answer: '7', auto_restore: false,
+    } })
+    expect(patch.pelican_config!.quality).not.toHaveProperty('remove_models')
+    expect(patch.pelican_config!.quality).not.toHaveProperty('recovery_concurrency')
+    expect(patch.pelican_config!.quality).not.toHaveProperty('bps')
+  })
+
+  it('requires explicit groups and per-model answer tests for bulk changes', () => {
+    const input = draft()
+    input.pelican_config.quality.action = 'isolate_models'
+    input.pelican_config.quality.remove_group_ids = []
+    expect(() => buildQualityRulePatch(plan(), input, ['action'])).toThrow('qualityOps.selectGroups')
+    input.pelican_config.quality.remove_group_ids = [21]
+    expect(() => buildQualityRulePatch(probePlan(), input, ['action'])).toThrow('qualityOps.isolationRequiresCandy')
+  })
+})

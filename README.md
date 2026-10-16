@@ -205,7 +205,7 @@ Community projects that extend or integrate with Sub2API:
 | Database | PostgreSQL 15+ |
 | Cache/Queue | Redis 7+ |
 
-Astra 的网关快速复用、单号自采与后台补票如何共用票库，请阅读[门票获取与复用](docs/astra-ticket-acquisition.md)。
+账号检测、失败处置和自动恢复，请阅读[质量运维](docs/account-quality-operations.md)；BPS OAuth 登录、工具兼容和 403 恢复配置，请阅读[Excel / BPS 协议](docs/excel-bps.md)。
 
 已经托管账号或完成部署，想在 Codex 中使用？请阅读[新人入门：使用 Sub2API 接入 Codex](docs/新人入门-使用Sub2API.md)，按步骤创建 API Key、配置 Cockpit Tools 并验证调用。
 

@@ -24,7 +24,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
 	}
 	rows, err := r.sql.QueryContext(ctx, `
  WITH base_usage AS (
-  SELECT account_id, stream, first_token_ms, actual_cost,
+  SELECT account_id, created_at, stream, first_token_ms, actual_cost,
    COALESCE(account_stats_cost,total_cost) AS base_cost
   FROM usage_logs
   WHERE account_id=ANY($1) AND created_at >= $3 AND created_at <= NOW()
@@ -36,6 +36,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
   SELECT account_id,
    COUNT(*) FILTER (WHERE stream AND first_token_ms>0) AS samples,
    percentile_cont(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms>0) AS p90,
+   MAX(created_at) FILTER (WHERE stream AND first_token_ms>0) AS latest_latency_at,
    COUNT(*) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS profit_samples,
    SUM(actual_cost) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS revenue,
    SUM(base_cost) FILTER (WHERE actual_cost>=0 AND base_cost>=0 AND actual_cost+base_cost>0) AS base_cost

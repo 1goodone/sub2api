@@ -25,6 +25,7 @@ var effortFamilies = []struct {
 	{family: "claude-opus-4-6", levels: effortLowMediumHighMax},
 	{family: "claude-opus-4-5", levels: effortLowMediumHigh},
 	{family: "claude-opus-5", levels: effortLowMediumHighXHighMax},
+	{family: "claude-haiku-5-5", levels: effortLowMediumHighXHighMax},
 }
 
 // EffortLevelsForModel returns the output_config.effort values accepted by a

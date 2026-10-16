@@ -1384,11 +1384,19 @@ export interface CodexHarvestFlowTicket {
 }
 
 export interface CodexHarvestFlowAccount {
+  coverage?: {
+    started_at: string
+    updated_at: string
+    ready_seconds: number
+    missing_seconds: number
+    percent: number | null
+  }
   id: number
   name: string
   status: string
   schedulable: boolean
   skip_harvest?: boolean
+  harvest_selected?: boolean
   in_scope?: boolean
   availability?: string
   recover_at?: string
@@ -1432,7 +1440,18 @@ export interface CodexHarvestFlowEvent {
   detail?: string
 }
 
+export interface CodexHarvestCoverage {
+  started_at?: string
+  updated_at?: string
+  account_count: number
+  average_ready_seconds: number
+  average_missing_seconds: number
+  average_percent: number | null
+  sample_interval_seconds: number
+}
+
 export interface CodexHarvestFlowSnapshot {
+  coverage?: CodexHarvestCoverage
   generated_at: string
   harvest: {
     enabled: boolean
@@ -1678,5 +1697,11 @@ export default accountsAPI
 
 export async function getManagementCapabilities(): Promise<{ web_search_enabled: boolean; account_quota_notify_enabled: boolean }> {
   const { data } = await apiClient.get('/admin/accounts/management-capabilities')
+  return data
+}
+
+/** Fetch the real ChatGPT web session using a request-scoped login Cookie. */
+export async function exportOpenAISession(id: number, cookie: string): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>(`/admin/accounts/${id}/export-session`, { cookie })
   return data
 }

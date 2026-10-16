@@ -30,13 +30,16 @@ func TestChannelMonitorV2CandyPersistenceAndClaims(t *testing.T) {
 	probe := service.ChannelMonitorV2CandyProbe{GroupID: group.ID, Enabled: true, Model: "model-test", ReasoningEffort: "medium", IntervalMinutes: 1}
 	cfg := *original
 	cfg.Enabled = true
+	cfg.CandyHistoryLimit = 40
 	cfg.CandyProbes = []service.ChannelMonitorV2CandyProbe{probe}
 	updated, err := repo.UpdateConfig(ctx, cfg, cfg.Version)
 	require.NoError(t, err)
 	require.Equal(t, cfg.CandyProbes, updated.CandyProbes)
+	require.Equal(t, 40, updated.CandyHistoryLimit)
 	loaded, err := repo.GetConfig(ctx)
 	require.NoError(t, err)
 	require.Equal(t, cfg.CandyProbes, loaded.CandyProbes)
+	require.Equal(t, 40, loaded.CandyHistoryLimit)
 	now := time.Now().UTC().Truncate(time.Minute)
 	var wg sync.WaitGroup
 	ids := make([]int64, 16)
@@ -59,9 +62,12 @@ func TestChannelMonitorV2CandyPersistenceAndClaims(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, count, "replicas may only claim one sample for a group/slot")
+	otherID, err := repo.ClaimCandyProbe(ctx, probe, "other-model-key", now, updated.Version)
+	require.NoError(t, err)
+	require.NotZero(t, otherID, "another model of the same group can be claimed while one model is running")
 	next, err := repo.ClaimCandyProbe(ctx, probe, "test-key", now.Add(time.Minute), updated.Version)
 	require.NoError(t, err)
-	require.Zero(t, next, "an in-flight group cannot overlap another slot")
+	require.Zero(t, next, "an in-flight model cannot overlap another slot")
 	require.NoError(t, repo.FinishCandyProbe(ctx, service.ChannelMonitorV2CandyResult{ID: claimed, Verdict: "correct", AnswerPreview: "21个", LatencyMs: 123}))
 	items, err := repo.CandyHistory(ctx, []int64{group.ID}, now.Add(-time.Hour))
 	require.NoError(t, err)

@@ -41,7 +41,14 @@ type ChannelMonitorV2CandyHistory struct {
 	Model           string                        `json:"model"`
 	ReasoningEffort string                        `json:"reasoning_effort"`
 	IntervalMinutes int                           `json:"interval_minutes"`
+	HistoryLimit    int                           `json:"history_limit"`
 	Results         []ChannelMonitorV2CandyResult `json:"results"`
+}
+
+// ChannelMonitorV2CandyScope selects one active probe's retained samples.
+type ChannelMonitorV2CandyScope struct {
+	GroupID   int64
+	ConfigKey string
 }
 
 type ChannelMonitorV2CandyRepository interface {
@@ -68,17 +75,40 @@ func newChannelMonitorV2CandyService(repo ChannelMonitorV2Repository, runner cha
 	return &ChannelMonitorV2CandyService{config: repo, repo: store, runner: runner, settings: settings, now: time.Now}
 }
 
+func candyProbeIdentity(p ChannelMonitorV2CandyProbe) string {
+	return fmt.Sprintf("%d\x00%s\x00%s", p.GroupID, p.Model, p.ReasoningEffort)
+}
+
+func normalizeChannelMonitorV2CandyHistoryLimit(limit int) (int, error) {
+	if limit == 0 {
+		return ChannelMonitorV2CandyHistoryDefault, nil
+	}
+	if limit < ChannelMonitorV2CandyHistoryMin || limit > ChannelMonitorV2CandyHistoryMax {
+		return 0, fmt.Errorf("%w: candy history limit must be %d-%d", ErrChannelMonitorV2InvalidConfig, ChannelMonitorV2CandyHistoryMin, ChannelMonitorV2CandyHistoryMax)
+	}
+	return limit, nil
+}
+
+// EffectiveChannelMonitorV2CandyHistoryLimit maps a missing or out-of-range
+// value to the default so reads and queries stay inside the stored range.
+func EffectiveChannelMonitorV2CandyHistoryLimit(limit int) int {
+	normalized, err := normalizeChannelMonitorV2CandyHistoryLimit(limit)
+	if err != nil {
+		return ChannelMonitorV2CandyHistoryDefault
+	}
+	return normalized
+}
+
 func normalizeChannelMonitorV2CandyProbes(probes []ChannelMonitorV2CandyProbe) error {
 	if len(probes) > channelCandyMaxProbes {
 		return fmt.Errorf("%w: at most %d candy probes", ErrChannelMonitorV2InvalidConfig, channelCandyMaxProbes)
 	}
-	seen := map[int64]bool{}
+	seen := map[string]bool{}
 	for i := range probes {
 		p := &probes[i]
-		if p.GroupID <= 0 || seen[p.GroupID] {
-			return fmt.Errorf("%w: invalid or duplicate candy group", ErrChannelMonitorV2InvalidConfig)
+		if p.GroupID <= 0 {
+			return fmt.Errorf("%w: invalid candy group", ErrChannelMonitorV2InvalidConfig)
 		}
-		seen[p.GroupID] = true
 		p.Model = strings.TrimSpace(p.Model)
 		if p.Model == "" || len(p.Model) > 100 {
 			return fmt.Errorf("%w: candy model is required (maximum 100 bytes)", ErrChannelMonitorV2InvalidConfig)
@@ -90,6 +120,10 @@ func normalizeChannelMonitorV2CandyProbes(probes []ChannelMonitorV2CandyProbe) e
 		if p.ReasoningEffort == "" {
 			return fmt.Errorf("%w: invalid candy reasoning effort", ErrChannelMonitorV2InvalidConfig)
 		}
+		if seen[candyProbeIdentity(*p)] {
+			return fmt.Errorf("%w: duplicate candy model %q for group %d", ErrChannelMonitorV2InvalidConfig, p.Model, p.GroupID)
+		}
+		seen[candyProbeIdentity(*p)] = true
 		if p.IntervalMinutes == 0 {
 			p.IntervalMinutes = 1
 		}
@@ -178,7 +212,7 @@ func (s *ChannelMonitorV2CandyService) runOne(ctx context.Context, probe Channel
 	slot := tick.UTC().Truncate(time.Duration(probe.IntervalMinutes) * time.Minute)
 	id, err := s.repo.ClaimCandyProbe(ctx, probe, probe.key(), slot, cfg.Version)
 	if err != nil {
-		logger.LegacyPrintf("service.channel_monitor_v2", "candy claim group=%d failed: %v", probe.GroupID, err)
+		logger.LegacyPrintf("service.channel_monitor_v2", "candy claim group=%d model=%s failed: %v", probe.GroupID, probe.Model, err)
 		return
 	}
 	if id == 0 {
@@ -227,10 +261,10 @@ func (s *ChannelMonitorV2CandyService) runOne(ctx context.Context, probe Channel
 }
 
 func (s *ChannelMonitorV2CandyService) attachHistory(ctx context.Context, matrix *ChannelMonitorV2Matrix, cfg *ChannelMonitorV2Config, admin bool) error {
-	probes := map[int64]ChannelMonitorV2CandyProbe{}
+	enabled := make([]ChannelMonitorV2CandyProbe, 0, len(cfg.CandyProbes))
 	for _, p := range cfg.CandyProbes {
 		if p.Enabled {
-			probes[p.GroupID] = p
+			enabled = append(enabled, p)
 		}
 	}
 	ids := []int64{}
@@ -244,36 +278,51 @@ func (s *ChannelMonitorV2CandyService) attachHistory(ctx context.Context, matrix
 	if len(ids) == 0 {
 		return nil
 	}
+	limit := EffectiveChannelMonitorV2CandyHistoryLimit(cfg.CandyHistoryLimit)
 	// Only groups already admitted by the matrix's server-side scope are read.
 	history, err := s.repo.CandyHistory(ctx, ids, s.now().Add(-time.Hour))
 	if err != nil {
 		return err
 	}
-	byGroup := map[int64][]ChannelMonitorV2CandyResult{}
+	allowed := map[string]bool{}
+	for _, scope := range scopes {
+		allowed[fmt.Sprintf("%d\x00%s", scope.GroupID, scope.ConfigKey)] = true
+	}
+	byProbe := map[string][]ChannelMonitorV2CandyResult{}
 	for _, r := range history {
-		if p, ok := probes[r.GroupID]; !ok || p.key() != r.ConfigKey {
+		key := fmt.Sprintf("%d\x00%s", r.GroupID, r.ConfigKey)
+		if !allowed[key] {
 			continue
 		}
 		if !admin {
 			r.AnswerPreview = ""
 			r.Reason = ""
 		}
-		byGroup[r.GroupID] = append(byGroup[r.GroupID], r)
+		byProbe[key] = append(byProbe[key], r)
 	}
 	for i := range matrix.Items {
 		row := &matrix.Items[i]
 		if row.GroupID == nil {
 			continue
 		}
-		p, ok := probes[*row.GroupID]
-		if !ok {
+		probes := byGroup[*row.GroupID]
+		if len(probes) == 0 {
 			continue
 		}
-		results := byGroup[p.GroupID]
-		if results == nil {
-			results = []ChannelMonitorV2CandyResult{}
+		checks := make([]ChannelMonitorV2CandyHistory, 0, len(probes))
+		for _, p := range probes {
+			results := byProbe[fmt.Sprintf("%d\x00%s", p.GroupID, p.key())]
+			if results == nil {
+				results = []ChannelMonitorV2CandyResult{}
+			}
+			checks = append(checks, ChannelMonitorV2CandyHistory{
+				Model: p.Model, ReasoningEffort: p.ReasoningEffort, IntervalMinutes: p.IntervalMinutes,
+				HistoryLimit: limit, Results: results,
+			})
 		}
-		row.Candy = &ChannelMonitorV2CandyHistory{Model: p.Model, ReasoningEffort: p.ReasoningEffort, IntervalMinutes: p.IntervalMinutes, Results: results}
+		row.CandyChecks = checks
+		first := checks[0]
+		row.Candy = &first
 	}
 	return nil
 }

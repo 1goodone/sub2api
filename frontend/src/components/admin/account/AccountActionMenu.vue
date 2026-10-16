@@ -42,6 +42,10 @@
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
+            <button v-if="isOpenAIOAuthParent" @click="$emit('export-session', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="download" size="sm" class="text-sky-500" />
+              {{ t('admin.accounts.sessionExport.title') }}
+            </button>
             <button v-if="isOpenAIOAuthParent" @click="$emit('create-spark-shadow', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}

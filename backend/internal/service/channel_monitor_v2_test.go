@@ -26,8 +26,11 @@ func (s *channelMonitorV2RepoStub) GetConfig(context.Context) (*ChannelMonitorV2
 	cfg := ChannelMonitorV2Config(s.config)
 	return &cfg, nil
 }
-func (s *channelMonitorV2RepoStub) UpdateConfig(context.Context, ChannelMonitorV2Config, int) (*ChannelMonitorV2Config, error) {
-	return nil, nil
+func (s *channelMonitorV2RepoStub) UpdateConfig(_ context.Context, cfg ChannelMonitorV2Config, version int) (*ChannelMonitorV2Config, error) {
+	saved := cfg
+	saved.Version = version + 1
+	s.config = saved
+	return &saved, nil
 }
 func (s *channelMonitorV2RepoStub) GetDimensions(context.Context, ChannelMonitorV2Filter, ChannelMonitorV2Config) (*ChannelMonitorV2Dimensions, error) {
 	return nil, nil
@@ -170,7 +173,17 @@ func TestChannelMonitorV2ConfigValidation(t *testing.T) {
 	}
 	require.NoError(t, normalizeChannelMonitorV2Config(&cfg))
 	require.Equal(t, 300, cfg.RefreshIntervalSeconds)
-	require.Equal(t, "anthropic", cfg.Platforms[0].Platform)
+	require.Equal(t, ChannelMonitorV2CandyHistoryDefault, cfg.CandyHistoryLimit)
+	require.Equal(t, "openai", cfg.Platforms[0].Platform)
+	require.True(t, cfg.Platforms[0].Enabled)
+	require.Equal(t, []string{"gpt-5"}, cfg.Platforms[0].Models)
+	require.Equal(t, "anthropic", cfg.Platforms[1].Platform)
+	require.True(t, cfg.Platforms[1].Enabled)
+	require.Equal(t, []string{"grok", "kiro", "gemini", "antigravity"}, platformIDs(cfg.Platforms[2:]))
+	for _, item := range cfg.Platforms[2:] {
+		require.False(t, item.Enabled)
+		require.Empty(t, item.Models)
+	}
 	require.Equal(t, []int64{1, 3}, cfg.GroupIDs)
 
 	cfg.RefreshIntervalSeconds = 120
@@ -179,6 +192,117 @@ func TestChannelMonitorV2ConfigValidation(t *testing.T) {
 	cfg.RefreshIntervalSeconds = 60
 	cfg.GroupIDs = []int64{0}
 	require.ErrorIs(t, normalizeChannelMonitorV2Config(&cfg), ErrChannelMonitorV2InvalidConfig)
+}
+
+func platformIDs(items []ChannelMonitorV2PlatformConfig) []string {
+	out := make([]string, len(items))
+	for i, item := range items {
+		out[i] = item.Platform
+	}
+	return out
+}
+
+func TestChannelMonitorV2ConfigKeepsCustomPlatformOrder(t *testing.T) {
+	cfg := ChannelMonitorV2Config{
+		RefreshIntervalSeconds: 60,
+		Platforms: []ChannelMonitorV2PlatformConfig{
+			{Platform: "DeepSeek", Enabled: true},
+			{Platform: "openai", Enabled: false, Models: []string{"gpt-5"}},
+			{Platform: "my_router", Enabled: true},
+			{Platform: "command_code", Enabled: false},
+		},
+	}
+	require.NoError(t, normalizeChannelMonitorV2Config(&cfg))
+	require.Equal(t, []string{"deepseek", "openai", "my_router", "command_code", "anthropic", "grok", "kiro", "gemini", "antigravity"}, platformIDs(cfg.Platforms))
+	require.True(t, cfg.Platforms[0].Enabled)
+	require.Empty(t, cfg.Platforms[0].Models)
+	require.False(t, cfg.Platforms[1].Enabled)
+	require.Equal(t, []string{"gpt-5"}, cfg.Platforms[1].Models)
+	for _, item := range cfg.Platforms[4:] {
+		require.False(t, item.Enabled)
+		require.Empty(t, item.Models)
+	}
+	require.Equal(t, "DeepSeek", ChannelMonitorV2PlatformLabel("deepseek"))
+	require.Equal(t, "Kiro", ChannelMonitorV2PlatformLabel("kiro"))
+	require.Equal(t, "my_router", ChannelMonitorV2PlatformLabel("my_router"))
+	require.Equal(t, 0, ChannelMonitorV2PlatformIndex(cfg, "deepseek"))
+	require.Equal(t, 2, ChannelMonitorV2PlatformIndex(cfg, "my_router"))
+	require.Equal(t, len(cfg.Platforms), ChannelMonitorV2PlatformIndex(cfg, "missing"))
+
+	dup := cfg
+	dup.Platforms = append([]ChannelMonitorV2PlatformConfig{{Platform: "deepseek"}}, dup.Platforms...)
+	require.ErrorIs(t, normalizeChannelMonitorV2Config(&dup), ErrChannelMonitorV2InvalidConfig)
+
+	invalid := ChannelMonitorV2Config{RefreshIntervalSeconds: 60, Platforms: []ChannelMonitorV2PlatformConfig{{Platform: "not a platform"}}}
+	require.ErrorIs(t, normalizeChannelMonitorV2Config(&invalid), ErrChannelMonitorV2InvalidConfig)
+}
+
+func TestChannelMonitorV2UpdateDisablesOmittedFactoryPlatform(t *testing.T) {
+	repo := &channelMonitorV2RepoStub{config: ChannelMonitorV2Config{
+		Version:                3,
+		RefreshIntervalSeconds: 60,
+		Platforms: []ChannelMonitorV2PlatformConfig{
+			{Platform: "openai", Enabled: true, Models: []string{"gpt-5"}},
+			{Platform: "deepseek", Enabled: true, Models: []string{"deepseek-chat"}},
+		},
+	}}
+	updated, err := NewChannelMonitorV2Service(repo).UpdateConfig(context.Background(), ChannelMonitorV2Config{
+		Version:                3,
+		RefreshIntervalSeconds: 60,
+		Platforms:              []ChannelMonitorV2PlatformConfig{{Platform: "anthropic", Enabled: true, Models: []string{"claude"}}},
+	}, 3, 9)
+	require.NoError(t, err)
+	require.Equal(t, []string{"anthropic", "openai", "grok", "kiro", "gemini", "antigravity"}, platformIDs(updated.Platforms))
+	require.True(t, updated.Platforms[0].Enabled)
+	require.Equal(t, []string{"claude"}, updated.Platforms[0].Models)
+	require.False(t, updated.Platforms[1].Enabled)
+	require.Empty(t, updated.Platforms[1].Models)
+	for _, item := range updated.Platforms[2:] {
+		require.False(t, item.Enabled)
+		require.Empty(t, item.Models)
+	}
+	require.NotContains(t, platformIDs(updated.Platforms), "deepseek")
+}
+
+func TestChannelMonitorV2UpdateKeepsStoredPlatformsWhenFieldOmitted(t *testing.T) {
+	repo := &channelMonitorV2RepoStub{config: ChannelMonitorV2Config{
+		Version:                4,
+		RefreshIntervalSeconds: 60,
+		CandyHistoryLimit:      80,
+		Platforms: []ChannelMonitorV2PlatformConfig{
+			{Platform: "openai", Enabled: true, Models: []string{"gpt-5"}},
+			{Platform: "deepseek", Enabled: false, Models: []string{"deepseek-chat"}},
+		},
+	}}
+	updated, err := NewChannelMonitorV2Service(repo).UpdateConfig(context.Background(), ChannelMonitorV2Config{
+		Version:                4,
+		RefreshIntervalSeconds: 60,
+	}, 4, 9)
+	require.NoError(t, err)
+	require.Equal(t, 80, updated.CandyHistoryLimit)
+	require.Equal(t, "openai", updated.Platforms[0].Platform)
+	require.True(t, updated.Platforms[0].Enabled)
+	require.Equal(t, []string{"gpt-5"}, updated.Platforms[0].Models)
+	require.Equal(t, "deepseek", updated.Platforms[1].Platform)
+	require.False(t, updated.Platforms[1].Enabled)
+	require.Equal(t, []string{"deepseek-chat"}, updated.Platforms[1].Models)
+	require.Equal(t, []string{"anthropic", "grok", "kiro", "gemini", "antigravity"}, platformIDs(updated.Platforms[2:]))
+	for _, item := range updated.Platforms[2:] {
+		require.False(t, item.Enabled)
+		require.Empty(t, item.Models)
+	}
+}
+
+func TestChannelMonitorV2UpdateKeepsOmittedCandyHistoryLimit(t *testing.T) {
+	repo := &channelMonitorV2RepoStub{config: ChannelMonitorV2Config{Version: 2, RefreshIntervalSeconds: 60, CandyHistoryLimit: 80}}
+	updated, err := NewChannelMonitorV2Service(repo).UpdateConfig(context.Background(), ChannelMonitorV2Config{Version: 2, RefreshIntervalSeconds: 60}, 2, 9)
+	require.NoError(t, err)
+	require.Equal(t, 80, updated.CandyHistoryLimit)
+	updated, err = NewChannelMonitorV2Service(repo).UpdateConfig(context.Background(), ChannelMonitorV2Config{Version: 2, RefreshIntervalSeconds: 60, CandyHistoryLimit: 15}, 2, 9)
+	require.NoError(t, err)
+	require.Equal(t, 15, updated.CandyHistoryLimit)
+	_, err = NewChannelMonitorV2Service(repo).UpdateConfig(context.Background(), ChannelMonitorV2Config{Version: 2, RefreshIntervalSeconds: 60, CandyHistoryLimit: 14}, 2, 9)
+	require.ErrorIs(t, err, ErrChannelMonitorV2InvalidConfig)
 }
 
 func TestChannelMonitorV2ErrorTaxonomyPriority(t *testing.T) {

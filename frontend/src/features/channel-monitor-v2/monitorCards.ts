@@ -14,9 +14,15 @@ export function monitorRefreshSeconds(configSeconds: number | undefined, rows: r
   return Math.max(60, seconds)
 }
 
-// Keep real time gaps. Each bar summarizes observed health in one of 18 equal
-// time windows, never interpolating a successful request into missing history.
-export function monitorCardTimeline(row: MonitorMatrixRow, coverage: MonitorCoverage | undefined) {
+export interface MonitorCardBar {
+  start: number
+  end: number
+  state: HealthState
+  observed: boolean
+  buckets: MonitorMatrixBucket[]
+}
+
+function coverageBounds(coverage: MonitorCoverage | undefined) {
   const start = Date.parse(coverage?.requested_start || '')
   const end = Date.parse(coverage?.requested_end || coverage?.data_through || '')
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return []
@@ -32,6 +38,10 @@ export function monitorCardTimeline(row: MonitorMatrixRow, coverage: MonitorCove
     if (severity[bucket.health.overall] > severity[bar.state]) bar.state = bucket.health.overall
   }
   return bars
+}
+
+export function monitorCardTimeline(row: MonitorMatrixRow, coverage: MonitorCoverage | undefined, mode: MonitorCardTimelineMode = 'windows') {
+  return mode === 'samples' ? monitorCardSampleTimeline(row, coverage) : monitorCardWindowTimeline(row, coverage)
 }
 
 export function candyDisplayState(history: MonitorCandyHistory, now: number): 'correct' | 'incorrect' | 'error' | 'unknown' | 'stale' {

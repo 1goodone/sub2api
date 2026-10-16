@@ -16,7 +16,7 @@ describe('monitor card data semantics', () => {
       { bucket_start: '2026-09-28T00:12:00Z', metrics: { ...metric, has_samples: false }, health: { overall: 'healthy' } },
     ] } as MonitorMatrixRow
     const bars = monitorCardTimeline(row, { requested_start: '2026-09-28T00:00:00Z', requested_end: '2026-09-28T01:30:00Z' } as MonitorCoverage)
-    expect(bars).toHaveLength(18)
+    expect(bars).toHaveLength(MONITOR_CARD_SLOT_COUNT)
     expect(bars[0]).toMatchObject({ state: 'unknown', observed: false })
     expect(bars[1]).toMatchObject({ state: 'warning', observed: true })
     expect(bars[2]).toMatchObject({ state: 'unknown', observed: false })

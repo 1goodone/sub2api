@@ -209,8 +209,8 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	// Persist timeout failures with a fresh context even after the request deadline.
 	saveCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
-	if plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.Action == QualityActionRemoveModel {
-		plan.QualityModelOutcomes = qualityModelOutcomes(results, plan.PelicanConfig.Quality.RemoveModels)
+	if plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.UsesModelResults() {
+		plan.QualityModelOutcomes = qualityModelOutcomes(results, QualityModels(plan))
 	}
 	qualityAction := ""
 	if plan.PelicanConfig.Quality != nil {
