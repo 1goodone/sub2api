@@ -751,6 +751,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
 	scanner := bufio.NewScanner(resp.Body)
 	// 设置更大的buffer以处理长行
 	maxLineSize := defaultMaxLineSize
@@ -1124,7 +1125,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				// Merge the current event before writing: even a failed write may carry
 				// upstream-metered usage. Do not read future events after disconnect.
 				if data != "" {
-					if firstTokenMs == nil && data != "[DONE]" {
+					if firstTokenMs == nil && data != "[DONE]" && (!firstResponseEnabled || isStreamFirstResponse(data, "")) {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
 					}

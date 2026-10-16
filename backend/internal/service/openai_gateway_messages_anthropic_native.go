@@ -335,6 +335,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
 	sawTerminalEvent := false
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -458,7 +459,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
+				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" && (!firstResponseEnabled || isStreamFirstResponse(trimmed, "")) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}

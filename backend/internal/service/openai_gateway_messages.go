@@ -940,6 +940,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	responseID := ""
 	var firstTokenMs *int
 	firstChunk := true
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	clientDisconnected := false
 	clientOutputStarted := false
 	var streamFailoverErr error
@@ -996,7 +997,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	// processDataLine handles a single "data: ..." SSE line from upstream.
 	processDataLine := func(payload string) bool {
 		payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
-		if firstChunk {
+		if firstChunk && (!firstResponseEnabled || isStreamFirstResponse(payload, "")) {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms

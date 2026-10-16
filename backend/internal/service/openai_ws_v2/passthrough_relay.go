@@ -71,6 +71,7 @@ type RelayExit struct {
 }
 
 type RelayOptions struct {
+	FirstResponseEnabled            bool
 	WriteTimeout                    time.Duration
 	IdleTimeout                     time.Duration
 	UpstreamDrainTimeout            time.Duration
@@ -101,6 +102,7 @@ type RelayTraceEvent struct {
 }
 
 type relayState struct {
+	firstResponseEnabled    bool
 	usage                   Usage
 	turnUsage               Usage
 	turnWroteDownstream     atomic.Bool
@@ -181,7 +183,7 @@ func Relay(
 		firstMessageType = coderws.MessageText
 	}
 	startAt := nowFn()
-	state := &relayState{requestModel: result.RequestModel}
+	state := &relayState{requestModel: result.RequestModel, firstResponseEnabled: options.FirstResponseEnabled}
 	if isClientResponseCreateFrame(firstMessageType, firstClientMessage) {
 		firstTurnStartedAt := options.FirstTurnStartedAt
 		if firstTurnStartedAt.IsZero() {
@@ -772,8 +774,9 @@ func observeUpstreamMessage(
 		responseID = strings.TrimSpace(values[3].String())
 	}
 	now := nowFn()
+	startsTiming := isTokenEvent(eventType) || (state.firstResponseEnabled && eventType != "ping" && eventType != "pong" && eventType != "keepalive" && eventType != "heartbeat")
 
-	if state.firstTokenMs == nil && isTokenEvent(eventType) {
+	if state.firstTokenMs == nil && startsTiming {
 		ms := int(now.Sub(startAt).Milliseconds())
 		if ms >= 0 {
 			state.firstTokenMs = &ms
@@ -794,7 +797,7 @@ func observeUpstreamMessage(
 	var turnTiming *relayTurnTiming
 	if responseID != "" {
 		turnTiming = openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
-		if turnTiming != nil && turnTiming.firstTokenMs == nil && isTokenEvent(eventType) {
+		if turnTiming != nil && turnTiming.firstTokenMs == nil && startsTiming {
 			ms := int(now.Sub(turnTiming.startAt).Milliseconds())
 			if ms >= 0 {
 				turnTiming.firstTokenMs = &ms

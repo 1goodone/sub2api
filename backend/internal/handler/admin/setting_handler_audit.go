@@ -466,6 +466,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAITTFTMode != after.OpenAITTFTMode {
 		changed = append(changed, "openai_ttft_mode")
 	}
+	if before.StreamFirstResponseEnabled != after.StreamFirstResponseEnabled {
+		changed = append(changed, "stream_first_response_enabled")
+	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}

@@ -997,6 +997,7 @@ func ProvideGeminiMessagesCompatService(
 	antigravityGatewayService *AntigravityGatewayService,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
+	settingService *SettingService,
 ) *GeminiMessagesCompatService {
 	svc := NewGeminiMessagesCompatService(
 		accountRepo,
@@ -1010,6 +1011,7 @@ func ProvideGeminiMessagesCompatService(
 		cfg,
 	)
 	svc.SetBillingCacheService(billingCacheService)
+	svc.settingService = settingService
 	return svc
 }
 

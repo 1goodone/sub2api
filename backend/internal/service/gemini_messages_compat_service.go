@@ -46,6 +46,7 @@ const (
 const geminiDummyThoughtSignature = "skip_thought_signature_validator"
 
 type GeminiMessagesCompatService struct {
+	settingService            *SettingService
 	accountRepo               AccountRepository
 	groupRepo                 GroupRepository
 	cache                     GatewayCache
@@ -2240,11 +2241,20 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			},
 		},
 	}
-	writeSSE(c.Writer, "message_start", messageStart)
-	flusher.Flush()
-
 	var firstTokenMs *int
 	var usage ClaudeUsage
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
+	messageStartSent := false
+	writeMessageStart := func() {
+		if !messageStartSent {
+			writeSSE(c.Writer, "message_start", messageStart)
+			flusher.Flush()
+			messageStartSent = true
+		}
+	}
+	if !firstResponseEnabled {
+		writeMessageStart()
+	}
 	finishReason := ""
 	sawToolUse := false
 
@@ -2292,6 +2302,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		var geminiResp map[string]any
 		if err := json.Unmarshal(unwrappedBytes, &geminiResp); err != nil {
 			continue
+		}
+		observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, string(unwrappedBytes), "")
+		if firstTokenMs != nil {
+			writeMessageStart()
 		}
 
 		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
@@ -2877,6 +2891,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	}
 	var firstTokenMs *int
 	var best geminiResponseSignal
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	sawDataEvent := false
 	fallback := &geminiSSEFallbackBody{}
 
@@ -2915,7 +2930,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					observer.ObserveGemini(rawBytes)
 					observeGeminiImageOutputs(c, rawBytes)
 
-					if firstTokenMs == nil {
+					if firstTokenMs == nil && (!firstResponseEnabled || isStreamFirstResponse(string(rawBytes), "")) {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
 					}

@@ -927,11 +927,13 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	terminal := ""
 	terminalSuccessful := false
 	cacheCreationAsInput := account.IsExcelBPSCacheCreationAsInputEnabled()
+	firstResponseEnabled := stream && s.settingService.IsStreamFirstResponseEnabled(ctx)
 	for scanner.Next(ctx, 0, heartbeat.C, keepalive) {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") {
 			payload := []byte(strings.TrimPrefix(line, "data: "))
 			kind := gjson.GetBytes(payload, "type").String()
+			observeStreamFirstResponse(&result.FirstTokenMs, firstResponseEnabled, start, string(payload), kind)
 			s.parseSSEUsageBytes(payload, &result.Usage)
 			if len(compactOutput) > 0 && (kind == "response.completed" || kind == "response.failed" || kind == "response.cancelled" || kind == "response.incomplete") {
 				subtractImagePolicyUsage(&result.Usage, compactUsage)

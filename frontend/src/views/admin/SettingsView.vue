@@ -5424,6 +5424,22 @@
                 </div>
 
               <!-- OpenAI Responses 首字统计 -->
+              <div class="flex items-center justify-between gap-5 md:col-span-2">
+                <div>
+                  <label id="stream-first-response-label" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.streamFirstResponse") }}
+                  </label>
+                  <p id="stream-first-response-hint" class="mt-0.5 max-w-xl text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.streamFirstResponseHint") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.stream_first_response_enabled"
+                  aria-labelledby="stream-first-response-label"
+                  aria-describedby="stream-first-response-hint"
+                  data-testid="stream-first-response-toggle"
+                />
+              </div>
               <div class="border-b border-gray-100 pb-5 dark:border-dark-700 md:col-span-2">
                 <label
                   for="openai-ttft-mode"
@@ -5434,6 +5450,7 @@
                 <select
                   id="openai-ttft-mode"
                   v-model="form.openai_ttft_mode"
+                  :disabled="form.stream_first_response_enabled"
                   class="input mt-2 w-full"
                   data-testid="openai-ttft-mode"
                 >
@@ -10459,6 +10476,7 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
   openai_ttft_mode: "semantic",
+  stream_first_response_enabled: false,
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -12191,6 +12209,7 @@ async function saveSettings() {
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
+      stream_first_response_enabled: form.stream_first_response_enabled,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,

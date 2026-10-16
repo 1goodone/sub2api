@@ -958,6 +958,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	usage := OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	clientDisconnected := false
 	lastDownstreamWriteAt := time.Now()
 	var fallbackBody bytes.Buffer
@@ -981,6 +982,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 
 	processSSEData := func(dataBytes []byte) {
+		observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, string(dataBytes), "")
 		if streamErr != nil {
 			return
 		}
@@ -1051,7 +1053,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		if len(line) == 0 {
 			return
 		}
-		if firstTokenMs == nil {
+		if !firstResponseEnabled && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}

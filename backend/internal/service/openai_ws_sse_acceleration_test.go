@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -286,4 +287,27 @@ func TestOpenAIWSSSEAccelerationMetadataDoesNotStartTTFT(t *testing.T) {
 	require.Nil(t, result.FirstTokenMs)
 	require.Contains(t, rec.Body.String(), "response.created")
 	require.Contains(t, rec.Body.String(), "response.in_progress")
+}
+
+func TestStreamFirstResponseWSSSEMetadataStartsTiming(t *testing.T) {
+	setStreamFirstResponseForTest(t, true)
+	rec := &wsSSEFlushWriter{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{})}
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+	conn := &wsSSEWaitForFlushConn{openAIWSCaptureConn: &openAIWSCaptureConn{events: [][]byte{
+		[]byte(`{"type":"response.created","response":{"id":"resp_metadata"}}`),
+		[]byte(`{"type":"response.completed","response":{"id":"resp_metadata","usage":{"input_tokens":3,"output_tokens":0}}}`),
+	}}, flushed: rec.flushed}
+	s := wsSSETestService(t, &wsSSETestDialer{conn: conn}, &httpUpstreamRecorder{})
+	account := wsSSETestAccount()
+	account.Extra["openai_oauth_ws_sse_acceleration"] = false
+	result, err := s.forwardOpenAIWSV2(context.Background(), c, account,
+		map[string]any{"model": "gpt-5.1", "stream": true, "input": "hello"},
+		"", "", "test-oauth-token", s.openaiWSResolver.Resolve(account), false, true,
+		"gpt-5.1", "gpt-5.1", time.Now(), 0, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result.FirstTokenMs)
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Contains(t, rec.Body.String(), "response.created")
 }

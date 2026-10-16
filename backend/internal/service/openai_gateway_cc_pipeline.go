@@ -269,6 +269,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -304,10 +305,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 			continue
 		}
-		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
+		if !firstResponseEnabled && st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
+		observeStreamFirstResponse(&st.FirstTokenMs, firstResponseEnabled, startTime, payload, "")
 		emit(&chunk)
 	}
 

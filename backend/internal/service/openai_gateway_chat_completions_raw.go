@@ -309,6 +309,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
@@ -319,7 +320,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if clientDisconnected {
 			return
 		}
-		if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+		if !clientOutputStarted && (!firstResponseEnabled || firstTokenMs == nil) && !refusalDetector.ShouldReleaseClientOutput() {
 			pendingLines = append(pendingLines, line)
 			return
 		}
@@ -352,6 +353,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
+			observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, trimmedPayload, "")
 			terminal.ObserveDataLine(trimmedPayload)
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
@@ -359,7 +361,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
 				}
-				if firstTokenMs == nil && !usageOnlyChunk {
+				if !firstResponseEnabled && firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
@@ -440,6 +442,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		return resultWithUsage(), newOpenAIUpstreamStreamReadError(cause)
 	}
 
+	if scanErr == nil && !clientDisconnected && firstResponseEnabled && clientOutputStarted && refusalDetector.IsSilentRefusal() {
+		s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "stream_failed", nil, openAISilentRefusalUpstreamMessage)
+		return resultWithUsage(), newOpenAIUpstreamStreamReadError(errors.New(openAISilentRefusalClientMessage))
+	}
 	if scanErr == nil && !clientDisconnected && !clientOutputStarted {
 		if refusalDetector.IsSilentRefusal() {
 			return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)

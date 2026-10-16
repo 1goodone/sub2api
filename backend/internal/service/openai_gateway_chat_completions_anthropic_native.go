@@ -328,6 +328,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	clientDisconnected := false
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -401,7 +402,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	}
 
 	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) bool {
-		if firstChunk {
+		if firstChunk && (!firstResponseEnabled || event.Type != "ping") {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms

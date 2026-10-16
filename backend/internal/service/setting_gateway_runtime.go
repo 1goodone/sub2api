@@ -54,6 +54,7 @@ const backendModeDBTimeout = 5 * time.Second
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
 	openAITTFTMode                   string
+	streamFirstResponseEnabled       bool
 	fingerprintUnification           bool
 	metadataPassthrough              bool
 	cchSigning                       bool
@@ -1055,6 +1056,7 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 }
 
 type gatewayForwardingSettingsResult struct {
+	streamFirstResponseEnabled                                                            bool
 	openAITTFTMode                                                                        string
 	fp, mp, cch, claudeOAuthSystemPromptInjection, cacheTTL1h, rewriteMessageCacheControl bool
 	clientDatelineNormalization                                                           bool
@@ -1066,6 +1068,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		if time.Now().UnixNano() < cached.expiresAt {
 			return gatewayForwardingSettingsResult{
 				openAITTFTMode:                   cached.openAITTFTMode,
+				streamFirstResponseEnabled:       cached.streamFirstResponseEnabled,
 				fp:                               cached.fingerprintUnification,
 				mp:                               cached.metadataPassthrough,
 				cch:                              cached.cchSigning,
@@ -1083,6 +1086,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			if time.Now().UnixNano() < cached.expiresAt {
 				return gatewayForwardingSettingsResult{
 					openAITTFTMode:                   cached.openAITTFTMode,
+					streamFirstResponseEnabled:       cached.streamFirstResponseEnabled,
 					fp:                               cached.fingerprintUnification,
 					mp:                               cached.metadataPassthrough,
 					cch:                              cached.cchSigning,
@@ -1099,6 +1103,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		defer cancel()
 		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
 			SettingKeyOpenAITTFTMode,
+			SettingKeyStreamFirstResponseEnabled,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
 			SettingKeyEnableCCHSigning,
@@ -1148,6 +1153,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			openAITTFTMode:                   ttftMode,
+			streamFirstResponseEnabled:       values[SettingKeyStreamFirstResponseEnabled] == "true",
 			fingerprintUnification:           fp,
 			metadataPassthrough:              mp,
 			cchSigning:                       cch,
@@ -1161,6 +1167,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		})
 		return gatewayForwardingSettingsResult{
 			openAITTFTMode:                   ttftMode,
+			streamFirstResponseEnabled:       values[SettingKeyStreamFirstResponseEnabled] == "true",
 			fp:                               fp,
 			mp:                               mp,
 			cch:                              cch,

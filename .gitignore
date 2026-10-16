@@ -216,6 +216,7 @@ output/
 !docs/screenshots/usage-tps-single-token/
 !docs/screenshots/support-tickets/
 !docs/openai-2fa-dual-oauth.md
+!docs/stream-first-response.md
 !docs/openai-2fa-rotation.md
 !docs/astra-account-scheduling.md
 !docs/screenshots/astra-auto-groups/

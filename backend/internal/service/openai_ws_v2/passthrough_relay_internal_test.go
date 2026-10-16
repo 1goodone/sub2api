@@ -795,3 +795,44 @@ func TestObserveUpstreamMessage_ResponseServiceTierOnlyFromTerminalEvents(t *tes
 	)
 	require.Equal(t, "", second.responseServiceTier)
 }
+func TestFirstResponseTimingUsesEachTurnStart(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		start := time.Now()
+		state := &relayState{firstResponseEnabled: enabled}
+		state.setPendingTurnStartedAt(start)
+		now := start.Add(5 * time.Millisecond)
+		nowFn := func() time.Time { return now }
+		observeUpstreamMessage(state, []byte(`{"type":"ping"}`), start, nowFn, nil)
+		require.Nil(t, state.firstTokenMs)
+		now = start.Add(20 * time.Millisecond)
+		observeUpstreamMessage(state, []byte(`{"type":"response.created","response":{"id":"resp_first"}}`), start, nowFn, nil)
+		if enabled {
+			require.Equal(t, 20, *state.firstTokenMs)
+		} else {
+			require.Nil(t, state.firstTokenMs)
+		}
+		now = start.Add(200 * time.Millisecond)
+		observeUpstreamMessage(state, []byte(`{"type":"response.output_text.delta","response_id":"resp_first","delta":"hi"}`), start, nowFn, nil)
+		now = start.Add(300 * time.Millisecond)
+		turn := observeUpstreamMessage(state, []byte(`{"type":"response.completed","response":{"id":"resp_first"}}`), start, nowFn, nil)
+		want := 200
+		if enabled {
+			want = 20
+		}
+		require.Equal(t, want, *turn.firstToken)
+		secondStart := start.Add(time.Second)
+		state.setPendingTurnStartedAt(secondStart)
+		now = secondStart.Add(40 * time.Millisecond)
+		observeUpstreamMessage(state, []byte(`{"type":"response.created","response":{"id":"resp_second"}}`), start, nowFn, nil)
+		now = secondStart.Add(250 * time.Millisecond)
+		observeUpstreamMessage(state, []byte(`{"type":"response.output_text.delta","response_id":"resp_second","delta":"next"}`), start, nowFn, nil)
+		now = secondStart.Add(300 * time.Millisecond)
+		second := observeUpstreamMessage(state, []byte(`{"type":"response.completed","response":{"id":"resp_second"}}`), start, nowFn, nil)
+		secondWant := 250
+		if enabled {
+			secondWant = 40
+		}
+		require.Equal(t, secondWant, *second.firstToken)
+		require.Equal(t, want, *state.firstTokenMs, "connection timing must retain its first turn")
+	}
+}

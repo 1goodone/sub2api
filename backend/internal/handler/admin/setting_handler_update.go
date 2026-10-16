@@ -247,6 +247,7 @@ type UpdateSettingsRequest struct {
 
 	// Gateway forwarding behavior
 	OpenAITTFTMode                         *string                          `json:"openai_ttft_mode"`
+	StreamFirstResponseEnabled             *bool                            `json:"stream_first_response_enabled"`
 	EnableFingerprintUnification           *bool                            `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool                            `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       *bool                            `json:"enable_cch_signing"`
@@ -1947,6 +1948,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAITTFTMode
 		}(),
+		StreamFirstResponseEnabled: func() bool {
+			if req.StreamFirstResponseEnabled != nil {
+				return *req.StreamFirstResponseEnabled
+			}
+			return previousSettings.StreamFirstResponseEnabled
+		}(),
 		EnableMetadataPassthrough: func() bool {
 			if req.EnableMetadataPassthrough != nil {
 				return *req.EnableMetadataPassthrough
@@ -2668,6 +2675,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
+		StreamFirstResponseEnabled:                             updatedSettings.StreamFirstResponseEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,

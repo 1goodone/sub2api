@@ -540,7 +540,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		mappedModelBytes = []byte(mappedModel)
 	}
 	bufferedStreamEvents := make([][]byte, 0, 4)
-	flushEarlyEvents := reqStream && decision.Reason == openAIOAuthWSSSEAccelerationReason
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
+	flushEarlyEvents := reqStream && (firstResponseEnabled || decision.Reason == openAIOAuthWSSSEAccelerationReason)
 	eventCount := 0
 	tokenEventCount := 0
 	terminalEventCount := 0
@@ -784,6 +785,7 @@ readLoop:
 			firstEventType = eventType
 		}
 		lastEventType = eventType
+		observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled && reqStream, startTime, string(message), eventType)
 
 		if responseID == "" && eventResponseID != "" {
 			responseID = eventResponseID
@@ -884,12 +886,12 @@ readLoop:
 			}
 			// error 事件后连接不再可复用，避免回池后污染下一请求。
 			lease.MarkBroken()
-			if !wroteDownstream && (errCodeRaw == "server_is_overloaded" || errCodeRaw == "slow_down") {
+			if !(firstResponseEnabled && reqStream) && !wroteDownstream && (errCodeRaw == "server_is_overloaded" || errCodeRaw == "slow_down") {
 				failover := newOpenAIUpstreamFailoverError(http.StatusServiceUnavailable, lease.HandshakeHeaders(), message, errMsg, false)
 				failover.RetryableOnSameAccount = false
 				return nil, failover
 			}
-			if !wroteDownstream && canFallback {
+			if !(firstResponseEnabled && reqStream) && !wroteDownstream && canFallback {
 				return nil, wrapOpenAIWSFallback(fallbackReason, errors.New(errMsg))
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)

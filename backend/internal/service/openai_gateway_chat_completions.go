@@ -679,6 +679,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	firstChunk := true
 	clientDisconnected := false
 	clientOutputStarted := false
@@ -735,7 +736,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	processDataLine := func(payload string) bool {
 		payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
-		if firstChunk {
+		if firstChunk && (!firstResponseEnabled || isStreamFirstResponse(payload, "")) {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
@@ -804,7 +805,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if strings.TrimSpace(event.Type) == "error" {
 				shouldFailover = openAIStreamErrorEventShouldFailover(payloadBytes, message)
 			}
-			if !clientOutputStarted && shouldFailover {
+			if !firstResponseEnabled && !clientOutputStarted && shouldFailover {
 				streamFailoverErr = s.newOpenAIStreamFailoverErrorWithModel(c, account, false, requestID, payloadBytes, message, upstreamModel, resp.Header)
 				return true
 			}
@@ -857,7 +858,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					)
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !firstResponseEnabled && !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -910,7 +911,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				if err != nil {
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !firstResponseEnabled && !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -939,6 +940,13 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					break
 				}
 			}
+		}
+		if !clientDisconnected && firstResponseEnabled && clientOutputStarted && refusalDetector.IsSilentRefusal() {
+			s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "stream_failed", nil, openAISilentRefusalUpstreamMessage)
+			if _, err := fmt.Fprint(c.Writer, buildChatStreamErrorSSE(openAISilentRefusalErrorCode, openAISilentRefusalClientMessage)); err == nil {
+				c.Writer.Flush()
+			}
+			return resultWithUsage(), errors.New(openAISilentRefusalClientMessage)
 		}
 		if !clientDisconnected && !clientOutputStarted {
 			if refusalDetector.IsSilentRefusal() {

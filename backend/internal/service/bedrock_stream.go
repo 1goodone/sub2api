@@ -46,6 +46,7 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
 	clientDisconnected := false
 
 	// Bedrock EventStream 使用 application/vnd.amazon.eventstream 二进制格式。
@@ -129,7 +130,7 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				continue
 			}
 
-			if firstTokenMs == nil {
+			if firstTokenMs == nil && (!firstResponseEnabled || isStreamFirstResponse(string(sseData), "")) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}

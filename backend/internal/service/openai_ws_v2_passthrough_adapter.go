@@ -1269,8 +1269,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       relayUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			WriteTimeout:       s.openAIWSWriteTimeout(),
-			FirstTurnStartedAt: firstTurnStartedAt,
+			FirstResponseEnabled: s.settingService.IsStreamFirstResponseEnabled(ctx),
+			WriteTimeout:         s.openAIWSWriteTimeout(),
+			FirstTurnStartedAt:   firstTurnStartedAt,
 			TakeNextTurnStartedAt: func() time.Time {
 				startedAt := acceptedTurnStartedAt.Swap(nil)
 				if startedAt == nil {

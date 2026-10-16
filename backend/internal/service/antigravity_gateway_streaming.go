@@ -115,6 +115,7 @@ func handleStreamReadError(err error, clientDisconnected bool, prefix string) (d
 }
 
 func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -284,7 +285,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					}
 				}
 
-				if firstTokenMs == nil {
+				if firstTokenMs == nil && (!firstResponseEnabled || isStreamFirstResponse(payload, "")) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
@@ -1017,6 +1018,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
 func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -1170,6 +1172,11 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			s.observeAntigravityGeminiSSELine(c, ev.line)
 
 			// 处理 SSE 行，转换为 Claude 格式
+			if firstResponseEnabled {
+				if payload, ok := extractOpenAISSEDataLine(strings.TrimSpace(ev.line)); ok && !isStreamFirstResponse(payload, "") {
+					continue
+				}
+			}
 			claudeEvents := processor.ProcessLine(strings.TrimRight(ev.line, "\r\n"))
 			if len(claudeEvents) > 0 {
 				if firstTokenMs == nil {

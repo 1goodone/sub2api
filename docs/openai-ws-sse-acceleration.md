@@ -1,6 +1,6 @@
 # OpenAI OAuth HTTP 流式 WS 加速
 
-账号编辑页的「HTTP 流式 WS 加速」默认关闭。开启后，普通 OpenAI OAuth 账号的 HTTP `POST /v1/responses` 流式请求可以使用已有的上游 WebSocket v2 连接池，下游仍接收 SSE。`response.created`、`response.in_progress` 等前置事件不再等待首 token，收到后即刷出；首 token 指标仍由内容事件决定。
+账号编辑页的「HTTP 流式 WS 加速」默认关闭。开启后，普通 OpenAI OAuth 账号的 HTTP `POST /v1/responses` 流式请求可以使用已有的上游 WebSocket v2 连接池，下游仍接收 SSE。`response.created`、`response.in_progress` 等前置事件不再等待首 token，收到后即刷出；首 token 指标默认仍由内容事件决定。若在系统设置开启「首字使用首响口径」，则改为首个真实上游事件计时；详见 [全局首响开关](stream-first-response.md)。
 
 ## 使用条件
 

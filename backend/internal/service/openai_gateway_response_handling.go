@@ -119,13 +119,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	var firstTokenMs *int
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
 	ttftMode := s.openAITTFTMode(ctx)
 	firstResponseMs := int(time.Since(startTime).Milliseconds())
 	if firstResponseMs < 0 {
 		firstResponseMs = 0
 	}
 	reportedFirstTokenMs := func() *int {
-		if ttftMode == OpenAITTFTModeSemantic {
+		if !firstResponseEnabled && ttftMode == OpenAITTFTModeSemantic {
 			return &firstResponseMs
 		}
 		return firstTokenMs
@@ -495,6 +496,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
 			eventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, data, eventType)
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
 				(eventType == "response.completed" || eventType == "response.done") {
 				// A later successful terminal is authoritative over a pending bare
@@ -559,7 +561,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				}
-				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
+				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
 				if !outputStarted && !cyberHit {
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						sawFailedEvent = true
@@ -681,9 +683,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
-			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
+			startsSemanticOutput := openAIStreamDataStartsClientOutput(data, eventType)
+			startsClientOutput := forceFlushFailedEvent || startsSemanticOutput
+			startsFirstResponse := firstResponseEnabled && !clientOutputStarted && isStreamFirstResponse(data, eventType)
+			startsClientOutput = startsClientOutput || startsFirstResponse
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
 			startsTTFTOutput := openAIStreamDataStartsTTFT(data, eventType, forceFlushFailedEvent, ttftMode)
+			if firstResponseEnabled {
+				startsTTFTOutput = startsFirstResponse
+			}
 			if stageFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
 				eventStartsTTFTOutput = eventStartsTTFTOutput || startsTTFTOutput
@@ -691,7 +699,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					firstOutputScanGuard.Store(false)
 				}
 			}
-			if startsClientOutput && !openAIStreamEventTypeIsTerminal(eventType) {
+			if startsSemanticOutput && !openAIStreamEventTypeIsTerminal(eventType) {
 				responsesSemanticOutputSeen = true
 			}
 			// OpenAI Responses streams that terminate with an empty
@@ -704,16 +712,29 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// is already unconditional.
 			if account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok) &&
 				(eventType == "response.completed" || eventType == "response.done") &&
-				!sawFailedEvent && !responsesSemanticOutputSeen && !clientOutputStarted &&
+				!sawFailedEvent && !responsesSemanticOutputSeen && (!clientOutputStarted || firstResponseEnabled) &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				sawTerminalEvent = true
+				if firstResponseEnabled || openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, openAIResponsesEmptyCompletedMessage)
+					if !clientDisconnected {
+						applyAttemptResponseHeaders()
+						if _, err := writePendingString("\n" + buildOpenAIResponseFailedSSE(responseID, originalModel, nil, openAIResponsesEmptyCompletedMessage)); err != nil {
+							handlePendingWriteError(err)
+						} else {
+							flushPending("Client disconnected during empty response failure")
+						}
+					}
+					streamEarlyErr = errors.New(openAIResponsesEmptyCompletedMessage)
+					return
+				}
 				streamEarlyErr = newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
 				return
 			}
 
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
-				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
+				shouldFlush := startsFirstResponse || (queueDrained && (clientOutputStarted || startsClientOutput))
 				if firstTokenMs == nil && startsVisibleOutput {
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。
 					shouldFlush = true

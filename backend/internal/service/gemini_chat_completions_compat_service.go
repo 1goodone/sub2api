@@ -548,6 +548,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 
 	writeChatChunk := func(chunk apicompat.ChatCompletionsChunk) bool {
 		sse, err := apicompat.ChatChunkToSSE(chunk)
@@ -575,7 +576,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	}
 
 	messageID := generateAnthropicMsgID()
-	if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+	messageStart := &apicompat.AnthropicStreamEvent{
 		Type: "message_start",
 		Message: &apicompat.AnthropicResponse{
 			ID:         messageID,
@@ -586,7 +587,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 			StopReason: nil, // JSON null
 			Usage:      apicompat.AnthropicUsage{},
 		},
-	}) {
+	}
+	if !firstResponseEnabled && emitAnthropicEvent(messageStart) {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 	}
 
@@ -641,6 +643,9 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 							firstChunk = false
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
+							if firstResponseEnabled && emitAnthropicEvent(messageStart) {
+								return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+							}
 						}
 						if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 							finishReason = fr

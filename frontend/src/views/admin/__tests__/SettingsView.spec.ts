@@ -503,6 +503,7 @@ const baseSettingsResponse = {
   max_claude_code_version: "",
   allow_ungrouped_key_scheduling: false,
   openai_ttft_mode: "semantic",
+  stream_first_response_enabled: false,
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -2073,6 +2074,38 @@ describe("admin SettingsView payment visible method controls", () => {
 
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(payload.openai_ttft_mode).toBe("semantic");
+  });
+
+  it("defaults first-response forwarding off and saves an explicit opt-in", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const toggle = wrapper.get('[data-testid="stream-first-response-toggle"]');
+    const metric = wrapper.get('[data-testid="openai-ttft-mode"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect((metric.element as HTMLSelectElement).disabled).toBe(false);
+    await toggle.setValue(true);
+    expect((metric.element as HTMLSelectElement).disabled).toBe(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].stream_first_response_enabled).toBe(true);
+  });
+
+  it("loads first-response forwarding and restores the metric mode when disabled", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, stream_first_response_enabled: true, openai_ttft_mode: "visible" });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const toggle = wrapper.get('[data-testid="stream-first-response-toggle"]');
+    const metric = wrapper.get('[data-testid="openai-ttft-mode"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    expect((metric.element as HTMLSelectElement).disabled).toBe(true);
+    await toggle.setValue(false);
+    expect((metric.element as HTMLSelectElement).disabled).toBe(false);
+    expect((metric.element as HTMLSelectElement).value).toBe("visible");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].stream_first_response_enabled).toBe(false);
   });
 
   it("loads fail-safe-off Ollama Cloud usage refresh settings and saves an explicit opt-in", async () => {

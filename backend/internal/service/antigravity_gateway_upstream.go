@@ -167,6 +167,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 	var firstTokenMs *int
 
 	scanner := bufio.NewScanner(resp.Body)
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(c)
 	maxLineSize := defaultMaxLineSize
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.MaxLineSize > 0 {
 		maxLineSize = s.settingService.cfg.Gateway.MaxLineSize
@@ -255,10 +256,11 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(strings.TrimSpace(data)))
+				observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, data, "")
 			}
 
 			// 记录首 token 时间
-			if firstTokenMs == nil && len(line) > 0 {
+			if !firstResponseEnabled && firstTokenMs == nil && len(line) > 0 {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}

@@ -1922,12 +1922,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	var firstTokenMs *int
 	responseID := ""
 	ttftMode := s.openAITTFTMode(ctx)
+	firstResponseEnabled := s.settingService.IsStreamFirstResponseEnabled(ctx)
 	firstResponseMs := int(time.Since(startTime).Milliseconds())
 	if firstResponseMs < 0 {
 		firstResponseMs = 0
 	}
 	reportedFirstTokenMs := func() *int {
-		if ttftMode == OpenAITTFTModeSemantic {
+		if !firstResponseEnabled && ttftMode == OpenAITTFTModeSemantic {
 			return &firstResponseMs
 		}
 		return firstTokenMs
@@ -2067,6 +2068,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			observeStreamFirstResponse(&firstTokenMs, firstResponseEnabled, startTime, trimmedData, rawEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
@@ -2137,7 +2139,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				}
-				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
+				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
 				if !outputStarted && !cyberHit {
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						return resultWithUsage(), compactErr
@@ -2219,16 +2221,30 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
 				semanticOutputSeen = true
 			}
+			lineStartsClientOutput = lineStartsClientOutput || (firstResponseEnabled && !clientOutputStarted && isStreamFirstResponse(trimmedData, eventType))
 			// OpenAI Responses streams that terminate with an empty
 			// response.completed (no output, no usage, no error, nothing sent
 			// to the client) are silent upstream refusals: fail over instead of
 			// recording a successful 0/0 usage turn (issue #5009).
 			if (eventType == "response.completed" || eventType == "response.done") &&
-				!sawFailedEvent && !semanticOutputSeen && !clientOutputStarted &&
+				!sawFailedEvent && !semanticOutputSeen && (!clientOutputStarted || firstResponseEnabled) &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
+				if firstResponseEnabled || openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "stream_failed", dataBytes, openAIResponsesEmptyCompletedMessage)
+					if !clientDisconnected {
+						stopKeepalive()
+						if _, err := fmt.Fprint(w, "\n"+buildOpenAIResponseFailedSSE(responseID, originalModel, nil, openAIResponsesEmptyCompletedMessage)); err != nil {
+							clientDisconnected = true
+						} else {
+							flushPending = true
+							flushPendingOutput()
+						}
+					}
+					return resultWithUsage(), errors.New(openAIResponsesEmptyCompletedMessage)
+				}
 				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
 			}
-			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
+			if !firstResponseEnabled && firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}

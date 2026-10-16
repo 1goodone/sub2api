@@ -203,6 +203,7 @@ type SystemSettings struct {
 
 	// Gateway forwarding behavior
 	OpenAITTFTMode                          string                          `json:"openai_ttft_mode"`
+	StreamFirstResponseEnabled              bool                            `json:"stream_first_response_enabled"`
 	EnableFingerprintUnification            bool                            `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough               bool                            `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                        bool                            `json:"enable_cch_signing"`

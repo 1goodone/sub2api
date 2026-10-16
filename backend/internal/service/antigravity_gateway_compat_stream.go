@@ -107,14 +107,15 @@ type antigravityCompatScanEvent struct {
 }
 
 type antigravityCompatStreamSession struct {
-	processor      *antigravity.StreamingProcessor
-	adapter        antigravityCompatStreamAdapter
-	writer         *antigravityClientWriter
-	usage          *ClaudeUsage
-	pendingEvents  []apicompat.AnthropicStreamEvent
-	firstTokenMs   *int
-	startTime      time.Time
-	meaningfulData bool
+	firstResponseEnabled bool
+	processor            *antigravity.StreamingProcessor
+	adapter              antigravityCompatStreamAdapter
+	writer               *antigravityClientWriter
+	usage                *ClaudeUsage
+	pendingEvents        []apicompat.AnthropicStreamEvent
+	firstTokenMs         *int
+	startTime            time.Time
+	meaningfulData       bool
 }
 
 func newAntigravityCompatStreamSession(
@@ -133,6 +134,11 @@ func newAntigravityCompatStreamSession(
 }
 
 func (s *antigravityCompatStreamSession) consume(line string) {
+	if s.firstResponseEnabled {
+		if payload, ok := extractOpenAISSEDataLine(strings.TrimSpace(line)); ok && !isStreamFirstResponse(payload, "") {
+			return
+		}
+	}
 	claudeEvents := s.processor.ProcessLine(strings.TrimRight(line, "\r\n"))
 	if len(claudeEvents) == 0 {
 		return
@@ -145,10 +151,14 @@ func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
 }
 
 func (s *antigravityCompatStreamSession) finish() (*antigravityStreamResult, error) {
+	if s.firstResponseEnabled && s.firstTokenMs != nil && !s.hasMeaningfulData() && !s.writer.Disconnected() {
+		s.adapter.WriteError(s.writer, "empty_stream_response")
+		return s.collectResult(false), errors.New("empty upstream stream after first response")
+	}
 	finalEvents, usage := s.processor.Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)
 	s.consumeClaudeEvents(finalEvents)
-	if !s.hasMeaningfulData() && !s.writer.Disconnected() {
+	if !s.hasMeaningfulData() && s.firstTokenMs == nil && !s.writer.Disconnected() {
 		return nil, antigravityCompatEmptyStreamError()
 	}
 	s.adapter.Finalize(s.writer)
@@ -200,6 +210,14 @@ func (s *antigravityCompatStreamSession) consumeClaudeData(eventType, payload st
 }
 
 func (s *antigravityCompatStreamSession) emitOrBuffer(event apicompat.AnthropicStreamEvent) {
+	if s.firstResponseEnabled && s.firstTokenMs == nil && event.Type != "ping" {
+		ms := max(0, int(time.Since(s.startTime).Milliseconds()))
+		s.firstTokenMs = &ms
+	}
+	if s.firstResponseEnabled && s.firstTokenMs != nil {
+		s.adapter.Emit(&event, s.writer)
+		return
+	}
 	if s.meaningfulData {
 		s.adapter.Emit(&event, s.writer)
 		return
@@ -272,6 +290,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		c.Status(http.StatusOK)
 	}
 	session := newAntigravityCompatStreamSession(originalModel, startTime, adapter, writer)
+	session.firstResponseEnabled = s.settingService.IsStreamFirstResponseEnabled(c)
 	events, stopScanner, maxLineSize := s.startAntigravityCompatScanner(resp.Body)
 	defer stopScanner()
 
@@ -289,7 +308,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		select {
 		case event, open := <-events:
 			if !open {
-				if !session.hasMeaningfulData() && !writer.Disconnected() {
+				if !session.hasMeaningfulData() && session.firstTokenMs == nil && !writer.Disconnected() {
 					return nil, antigravityCompatEmptyStreamError()
 				}
 				return session.finish()
@@ -305,7 +324,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			if writer.Disconnected() {
 				return session.collectResult(true), nil
 			}
-			if !session.hasMeaningfulData() {
+			if !session.hasMeaningfulData() && session.firstTokenMs == nil {
 				return nil, antigravityCompatEmptyStreamError()
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (%s)", prefix)
@@ -403,7 +422,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatReadError(
 	maxLineSize int,
 	prefix string,
 ) (*antigravityStreamResult, error) {
-	if !session.hasMeaningfulData() && !session.writer.Disconnected() {
+	if !session.hasMeaningfulData() && session.firstTokenMs == nil && !session.writer.Disconnected() {
 		return nil, antigravityCompatEmptyStreamError()
 	}
 	if disconnect, handled := handleStreamReadError(err, session.writer.Disconnected(), prefix); handled {
