@@ -916,6 +916,12 @@ export default {
         yes: '是',
         no: '否'
       },
+      i18nField: {
+        default: '默认',
+        add: '添加{language}版本',
+        edit: '编辑{language}版本',
+        placeholder: '{language}版本；留空则显示默认文本'
+      },
       exclusive: '专属',
       exclusiveHint: '专属分组，可以手动指定给特定用户',
       exclusiveTooltip: {
