@@ -1218,6 +1218,45 @@ func TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText(t *test
 	require.Equal(t, -1, open, "stream ended with a content block still open")
 }
 
+func TestGeminiEmptyStreamStillStartsMessageWhenFirstResponseEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setStreamFirstResponseForTest(t, true)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	svc := &GeminiMessagesCompatService{}
+	_, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet")
+	require.NoError(t, err)
+
+	body := rec.Body.String()
+	start := strings.Index(body, "event: message_start")
+	delta := strings.Index(body, "event: message_delta")
+	stop := strings.Index(body, "event: message_stop")
+	require.GreaterOrEqual(t, start, 0)
+	require.Greater(t, delta, start)
+	require.Greater(t, stop, delta)
+
+	chatRec := httptest.NewRecorder()
+	chatCtx, _ := gin.CreateTestContext(chatRec)
+	chatResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}
+	_, err = svc.handleChatCompletionsStreamingResponseFromGemini(chatCtx, chatResp, time.Now(), "claude-3-5-sonnet", false, false)
+	require.NoError(t, err)
+	chatBody := chatRec.Body.String()
+	role := strings.Index(chatBody, `"role":"assistant"`)
+	done := strings.Index(chatBody, "data: [DONE]")
+	require.GreaterOrEqual(t, role, 0)
+	require.Greater(t, done, role)
+}
+
 type anthropicContentBlockEvent struct {
 	event     string
 	index     int

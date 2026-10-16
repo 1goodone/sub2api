@@ -777,6 +777,9 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	}
 	anthState.InputTokens = usage.InputTokens
 	anthState.CacheReadInputTokens = usage.CacheReadInputTokens
+	if firstResponseEnabled && firstChunk && emitAnthropicEvent(messageStart) {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+	}
 	if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 		Type: "message_delta",
 		Delta: &apicompat.AnthropicDelta{

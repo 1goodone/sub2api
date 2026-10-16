@@ -2522,6 +2522,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	if sawToolUse {
 		stopReason = "tool_use"
 	}
+	writeMessageStart()
 
 	usageObj := map[string]any{
 		"output_tokens": usage.OutputTokens,

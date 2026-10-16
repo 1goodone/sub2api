@@ -68,7 +68,7 @@ func (s RegionalBudgetScope) Reserve(ctx context.Context, tx *sql.Tx, id string,
 	}
 	var platform, accountType string
 	var accountUnitRates bool
-	if err = tx.QueryRowContext(ctx, `SELECT platform,type,COALESCE(rate_multiplier,1)=1 AND COALESCE(group_rate_multiplier,1)=1 FROM accounts WHERE id=$1 AND status='active' AND schedulable AND deleted_at IS NULL FOR UPDATE`, account).Scan(&platform, &accountType, &accountUnitRates); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT platform,type,COALESCE(rate_multiplier,1)=1 FROM accounts WHERE id=$1 AND status='active' AND schedulable AND deleted_at IS NULL FOR UPDATE`, account).Scan(&platform, &accountType, &accountUnitRates); err != nil {
 		return err
 	}
 	if !accountUnitRates {

@@ -243,6 +243,16 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { extra: { cost_multiplier: 0 } })
     wrapper.unmount()
   })
+  it('submits auto pause on expired only after the field is selected', async () => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-testid="bulk-edit-auto-pause-toggle"]').exists()).toBe(false)
+    await wrapper.get('#bulk-edit-auto-pause-enabled').setValue(true)
+    expect(wrapper.get('[data-testid="bulk-edit-auto-pause-toggle"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { auto_pause_on_expired: true })
+    wrapper.unmount()
+  })
   it('blocks an invalid cost without issuing a batch request', async () => {
     const wrapper = mountModal()
     await wrapper.get('#bulk-edit-cost-multiplier-enabled').setValue(true)

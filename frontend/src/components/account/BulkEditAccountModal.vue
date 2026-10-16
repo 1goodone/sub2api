@@ -1018,6 +1018,49 @@
         </div>
       </div>
 
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between">
+          <div class="flex-1 pr-4">
+            <label
+              id="bulk-edit-auto-pause-label"
+              class="input-label mb-0"
+              for="bulk-edit-auto-pause-enabled"
+            >
+              {{ t('admin.accounts.autoPauseOnExpired') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
+            </p>
+          </div>
+          <input
+            v-model="enableAutoPauseOnExpired"
+            id="bulk-edit-auto-pause-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-auto-pause-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div v-if="enableAutoPauseOnExpired" id="bulk-edit-auto-pause-body" class="mt-3">
+          <button
+            type="button"
+            data-testid="bulk-edit-auto-pause-toggle"
+            :aria-pressed="autoPauseOnExpired"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+            @click="autoPauseOnExpired = !autoPauseOnExpired"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                autoPauseOnExpired ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- OpenAI request timezone -->
       <div v-if="allOpenAI" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1868,6 +1911,8 @@ const enableCostMultiplier = ref(false)
 const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const enableRateMultiplier = ref(false)
 const enableStatus = ref(false)
+const enableAutoPauseOnExpired = ref(false)
+const autoPauseOnExpired = ref(true)
 const enableGroups = ref(false)
 const enableExcelBPS = ref(false)
 const enableSlotReservation = ref(false)
@@ -2225,6 +2270,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.status = status.value
   }
 
+  if (enableAutoPauseOnExpired.value) {
+    updates.auto_pause_on_expired = autoPauseOnExpired.value
+  }
+
   if (enableGroups.value) {
     updates.group_ids = groupIds.value
   }
@@ -2525,6 +2574,7 @@ const handleSubmit = async () => {
     enableCostMultiplier.value ||
     enableRateMultiplier.value ||
     enableStatus.value ||
+    enableAutoPauseOnExpired.value ||
     enableGroups.value ||
     enableOpenAIWSMode.value ||
     enableOpenAIAPIKeyWSMode.value ||
@@ -2699,6 +2749,8 @@ watch(
       costMultiplier.value = DEFAULT_ACCOUNT_COST_MULTIPLIER
       enableRateMultiplier.value = false
       enableStatus.value = false
+      enableAutoPauseOnExpired.value = false
+      autoPauseOnExpired.value = true
       enableGroups.value = false
       enableExcelBPS.value = false
       enableSlotReservation.value = false
