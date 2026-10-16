@@ -353,7 +353,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if isExcelBPSClientCancellation(c, ctx.Err()) {
 			return clientCanceled()
 		}
-		failover := newOpenAIUpstreamFailoverError(
+		failover := s.openAIUpstreamFailoverError(
 			http.StatusTooManyRequests,
 			headers,
 			[]byte(`{"error":{"type":"rate_limit_error","code":"basispoints_rate_limited","message":"Excel BPS rate limit exceeded"}}`),
@@ -790,7 +790,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			// The request was rejected before any output. Leave the response open
 			// so the handler can try another account within its existing budget.
-			failover := newOpenAIUpstreamFailoverError(
+			failover := s.openAIUpstreamFailoverError(
 				http.StatusTooManyRequests,
 				resp.Header,
 				[]byte(`{"error":{"type":"rate_limit_error","code":"basispoints_rate_limited","message":"Excel BPS rate limit exceeded"}}`),

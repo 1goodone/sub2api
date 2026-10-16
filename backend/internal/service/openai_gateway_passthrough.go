@@ -1380,10 +1380,10 @@ func logOpenAICapacityFailoverSuppressed(
 const openAICapacityShedRetryableClientCode = "server_error"
 
 // sanitizeOpenAICapacityShedErrorCodeForClient 把即将写给下游客户端的
-// error / response.failed 事件中的容量降载错误码改写为客户端可重试的错误码。
-// 走到转发这一步说明网关侧 failover 已不可用（流中途）或已用尽；保留原始降载码
-// 只会让客户端就地终止会话。错误消息原样保留；监控与账号状态判定都基于改写前
-// 的原始 payload，不受影响。rate_limit 等其他错误码一律不动（客户端依赖
+// error / response.failed 事件中的容量降载错误码改写为客户端可重试的错误码，
+// 并把过载原文换成通用提示。走到转发这一步说明网关侧 failover 已不可用（流中途）
+// 或已用尽；保留原始降载码只会让客户端就地终止会话。监控与账号状态判定都基于
+// 改写前的原始 payload，不受影响。rate_limit 等其他错误码一律不动（客户端依赖
 // rate_limit_exceeded 原码解析重试延时）。
 func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool) {
 	if len(payload) == 0 || !gjson.ValidBytes(payload) || !isOpenAIUpstreamCapacityShedEvent(payload) {
@@ -1401,6 +1401,18 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 			continue
 		}
 		next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
+		if err != nil {
+			return payload, false
+		}
+		updated = next
+		changed = true
+	}
+	for _, path := range []string{"response.error.message", "error.message"} {
+		message := strings.TrimSpace(gjson.GetBytes(updated, path).String())
+		if message == "" || !isOpenAICapacityShedMessage(message) {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, OpenAICapacityShedClientMessage)
 		if err != nil {
 			return payload, false
 		}

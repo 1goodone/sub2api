@@ -1206,6 +1206,18 @@ export default {
         saved: 'Overload cooldown settings saved',
         saveFailed: 'Failed to save overload cooldown settings'
       },
+      openaiCapacityShed: {
+        title: 'OpenAI Overload Retry',
+        description: 'When upstream says Our servers are currently overloaded, hide that sentence. Retry the same account, then pause it if it still fails.',
+        enabled: 'Enable overload cooldown',
+        enabledHint: 'When off, the original sentence stays hidden and the account keeps its own retry count, but it is not cooled down',
+        retryCount: 'Same-account retries',
+        retryCountHint: '0-10. Zero skips the retry and switches accounts immediately',
+        cooldownMinutes: 'Cooldown duration (minutes)',
+        cooldownMinutesHint: 'How long to pause the account after retries are exhausted (1-120 minutes)',
+        saved: 'OpenAI overload retry settings saved',
+        saveFailed: 'Failed to save OpenAI overload retry settings'
+      },
       rateLimit429Cooldown: {
         title: '429 Default Cooldown',
         description: 'Configure the default account cooldown when upstream returns 429 without an explicit reset time',

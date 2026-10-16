@@ -350,12 +350,38 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.ClientStatusCode = http.StatusBadGateway
 		failoverErr.ClientMessage = openAIUpstreamAccessUnavailableClientMessage
 	} else if requestScopedCapacity {
-		// Preserve the provider's actionable overload message after gateway
-		// retries are exhausted, but expose it as a retryable server_error.
+		// 上游过载原文不回给客户端。同账号重试和换号都失败后，只给一句可重试的通用提示。
 		failoverErr.ClientStatusCode = http.StatusServiceUnavailable
-		failoverErr.ClientMessage = openAICapacityShedClientMessage(upstreamMsg, responseBody)
+		failoverErr.ClientMessage = OpenAICapacityShedClientMessage
 	}
 	return failoverErr
+}
+
+func (s *OpenAIGatewayService) openAIUpstreamFailoverError(
+	statusCode int,
+	responseHeaders http.Header,
+	responseBody []byte,
+	upstreamMsg string,
+	retryableOnSameAccount bool,
+) *UpstreamFailoverError {
+	return s.applyOpenAICapacityShedPolicy(context.Background(), newOpenAIUpstreamFailoverError(statusCode, responseHeaders, responseBody, upstreamMsg, retryableOnSameAccount))
+}
+
+func (s *OpenAIGatewayService) applyOpenAICapacityShedPolicy(ctx context.Context, err *UpstreamFailoverError) *UpstreamFailoverError {
+	if err == nil || !err.IsOpenAICapacityShed() {
+		return err
+	}
+	var settingsSvc *SettingService
+	if s != nil {
+		settingsSvc = s.settingService
+	}
+	settings := openAICapacityShedSettingsOrDefault(ctx, settingsSvc)
+	if !settings.Enabled {
+		return err
+	}
+	err.CapacityShedRetryOverride = true
+	err.SameAccountRetryMax = settings.RetryCount
+	return err
 }
 
 func (s *OpenAIGatewayService) newOpenAIAccountFailoverError(
@@ -381,7 +407,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	retryableOnSameAccount bool,
 ) *UpstreamFailoverError {
 	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
-	failoverErr := newOpenAIUpstreamFailoverError(
+	failoverErr := s.openAIUpstreamFailoverError(
 		statusCode,
 		responseHeaders,
 		responseBody,
@@ -445,20 +471,9 @@ func isOpenAIHTTPUpstreamAccessStateError(_ int, _ string, body []byte) bool {
 	return isOpenAIUpstreamAccessStateError("", body)
 }
 
-func openAICapacityShedClientMessage(upstreamMsg string, body []byte) string {
-	for _, candidate := range []string{
-		upstreamMsg,
-		gjson.GetBytes(body, "error.message").String(),
-		gjson.GetBytes(body, "response.error.message").String(),
-		gjson.GetBytes(body, "message").String(),
-	} {
-		candidate = sanitizeUpstreamErrorMessage(strings.TrimSpace(candidate))
-		if candidate != "" && isOpenAICapacityShedMessage(candidate) {
-			return candidate
-		}
-	}
-	return "Upstream service is temporarily overloaded, please retry later"
-}
+// OpenAICapacityShedClientMessage 是容量降载写给客户端的固定文案。
+// 不转发 "Our servers are currently overloaded..."，避免用户看到上游过载原文。
+const OpenAICapacityShedClientMessage = "Upstream service is temporarily unavailable, please retry later"
 
 // IsOpenAIRequestBodyTooLarge reports whether another account may accept the
 // same request even though the selected account rejected its serialized size.
@@ -612,7 +627,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			Detail:             upstreamDetail,
 		})
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel...)
-		return nil, newOpenAIUpstreamFailoverError(
+		return nil, s.openAIUpstreamFailoverError(
 			resp.StatusCode,
 			resp.Header,
 			body,

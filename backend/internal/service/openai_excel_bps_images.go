@@ -300,7 +300,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 			s.coolDownExcelBPS(ctx, account, resp.Header, raw)
 			// The next account may use Codex, so the endpoint is recorded only
 			// for final BPS outcomes; the image path never clears it.
-			failover := newOpenAIUpstreamFailoverError(
+			failover := s.openAIUpstreamFailoverError(
 				http.StatusTooManyRequests,
 				resp.Header,
 				[]byte(`{"error":{"type":"rate_limit_error","code":"basispoints_rate_limited","message":"Excel BPS rate limit exceeded"}}`),

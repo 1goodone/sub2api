@@ -55,9 +55,9 @@ func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeForClient(t *
 			},
 			wantContains: []string{
 				`"code":"server_error"`,
-				"Our servers are currently overloaded",
+				OpenAICapacityShedClientMessage,
 			},
-			wantAbsent: []string{"server_is_overloaded"},
+			wantAbsent: []string{"server_is_overloaded", "Our servers are currently overloaded"},
 		},
 		{
 			name: "non_capacity_error_code_is_passed_through",

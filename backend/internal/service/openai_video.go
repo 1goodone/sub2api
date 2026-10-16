@@ -348,7 +348,7 @@ func (s *OpenAIGatewayService) handleOpenAIVideoErrorResponse(
 			return nil, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, body, upstreamMsg, shouldDisable, retryableOnSameAccount)
 		}
 		if isOpenAIHTTPUpstreamAccessStateError(resp.StatusCode, upstreamMsg, body) {
-			return nil, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, body, upstreamMsg, retryableOnSameAccount)
+			return nil, s.openAIUpstreamFailoverError(resp.StatusCode, resp.Header, body, upstreamMsg, retryableOnSameAccount)
 		}
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,

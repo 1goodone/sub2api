@@ -200,7 +200,8 @@ func TestOpenAICapacityFailoverCarriesSafeTerminalResponse(t *testing.T) {
 
 	require.True(t, err.IsOpenAICapacityShed())
 	require.Equal(t, http.StatusServiceUnavailable, err.ClientStatusCode)
-	require.Equal(t, message, err.ClientMessage)
+	require.Equal(t, OpenAICapacityShedClientMessage, err.ClientMessage)
+	require.NotContains(t, err.ClientMessage, message)
 	require.NotContains(t, err.ClientMessage, "server_is_overloaded")
 }
 

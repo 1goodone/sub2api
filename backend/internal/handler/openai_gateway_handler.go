@@ -1218,6 +1218,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					}
 					if !openAIForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -1258,6 +1259,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							continue
 						}
 					}
+					h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1823,6 +1825,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					}
 					if c.Writer.Size() != writerSizeBeforeForward {
 						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -1854,6 +1857,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
+					h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1977,12 +1981,12 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", message, streamStarted)
 		return
 	}
-	if failoverErr != nil && failoverErr.IsOpenAICapacityShed() && strings.TrimSpace(failoverErr.ClientMessage) != "" {
+	if failoverErr != nil && failoverErr.IsOpenAICapacityShed() {
 		status := failoverErr.ClientStatusCode
 		if status <= 0 {
 			status = http.StatusServiceUnavailable
 		}
-		h.anthropicStreamingAwareError(c, status, "api_error", failoverErr.ClientMessage, streamStarted)
+		h.anthropicStreamingAwareError(c, status, "api_error", service.OpenAICapacityShedClientMessage, streamStarted)
 		return
 	}
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
@@ -3073,7 +3077,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if !service.OpenAIWSIngressCanFailover(ctx, c) {
 			return false
 		}
-		if account == nil || failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero() {
+		capacityShed := failoverErr != nil && failoverErr.IsOpenAICapacityShed()
+		if account == nil || failoverErr == nil || (!capacityShed && (failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero())) {
 			return false
 		}
 		retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
@@ -3103,6 +3108,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, wsForwardModel, false, nil), false, nil, failoverErr)
 		}
 		releaseAccountSlot()
+		h.parkOpenAICapacityShedAccount(ctx, account, failoverErr)
 		if !service.OpenAIWSIngressCanFailover(ctx, c) {
 			return false
 		}
@@ -4008,6 +4014,13 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 	h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, streamStarted, false)
 }
 
+func (h *OpenAIGatewayHandler) parkOpenAICapacityShedAccount(ctx context.Context, account *service.Account, failoverErr *service.UpstreamFailoverError) {
+	if h == nil || h.gatewayService == nil {
+		return
+	}
+	h.gatewayService.CooldownOpenAICapacityShedAccount(ctx, account, failoverErr)
+}
+
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
@@ -4038,12 +4051,12 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		h.handleStreamingAwareError(c, status, "upstream_error", message, streamStarted)
 		return
 	}
-	if failoverErr.IsOpenAICapacityShed() && strings.TrimSpace(failoverErr.ClientMessage) != "" {
+	if failoverErr.IsOpenAICapacityShed() {
 		status := failoverErr.ClientStatusCode
 		if status <= 0 {
 			status = http.StatusServiceUnavailable
 		}
-		h.handleStreamingAwareError(c, status, "server_error", failoverErr.ClientMessage, streamStarted)
+		h.handleStreamingAwareError(c, status, "server_error", service.OpenAICapacityShedClientMessage, streamStarted)
 		return
 	}
 	statusCode := failoverErr.StatusCode

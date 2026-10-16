@@ -37,6 +37,7 @@ const {
   updateWebSearchEmulationConfig,
   getAdminApiKey,
   getOverloadCooldownSettings,
+  getOpenAICapacityShedSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
@@ -65,6 +66,7 @@ const {
   updateWebSearchEmulationConfig: vi.fn(),
   getAdminApiKey: vi.fn(),
   getOverloadCooldownSettings: vi.fn(),
+  getOpenAICapacityShedSettings: vi.fn(),
   getRateLimit429CooldownSettings: vi.fn(),
   updateRateLimit429CooldownSettings: vi.fn(),
   getPanelRateLimitSettings: vi.fn().mockResolvedValue({
@@ -112,6 +114,7 @@ vi.mock("@/api", () => ({
       updateWebSearchEmulationConfig,
       getAdminApiKey,
       getOverloadCooldownSettings,
+      getOpenAICapacityShedSettings,
       getRateLimit429CooldownSettings,
       updateRateLimit429CooldownSettings,
       getPanelRateLimitSettings,
@@ -698,6 +701,7 @@ describe("admin SettingsView payment visible method controls", () => {
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
     getOverloadCooldownSettings.mockReset();
+    getOpenAICapacityShedSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
@@ -739,6 +743,11 @@ describe("admin SettingsView payment visible method controls", () => {
     getOverloadCooldownSettings.mockResolvedValue({
       enabled: true,
       cooldown_minutes: 10,
+    });
+    getOpenAICapacityShedSettings.mockResolvedValue({
+      enabled: true,
+      retry_count: 3,
+      cooldown_minutes: 2,
     });
     getRateLimit429CooldownSettings.mockResolvedValue({
       enabled: true,
@@ -2316,6 +2325,7 @@ describe("admin SettingsView wechat connect controls", () => {
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
     getOverloadCooldownSettings.mockReset();
+    getOpenAICapacityShedSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
@@ -2356,6 +2366,11 @@ describe("admin SettingsView wechat connect controls", () => {
     getOverloadCooldownSettings.mockResolvedValue({
       enabled: true,
       cooldown_minutes: 10,
+    });
+    getOpenAICapacityShedSettings.mockResolvedValue({
+      enabled: true,
+      retry_count: 3,
+      cooldown_minutes: 2,
     });
     getRateLimit429CooldownSettings.mockResolvedValue({
       enabled: true,
@@ -2562,6 +2577,7 @@ describe("admin SettingsView platform quota matrix", () => {
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
     getOverloadCooldownSettings.mockReset();
+    getOpenAICapacityShedSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
@@ -2588,6 +2604,7 @@ describe("admin SettingsView platform quota matrix", () => {
     updateWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
     getAdminApiKey.mockResolvedValue({ exists: false, masked_key: "" });
     getOverloadCooldownSettings.mockResolvedValue({});
+    getOpenAICapacityShedSettings.mockResolvedValue({});
     getRateLimit429CooldownSettings.mockResolvedValue({});
     updateRateLimit429CooldownSettings.mockResolvedValue({});
     getStreamTimeoutSettings.mockResolvedValue({});

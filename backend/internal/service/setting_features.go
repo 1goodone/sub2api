@@ -715,6 +715,78 @@ func (s *SettingService) SetOverloadCooldownSettings(ctx context.Context, settin
 	return s.settingRepo.Set(ctx, SettingKeyOverloadCooldownSettings, string(data))
 }
 
+func normalizeOpenAICapacityShedSettings(settings *OpenAICapacityShedSettings) {
+	if settings.RetryCount < 0 {
+		settings.RetryCount = 0
+	}
+	if settings.RetryCount > maxPoolModeRetryCount {
+		settings.RetryCount = maxPoolModeRetryCount
+	}
+	if settings.CooldownMinutes < 1 {
+		settings.CooldownMinutes = 1
+	}
+	if settings.CooldownMinutes > openAICapacityShedMaxCooldownMinutes {
+		settings.CooldownMinutes = openAICapacityShedMaxCooldownMinutes
+	}
+}
+
+// GetOpenAICapacityShedSettings 获取 OpenAI 过载重试与冷却配置。
+func (s *SettingService) GetOpenAICapacityShedSettings(ctx context.Context) (*OpenAICapacityShedSettings, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAICapacityShedSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultOpenAICapacityShedSettings(), nil
+		}
+		return nil, fmt.Errorf("get openai capacity shed settings: %w", err)
+	}
+	if value == "" {
+		return DefaultOpenAICapacityShedSettings(), nil
+	}
+
+	var settings OpenAICapacityShedSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultOpenAICapacityShedSettings(), nil
+	}
+	normalizeOpenAICapacityShedSettings(&settings)
+	return &settings, nil
+}
+
+// SetOpenAICapacityShedSettings 保存 OpenAI 过载重试与冷却配置。
+func (s *SettingService) SetOpenAICapacityShedSettings(ctx context.Context, settings *OpenAICapacityShedSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
+	}
+	if settings.Enabled && (settings.RetryCount < 0 || settings.RetryCount > maxPoolModeRetryCount || settings.CooldownMinutes < 1 || settings.CooldownMinutes > openAICapacityShedMaxCooldownMinutes) {
+		return fmt.Errorf("retry_count must be between 0-%d and cooldown_minutes must be between 1-%d", maxPoolModeRetryCount, openAICapacityShedMaxCooldownMinutes)
+	}
+	if !settings.Enabled {
+		defaults := DefaultOpenAICapacityShedSettings()
+		if settings.RetryCount < 0 || settings.RetryCount > maxPoolModeRetryCount {
+			settings.RetryCount = defaults.RetryCount
+		}
+		if settings.CooldownMinutes < 1 || settings.CooldownMinutes > openAICapacityShedMaxCooldownMinutes {
+			settings.CooldownMinutes = defaults.CooldownMinutes
+		}
+	}
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal openai capacity shed settings: %w", err)
+	}
+	return s.settingRepo.Set(ctx, SettingKeyOpenAICapacityShedSettings, string(data))
+}
+
+func openAICapacityShedSettingsOrDefault(ctx context.Context, settings *SettingService) *OpenAICapacityShedSettings {
+	if settings == nil {
+		return DefaultOpenAICapacityShedSettings()
+	}
+	got, err := settings.GetOpenAICapacityShedSettings(ctx)
+	if err != nil || got == nil {
+		return DefaultOpenAICapacityShedSettings()
+	}
+	return got
+}
+
 // GetRateLimit429CooldownSettings 获取429默认回避配置
 func (s *SettingService) GetRateLimit429CooldownSettings(ctx context.Context) (*RateLimit429CooldownSettings, error) {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyRateLimit429CooldownSettings)

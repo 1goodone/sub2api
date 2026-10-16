@@ -353,6 +353,126 @@
             </div>
           </div>
 
+          <!-- OpenAI capacity shed retry -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 id="settings-section-openai-capacity-shed" tabindex="-1" class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openaiCapacityShed.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openaiCapacityShed.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="openAICapacityShedLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.openaiCapacityShed.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.openaiCapacityShed.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="openAICapacityShedForm.enabled" />
+                </div>
+
+                <div
+                  v-if="openAICapacityShedForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.openaiCapacityShed.retryCount") }}
+                    </label>
+                    <input
+                      v-model.number="openAICapacityShedForm.retry_count"
+                      type="number"
+                      min="0"
+                      max="10"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.openaiCapacityShed.retryCountHint") }}
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.openaiCapacityShed.cooldownMinutes") }}
+                    </label>
+                    <input
+                      v-model.number="openAICapacityShedForm.cooldown_minutes"
+                      type="number"
+                      min="1"
+                      max="120"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.openaiCapacityShed.cooldownMinutesHint",
+                        )
+                      }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveOpenAICapacityShedSettings"
+                    :disabled="openAICapacityShedSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="openAICapacityShedSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      openAICapacityShedSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Rate Limit Cooldown (429) Settings -->
           <div class="card">
             <div
@@ -9662,6 +9782,14 @@ const overloadCooldownForm = reactive({
   cooldown_minutes: 10,
 });
 
+const openAICapacityShedLoading = ref(true);
+const openAICapacityShedSaving = ref(false);
+const openAICapacityShedForm = reactive({
+  enabled: true,
+  retry_count: 3,
+  cooldown_minutes: 2,
+});
+
 // Rate Limit Cooldown (429) 状态
 const rateLimit429CooldownLoading = ref(true);
 const rateLimit429CooldownSaving = ref(false);
@@ -12797,6 +12925,40 @@ async function saveOverloadCooldownSettings() {
   }
 }
 
+async function loadOpenAICapacityShedSettings() {
+  openAICapacityShedLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getOpenAICapacityShedSettings();
+    Object.assign(openAICapacityShedForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    openAICapacityShedLoading.value = false;
+  }
+}
+
+async function saveOpenAICapacityShedSettings() {
+  openAICapacityShedSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateOpenAICapacityShedSettings({
+      enabled: openAICapacityShedForm.enabled,
+      retry_count: openAICapacityShedForm.retry_count,
+      cooldown_minutes: openAICapacityShedForm.cooldown_minutes,
+    });
+    Object.assign(openAICapacityShedForm, updated);
+    appStore.showSuccess(t("admin.settings.openaiCapacityShed.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.openaiCapacityShed.saveFailed"),
+      ),
+    );
+  } finally {
+    openAICapacityShedSaving.value = false;
+  }
+}
+
 // Panel API Rate Limit 方法
 async function loadPanelRateLimitSettings() {
   panelRateLimitLoading.value = true;
@@ -13524,6 +13686,7 @@ onMounted(() => {
   loadOllamaCloudUsageSettings();
   loadOpenCodeGoUsageSettings();
   loadOverloadCooldownSettings();
+  loadOpenAICapacityShedSettings();
   loadRateLimit429CooldownSettings();
   loadPanelRateLimitSettings();
   loadStreamTimeoutSettings();

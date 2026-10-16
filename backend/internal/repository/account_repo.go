@@ -2843,12 +2843,24 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 }
 
 func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
-	_, err := r.client.Account.Update().
-		Where(dbaccount.IDEQ(id)).
-		SetOverloadUntil(until).
-		Save(ctx)
+	// 只延长过载窗口。容量降载的默认 2 分钟不能把已经写入的更长冷却（例如 529 的 10 分钟）缩短。
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET overload_until = $1,
+			updated_at = NOW()
+		WHERE id = $2
+			AND deleted_at IS NULL
+			AND (overload_until IS NULL OR overload_until < $1)
+	`, until, id)
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected <= 0 {
+		return nil
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue overload failed: account=%d err=%v", id, err)

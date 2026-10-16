@@ -603,6 +603,9 @@ const (
 	// SettingKeyOverloadCooldownSettings stores JSON config for 529 overload cooldown handling.
 	SettingKeyOverloadCooldownSettings = "overload_cooldown_settings"
 
+	// SettingKeyOpenAICapacityShedSettings stores retry count and cooldown for OpenAI "servers are overloaded".
+	SettingKeyOpenAICapacityShedSettings = "openai_capacity_shed_settings"
+
 	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
 	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"
 	// SettingKeyOpenAIImagesOAuthUnavailableCooldownSettings stores the cooldown applied when the OAuth image tool is unavailable.

@@ -83,6 +83,9 @@ func sameAccountRetryAllowed(failoverErr *service.UpstreamFailoverError, retryCo
 	if !sameAccountRetryDeadlineAllows(failoverErr) {
 		return false
 	}
+	if failoverErr.CapacityShedRetryOverride {
+		return failoverErr.SameAccountRetryMax > 0 && retryCount < failoverErr.SameAccountRetryMax
+	}
 	// Error-specific caps (Grok capacity/stream-idle) remain hard limits even
 	// when the error also carries a freshly reconstructed deadline.
 	if failoverErr.SameAccountRetryMax > 0 {
@@ -111,6 +114,16 @@ func sameAccountRetryDeadlineAllows(failoverErr *service.UpstreamFailoverError) 
 // effectiveSameAccountRetryLimit applies an error-specific cap without
 // overriding an explicit account setting of zero (which disables retries).
 func effectiveSameAccountRetryLimit(failoverErr *service.UpstreamFailoverError, account *service.Account) int {
+	if failoverErr != nil && failoverErr.CapacityShedRetryOverride {
+		max := failoverErr.SameAccountRetryMax
+		if max < 0 {
+			return 0
+		}
+		if max > 10 {
+			return 10
+		}
+		return max
+	}
 	if account == nil {
 		return 0
 	}

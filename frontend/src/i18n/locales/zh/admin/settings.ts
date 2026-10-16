@@ -1200,6 +1200,18 @@ export default {
         saved: '过载冷却设置保存成功',
         saveFailed: '保存过载冷却设置失败'
       },
+      openaiCapacityShed: {
+        title: 'OpenAI 过载重试',
+        description: '上游返回 Our servers are currently overloaded 时，不把这句话回给用户。先在同一账号重试，仍失败再暂停该账号调度。',
+        enabled: '启用过载冷却',
+        enabledHint: '关闭后仍隐藏原文，并按账号原有重试次数处理，但不再额外冷却',
+        retryCount: '同账号重试次数',
+        retryCountHint: '0-10 次。0 表示不重试，直接冷却并换号',
+        cooldownMinutes: '冷却时长（分钟）',
+        cooldownMinutesHint: '重试用尽后暂停该账号调度的时间（1-120 分钟）',
+        saved: 'OpenAI 过载重试设置保存成功',
+        saveFailed: '保存 OpenAI 过载重试设置失败'
+      },
       rateLimit429Cooldown: {
         title: '429 默认回避',
         description: '配置上游返回 429 且没有明确重置时间时的默认账号回避策略',

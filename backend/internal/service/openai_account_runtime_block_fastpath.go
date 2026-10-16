@@ -20,6 +20,7 @@ const (
 	openAIOAuth429MaxRetryDelay           = 8 * time.Second
 	openAIOAuth429MaxAccountAttempts      = 3
 	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
+	openAICapacityShedAccountCooldown     = 2 * time.Minute
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormMaxAccountSwitches = 1
 )
@@ -353,6 +354,75 @@ func openAIOAuth429SameAccountRetryDelay(headers http.Header, responseBody []byt
 		return 0
 	}
 	return delay
+}
+
+// CooldownOpenAICapacityShedAccount 在同账号过载重试用尽后，按网关配置暂停该账号调度。
+// 第一次失败不能调用：调度快照会立刻跳过这个账号，同账号重试就做不成。
+func (s *OpenAIGatewayService) CooldownOpenAICapacityShedAccount(ctx context.Context, account *Account, failoverErr *UpstreamFailoverError) {
+	if failoverErr == nil || !failoverErr.IsOpenAICapacityShed() {
+		return
+	}
+	var settingsSvc *SettingService
+	if s != nil {
+		settingsSvc = s.settingService
+	}
+	settings := openAICapacityShedSettingsOrDefault(ctx, settingsSvc)
+	if !settings.Enabled {
+		return
+	}
+	var repo AccountRepository
+	if s != nil && s.rateLimitService != nil {
+		repo = s.rateLimitService.accountRepo
+	}
+	applyOpenAICapacityShedAccountCooldown(ctx, repo, account, time.Duration(settings.CooldownMinutes)*time.Minute, func(account *Account, until time.Time, reason string) {
+		if s != nil {
+			s.BlockAccountScheduling(account, until, reason)
+		}
+	})
+}
+
+func (s *GatewayService) cooldownOpenAICapacityShedAccountByID(ctx context.Context, accountID int64) {
+	if s == nil || accountID <= 0 {
+		return
+	}
+	settings := openAICapacityShedSettingsOrDefault(ctx, s.settingService)
+	if !settings.Enabled {
+		return
+	}
+	account := &Account{ID: accountID, Platform: PlatformOpenAI}
+	applyOpenAICapacityShedAccountCooldown(ctx, s.accountRepo, account, time.Duration(settings.CooldownMinutes)*time.Minute, func(account *Account, until time.Time, reason string) {
+		if s.rateLimitService != nil {
+			s.rateLimitService.notifyAccountSchedulingBlocked(account, until, reason)
+		}
+	})
+}
+
+func applyOpenAICapacityShedAccountCooldown(ctx context.Context, repo AccountRepository, account *Account, cooldown time.Duration, block func(*Account, time.Time, string)) {
+	if account == nil || account.ID <= 0 || cooldown <= 0 {
+		return
+	}
+	until := time.Now().Add(cooldown)
+	// 只在内存里已经知道更早的截止时间时才延长它。字段为空不代表数据库没有更长的窗口，
+	// 不能把这次较短的时间写回账号对象；SetOverloaded 也只在新时间更晚时更新。
+	if account.OverloadUntil != nil && account.OverloadUntil.Before(until) {
+		untilCopy := until
+		account.OverloadUntil = &untilCopy
+	} else if account.OverloadUntil != nil {
+		until = *account.OverloadUntil
+	}
+	if block != nil {
+		block(account, until, "openai_capacity_shed")
+	}
+	if repo == nil {
+		return
+	}
+	stateCtx, cancel := openAIAccountStateContext(ctx)
+	defer cancel()
+	if err := repo.SetOverloaded(stateCtx, account.ID, until); err != nil {
+		slog.Warn("openai_capacity_shed_overload_set_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	slog.Info("openai_capacity_shed_account_overloaded", "account_id", account.ID, "until", until)
 }
 
 func (s *OpenAIGatewayService) BlockAccountScheduling(account *Account, until time.Time, reason string) {

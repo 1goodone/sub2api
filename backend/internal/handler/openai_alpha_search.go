@@ -227,6 +227,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
 		if c.Writer.Size() != writerSizeBeforeForward {
+			h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 			h.handleFailoverExhausted(c, failoverErr, true)
 			return
 		}
@@ -257,6 +258,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				continue
 			}
 		}
+		h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 		h.gatewayService.RecordOpenAIAccountSwitch()
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr

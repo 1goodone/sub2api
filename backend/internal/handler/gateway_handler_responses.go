@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -407,12 +406,12 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	status, code, message := statusCode, "server_error", "All available accounts exhausted"
 	if lastErr != nil && lastErr.IsCredentialFailure() {
 		status, message = credentialFailoverClientResponse(lastErr)
-	} else if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {
+	} else if lastErr != nil && lastErr.IsOpenAICapacityShed() {
 		status = lastErr.ClientStatusCode
 		if status <= 0 {
 			status = http.StatusServiceUnavailable
 		}
-		message = lastErr.ClientMessage
+		message = service.OpenAICapacityShedClientMessage
 	} else if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()

@@ -323,6 +323,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 							zap.Int64("account_id", account.ID),
 							zap.Int("upstream_status", failoverErr.StatusCode),
 						)
+						h.parkOpenAICapacityShedAccount(c.Request.Context(), account, failoverErr)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -353,6 +354,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 							continue
 						}
 					}
+					h.parkOpenAICapacityShedAccount(requestCtx, account, failoverErr)
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr

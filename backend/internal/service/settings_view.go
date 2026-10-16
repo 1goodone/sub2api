@@ -641,6 +641,16 @@ type OverloadCooldownSettings struct {
 	CooldownMinutes int `json:"cooldown_minutes"`
 }
 
+// OpenAICapacityShedSettings 控制上游 “servers are overloaded” 的同账号重试和冷却。
+type OpenAICapacityShedSettings struct {
+	// Enabled 为 false 时不额外冷却账号，仍隐藏上游原文。
+	Enabled bool `json:"enabled"`
+	// RetryCount 同账号重试次数，0 表示不重试，直接冷却并换号。
+	RetryCount int `json:"retry_count"`
+	// CooldownMinutes 重试用尽后暂停该账号调度的分钟数。
+	CooldownMinutes int `json:"cooldown_minutes"`
+}
+
 // RateLimit429CooldownSettings 429默认回避配置
 type RateLimit429CooldownSettings struct {
 	// Enabled 是否在无法解析上游重置时间时应用默认429回避
@@ -681,6 +691,21 @@ func DefaultOverloadCooldownSettings() *OverloadCooldownSettings {
 	return &OverloadCooldownSettings{
 		Enabled:         true,
 		CooldownMinutes: 10,
+	}
+}
+
+const (
+	openAICapacityShedDefaultRetryCount      = 3
+	openAICapacityShedDefaultCooldownMinutes = 2
+	openAICapacityShedMaxCooldownMinutes     = 120
+)
+
+// DefaultOpenAICapacityShedSettings 默认开启，同账号重试 3 次，然后冷却 2 分钟。
+func DefaultOpenAICapacityShedSettings() *OpenAICapacityShedSettings {
+	return &OpenAICapacityShedSettings{
+		Enabled:         true,
+		RetryCount:      openAICapacityShedDefaultRetryCount,
+		CooldownMinutes: openAICapacityShedDefaultCooldownMinutes,
 	}
 }
 

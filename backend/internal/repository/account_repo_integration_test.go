@@ -891,6 +891,23 @@ func (s *AccountRepoSuite) TestSetOverloaded() {
 	s.Require().WithinDuration(until, *cacheRecorder.setAccounts[0].OverloadUntil, time.Second)
 }
 
+func (s *AccountRepoSuite) TestSetOverloadedDoesNotShortenExistingWindow() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-over-keep-longer"})
+	later := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
+	earlier := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Second)
+	cacheRecorder := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = cacheRecorder
+
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, later))
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, earlier))
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.OverloadUntil)
+	s.Require().WithinDuration(later, *got.OverloadUntil, time.Second)
+	s.Require().Len(cacheRecorder.setAccounts, 1)
+}
+
 func (s *AccountRepoSuite) TestSetRateLimited() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-rl"})
 	resetAt := time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC)

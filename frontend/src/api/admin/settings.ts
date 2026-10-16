@@ -1441,6 +1441,29 @@ export async function updateOverloadCooldownSettings(
   return data;
 }
 
+export interface OpenAICapacityShedSettings {
+  enabled: boolean;
+  retry_count: number;
+  cooldown_minutes: number;
+}
+
+export async function getOpenAICapacityShedSettings(): Promise<OpenAICapacityShedSettings> {
+  const { data } = await apiClient.get<OpenAICapacityShedSettings>(
+    "/admin/settings/openai-capacity-shed",
+  );
+  return data;
+}
+
+export async function updateOpenAICapacityShedSettings(
+  settings: OpenAICapacityShedSettings,
+): Promise<OpenAICapacityShedSettings> {
+  const { data } = await apiClient.put<OpenAICapacityShedSettings>(
+    "/admin/settings/openai-capacity-shed",
+    settings,
+  );
+  return data;
+}
+
 // ==================== 429 Rate Limit Cooldown Settings ====================
 
 export interface RateLimit429CooldownSettings {
@@ -1722,6 +1745,8 @@ export const settingsAPI = {
   deleteAdminApiKey,
   getOverloadCooldownSettings,
   updateOverloadCooldownSettings,
+  getOpenAICapacityShedSettings,
+  updateOpenAICapacityShedSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,

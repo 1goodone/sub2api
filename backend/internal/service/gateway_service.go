@@ -696,25 +696,26 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
-	StatusCode               int
-	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
-	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
-	ForceCacheBilling        bool          // Antigravity 粘性会话切换时设为 true
-	RetryableOnSameAccount   bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
-	SameAccountRetryDelay    time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
-	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
-	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
-	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SuppressScheduleFailure  bool          // 独立子协议已有专用冷却时，不得污染通用账号健康评分
-	SkipOAuth429AttemptLimit bool          // 独立子协议已逐账号冷却时，可使用 handler 的完整切号预算
-	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
-	BoundUpstreamPassthrough bool          // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
-	Stage                    GatewayFailureStage
-	Scope                    GatewayFailureScope
-	Reason                   GatewayFailureReason
-	NextAccountAction        NextAccountAction
-	ClientStatusCode         int
-	ClientMessage            string
+	StatusCode                int
+	ResponseBody              []byte        // 上游响应体，用于错误透传规则匹配
+	ResponseHeaders           http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
+	ForceCacheBilling         bool          // Antigravity 粘性会话切换时设为 true
+	RetryableOnSameAccount    bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
+	SameAccountRetryDelay     time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
+	SameAccountRetryDeadline  time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
+	SameAccountRetryMax       int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
+	CapacityShedRetryOverride bool          // 网关过载配置指定了这次错误的同账号重试次数，0 也生效
+	RequestScopedTransient    bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
+	SuppressScheduleFailure   bool          // 独立子协议已有专用冷却时，不得污染通用账号健康评分
+	SkipOAuth429AttemptLimit  bool          // 独立子协议已逐账号冷却时，可使用 handler 的完整切号预算
+	SafeToFailoverAfterWrite  bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	BoundUpstreamPassthrough  bool          // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
+	Stage                     GatewayFailureStage
+	Scope                     GatewayFailureScope
+	Reason                    GatewayFailureReason
+	NextAccountAction         NextAccountAction
+	ClientStatusCode          int
+	ClientMessage             string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -762,8 +763,12 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
 		return
 	}
-	// 请求级瞬时故障与账号健康无关：封禁只会把与故障无关的账号一并摘掉，
-	// 而故障因素（客户端身份、模型容量）在下一个账号上完全相同。
+	// 上游过载原文不回用户。同账号重试已经用尽后，把这个账号冷却 2 分钟，
+	// 当前请求继续换号。其它请求级瞬时故障仍然不摘号。
+	if failoverErr.IsOpenAICapacityShed() {
+		s.cooldownOpenAICapacityShedAccountByID(ctx, accountID)
+		return
+	}
 	if failoverErr.RequestScopedTransient {
 		return
 	}

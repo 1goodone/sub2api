@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -22,6 +23,14 @@ type capacityShedAccountRepoStub struct {
 	AccountRepository // 嵌入接口，未实现的方法会 panic（不应被调用）
 
 	tempUnschedCalls int
+	overloadCalls    int
+	overloadUntil    time.Time
+}
+
+func (r *capacityShedAccountRepoStub) SetOverloaded(_ context.Context, _ int64, until time.Time) error {
+	r.overloadCalls++
+	r.overloadUntil = until
+	return nil
 }
 
 func (r *capacityShedAccountRepoStub) SetTempUnschedulable(_ context.Context, _ int64, _ time.Time, _ string) error {
@@ -29,9 +38,37 @@ func (r *capacityShedAccountRepoStub) SetTempUnschedulable(_ context.Context, _ 
 	return nil
 }
 
-// 上游容量降载是请求级信号：故障因素（客户端身份、模型容量）与账号无关，
-// 同账号重试用尽后不得把账号临时摘掉——否则一个被降载的请求会顺着 failover
-// 把整池账号逐个封禁，而每个账号都会以同一个错误失败。
+type capacityShedSettingRepo struct {
+	data map[string]string
+}
+
+func (r capacityShedSettingRepo) Get(context.Context, string) (*Setting, error) {
+	return nil, ErrSettingNotFound
+}
+
+func (r capacityShedSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if r.data == nil {
+		return "", nil
+	}
+	return r.data[key], nil
+}
+
+func (r capacityShedSettingRepo) Set(context.Context, string, string) error { return nil }
+
+func (r capacityShedSettingRepo) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (r capacityShedSettingRepo) SetMultiple(context.Context, map[string]string) error { return nil }
+
+func (r capacityShedSettingRepo) GetAll(context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (r capacityShedSettingRepo) Delete(context.Context, string) error { return nil }
+
+// 其它请求级瞬时故障仍然不写账号状态。上游过载是例外：同账号重试用尽后
+// 只把这个账号冷却 2 分钟，不走临时不可调度。
 func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 	t.Run("请求级瞬时故障不写账号状态", func(t *testing.T) {
 		repo := &capacityShedAccountRepoStub{}
@@ -44,6 +81,24 @@ func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 		})
 
 		require.Zero(t, repo.tempUnschedCalls)
+		require.Zero(t, repo.overloadCalls)
+	})
+
+	t.Run("过载重试用尽后冷却该账号两分钟", func(t *testing.T) {
+		repo := &capacityShedAccountRepoStub{}
+		svc := &GatewayService{accountRepo: repo}
+		body := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+
+		svc.TempUnscheduleRetryableError(context.Background(), 42, &UpstreamFailoverError{
+			StatusCode:             http.StatusServiceUnavailable,
+			ResponseBody:           body,
+			RetryableOnSameAccount: true,
+			RequestScopedTransient: true,
+		})
+
+		require.Zero(t, repo.tempUnschedCalls)
+		require.Equal(t, 1, repo.overloadCalls)
+		require.WithinDuration(t, time.Now().Add(openAICapacityShedAccountCooldown), repo.overloadUntil, 5*time.Second)
 	})
 
 	// 对照组：同样的 502 在未标记请求级瞬时故障时仍按原有语义临时摘号，
@@ -58,7 +113,87 @@ func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 		})
 
 		require.Equal(t, 1, repo.tempUnschedCalls)
+		require.Zero(t, repo.overloadCalls)
 	})
+
+	t.Run("关闭网关开关后不再冷却", func(t *testing.T) {
+		repo := &capacityShedAccountRepoStub{}
+		settingRepo := capacityShedSettingRepo{data: map[string]string{}}
+		data, err := json.Marshal(OpenAICapacityShedSettings{Enabled: false, RetryCount: 3, CooldownMinutes: 2})
+		require.NoError(t, err)
+		settingRepo.data[SettingKeyOpenAICapacityShedSettings] = string(data)
+		svc := &GatewayService{
+			accountRepo:    repo,
+			settingService: NewSettingService(settingRepo, &config.Config{}),
+		}
+		body := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+
+		svc.TempUnscheduleRetryableError(context.Background(), 42, &UpstreamFailoverError{
+			StatusCode:             http.StatusServiceUnavailable,
+			ResponseBody:           body,
+			RetryableOnSameAccount: true,
+			RequestScopedTransient: true,
+		})
+
+		require.Zero(t, repo.overloadCalls)
+		require.Zero(t, repo.tempUnschedCalls)
+	})
+
+	t.Run("冷却时长跟随网关配置", func(t *testing.T) {
+		repo := &capacityShedAccountRepoStub{}
+		settingRepo := capacityShedSettingRepo{data: map[string]string{}}
+		data, err := json.Marshal(OpenAICapacityShedSettings{Enabled: true, RetryCount: 1, CooldownMinutes: 4})
+		require.NoError(t, err)
+		settingRepo.data[SettingKeyOpenAICapacityShedSettings] = string(data)
+		svc := &GatewayService{
+			accountRepo:    repo,
+			settingService: NewSettingService(settingRepo, &config.Config{}),
+		}
+		body := []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later."}}`)
+
+		svc.TempUnscheduleRetryableError(context.Background(), 42, &UpstreamFailoverError{
+			StatusCode:             http.StatusServiceUnavailable,
+			ResponseBody:           body,
+			RetryableOnSameAccount: true,
+			RequestScopedTransient: true,
+		})
+
+		require.Equal(t, 1, repo.overloadCalls)
+		require.WithinDuration(t, time.Now().Add(4*time.Minute), repo.overloadUntil, 5*time.Second)
+	})
+}
+
+func TestOpenAICapacityShedPolicyStampsConfiguredRetryCount(t *testing.T) {
+	settingRepo := capacityShedSettingRepo{data: map[string]string{}}
+	data, err := json.Marshal(OpenAICapacityShedSettings{Enabled: true, RetryCount: 5, CooldownMinutes: 2})
+	require.NoError(t, err)
+	settingRepo.data[SettingKeyOpenAICapacityShedSettings] = string(data)
+	svc := &OpenAIGatewayService{settingService: NewSettingService(settingRepo, &config.Config{})}
+
+	failoverErr := svc.openAIUpstreamFailoverError(
+		http.StatusServiceUnavailable,
+		nil,
+		[]byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later."}}`),
+		"",
+		true,
+	)
+
+	require.True(t, failoverErr.CapacityShedRetryOverride)
+	require.Equal(t, 5, failoverErr.SameAccountRetryMax)
+
+	disabledRepo := capacityShedSettingRepo{data: map[string]string{}}
+	disabled, err := json.Marshal(OpenAICapacityShedSettings{Enabled: false, RetryCount: 5, CooldownMinutes: 2})
+	require.NoError(t, err)
+	disabledRepo.data[SettingKeyOpenAICapacityShedSettings] = string(disabled)
+	disabledSvc := &OpenAIGatewayService{settingService: NewSettingService(disabledRepo, &config.Config{})}
+	disabledErr := disabledSvc.openAIUpstreamFailoverError(
+		http.StatusServiceUnavailable,
+		nil,
+		[]byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later."}}`),
+		"",
+		true,
+	)
+	require.False(t, disabledErr.CapacityShedRetryOverride)
 }
 
 // 非池模式账号同样要先在同账号重试：换号不改变降载因素。
@@ -196,7 +331,8 @@ func TestOpenAIStreamMetadataPreambleAndMessageOnlyOverloadFailOver(t *testing.T
 			require.True(t, failoverErr.RetryableOnSameAccount)
 			require.True(t, failoverErr.RequestScopedTransient)
 			require.Equal(t, http.StatusServiceUnavailable, failoverErr.ClientStatusCode)
-			require.Contains(t, failoverErr.ClientMessage, "servers are currently overloaded")
+			require.Equal(t, OpenAICapacityShedClientMessage, failoverErr.ClientMessage)
+			require.NotContains(t, failoverErr.ClientMessage, "currently overloaded")
 			require.False(t, c.Writer.Written())
 			require.Empty(t, rec.Body.String())
 		})
@@ -292,7 +428,8 @@ func TestOpenAIStreamCapacityShedAfterOutputRewritesCodeForClient(t *testing.T) 
 	require.Equal(t, 1, strings.Count(body, `"code":"server_error"`))
 	require.Contains(t, body, `"code":"server_error"`)
 	require.NotContains(t, body, "server_is_overloaded")
-	require.Contains(t, body, "Our servers are currently overloaded")
+	require.Contains(t, body, OpenAICapacityShedClientMessage)
+	require.NotContains(t, body, "Our servers are currently overloaded")
 	require.True(t, logSink.ContainsMessage("gateway.failover_suppressed_after_semantic_output"))
 	require.True(t, logSink.ContainsFieldValue("path", "native_sse"))
 	require.True(t, logSink.ContainsFieldValue("upstream_request_id", "rid-shed-after-output"))
@@ -411,6 +548,8 @@ func TestSanitizeOpenAICapacityShedErrorCodeForClient(t *testing.T) {
 			if changed {
 				require.NotContains(t, string(out), "server_is_overloaded")
 				require.NotContains(t, string(out), "slow_down")
+				require.NotContains(t, string(out), "currently overloaded")
+				require.NotContains(t, string(out), "Server is overloaded")
 			}
 		})
 	}

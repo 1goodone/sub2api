@@ -523,6 +523,13 @@ type OverloadCooldownSettings struct {
 	CooldownMinutes int  `json:"cooldown_minutes"`
 }
 
+// OpenAICapacityShedSettings OpenAI 过载重试与冷却配置 DTO
+type OpenAICapacityShedSettings struct {
+	Enabled         bool `json:"enabled"`
+	RetryCount      int  `json:"retry_count"`
+	CooldownMinutes int  `json:"cooldown_minutes"`
+}
+
 // RateLimit429CooldownSettings 429默认回避配置 DTO
 type RateLimit429CooldownSettings struct {
 	Enabled         bool `json:"enabled"`

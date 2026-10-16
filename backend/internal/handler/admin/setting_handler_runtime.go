@@ -102,6 +102,57 @@ func (h *SettingHandler) UpdateOverloadCooldownSettings(c *gin.Context) {
 	})
 }
 
+// GetOpenAICapacityShedSettings 获取 OpenAI 过载重试与冷却配置
+// GET /api/v1/admin/settings/openai-capacity-shed
+func (h *SettingHandler) GetOpenAICapacityShedSettings(c *gin.Context) {
+	settings, err := h.settingService.GetOpenAICapacityShedSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.OpenAICapacityShedSettings{
+		Enabled:         settings.Enabled,
+		RetryCount:      settings.RetryCount,
+		CooldownMinutes: settings.CooldownMinutes,
+	})
+}
+
+// UpdateOpenAICapacityShedSettingsRequest 更新 OpenAI 过载重试与冷却配置请求
+type UpdateOpenAICapacityShedSettingsRequest struct {
+	Enabled         bool `json:"enabled"`
+	RetryCount      int  `json:"retry_count"`
+	CooldownMinutes int  `json:"cooldown_minutes"`
+}
+
+// UpdateOpenAICapacityShedSettings 更新 OpenAI 过载重试与冷却配置
+// PUT /api/v1/admin/settings/openai-capacity-shed
+func (h *SettingHandler) UpdateOpenAICapacityShedSettings(c *gin.Context) {
+	var req UpdateOpenAICapacityShedSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings := &service.OpenAICapacityShedSettings{
+		Enabled:         req.Enabled,
+		RetryCount:      req.RetryCount,
+		CooldownMinutes: req.CooldownMinutes,
+	}
+	if err := h.settingService.SetOpenAICapacityShedSettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	updatedSettings, err := h.settingService.GetOpenAICapacityShedSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.OpenAICapacityShedSettings{
+		Enabled:         updatedSettings.Enabled,
+		RetryCount:      updatedSettings.RetryCount,
+		CooldownMinutes: updatedSettings.CooldownMinutes,
+	})
+}
+
 // GetRateLimit429CooldownSettings 获取429默认回避配置
 // GET /api/v1/admin/settings/rate-limit-429-cooldown
 func (h *SettingHandler) GetRateLimit429CooldownSettings(c *gin.Context) {

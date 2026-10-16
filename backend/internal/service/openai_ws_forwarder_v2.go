@@ -887,9 +887,8 @@ readLoop:
 			}
 			// error 事件后连接不再可复用，避免回池后污染下一请求。
 			lease.MarkBroken()
-			if !(firstResponseEnabled && reqStream) && !wroteDownstream && (errCodeRaw == "server_is_overloaded" || errCodeRaw == "slow_down") {
-				failover := newOpenAIUpstreamFailoverError(http.StatusServiceUnavailable, lease.HandshakeHeaders(), message, errMsg, false)
-				failover.RetryableOnSameAccount = false
+			if !(firstResponseEnabled && reqStream) && !wroteDownstream && isOpenAIRequestScopedCapacityShed(errCodeRaw, message) {
+				failover := s.openAIUpstreamFailoverError(http.StatusServiceUnavailable, lease.HandshakeHeaders(), message, errMsg, false)
 				return nil, failover
 			}
 			if !(firstResponseEnabled && reqStream) && !wroteDownstream && canFallback {
@@ -897,15 +896,23 @@ readLoop:
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)
 			setOpsUpstreamError(c, statusCode, errMsg, "")
+			clientMessage := message
+			if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
+				clientMessage = rewritten
+			}
+			clientErrMsg := errMsg
+			if isOpenAICapacityShedMessage(clientErrMsg) || isOpenAIRequestScopedCapacityShed(errCodeRaw, message) {
+				clientErrMsg = OpenAICapacityShedClientMessage
+			}
 			if reqStream && !clientDisconnected {
 				flushBufferedStreamEvents("error_event")
-				emitStreamMessage(message, true)
+				emitStreamMessage(clientMessage, true)
 			}
 			if !reqStream {
 				c.JSON(statusCode, gin.H{
 					"error": gin.H{
 						"type":    "upstream_error",
-						"message": errMsg,
+						"message": clientErrMsg,
 					},
 				})
 			}
