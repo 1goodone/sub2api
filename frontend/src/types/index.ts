@@ -298,6 +298,9 @@ export interface PublicSettings {
   usage_show_long_context_badge?: boolean
   /** Usage table average output TPS visibility (default enabled). */
   usage_show_average_tps?: boolean
+  /** Usage cache-rate column. Defaults on for admins and off for end users. */
+  usage_show_cache_rate?: boolean
+  usage_show_cache_rate_to_users?: boolean
 }
 
 export interface AuthResponse {
@@ -644,6 +647,7 @@ export interface Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
   require_privacy_set: boolean
+  i18n?: GroupI18n
   created_at: string
   updated_at: string
 }

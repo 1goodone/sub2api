@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candyDisplayState, hasMonitorSamples, monitorCardTimeline } from '../monitorCards'
+import { MONITOR_CARD_SLOT_COUNT, candyDisplayState, hasMonitorSamples, monitorCardTimeline } from '../monitorCards'
 import type { MonitorCandyHistory, MonitorCoverage, MonitorMatrixRow, MonitorMetric } from '@/api/channelMonitorV2'
 
 describe('monitor card data semantics', () => {

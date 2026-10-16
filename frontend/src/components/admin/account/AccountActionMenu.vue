@@ -92,7 +92,7 @@ const props = withDefaults(defineProps<{
   anchorRect: DOMRect | null
   codexOverdraftLoading?: boolean
 }>(), { codexOverdraftLoading: false })
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'iq-test', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'toggle-codex-overdraft'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'iq-test', 'duplicate', 'reauth', 'refresh-token', 'export-session', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'toggle-codex-overdraft'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()

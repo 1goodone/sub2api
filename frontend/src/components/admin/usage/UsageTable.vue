@@ -668,6 +668,7 @@ const ipGeoBatchLoading = ref(false)
 // 长上下文计费 x2 徽标展示开关（公开设置，默认开启；未加载/缺失时按开启处理）
 const showLongContextBadge = computed(() => appStore.cachedPublicSettings?.usage_show_long_context_badge !== false)
 const showAverageTps = computed(() => appStore.cachedPublicSettings?.usage_show_average_tps !== false)
+const showCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, observerMode ? 'user' : 'admin'))
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 
@@ -783,29 +784,37 @@ const formatDuration = (ms: number | null | undefined): string => {
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
 
-// 个人页两段色条对应首字/总耗时；管理员开启 TPS 时用三段。缺失指标沿用总耗时档。
-const latencyBarClasses = (row: AdminUsageLog): string[] => {
-  const duration = durationSeverity(row.duration_ms ?? 0)
-  const first = row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration
-  if (props.compact || !showAverageTps.value) {
-    return ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[first], LATENCY_BAR_TO_CLASSES[duration]]
-  }
-  const tps = usageOutputTps(row)
-  return {
-    first: row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration,
-    duration,
-    tps: tps != null ? tpsSeverity(tps) : duration,
-  }
+const LATENCY_BAR_COLORS: Record<LatencySeverity, string> = {
+  good: '#10b981',
+  warn: '#fbbf24',
+  slow: '#f97316',
+  critical: '#ef4444',
 }
 
-// 延迟色条三段依次对应首字/总耗时/TPS（30%/50%/70% 分别落在三行内）；无首字或无 TPS 的段沿用总耗时档。
+function latencySeverities(row: AdminUsageLog) {
+  const duration = durationSeverity(row.duration_ms ?? 0)
+  const first = row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration
+  const outputTps = usageOutputTps(row)
+  return { first, duration, tps: showAverageTps.value && outputTps != null ? tpsSeverity(outputTps) : duration }
+}
+
+function cacheRateTitle(row: AdminUsageLog): string {
+  const parts = usageCacheRateParts(row)
+  if (!parts) return ''
+  return `${parts.read} / ${parts.input + parts.read + parts.write}`
+}
+
+// 个人页两段色条对应首字/总耗时；管理员开启 TPS 时用三段。缺失指标沿用总耗时档。
 const latencyBarClasses = (row: AdminUsageLog): string[] => {
   const severity = latencySeverities(row)
+  if (props.compact || !showAverageTps.value) {
+    return ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[severity.first], LATENCY_BAR_TO_CLASSES[severity.duration]]
+  }
   return [
     'bg-gradient-to-b from-30% via-50% to-70%',
-    LATENCY_BAR_FROM_CLASSES[first],
-    LATENCY_BAR_VIA_CLASSES[duration],
-    LATENCY_BAR_TO_CLASSES[showAverageTps.value && tps != null ? tpsSeverity(tps) : duration],
+    LATENCY_BAR_FROM_CLASSES[severity.first],
+    LATENCY_BAR_VIA_CLASSES[severity.duration],
+    LATENCY_BAR_TO_CLASSES[severity.tps],
   ]
 }
 

@@ -253,6 +253,7 @@ import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatCompactNumber, formatReasoningEffort } from '@/utils/format'
+import { formatUsageCacheRate, showUsageCacheRate } from '@/utils/usageCacheRate'
 import { platformIconClass } from '@/utils/platformColors'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -273,6 +274,7 @@ import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const includeCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, 'user'))
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'

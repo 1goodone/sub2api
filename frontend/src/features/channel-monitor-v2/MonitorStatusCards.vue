@@ -41,7 +41,7 @@
               <span>{{ timelineCaption(row) }}</span><span>{{ t('channelMonitorV2.cards.refreshIn', { seconds: countdown }) }}</span>
             </div>
             <div class="flex h-5 items-end gap-1" :aria-label="t('channelMonitorV2.cards.trafficHistory')">
-              <span v-for="bar in monitorCardTimeline(row, coverage)" :key="bar.start" class="min-w-0 flex-1 rounded-sm" :class="healthBar[bar.state]" :title="`${time(bar.start)} - ${time(bar.end)}: ${t(`channelMonitorV2.cards.health.${bar.state}`)}`" />
+              <span v-for="bar in monitorCardTimeline(row, coverage, timelineMode)" :key="bar.start" class="min-w-0 flex-1 rounded-sm" :class="healthBar[bar.state]" :title="`${time(bar.start)} - ${time(bar.end)}: ${t(`channelMonitorV2.cards.health.${bar.state}`)}`" />
             </div>
             <div class="mt-1 flex justify-between font-mono text-[9px] tracking-widest text-gray-400"><span>PAST</span><span>NOW</span></div>
           </div>
@@ -65,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { MonitorCandyResult, MonitorCoverage, MonitorMatrixRow } from '@/api/channelMonitorV2'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
@@ -75,6 +75,16 @@ import { candyDisplayState, hasMonitorSamples, monitorCardTimeline } from './mon
 
 const props = defineProps<{ items: MonitorMatrixRow[]; coverage?: MonitorCoverage; countdown: number; loading: boolean; now: number; platformOrder?: string[] }>()
 const { t, locale } = useI18n()
+const timelineMode = ref<'windows' | 'samples'>('windows')
+function setTimelineMode(mode: 'windows' | 'samples') { timelineMode.value = mode }
+function timelineCaption(row: MonitorMatrixRow) {
+  const bars = monitorCardTimeline(row, props.coverage, timelineMode.value)
+  const observed = bars.filter((bar) => bar.observed).length
+  if (!observed) return t('channelMonitorV2.cards.noSamples')
+  return timelineMode.value === 'samples'
+    ? t('channelMonitorV2.cards.sampledWindows', { count: observed })
+    : t('channelMonitorV2.cards.windows', { count: bars.length })
+}
 const { providerLabel, providerBadgeClass } = useChannelMonitorFormat()
 const platforms = computed(() => {
   const groups = new Map<string, MonitorMatrixRow[]>()

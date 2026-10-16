@@ -114,7 +114,7 @@ import { getAstraGateway, saveAstraGateway, normalizeAstraGateway, resolveAstraD
 const props = withDefaults(defineProps<{ startExpanded?: boolean; embedded?: boolean }>(), { startExpanded: false })
 const embedded = computed(() => props.embedded === true)
 const p = 'admin.astraGateway'
-const { t, te } = useI18n()
+const { t } = useI18n()
 const expanded = ref(props.startExpanded)
 const historyExpanded = ref(false)
 const loading = ref(false)

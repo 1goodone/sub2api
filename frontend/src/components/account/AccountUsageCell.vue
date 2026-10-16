@@ -1002,10 +1002,6 @@ const geminiOAuthType = computed(() => {
   return (creds?.oauth_type || '').trim() || null
 })
 
-const showGeminiQuotaPolicy = computed(() => {
-  return !isGeminiVertex.value
-})
-
 // Gemini 是否为 Code Assist OAuth
 const isGeminiCodeAssist = computed(() => {
   if (props.account.platform !== 'gemini') return false
