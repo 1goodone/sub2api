@@ -40,17 +40,18 @@ export default {
   weights: '评分权重',
   quality_weight: '质量', latency_weight: '延迟', load_weight: '并发余量', cost_weight: '利润 / 成本',
   thresholds: '体验目标与统计窗口',
-  target_ttft_ms: '首 token P90 目标（毫秒）', max_load_percent: '并发占用上限（%）', min_quality_percent: '质量通过率目标（%）',
+  target_ttft_ms: '首 token P90 目标（毫秒）', latency_penalty_minutes: '慢账号保持时间（分钟）', max_load_percent: '并发占用上限（%）', min_quality_percent: '质量通过率目标（%）',
   window_minutes: '使用记录窗口（分钟）', min_samples: '延迟 / 利润最少样本数', quality_max_age_hours: '质量结果有效期（小时）',
   groupIds: '生效分组 ID', groupHint: '逗号分隔；留空表示所有分组。',
   models: '生效模型', modelHint: '每行一个请求模型名，精确匹配；留空表示所有模型。',
   rule: '先避开已知质量、错误与亏损风险，再按真实并发及 RPM 的预计占用分档。容量和体验接近时，Teams 固定成本回本账号优先，再比较显式账号优先级与分流权重；利润略高不能让繁忙账号长期覆盖更空闲的安全候选。未知安全新号可获得少量探索流量，但不会越过回本账号。',
   costHint: '利润＝用户扣费−估算成本。Teams 固定成本仍按单号付费窗口计算；其他账号使用同分组、同模型基础成本 × 当前账号成本倍率（默认 0.1）。开启跟随时，有效上游探测会保存新倍率；关闭后保留手填成本，失败、过期或不支持时保留已保存值。其他 OAuth 缺少样本时不以倍率代替利润，API 可回退成本倍率估算；修改后重估近期利润，不改历史账单。',
+  latencyPenaltyHint: '首 token P90 高于目标时，从最近一次慢样本起，账号会在这段时间内保持未达标。填 0 则一直保持未达标，直到更新的样本恢复。更早的样本不会重新开始计时。',
   save: '保存配置', saving: '保存中…', saved: '配置已保存', loading: '加载中…', retry: '重试', error: '读取或保存失败，请重试', invalid: '请检查分组 ID 和参数范围',
   recent: '最近一次候选评分', refresh: '刷新评分', empty: '暂无评分。启用后，符合范围且需要自由选路的请求会生成评分。',
   historyPending: '历史统计尚未就绪，先按实时容量均衡；缺失历史按未知处理，后台继续刷新。',
   snapshotHint: '仅展示当前实例最近一次候选池，最多 100 个账号。按风险、预计占用档位及分流偏好展示；占用接近的候选会加权抽样，表格不是固定选取顺序或流量比例。历史未就绪也会展示实时容量候选。',
   model: '模型', group: '分组', account: '账号', score: '得分', tier: '状态', latency: 'P90 首 token', load: '并发占用', rate: '成本倍率', quality: '质量通过', samples: '条样本', unknown: '未知',
   tiers: { eligible: '体验达标', insufficient: '数据不足', degraded: '体验未达标' },
-  reasons: { quality_below_target: '质量低于目标', quality_unknown: '无有效质量结果', latency_above_target: '延迟超过目标', latency_insufficient: '延迟样本不足', busy: '并发偏高或有排队', load_unknown: '并发数据未知', cost_unknown: '成本未知', recent_errors: '近期错误偏多', historical_loss: '近期用户扣费低于理论成本', profit_insufficient: '利润样本不足', teams_recovery: '本窗口收入尚未超过单号成本', teams_window_unavailable: 'Teams 成本窗口未设置或已失效' }
+  reasons: { quality_below_target: '质量低于目标', quality_unknown: '无有效质量结果', latency_above_target: '延迟超过目标', latency_recovery: '慢账号保持时间已过，等待新的样本', latency_insufficient: '延迟样本不足', busy: '并发偏高或有排队', load_unknown: '并发数据未知', cost_unknown: '成本未知', recent_errors: '近期错误偏多', historical_loss: '近期用户扣费低于理论成本', profit_insufficient: '利润样本不足', teams_recovery: '本窗口收入尚未超过单号成本', teams_window_unavailable: 'Teams 成本窗口未设置或已失效' }
 }
