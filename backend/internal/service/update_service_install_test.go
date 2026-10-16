@@ -20,6 +20,22 @@ import (
 type updateInstallClient struct {
 	updateServiceGitHubClientStub
 	failDownload bool
+	latestErr    error
+	latestCalls  int
+	recentCalls  int
+}
+
+func (c *updateInstallClient) FetchLatestRelease(ctx context.Context, repo string) (*GitHubRelease, error) {
+	c.latestCalls++
+	if c.latestErr != nil {
+		return nil, c.latestErr
+	}
+	return c.updateServiceGitHubClientStub.FetchLatestRelease(ctx, repo)
+}
+
+func (c *updateInstallClient) FetchRecentReleases(ctx context.Context, repo string, limit int) ([]*GitHubRelease, error) {
+	c.recentCalls++
+	return c.updateServiceGitHubClientStub.FetchRecentReleases(ctx, repo, limit)
 }
 
 func (c *updateInstallClient) DownloadFile(_ context.Context, _, dest string, _ int64) error {
@@ -27,6 +43,33 @@ func (c *updateInstallClient) DownloadFile(_ context.Context, _, dest string, _ 
 		return errors.New("download unavailable")
 	}
 	return os.WriteFile(dest, []byte("downloaded release"), 0600)
+}
+
+func TestUpdateServicePendingRestartPrecedesReleaseLookup(t *testing.T) {
+	for _, scenario := range []string{"update-already-current", "update-offline", "version-rollback-offline"} {
+		t.Run(scenario, func(t *testing.T) {
+			client := &updateInstallClient{}
+			client.release = &GitHubRelease{TagName: "v2.0.0"}
+			client.recentErr = errors.New("GitHub unavailable")
+			if scenario == "update-offline" {
+				client.latestErr = errors.New("GitHub unavailable")
+			}
+			svc := NewUpdateService(&updateServiceCacheStub{}, client, "2.0.0", "release")
+			// The running version remains unchanged after an install or rollback.
+			svc.restartRequired = true
+
+			var err error
+			if scenario == "version-rollback-offline" {
+				err = svc.RollbackToVersion(context.Background(), "1.0.0")
+			} else {
+				err = svc.PerformUpdate(context.Background())
+			}
+			require.ErrorIs(t, err, ErrSystemRestartRequired)
+			require.Equal(t, "SYSTEM_RESTART_REQUIRED", infraerrors.Reason(err))
+			require.Zero(t, client.latestCalls, "pending restart must not query the latest release")
+			require.Zero(t, client.recentCalls, "pending restart must not query rollback releases")
+		})
+	}
 }
 
 func TestUpdateServiceRequiresRestartBeforeNextMutation(t *testing.T) {

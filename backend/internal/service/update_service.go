@@ -167,6 +167,10 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 // PerformUpdate downloads and applies the update
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
+	if err := s.checkRestartRequired(); err != nil {
+		return err
+	}
+
 	info, err := s.CheckUpdate(ctx, true)
 	if err != nil {
 		return err
@@ -177,6 +181,17 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	}
 
 	return s.applyReleaseAssets(ctx, info.ReleaseInfo.Assets)
+}
+
+// Check before release lookups so pending restarts take precedence over network
+// failures and version checks. Mutations must also recheck under installMu.
+func (s *UpdateService) checkRestartRequired() error {
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	if s.restartRequired {
+		return ErrSystemRestartRequired
+	}
+	return nil
 }
 
 // applyReleaseAssets downloads the platform archive from the given release assets,
@@ -346,6 +361,10 @@ func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVer
 // The target must be one of the versions returned by ListRollbackVersions;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
+	if err := s.checkRestartRequired(); err != nil {
+		return err
+	}
+
 	target := strings.TrimPrefix(strings.TrimSpace(version), "v")
 	if target == "" {
 		return ErrRollbackVersionNotAllowed
