@@ -37,15 +37,18 @@ type Account struct {
 	Priority                int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
-	RateMultiplier     *float64
-	LoadFactor         *int // 调度负载因子；nil 表示使用 Concurrency
-	Status             string
-	ErrorMessage       string
-	LastUsedAt         *time.Time
-	ExpiresAt          *time.Time
-	AutoPauseOnExpired bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	RateMultiplier *float64
+	// GroupRateMultiplier 叠在已解析的用户/分组倍率上。和 RateMultiplier 分开：
+	// 后者只进账号侧成本统计。空或非法值按 1.0。
+	GroupRateMultiplier *float64
+	LoadFactor          *int // 调度负载因子；nil 表示使用 Concurrency
+	Status              string
+	ErrorMessage        string
+	LastUsedAt          *time.Time
+	ExpiresAt           *time.Time
+	AutoPauseOnExpired  bool
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 
 	Schedulable bool
 
@@ -179,6 +182,14 @@ func (a *Account) BillingRateMultiplier() float64 {
 		return 1.0
 	}
 	return *a.RateMultiplier
+}
+
+// UserGroupRateMultiplier 返回叠在用户/分组倍率上的账号倍率。
+func (a *Account) UserGroupRateMultiplier() float64 {
+	if a == nil || a.GroupRateMultiplier == nil || *a.GroupRateMultiplier < 0 {
+		return 1.0
+	}
+	return *a.GroupRateMultiplier
 }
 
 func (a *Account) EffectiveLoadFactor() int {

@@ -40,6 +40,23 @@ func EffortLevelsForModel(model string) []string {
 	return nil
 }
 
+func IsOpus55(model string) bool {
+	return isExactEffortFamily(model, "claude-opus-5-5")
+}
+
+func IsSonnet55(model string) bool {
+	return isExactEffortFamily(model, "claude-sonnet-5-5")
+}
+
+func IsHaiku55(model string) bool {
+	return isExactEffortFamily(model, "claude-haiku-5-5")
+}
+
+func isExactEffortFamily(model, family string) bool {
+	id := normalizeEffortModelID(model)
+	return id == family || strings.HasPrefix(id, family+"-")
+}
+
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
 	id = strings.TrimPrefix(id, "models/")

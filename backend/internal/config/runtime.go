@@ -9,7 +9,11 @@ const (
 
 // RuntimeConfig separates global background jobs from request replicas.
 type RuntimeConfig struct {
-	Role string `mapstructure:"role"`
+	Role                    string `mapstructure:"role"`
+	RegionalFundsFile       string `mapstructure:"regional_funds_file"`
+	RegionalConcurrencyFile string `mapstructure:"regional_concurrency_file"`
+	RegionalAuthFile        string `mapstructure:"regional_auth_file"`
+	RegionalSchedulerFile   string `mapstructure:"regional_scheduler_file"`
 }
 
 func (c *Config) RunsBackgroundJobs() bool {

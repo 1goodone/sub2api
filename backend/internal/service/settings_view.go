@@ -270,9 +270,11 @@ type SystemSettings struct {
 	ClaudeCodeClientVersion                string // 出站声明的 Claude Code CLI 客户端版本号（管理员覆写）；空值跟随自动同步值
 	ClaudeCodeClientVersionSynced          string // 自动同步到的官方最新版本号（只读展示）
 	ClaudeCodeVersionAutoSyncEnabled       bool   // 是否启用 Claude Code 客户端版本号自动同步（默认 true）
-	OpenAIRequestTimezoneEnabled           bool   // Rewrite request timezones; disabled by default.
+	OpenAIRequestTimezoneEnabled           bool   // Rewrite request timezones; empty means enabled.
+	OpenAIRequestTimezoneAuto              bool   // Resolve timezone from the egress IP; false keeps the manual zone.
 	OpenAICodexTicketEnabled               bool   // Codex 292 打票总开关；关闭则不打票不注入
 	OpenAICodexTicketStrictResponse        bool
+	OpenAICodexTicketCandyObservation      bool
 	OpenAICodexTicketFailClosed            bool
 	OpenAICodexTicketStrategy              string
 	OpenAICodexTicketHarvestProxyURL       string // Codex 292 打票代理 URL；空则回退 yaml/env
@@ -350,6 +352,8 @@ type SystemSettings struct {
 	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
 	ExcelBPSImageMode             string
 	UsageShowLongContextBadge     bool
+	UsageShowCacheRate            bool
+	UsageShowCacheRateToUsers     bool
 	UsageShowAverageTPS           bool
 	ExcelBPSImageRelayEnabled     bool
 	ExcelBPSImageBaseURL          string
@@ -480,6 +484,9 @@ type PublicSettings struct {
 	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
 	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
 	UsageShowAverageTPS       bool `json:"usage_show_average_tps"`
+	// 使用记录单条缓存率。功能默认开启；向用户展示默认关闭。
+	UsageShowCacheRate        bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers bool `json:"usage_show_cache_rate_to_users"`
 }
 
 type LoginAgreementDocument struct {

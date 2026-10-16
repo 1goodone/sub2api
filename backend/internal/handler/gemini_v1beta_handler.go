@@ -930,6 +930,26 @@ func googleErrorWithType(c *gin.Context, status int, errType, code, message stri
 	})
 }
 
+func googleClientErrorType(status int) string {
+	switch status {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
+		return "invalid_request_error"
+	case http.StatusUnauthorized:
+		return "authentication_error"
+	case http.StatusForbidden:
+		return "permission_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	default:
+		return ""
+	}
+}
+
+func googleConcurrencyError(c *gin.Context, err error, slotType string) {
+	status, errType, code, message := concurrencyErrorResponse(err, slotType)
+	googleErrorWithType(c, status, errType, code, message)
+}
+
 func writeUpstreamResponse(c *gin.Context, res *service.UpstreamHTTPResult) {
 	if res == nil {
 		googleError(c, http.StatusBadGateway, "Empty upstream response")

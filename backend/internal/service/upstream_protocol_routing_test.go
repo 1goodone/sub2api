@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func routingTestAccount(platform, accountType string, credentials, extra map[string]any) *Account {
+func protocolRoutingTestAccount(platform, accountType string, credentials, extra map[string]any) *Account {
 	if credentials == nil {
 		credentials = map[string]any{}
 	}
@@ -30,24 +30,24 @@ func TestResolveUpstreamProtocol(t *testing.T) {
 		anthropic = APIProtocolAnthropic
 	)
 	adaptive := func(platform string) *Account {
-		return routingTestAccount(platform, AccountTypeAPIKey, map[string]any{"api_protocol": APIProtocolAdaptive}, nil)
+		return protocolRoutingTestAccount(platform, AccountTypeAPIKey, map[string]any{"api_protocol": APIProtocolAdaptive}, nil)
 	}
 	pinned := func(platform, protocol string) *Account {
-		return routingTestAccount(platform, AccountTypeAPIKey, map[string]any{"api_protocol": protocol}, nil)
+		return protocolRoutingTestAccount(platform, AccountTypeAPIKey, map[string]any{"api_protocol": protocol}, nil)
 	}
 	openCode := func(mode string, credentials map[string]any) *Account {
 		if credentials == nil {
 			credentials = map[string]any{}
 		}
 		credentials["account_mode"] = mode
-		return routingTestAccount(PlatformOpenCodeGo, AccountTypeAPIKey, credentials, nil)
+		return protocolRoutingTestAccount(PlatformOpenCodeGo, AccountTypeAPIKey, credentials, nil)
 	}
 	openAIWithProbe := func(accountType string, supported any) *Account {
 		extra := map[string]any{}
 		if supported != nil {
 			extra[openai_compat.ExtraKeyResponsesSupported] = supported
 		}
-		return routingTestAccount(PlatformOpenAI, accountType, nil, extra)
+		return protocolRoutingTestAccount(PlatformOpenAI, accountType, nil, extra)
 	}
 
 	cases := []struct {
@@ -116,11 +116,11 @@ func TestUpstreamRoutingModelOnlyForModelRoutedAccounts(t *testing.T) {
 	t.Parallel()
 
 	body := []byte(`{"model":"gpt-5.6-luna","input":"hi"}`)
-	openCode := routingTestAccount(PlatformOpenCodeGo, AccountTypeAPIKey, map[string]any{
+	openCode := protocolRoutingTestAccount(PlatformOpenCodeGo, AccountTypeAPIKey, map[string]any{
 		"model_mapping": map[string]any{"gpt-5.6-luna": "glm-5.3"},
 	}, nil)
 	require.Equal(t, "glm-5.3", upstreamRoutingModel(openCode, body, ""))
-	require.Empty(t, upstreamRoutingModel(routingTestAccount(PlatformKimi, AccountTypeAPIKey, nil, nil), body, ""))
+	require.Empty(t, upstreamRoutingModel(protocolRoutingTestAccount(PlatformKimi, AccountTypeAPIKey, nil, nil), body, ""))
 }
 
 // /v1/responses 转 Anthropic 上游时，计费模型名与上游模型名都应是去除首尾空白的

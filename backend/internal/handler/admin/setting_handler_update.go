@@ -262,8 +262,10 @@ type UpdateSettingsRequest struct {
 	OpenAICodexClientVersion               *string                          `json:"openai_codex_client_version"`
 	OpenAICodexVersionAutoSyncEnabled      *bool                            `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAIRequestTimezoneEnabled           *bool                            `json:"openai_request_timezone_enabled"`
+	OpenAIRequestTimezoneAuto              *bool                            `json:"openai_request_timezone_auto"`
 	OpenAICodexTicketEnabled               *bool                            `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketStrictResponse        *bool                            `json:"openai_codex_ticket_strict_response"`
+	OpenAICodexTicketCandyObservation      *bool                            `json:"openai_codex_ticket_candy_observation"`
 	OpenAICodexTicketFailClosed            *bool                            `json:"openai_codex_ticket_fail_closed"`
 	OpenAICodexTicketStrategy              *string                          `json:"openai_codex_ticket_strategy"`
 	OpenAICodexTicketHarvestProxyURL       string                           `json:"openai_codex_ticket_harvest_proxy_url"`
@@ -417,6 +419,8 @@ type UpdateSettingsRequest struct {
 
 	AllowUserViewErrorRequests    *bool   `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge     *bool   `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate            *bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers     *bool   `json:"usage_show_cache_rate_to_users"`
 	UsageShowAverageTPS           *bool   `json:"usage_show_average_tps"`
 	RequestCaptureEnabled         *bool   `json:"request_capture_enabled"`
 	RequestCaptureQuotaMiB        *int64  `json:"request_capture_quota_mib"`
@@ -1906,6 +1910,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.UsageShowLongContextBadge
 		}(),
+		UsageShowCacheRate: func() bool {
+			if req.UsageShowCacheRate != nil {
+				return *req.UsageShowCacheRate
+			}
+			return previousSettings.UsageShowCacheRate
+		}(),
+		UsageShowCacheRateToUsers: func() bool {
+			if req.UsageShowCacheRateToUsers != nil {
+				return *req.UsageShowCacheRateToUsers
+			}
+			return previousSettings.UsageShowCacheRateToUsers
+		}(),
 		UsageShowAverageTPS: func() bool {
 			if req.UsageShowAverageTPS != nil {
 				return *req.UsageShowAverageTPS
@@ -2064,6 +2080,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAICodexTicketStrictResponse
 			}
 			return previousSettings.OpenAICodexTicketStrictResponse
+		}(),
+		OpenAICodexTicketCandyObservation: func() bool {
+			if req.OpenAICodexTicketCandyObservation != nil {
+				return *req.OpenAICodexTicketCandyObservation
+			}
+			return previousSettings.OpenAICodexTicketCandyObservation
 		}(),
 		OpenAICodexTicketFailClosed: func() bool {
 			if req.OpenAICodexTicketFailClosed != nil {
@@ -2701,9 +2723,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ClaudeCodeClientVersionSynced:                          updatedSettings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       updatedSettings.ClaudeCodeVersionAutoSyncEnabled,
 		OpenAIRequestTimezoneEnabled:                           updatedSettings.OpenAIRequestTimezoneEnabled,
+		OpenAIRequestTimezoneAuto:                              updatedSettings.OpenAIRequestTimezoneAuto,
 		OpenAICodexTicketEnabled:                               updatedSettings.OpenAICodexTicketEnabled,
 		OpenAICodexTicketStrategy:                              updatedSettings.OpenAICodexTicketStrategy,
 		OpenAICodexTicketStrictResponse:                        updatedSettings.OpenAICodexTicketStrictResponse,
+		OpenAICodexTicketCandyObservation:                      updatedSettings.OpenAICodexTicketCandyObservation,
 		OpenAICodexTicketFailClosed:                            updatedSettings.OpenAICodexTicketFailClosed,
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
@@ -2815,6 +2839,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:         updatedSettings.UsageShowLongContextBadge,
+		UsageShowCacheRate:                updatedSettings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:         updatedSettings.UsageShowCacheRateToUsers,
 		UsageShowAverageTPS:               updatedSettings.UsageShowAverageTPS,
 		RequestCaptureEnabled:             updatedSettings.RequestCaptureEnabled,
 		RequestCaptureQuotaMiB:            updatedSettings.RequestCaptureQuotaMiB,

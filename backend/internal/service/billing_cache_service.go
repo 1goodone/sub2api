@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -1407,4 +1408,100 @@ func (s *BillingCacheService) HasUserPlatformQuotaLimit(ctx context.Context, use
 		return true
 	}
 	return entry.DailyLimitUSD != nil || entry.WeeklyLimitUSD != nil || entry.MonthlyLimitUSD != nil
+}
+
+// ReserveFixedCharge 为扣费前即可确定金额的费用做准入并登记在途预留。
+func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, amount float64) (*InflightReservation, error) {
+	if user == nil || amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, nil
+	}
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		return nil, nil
+	}
+	subscriptionBill := group != nil && group.IsSubscriptionType() && subscription != nil
+	if !subscriptionBill {
+		balance, err := s.GetUserBalance(ctx, user.ID)
+		if err != nil {
+			return nil, ErrBillingServiceUnavailable.WithCause(err)
+		}
+		if balance < amount {
+			return nil, ErrInsufficientBalance
+		}
+	}
+	res, err := s.reserveInflight(ctx, user, group, subscription, amount, false, false)
+	if err != nil {
+		return nil, err
+	}
+	var subscriptionPending, apiKeyPending float64
+	if subscriptionBill && (group.HasDailyLimit() || group.HasWeeklyLimit() || group.HasMonthlyLimit()) {
+		res, subscriptionPending = s.reserveInflightScope(ctx, res, user.ID, inflightSubscriptionScope(subscription.ID), amount)
+	}
+	if apiKey != nil && (apiKey.Quota > 0 || apiKey.HasRateLimits()) {
+		res, apiKeyPending = s.reserveInflightScope(ctx, res, user.ID, inflightAPIKeyScope(apiKey.ID), amount)
+	}
+	if subscriptionBill {
+		err = s.checkFixedChargeSubscription(ctx, user.ID, group, amount+subscriptionPending)
+	}
+	if err == nil && apiKey != nil {
+		err = s.checkFixedChargeAPIKey(ctx, apiKey, amount+apiKeyPending)
+	}
+	if err != nil {
+		res.Release()
+		return nil, err
+	}
+	return res, nil
+}
+
+func (s *BillingCacheService) checkFixedChargeSubscription(ctx context.Context, userID int64, group *Group, pending float64) error {
+	read := s.GetSubscriptionStatus
+	if s.subRepo != nil {
+		read = s.getSubscriptionFromDB
+	}
+	subData, err := read(ctx, userID, group.ID)
+	if err != nil {
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if group.HasDailyLimit() && subData.DailyUsage+pending > *group.DailyLimitUSD {
+		return ErrDailyLimitExceeded
+	}
+	if group.HasWeeklyLimit() && subData.WeeklyUsage+pending > *group.WeeklyLimitUSD {
+		return ErrWeeklyLimitExceeded
+	}
+	if group.HasMonthlyLimit() && subData.MonthlyUsage+pending > *group.MonthlyLimitUSD {
+		return ErrMonthlyLimitExceeded
+	}
+	return nil
+}
+
+func (s *BillingCacheService) checkFixedChargeAPIKey(ctx context.Context, apiKey *APIKey, pending float64) error {
+	if apiKey.Quota <= 0 && !apiKey.HasRateLimits() {
+		return nil
+	}
+	if s.apiKeyRateLimitLoader == nil {
+		if apiKey.Quota > 0 && apiKey.QuotaUsed+pending > apiKey.Quota {
+			return ErrAPIKeyQuotaExhausted
+		}
+		if apiKey.HasRateLimits() {
+			return s.checkAPIKeyRateLimitsWithPending(ctx, apiKey, pending)
+		}
+		return nil
+	}
+	data, err := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
+	if err != nil {
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	exceeds := func(usage, limit float64) bool {
+		return limit > 0 && usage+pending > limit
+	}
+	switch {
+	case exceeds(data.QuotaUsed, apiKey.Quota):
+		return ErrAPIKeyQuotaExhausted
+	case exceeds(data.EffectiveUsage5h(), apiKey.RateLimit5h):
+		return ErrAPIKeyRateLimit5hExceeded
+	case exceeds(data.EffectiveUsage1d(), apiKey.RateLimit1d):
+		return ErrAPIKeyRateLimit1dExceeded
+	case exceeds(data.EffectiveUsage7d(), apiKey.RateLimit7d):
+		return ErrAPIKeyRateLimit7dExceeded
+	}
+	return nil
 }

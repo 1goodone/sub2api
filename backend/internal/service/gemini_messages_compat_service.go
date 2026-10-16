@@ -1973,6 +1973,8 @@ func sleepGeminiBackoff(attempt int) {
 var (
 	sensitiveQueryParamRegex = regexp.MustCompile(`(?i)([?&](?:key|client_secret|access_token|refresh_token)=)[^&"\s]+`)
 	retryInRegex             = regexp.MustCompile(`Please retry in ([0-9.]+)s`)
+	geminiRetryInfoTypeURL   = "type.googleapis.com/google.rpc.RetryInfo"
+	geminiRetryInfoMaxDelay  = 15 * time.Minute
 )
 
 func sanitizeUpstreamErrorMessage(msg string) string {
@@ -3274,27 +3276,32 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 	return parseGeminiRetryDelayResetTime(body)
 }
 
-	// 遍历 error.details 查找 quotaResetDelay
+func parseGeminiRetryDelayResetTime(body []byte) *int64 {
 	var found *int64
 	gjson.GetBytes(body, "error.details").ForEach(func(_, detail gjson.Result) bool {
-		v := detail.Get("metadata.quotaResetDelay").String()
-		if v == "" {
+		if v := detail.Get("metadata.quotaResetDelay").String(); v != "" {
+			if dur, err := time.ParseDuration(v); err == nil {
+				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
+				found = &ts
+				return false
+			}
 			return true
 		}
-		if dur, err := time.ParseDuration(v); err == nil {
-			// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
-			// which can affect scheduling decisions around thresholds (like 10s).
-			ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
-			found = &ts
-			return false
+		if detail.Get("@type").String() == geminiRetryInfoTypeURL {
+			if dur, err := time.ParseDuration(detail.Get("retryDelay").String()); err == nil && dur > 0 {
+				if dur > geminiRetryInfoMaxDelay {
+					dur = geminiRetryInfoMaxDelay
+				}
+				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
+				found = &ts
+				return false
+			}
 		}
 		return true
 	})
 	if found != nil {
 		return found
 	}
-
-	// 第二阶段：regex 回退匹配 "Please retry in Xs"
 	matches := retryInRegex.FindStringSubmatch(string(body))
 	if len(matches) == 2 {
 		if dur, err := time.ParseDuration(matches[1] + "s"); err == nil {
@@ -3302,7 +3309,6 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 			return &ts
 		}
 	}
-
 	return nil
 }
 

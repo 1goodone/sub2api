@@ -87,7 +87,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
    AND u.created_at>=w.start_at AND u.created_at<w.end_at AND u.created_at<=NOW()
   GROUP BY w.account_id,w.start_at,w.end_at
  )
- SELECT ids.id, COALESCE(u.samples,0),COALESCE(u.p90,0),COALESCE(q.passed,0),COALESCE(q.samples,0),
+ SELECT ids.id, COALESCE(u.samples,0),COALESCE(u.p90,0),u.latest_latency_at,COALESCE(q.passed,0),COALESCE(q.samples,0),
  COALESCE(u.profit_samples,0),COALESCE(u.revenue,0),COALESCE(u.base_cost,0),lq.passed,COALESCE(t.revenue,0),t.start_at,t.end_at
  FROM unnest($1::bigint[]) ids(id)
  LEFT JOIN usage u ON u.account_id=ids.id LEFT JOIN quality q ON q.account_id=ids.id
@@ -102,7 +102,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
 	for rows.Next() {
 		var id int64
 		var signal service.PrioritySchedulingSignal
-		if err := rows.Scan(&id, &signal.Samples, &signal.P90TTFTMs, &signal.QualityPassed, &signal.QualitySamples, &signal.ProfitSamples, &signal.Revenue, &signal.BaseCost, &signal.LatestQualityPassed, &signal.TeamsRevenue, &signal.TeamsWindowStart, &signal.TeamsWindowEnd); err != nil {
+		if err := rows.Scan(&id, &signal.Samples, &signal.P90TTFTMs, &signal.LatestLatencyAt, &signal.QualityPassed, &signal.QualitySamples, &signal.ProfitSamples, &signal.Revenue, &signal.BaseCost, &signal.LatestQualityPassed, &signal.TeamsRevenue, &signal.TeamsWindowStart, &signal.TeamsWindowEnd); err != nil {
 			return nil, err
 		}
 		out[id] = signal

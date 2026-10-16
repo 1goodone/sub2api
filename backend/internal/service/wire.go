@@ -945,12 +945,28 @@ func ProvideAPIKeyService(
 	billingCacheService *BillingCacheService,
 	concurrencyService *ConcurrencyService,
 	channelMonitorService *ChannelMonitorService,
-) *APIKeyService {
+	authority RegionalAuthAuthority,
+) (*APIKeyService, error) {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	svc.SetConcurrencyService(concurrencyService)
 	svc.SetChannelRoutingHealthReader(channelMonitorService)
-	return svc
+	if cfg != nil && cfg.Runtime.RegionalAuthFile != "" {
+		runtime, err := startRegionalAuthRuntime(cfg, authority)
+		if err != nil {
+			return nil, err
+		}
+		svc.regionalAuthRuntime = runtime
+		if runtime.replica != nil {
+			reader, err := NewRegionalAuthReader(runtime.replica, runtime.cfg.AuthLookupKey)
+			if err != nil {
+				runtime.stop()
+				return nil, err
+			}
+			svc.localAuth = reader
+		}
+	}
+	return svc, nil
 }
 
 func ProvideOpenAIGatewayService(

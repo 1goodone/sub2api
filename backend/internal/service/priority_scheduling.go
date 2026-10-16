@@ -16,28 +16,29 @@ const prioritySchedulingSettingKey = "priority_scheduling_v1"
 // PrioritySchedulingConfig only controls freely selectable OpenAI text requests.
 // Account eligibility, continuity, profit gates and concurrency acquisition stay authoritative.
 type PrioritySchedulingConfig struct {
-	Teams               PriorityTeamsConfig `json:"teams"`
-	OAuthQuotaPriority  bool                `json:"oauth_quota_priority"`
-	OAuthQuotaThreshold int                 `json:"oauth_quota_threshold"`
-	BalanceProtocols    bool                `json:"balance_protocols"`
-	Enabled             bool                `json:"enabled"`
-	Mode                string              `json:"mode"`
-	GroupIDs            []int64             `json:"group_ids"`
-	Models              []string            `json:"models"`
-	WindowMinutes       int                 `json:"window_minutes"`
-	MinSamples          int                 `json:"min_samples"`
-	TargetTTFTMs        int                 `json:"target_ttft_ms"`
-	MaxLoadPercent      int                 `json:"max_load_percent"`
-	MinQualityPercent   int                 `json:"min_quality_percent"`
-	QualityMaxAgeHours  int                 `json:"quality_max_age_hours"`
-	QualityWeight       float64             `json:"quality_weight"`
-	LatencyWeight       float64             `json:"latency_weight"`
-	LoadWeight          float64             `json:"load_weight"`
-	CostWeight          float64             `json:"cost_weight"`
+	Teams                 PriorityTeamsConfig `json:"teams"`
+	OAuthQuotaPriority    bool                `json:"oauth_quota_priority"`
+	OAuthQuotaThreshold   int                 `json:"oauth_quota_threshold"`
+	BalanceProtocols      bool                `json:"balance_protocols"`
+	Enabled               bool                `json:"enabled"`
+	Mode                  string              `json:"mode"`
+	GroupIDs              []int64             `json:"group_ids"`
+	Models                []string            `json:"models"`
+	WindowMinutes         int                 `json:"window_minutes"`
+	MinSamples            int                 `json:"min_samples"`
+	TargetTTFTMs          int                 `json:"target_ttft_ms"`
+	LatencyPenaltyMinutes int                 `json:"latency_penalty_minutes"`
+	MaxLoadPercent        int                 `json:"max_load_percent"`
+	MinQualityPercent     int                 `json:"min_quality_percent"`
+	QualityMaxAgeHours    int                 `json:"quality_max_age_hours"`
+	QualityWeight         float64             `json:"quality_weight"`
+	LatencyWeight         float64             `json:"latency_weight"`
+	LoadWeight            float64             `json:"load_weight"`
+	CostWeight            float64             `json:"cost_weight"`
 }
 
 func DefaultPrioritySchedulingConfig() PrioritySchedulingConfig {
-	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, OAuthQuotaThreshold: 90, BalanceProtocols: true, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
+	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, OAuthQuotaThreshold: 90, BalanceProtocols: true, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, LatencyPenaltyMinutes: 10, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
 }
 
 func ValidatePrioritySchedulingConfig(c PrioritySchedulingConfig) error {
@@ -52,7 +53,7 @@ func ValidatePrioritySchedulingConfig(c PrioritySchedulingConfig) error {
 	if !slices.Contains([]string{"experience", "balanced", "profit", "custom"}, c.Mode) {
 		return errors.New("invalid scheduling mode")
 	}
-	if c.WindowMinutes < 5 || c.WindowMinutes > 1440 || c.MinSamples < 1 || c.MinSamples > 1000 || c.TargetTTFTMs < 100 || c.TargetTTFTMs > 120000 || c.MaxLoadPercent < 10 || c.MaxLoadPercent > 100 || c.MinQualityPercent < 0 || c.MinQualityPercent > 100 || c.QualityMaxAgeHours < 1 || c.QualityMaxAgeHours > 168 {
+	if c.WindowMinutes < 5 || c.WindowMinutes > 1440 || c.MinSamples < 1 || c.MinSamples > 1000 || c.TargetTTFTMs < 100 || c.TargetTTFTMs > 120000 || c.LatencyPenaltyMinutes < 0 || c.LatencyPenaltyMinutes > 1440 || c.MaxLoadPercent < 10 || c.MaxLoadPercent > 100 || c.MinQualityPercent < 0 || c.MinQualityPercent > 100 || c.QualityMaxAgeHours < 1 || c.QualityMaxAgeHours > 168 {
 		return errors.New("scheduling thresholds outside allowed range")
 	}
 	if len(c.GroupIDs) > 100 || len(c.Models) > 100 {
@@ -196,6 +197,7 @@ type PrioritySchedulingSignal struct {
 	ProfitSamples       int        `json:"profit_samples"`
 	Samples             int        `json:"samples"`
 	P90TTFTMs           float64    `json:"p90_ttft_ms"`
+	LatestLatencyAt     *time.Time `json:"latest_latency_at,omitempty"`
 	QualityPassed       int        `json:"quality_passed"`
 	QualitySamples      int        `json:"quality_samples"`
 }
@@ -249,6 +251,8 @@ type PrioritySchedulingScore struct {
 	Rate                *float64               `json:"rate"`
 	LoadPercent         *int                   `json:"load_percent"`
 	Waiting             int                    `json:"waiting"`
+	LatencyPenaltyUntil *time.Time             `json:"latency_penalty_until,omitempty"`
+	LatencyRecovery     bool                   `json:"latency_recovery,omitempty"`
 	PrioritySchedulingSignal
 }
 type PrioritySchedulingSnapshot struct {

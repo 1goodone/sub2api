@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -8,11 +9,19 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
 }
 
+func (s *OpenAIGatewayService) SetRequestTimezoneProber(prober ProxyExitInfoProber) {
+	if s != nil {
+		s.requestTimezoneProber = prober
+	}
+}
+
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (result *http.Response, resultErr error) {
 	request = s.stickBoundCodexTicketRequest(request, account)
 	boundTicket := s.boundCodexTicket(request, account)
+	observationTicket := boundTicket
+	observationHeaders := request.Header.Clone()
 	releaseChat := func() {}
 	if boundTicket != nil {
 		releaseChat = s.holdCodexTicketChat(account)
@@ -45,6 +54,10 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 				// Timing/fallback layers clone request headers before the routing
 				// adapter installs a newly acquired bundle. Observe the sent copy.
 				observedRequest = result.Request
+			}
+			if ticket := s.boundCodexTicket(observedRequest, account); ticket != nil {
+				observationTicket = ticket
+				observationHeaders = observedRequest.Header.Clone()
 			}
 			responseBound := boundTicket != nil || s.codexTicketRequestBound(observedRequest, account)
 			s.observeCodexTicketResponse(observedRequest, result, account)

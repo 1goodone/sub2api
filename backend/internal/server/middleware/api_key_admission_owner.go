@@ -14,6 +14,18 @@ import (
 )
 
 func nextWithAPIKeyAdmissionOwner(c *gin.Context, apiKeyService *service.APIKeyService, credential string, trustedClientIP string, key *service.APIKey, googleStyle bool) {
+	var lookup func(context.Context, string) (*service.APIKey, error)
+	if apiKeyService != nil {
+		lookup = apiKeyService.GetByKey
+		if isResponsesWebSocketRoute(c) {
+			lookup = apiKeyService.GetByKeyUncached
+		}
+	}
+	nextWithAPIKeyAdmissionLookup(c, lookup, credential, trustedClientIP, key, googleStyle)
+}
+
+// nextWithAPIKeyAdmissionLookup 给主库和区域鉴权共用同一套占槽与重校验。
+func nextWithAPIKeyAdmissionLookup(c *gin.Context, lookup func(context.Context, string) (*service.APIKey, error), credential string, trustedClientIP string, key *service.APIKey, googleStyle bool) {
 	c.Request = c.Request.WithContext(service.WithAccountSlotReservation(c.Request.Context(), key.UserID, service.ExtractClientSessionID(c)))
 	var writer *apiKeyAdmissionWriter
 	// A WS connection outlives one capacity decision: install the revalidator

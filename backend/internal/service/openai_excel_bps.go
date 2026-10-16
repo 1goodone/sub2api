@@ -414,7 +414,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	if transient {
 		scope = "transient:" + scope
 	}
-	imageSettings, err := s.settingService.GetExcelBPSImageRelaySettings(ctx)
+	imageSettings, err = s.settingService.GetExcelBPSImageRelaySettings(ctx)
 	if err != nil {
 		if isExcelBPSClientCancellation(c, err) {
 			return clientCanceled()

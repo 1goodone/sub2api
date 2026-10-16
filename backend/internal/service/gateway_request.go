@@ -584,7 +584,87 @@ func FilterThinkingBlocks(body []byte, mappedModel string) []byte {
 	if !ShouldPreFilterThinkingBlocks(mappedModel) {
 		return body
 	}
-	return filterThinkingBlocksInternal(body, false)
+	return filterThinkingBlocksInternal(body, isClaude55SignedThinkingModel(mappedModel))
+}
+
+func isClaude55SignedThinkingModel(model string) bool {
+	return claude.IsOpus55(model) || claude.IsSonnet55(model) || claude.IsHaiku55(model)
+}
+
+// validateClaude55Request rejects settings that the upstream cannot honor.
+// Call before OAuth mimicry can remove tool_choice or alter thinking defaults.
+func validateClaude55Request(body []byte, model string) error {
+	if !isClaude55SignedThinkingModel(model) {
+		return nil
+	}
+	isSonnet55 := claude.IsSonnet55(model)
+	isHaiku55 := claude.IsHaiku55(model)
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	switch thinkingType {
+	case "disabled", "enabled":
+		if isHaiku55 {
+			if thinkingType == "enabled" {
+				return fmt.Errorf("claude-haiku-5-5 requires adaptive thinking; omit thinking or use thinking.type=adaptive and output_config.effort")
+			}
+			switch gjson.GetBytes(body, "output_config.effort").String() {
+			case "xhigh", "max":
+				return fmt.Errorf("claude-haiku-5-5 thinking.type=disabled supports only low, medium or high effort")
+			}
+			break
+		}
+		if isSonnet55 {
+			return fmt.Errorf("claude-sonnet-5-5 requires adaptive thinking or thinking.type=between_tools; omit thinking or use one of those modes")
+		}
+		return fmt.Errorf("claude-opus-5-5 requires adaptive thinking; omit thinking or use thinking.type=adaptive and output_config.effort")
+	case "between_tools":
+		if !isSonnet55 {
+			if isHaiku55 {
+				return fmt.Errorf("claude-haiku-5-5 requires adaptive thinking; thinking.type=between_tools is unsupported (use thinking.type=disabled at high effort or below)")
+			}
+			return fmt.Errorf("claude-opus-5-5 requires adaptive thinking; thinking.type=between_tools is unsupported")
+		}
+		effort := gjson.GetBytes(body, "output_config.effort").String()
+		if effort == "xhigh" || effort == "max" {
+			return fmt.Errorf("claude-sonnet-5-5 thinking.type=between_tools supports only low, medium or high effort")
+		}
+		for _, field := range []string{"thinking.display", "thinking.budget_tokens", "thinking.block_binding"} {
+			if gjson.GetBytes(body, field).Exists() {
+				return fmt.Errorf("claude-sonnet-5-5 thinking.type=between_tools does not support %s", field)
+			}
+		}
+	}
+	modelName := "claude-opus-5-5"
+	if isSonnet55 {
+		modelName = "claude-sonnet-5-5"
+	}
+	if isHaiku55 {
+		modelName = "claude-haiku-5-5"
+	}
+	if !isHaiku55 {
+		if gjson.GetBytes(body, "tool_choice").String() == "required" {
+			return fmt.Errorf("%s does not support forced tool_choice; use auto or none", modelName)
+		}
+		switch gjson.GetBytes(body, "tool_choice.type").String() {
+		case "any", "tool", "function", "custom", "namespace":
+			return fmt.Errorf("%s does not support forced tool_choice; use auto or none", modelName)
+		}
+	}
+	if isSonnet55 || isHaiku55 {
+		if temperature := gjson.GetBytes(body, "temperature"); temperature.Exists() && (temperature.Type != gjson.Number || temperature.Float() != 1) {
+			return fmt.Errorf("%s does not support non-default temperature", modelName)
+		}
+		if topP := gjson.GetBytes(body, "top_p"); topP.Exists() && (topP.Type != gjson.Number ||
+			(isHaiku55 && topP.Float() != 0.99) || (isSonnet55 && (topP.Float() < 0.99 || topP.Float() > 1))) {
+			return fmt.Errorf("%s does not support non-default top_p", modelName)
+		}
+		if gjson.GetBytes(body, "top_k").Exists() {
+			return fmt.Errorf("%s does not support top_k", modelName)
+		}
+		if isHaiku55 && gjson.GetBytes(body, "temperature").Exists() && gjson.GetBytes(body, "top_p").Exists() {
+			return fmt.Errorf("%s does not allow temperature and top_p together; omit both", modelName)
+		}
+	}
+	return nil
 }
 
 // FilterThinkingBlocksForRetry strips thinking-related constructs for retry scenarios.
@@ -1321,7 +1401,7 @@ func FilterSignatureSensitiveBlocksForRetry(body []byte, mappedModel string) []b
 // 策略：
 //   - 当 thinking.type 不是 "enabled"/"adaptive"：移除所有 thinking 相关块
 //   - 当 thinking.type 是 "enabled"/"adaptive"：仅移除缺失/无效 signature 的 thinking 块
-func filterThinkingBlocksInternal(body []byte, _ bool) []byte {
+func filterThinkingBlocksInternal(body []byte, alwaysThinking bool) []byte {
 	// Fast path: if body doesn't contain "thinking", skip parsing
 	if !bytes.Contains(body, []byte(`"type":"thinking"`)) &&
 		!bytes.Contains(body, []byte(`"type": "thinking"`)) &&
@@ -1338,7 +1418,7 @@ func filterThinkingBlocksInternal(body []byte, _ bool) []byte {
 	}
 
 	// Check if thinking is enabled
-	thinkingEnabled := false
+	thinkingEnabled := alwaysThinking
 	if thinking, ok := req["thinking"].(map[string]any); ok {
 		if thinkType, ok := thinking["type"].(string); ok && (thinkType == "enabled" || thinkType == "adaptive") {
 			thinkingEnabled = true
@@ -1379,6 +1459,12 @@ func filterThinkingBlocksInternal(body []byte, _ bool) []byte {
 				// When thinking is enabled and this is an assistant message,
 				// only keep thinking blocks with valid signatures
 				if thinkingEnabled && role == "assistant" {
+					if alwaysThinking && blockType == "redacted_thinking" {
+						if data, ok := blockMap["data"].(string); ok && data != "" {
+							newContent = append(newContent, block)
+							continue
+						}
+					}
 					signature, _ := blockMap["signature"].(string)
 					if signature != "" && signature != antigravity.DummyThoughtSignature {
 						newContent = append(newContent, block)

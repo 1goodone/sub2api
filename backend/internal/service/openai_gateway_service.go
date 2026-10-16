@@ -564,7 +564,13 @@ type OpenAIGatewayService struct {
 	codexHarvestRunMu              sync.RWMutex
 	codexHarvestRoundActive        atomic.Bool
 	requireLatestTurnAdmission     bool
+	regionalMetering               *RegionalMetering
+	astraCandyMu                   sync.Mutex
+	astraCandySeen                 map[[32]byte]time.Time
+	astraCandyRunning              int
 }
+
+type OpenAIGatewayOption func(*OpenAIGatewayService)
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(

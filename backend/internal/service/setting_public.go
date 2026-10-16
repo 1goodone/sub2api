@@ -247,6 +247,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
 		SettingKeyUsageShowLongContextBadge,
+		SettingKeyUsageShowCacheRate,
+		SettingKeyUsageShowCacheRateToUsers,
 		SettingKeyUsageShowAverageTPS,
 	}
 
@@ -390,6 +392,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		UsageShowLongContextBadge: settings[SettingKeyUsageShowLongContextBadge] != "false",
 		UsageShowAverageTPS:       settings[SettingKeyUsageShowAverageTPS] != "false",
+		UsageShowCacheRate:        settings[SettingKeyUsageShowCacheRate] != "false",
+		UsageShowCacheRateToUsers: settings[SettingKeyUsageShowCacheRateToUsers] == "true",
 	}, nil
 }
 
@@ -692,6 +696,8 @@ type PublicSettingsInjectionPayload struct {
 	AllowUserViewErrorRequests    bool `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge     bool `json:"usage_show_long_context_badge"`
 	UsageShowAverageTPS           bool `json:"usage_show_average_tps"`
+	UsageShowCacheRate            bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers     bool `json:"usage_show_cache_rate_to_users"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -782,6 +788,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:            settings.UsageShowLongContextBadge,
 		UsageShowAverageTPS:                  settings.UsageShowAverageTPS,
+		UsageShowCacheRate:                   settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:            settings.UsageShowCacheRateToUsers,
 	}, nil
 }
 

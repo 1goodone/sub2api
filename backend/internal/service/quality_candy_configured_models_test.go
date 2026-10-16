@@ -36,7 +36,7 @@ func TestCandyConfiguredModelsCreateEditAndTemplateAcrossAccountTypes(t *testing
 				}}}
 			plans := &candyConfiguredPlanRepo{newTemplatePlanRepo()}
 			templates := newFakeTemplateRepo(plans.templatePlanRepo, QualityTemplateAccount{ID: 42, Platform: tc.platform, Type: tc.accountType})
-			svc := ProvideScheduledTestService(plans, &pelicanResults{}, templates,
+			svc := ProvideScheduledTestService(plans, &pelicanResults{}, templates, nil,
 				&AccountTestService{accountRepo: &qualitySupportAccounts{account: account}})
 			svc.qualityModels = func(context.Context, int64) ([]string, error) {
 				t.Fatal("configured candy models must not depend on upstream discovery")
@@ -71,7 +71,7 @@ func TestCandyConfiguredModelsCreateEditAndTemplateAcrossAccountTypes(t *testing
 func TestCandyConfiguredModelsRetainDiscoveryForOtherModels(t *testing.T) {
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"model_mapping": map[string]any{"configured-*": "upstream"}}}
-	svc := ProvideScheduledTestService(nil, nil, nil, &AccountTestService{accountRepo: &qualitySupportAccounts{account: account}})
+	svc := ProvideScheduledTestService(nil, nil, nil, nil, &AccountTestService{accountRepo: &qualitySupportAccounts{account: account}})
 	calls := 0
 	svc.qualityModels = func(context.Context, int64) ([]string, error) {
 		calls++
@@ -111,7 +111,7 @@ func TestCandyConfiguredModelsDoNotOverrideOtherRoutes(t *testing.T) {
 			case "unmapped":
 				account.Credentials = nil
 			}
-			svc := ProvideScheduledTestService(nil, nil, nil, &AccountTestService{accountRepo: &qualitySupportAccounts{account: account}})
+			svc := ProvideScheduledTestService(nil, nil, nil, nil, &AccountTestService{accountRepo: &qualitySupportAccounts{account: account}})
 			calls := 0
 			svc.qualityModels = func(context.Context, int64) ([]string, error) {
 				calls++

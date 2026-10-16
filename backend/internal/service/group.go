@@ -94,6 +94,8 @@ type Group struct {
 	FallbackGroupID *int64
 	// 无效请求兜底分组（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	// StreamOnly 仅允许流式请求：非流式对话在网关入口拒绝。
+	StreamOnly bool
 
 	// 模型路由配置
 	// key: 模型匹配模式（支持 * 通配符，如 "claude-opus-*"）

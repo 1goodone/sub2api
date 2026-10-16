@@ -12,7 +12,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
-const channelCandyMaxProbes = 64
+const (
+	channelCandyMaxProbes               = 64
+	ChannelMonitorV2CandyHistoryDefault = 100
+	ChannelMonitorV2CandyHistoryMin     = 15
+	ChannelMonitorV2CandyHistoryMax     = 100
+	ChannelMonitorV2CandyRetention      = 24 * time.Hour
+)
 
 type ChannelMonitorV2CandyProbe struct {
 	GroupID         int64  `json:"group_id"`
@@ -267,26 +273,34 @@ func (s *ChannelMonitorV2CandyService) attachHistory(ctx context.Context, matrix
 			enabled = append(enabled, p)
 		}
 	}
-	ids := []int64{}
+	present := map[int64]bool{}
 	for _, row := range matrix.Items {
 		if row.GroupID != nil {
-			if _, ok := probes[*row.GroupID]; ok {
-				ids = append(ids, *row.GroupID)
-			}
+			present[*row.GroupID] = true
 		}
+	}
+	ids := make([]int64, 0, len(enabled))
+	seenID := map[int64]bool{}
+	byGroup := map[int64][]ChannelMonitorV2CandyProbe{}
+	allowed := map[string]bool{}
+	for _, p := range enabled {
+		if !present[p.GroupID] {
+			continue
+		}
+		if !seenID[p.GroupID] {
+			seenID[p.GroupID] = true
+			ids = append(ids, p.GroupID)
+		}
+		byGroup[p.GroupID] = append(byGroup[p.GroupID], p)
+		allowed[fmt.Sprintf("%d\x00%s", p.GroupID, p.key())] = true
 	}
 	if len(ids) == 0 {
 		return nil
 	}
 	limit := EffectiveChannelMonitorV2CandyHistoryLimit(cfg.CandyHistoryLimit)
-	// Only groups already admitted by the matrix's server-side scope are read.
-	history, err := s.repo.CandyHistory(ctx, ids, s.now().Add(-time.Hour))
+	history, err := s.repo.CandyHistory(ctx, ids, s.now().Add(-ChannelMonitorV2CandyRetention))
 	if err != nil {
 		return err
-	}
-	allowed := map[string]bool{}
-	for _, scope := range scopes {
-		allowed[fmt.Sprintf("%d\x00%s", scope.GroupID, scope.ConfigKey)] = true
 	}
 	byProbe := map[string][]ChannelMonitorV2CandyResult{}
 	for _, r := range history {
@@ -314,6 +328,8 @@ func (s *ChannelMonitorV2CandyService) attachHistory(ctx context.Context, matrix
 			results := byProbe[fmt.Sprintf("%d\x00%s", p.GroupID, p.key())]
 			if results == nil {
 				results = []ChannelMonitorV2CandyResult{}
+			} else if len(results) > limit {
+				results = results[:limit]
 			}
 			checks = append(checks, ChannelMonitorV2CandyHistory{
 				Model: p.Model, ReasoningEffort: p.ReasoningEffort, IntervalMinutes: p.IntervalMinutes,
