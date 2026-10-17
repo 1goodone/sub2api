@@ -52,12 +52,22 @@ function windowTimeline(row: MonitorMatrixRow, coverage: MonitorCoverage | undef
   return bars
 }
 
+const MONITOR_CARD_SAMPLE_BUCKET_MS = 5 * 60 * 1000
+
 function sampleTimeline(row: MonitorMatrixRow): MonitorCardBar[] {
-  const sampled = row.buckets.filter((bucket) => {
+  const dedicated = Array.isArray(row.sample_buckets)
+  const source = dedicated ? row.sample_buckets! : row.buckets
+  const sampled = source.filter((bucket) => {
     const at = Date.parse(bucket.bucket_start)
     return Number.isFinite(at) && hasMonitorSamples(bucket.metrics)
   }).slice(-MONITOR_CARD_SLOT_COUNT)
   if (!sampled.length) return []
+  if (dedicated) {
+    return sampled.map((bucket) => {
+      const at = Date.parse(bucket.bucket_start)
+      return { start: at, end: at + MONITOR_CARD_SAMPLE_BUCKET_MS, state: bucket.health.overall, observed: true }
+    })
+  }
   const first = Date.parse(sampled[0].bucket_start)
   const missing = MONITOR_CARD_SLOT_COUNT - sampled.length
   const bars: MonitorCardBar[] = Array.from({ length: missing }, () => ({

@@ -370,8 +370,9 @@ type UpdateSettingsRequest struct {
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 
 	// Pelican showcase switch + gallery limits (user-facing)
-	PelicanShowcaseEnabled *bool                          `json:"pelican_showcase_enabled"`
-	PelicanShowcase        *service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+	PelicanShowcaseEnabled    *bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcaseAPIEnabled *bool                          `json:"pelican_showcase_api_enabled"`
+	PelicanShowcase           *service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
 
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
@@ -2317,6 +2318,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.PelicanShowcaseEnabled
 		}(),
+		PelicanShowcaseAPIEnabled: func() bool {
+			if req.PelicanShowcaseAPIEnabled != nil {
+				return *req.PelicanShowcaseAPIEnabled
+			}
+			return previousSettings.PelicanShowcaseAPIEnabled
+		}(),
 		PelicanShowcase: func() service.PelicanShowcaseConfig {
 			if req.PelicanShowcase != nil {
 				return *req.PelicanShowcase
@@ -2817,10 +2824,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 		GrokVideoSourceURLEnabled:      updatedSettings.GrokVideoSourceURLEnabled,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-		PelicanShowcaseEnabled:   updatedSettings.PelicanShowcaseEnabled,
-		PelicanShowcase:          updatedSettings.PelicanShowcase,
-		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
+		AvailableChannelsEnabled:  updatedSettings.AvailableChannelsEnabled,
+		PelicanShowcaseEnabled:    updatedSettings.PelicanShowcaseEnabled,
+		PelicanShowcaseAPIEnabled: updatedSettings.PelicanShowcaseAPIEnabled,
+		PelicanShowcase:           updatedSettings.PelicanShowcase,
+		SubscriptionEnabled:       updatedSettings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

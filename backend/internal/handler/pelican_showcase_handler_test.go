@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,15 @@ func (r *showcaseSettingRepo) GetMultiple(_ context.Context, keys []string) (map
 	return out, nil
 }
 
+func (r *showcaseSettingRepo) SetMultiple(_ context.Context, values map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, value := range values {
+		r.values[key] = value
+	}
+	return nil
+}
+
 type showcaseHandlerRepo struct {
 	service.PelicanShowcaseRepository
 	groups  []*service.PelicanShowcaseGroup
@@ -40,13 +50,13 @@ type showcaseHandlerRepo struct {
 	deleted bool
 }
 
-func (r *showcaseHandlerRepo) ListGroups(context.Context, []int64) ([]*service.PelicanShowcaseGroup, error) {
+func (r *showcaseHandlerRepo) ListGroups(context.Context) ([]*service.PelicanShowcaseGroup, error) {
 	return r.groups, nil
 }
 func (r *showcaseHandlerRepo) ListItems(context.Context, []int64, int, time.Time) ([]*service.PelicanShowcaseItem, error) {
 	return r.items, nil
 }
-func (r *showcaseHandlerRepo) GetItem(context.Context, int64, []int64, int, time.Time) (*service.PelicanShowcaseItem, error) {
+func (r *showcaseHandlerRepo) GetItem(context.Context, int64, int, time.Time) (*service.PelicanShowcaseItem, error) {
 	return r.item, nil
 }
 func (r *showcaseHandlerRepo) Delete(context.Context, int64) (bool, error) { return r.deleted, nil }
@@ -67,14 +77,14 @@ func serveShowcase(method, path string, handle gin.HandlerFunc) *httptest.Respon
 
 func TestPelicanShowcaseHandler_DisabledGalleryIsEmpty(t *testing.T) {
 	repo := &showcaseHandlerRepo{groups: []*service.PelicanShowcaseGroup{{ID: 1, Name: "hidden"}}}
-	h := newShowcaseHandler(map[string]string{service.SettingKeyPelicanShowcaseConfig: `{"group_ids":[1]}`}, repo)
+	h := newShowcaseHandler(map[string]string{service.SettingKeyPelicanShowcaseConfig: `{"max_items":20}`}, repo)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/pelican-showcase", nil)
 	h.List(c)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":false,"max_items":20,"retention_days":0,"groups":[]}}`, w.Body.String())
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":false,"api_enabled":false,"max_items":20,"retention_days":0,"groups":[]}}`, w.Body.String())
 
 	require.Equal(t, http.StatusNotFound, serveShowcase(http.MethodGet, "/items/:id", h.GetItem).Code)
 }
@@ -87,7 +97,7 @@ func TestPelicanShowcaseHandler_ListExposesNoAccountIdentity(t *testing.T) {
 	}
 	h := newShowcaseHandler(map[string]string{
 		service.SettingKeyPelicanShowcaseEnabled: "true",
-		service.SettingKeyPelicanShowcaseConfig:  `{"group_ids":[3],"max_items":10,"auto_cleanup":true,"retention_days":5}`,
+		service.SettingKeyPelicanShowcaseConfig:  `{"max_items":10,"auto_cleanup":true,"retention_days":5}`,
 	}, repo)
 
 	w := httptest.NewRecorder()
@@ -95,7 +105,7 @@ func TestPelicanShowcaseHandler_ListExposesNoAccountIdentity(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/pelican-showcase", nil)
 	h.List(c)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":true,"max_items":10,"retention_days":5,"groups":[
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":true,"api_enabled":true,"max_items":10,"retention_days":5,"groups":[
 		{"id":3,"name":"VIP","platform":"openai","items":[
 			{"id":7,"group_id":3,"model_id":"gpt-6-astra","reasoning_effort":"high","latency_ms":4200,"generated_at":"2026-09-24T08:30:00Z"}
 		]}]}}`, w.Body.String())
@@ -105,7 +115,7 @@ func TestPelicanShowcaseHandler_ItemAndAdminDelete(t *testing.T) {
 	repo := &showcaseHandlerRepo{}
 	h := newShowcaseHandler(map[string]string{
 		service.SettingKeyPelicanShowcaseEnabled: "true",
-		service.SettingKeyPelicanShowcaseConfig:  `{"group_ids":[3]}`,
+		service.SettingKeyPelicanShowcaseConfig:  `{}`,
 	}, repo)
 
 	w := httptest.NewRecorder()
@@ -129,4 +139,82 @@ func TestPelicanShowcaseHandler_ItemAndAdminDelete(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, serveShowcase(http.MethodDelete, "/items/:id", h.DeleteItem).Code)
 	repo.deleted = true
 	require.Equal(t, http.StatusOK, serveShowcase(http.MethodDelete, "/items/:id", h.DeleteItem).Code)
+}
+
+func TestPelicanShowcaseHandler_AdminSettingsRoundTrip(t *testing.T) {
+	values := map[string]string{service.SettingKeyPelicanShowcaseConfig: `{"group_ids":[3],"max_items":10}`}
+	h := newShowcaseHandler(values, &showcaseHandlerRepo{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/pelican-showcase/settings", nil)
+	h.GetSettings(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":false,"api_enabled":true,"max_items":10,"auto_cleanup":false,"retention_days":7}}`, w.Body.String())
+
+	put := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/pelican-showcase/settings", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.UpdateSettings(c)
+		return w
+	}
+	w = put(`{"enabled":true,"max_items":30,"auto_cleanup":true,"retention_days":14}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":true,"api_enabled":true,"max_items":30,"auto_cleanup":true,"retention_days":14}}`, w.Body.String())
+	require.Equal(t, "true", values[service.SettingKeyPelicanShowcaseEnabled])
+	require.JSONEq(t, `{"max_items":30,"auto_cleanup":true,"retention_days":14}`, values[service.SettingKeyPelicanShowcaseConfig],
+		"the legacy group list is dropped on save")
+	require.NotContains(t, values, service.SettingKeyPelicanShowcaseAPIEnabled, "an older client does not configure the new switch")
+
+	w = put(`{"enabled":true,"api_enabled":false,"max_items":30,"auto_cleanup":true,"retention_days":14}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"api_enabled":false`)
+	require.Equal(t, "false", values[service.SettingKeyPelicanShowcaseAPIEnabled])
+	w = put(`{"enabled":true,"max_items":30,"auto_cleanup":true,"retention_days":14}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"api_enabled":false`)
+	require.Equal(t, "false", values[service.SettingKeyPelicanShowcaseAPIEnabled], "an omitted API switch preserves its saved value")
+
+	saved := values[service.SettingKeyPelicanShowcaseConfig]
+	for _, bad := range []string{`{"max_items":101}`, `{"retention_days":91}`, `{"api_enabled":"false"}`, `not json`} {
+		w = put(bad)
+		require.Equal(t, http.StatusBadRequest, w.Code, bad)
+		require.Equal(t, saved, values[service.SettingKeyPelicanShowcaseConfig], bad)
+	}
+}
+
+func TestPelicanShowcaseHandler_APIDisabledPreservesJWTGallery(t *testing.T) {
+	repo := &showcaseHandlerRepo{
+		groups: []*service.PelicanShowcaseGroup{{ID: 3, Name: "VIP"}},
+		items:  []*service.PelicanShowcaseItem{{ID: 7, GroupID: 3}},
+		item:   &service.PelicanShowcaseItem{ID: 7, GroupID: 3, ResponseText: "<svg></svg>"},
+	}
+	h := newShowcaseHandler(map[string]string{
+		service.SettingKeyPelicanShowcaseEnabled:    "true",
+		service.SettingKeyPelicanShowcaseAPIEnabled: "false",
+	}, repo)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/pelican-showcase", nil)
+	h.List(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	var view struct {
+		Data service.PelicanShowcaseView `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &view))
+	require.True(t, view.Data.Enabled)
+	require.False(t, view.Data.APIEnabled)
+	require.Len(t, view.Data.Groups, 1)
+	require.Len(t, view.Data.Groups[0].Items, 1)
+	detail := serveShowcase(http.MethodGet, "/items/:id", h.GetItem)
+	require.Equal(t, http.StatusOK, detail.Code)
+	var item struct {
+		Data service.PelicanShowcaseItem `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(detail.Body.Bytes(), &item))
+	require.Equal(t, "<svg></svg>", item.Data.ResponseText)
+	require.Equal(t, http.StatusForbidden, publicPelicanRequest(h, http.MethodGet, "", nil).Code)
+	require.Equal(t, http.StatusForbidden, publicPelicanRequest(h, http.MethodGet, "7", nil).Code)
 }

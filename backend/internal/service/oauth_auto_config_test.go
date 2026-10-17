@@ -54,7 +54,7 @@ func TestAutoConfigIndependentSwitchesAndValidation(t *testing.T) {
 	c.UpgradeGroupIDs = []int64{3}
 	require.NoError(t, ValidateOAuthAutoConfig(c))
 	c.Enabled = true
-	require.Error(t, ValidateOAuthAutoConfig(c))
+	require.NoError(t, ValidateOAuthAutoConfig(c))
 	c.GroupIDs = []int64{2}
 	require.NoError(t, ValidateOAuthAutoConfig(c))
 	c.GroupIDs = []int64{2, 2}
@@ -219,3 +219,57 @@ func TestAutoConfigInitialHistoryOnlyAfterNewAccount(t *testing.T) {
 	recordAutoConfigInitial(context.Background(), repo, a, []int64{3})
 	require.Equal(t, 1, repo.recorded)
 }
+
+func TestOAuthAutoConfigOptionalGroupsAndAccountSettings(t *testing.T) {
+	cfg := DefaultOAuthAutoConfig()
+	cfg.Enabled = true
+	cfg.Revision = "r2"
+	rate := 1.5
+	cost := 0.25
+	proxyID := int64(9)
+	pause := true
+	passthrough := true
+	seconds := 30
+	slot := true
+	mode := "session"
+	ws := OpenAIWSIngressModePassthrough
+	cfg.AccountSettings = OAuthInitialAccountSettings{
+		RateMultiplier: ratePtr(rate), CostMultiplier: &cost, ProxyID: &proxyID, AutoPauseOnExpired: &pause,
+		OpenAIPassthrough: &passthrough, CodexFingerprintMode: &mode, SlotReservationEnabled: &slot, SlotReservationSeconds: &seconds, OpenAIWSMode: &ws,
+	}
+	raw, _ := json.Marshal(cfg)
+	settings := NewSettingService(&accountOpsSettingsStub{raw: string(raw)}, nil)
+	svc := &adminServiceImpl{settingService: settings}
+	in := &CreateAccountInput{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Priority: 50, Concurrency: 3, GroupIDs: []int64{8}, Extra: map[string]any{"keep": "yes"}, Credentials: map[string]any{"access_token": "secret"}}
+	require.NoError(t, svc.ApplyOAuthAutoConfig(context.Background(), in))
+	require.Equal(t, []int64{8}, in.GroupIDs)
+	require.Equal(t, 1.5, *in.RateMultiplier)
+	require.Equal(t, int64(9), *in.ProxyID)
+	require.True(t, *in.AutoPauseOnExpired)
+	require.Equal(t, "yes", in.Extra["keep"])
+	require.Equal(t, 0.25, in.Extra[AccountCostMultiplierExtraKey])
+	require.Equal(t, true, in.Extra["openai_passthrough"])
+	require.Equal(t, "session", in.Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, OpenAIWSIngressModePassthrough, in.Extra["openai_oauth_responses_websockets_v2_mode"])
+	require.Equal(t, true, in.Extra["openai_oauth_responses_websockets_v2_enabled"])
+	require.Equal(t, "secret", in.Credentials["access_token"])
+	cfg.AccountSettings = OAuthInitialAccountSettings{}
+	cfg.Platform = PlatformAnthropic
+	warmup := true
+	cfg.AccountSettings.InterceptWarmup = &warmup
+	raw, _ = json.Marshal(cfg)
+	settings = NewSettingService(&accountOpsSettingsStub{raw: string(raw)}, nil)
+	svc.settingService = settings
+	original := map[string]any{"access_token": "secret"}
+	in = &CreateAccountInput{Platform: PlatformAnthropic, Type: AccountTypeOAuth, GroupIDs: []int64{4}, Credentials: original}
+	require.NoError(t, svc.ApplyOAuthAutoConfig(context.Background(), in))
+	require.Equal(t, []int64{4}, in.GroupIDs)
+	require.Equal(t, true, in.Credentials["intercept_warmup_requests"])
+	require.NotContains(t, original, "intercept_warmup_requests")
+	require.NoError(t, ValidateOAuthAutoConfig(cfg))
+	bad := cfg
+	bad.AccountSettings.CodexCLIOnlyAppServer = &warmup
+	require.Error(t, ValidateOAuthAutoConfig(bad))
+}
+
+func ratePtr(v float64) *float64 { return &v }

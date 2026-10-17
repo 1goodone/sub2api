@@ -831,37 +831,26 @@ describe("admin SettingsView payment visible method controls", () => {
     document.body.innerHTML = "";
   });
 
-  it("saves Pelican showcase groups and gallery limits", async () => {
-    getGroups.mockResolvedValue([
-      { id: 1, name: "Claude Max", platform: "anthropic", status: "active", subscription_type: "standard", rate_multiplier: 1 },
-      { id: 2, name: "GPT Plus", platform: "openai", status: "active", subscription_type: "standard", rate_multiplier: 1 },
-      { id: 3, name: "Paused", platform: "openai", status: "disabled", subscription_type: "standard", rate_multiplier: 1 },
-    ]);
+  it("saves Pelican showcase limits without a group picker", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       pelican_showcase_enabled: true,
+      pelican_showcase_api_enabled: false,
       pelican_showcase_config: { group_ids: [1, 9], max_items: 20, auto_cleanup: true, retention_days: 7 },
     });
     const wrapper = mountView();
     await flushPromises();
     const card = wrapper.get('[data-testid="pelican-showcase-settings"]');
-
-    // Only active groups are offered; a selected group that no longer exists is listed for removal.
-    const options = card.findAll('input[type="checkbox"][value]').map((input) => (input.element as HTMLInputElement).value);
-    expect(options).toEqual(["1", "2"]);
-    expect(card.get('[data-testid="pelican-showcase-stale-groups"]').text()).toContain("#9");
-    await card.get('[data-testid="pelican-showcase-stale-groups"] button').trigger("click");
     expect(card.find('[data-testid="pelican-showcase-stale-groups"]').exists()).toBe(false);
 
-    await card.get('input[type="checkbox"][value="2"]').setValue(true);
     await card.get('[data-testid="pelican-showcase-max-items"]').setValue("150");
     await card.get('[data-testid="pelican-showcase-retention-days"]').setValue("30");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     const payload = updateSettings.mock.calls[0]?.[0];
     expect(payload.pelican_showcase_enabled).toBe(true);
+    expect(payload.pelican_showcase_api_enabled).toBe(false);
     expect(payload.pelican_showcase_config).toEqual({
-      group_ids: [1, 2],
       max_items: 100, // clamped to the backend limit instead of failing the whole save
       auto_cleanup: true,
       retention_days: 30,

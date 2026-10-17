@@ -31,3 +31,12 @@ it('does not show zero traffic as 100 percent availability or invent candy recor
   expect(wrapper.findAll('span[tabindex="0"]')).toHaveLength(0)
   wrapper.unmount()
 })
+
+it('shows an empty state for recent samples instead of falling back to range bars', async () => {
+  const row = { platform: 'openai', group_id: 7, group_name: 'Samples', metrics: { has_samples: true, request_count: 1, cache_rate: 0, error_rate: 0, ttft: { p50_ms: 1 } }, health: { overall: 'healthy' }, buckets: [{ bucket_start: '2026-09-28T00:00:00Z', metrics: { has_samples: true, request_count: 1 }, health: { overall: 'healthy' } }], sample_buckets: [], candy: { model: 'model', reasoning_effort: 'medium', interval_minutes: 1, results: [] } } as unknown as MonitorMatrixRow
+  const wrapper = mount(MonitorStatusCards, { props: { items: [row], countdown: 32, loading: false, now: Date.now() }, global: { stubs: { ProviderIcon: true } } })
+  expect(wrapper.find('[data-testid="card-timeline-empty"]').exists()).toBe(false)
+  await wrapper.get('[data-testid="card-timeline-samples"]').trigger('click')
+  expect(wrapper.get('[data-testid="card-timeline-empty"]').text()).toBe('channelMonitorV2.cards.noSamples')
+  wrapper.unmount()
+})

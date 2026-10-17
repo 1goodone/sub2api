@@ -9,7 +9,7 @@
       </p>
       <p class="mt-1.5 text-xs">
         <router-link
-          to="/admin/accounts"
+          to="/admin/pelican-tests"
           class="inline-flex items-center gap-1 text-primary-600 hover:underline dark:text-primary-400"
         >
           {{ t('admin.settings.features.pelicanShowcase.configureLink') }}
@@ -30,51 +30,19 @@
         <Toggle v-model="enabledModel" data-testid="pelican-showcase-enabled" />
       </div>
 
-      <div v-if="enabled" class="space-y-5 border-t border-gray-100 pt-5 dark:border-dark-700">
+      <div class="flex items-center justify-between gap-4">
         <div>
-          <GroupSelector
-            v-model="groupIds"
-            :groups="groups"
-            :label="t('admin.settings.features.pelicanShowcase.groups')"
-          />
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.settings.features.pelicanShowcase.groupsHint') }}
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.settings.features.pelicanShowcase.apiEnabled') }}
+          </label>
+          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.settings.features.pelicanShowcase.apiEnabledHint') }}
           </p>
-          <p v-if="groupsLoadFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-            {{ t('admin.settings.features.pelicanShowcase.groupsLoadFailed') }}
-          </p>
-          <p
-            v-else-if="config.group_ids.length === 0"
-            class="mt-1 text-xs text-amber-600 dark:text-amber-400"
-            data-testid="pelican-showcase-no-groups"
-          >
-            {{ t('admin.settings.features.pelicanShowcase.noGroups') }}
-          </p>
-          <div
-            v-if="staleGroupIds.length"
-            class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-            data-testid="pelican-showcase-stale-groups"
-          >
-            <p>{{ t('admin.settings.features.pelicanShowcase.staleGroups') }}</p>
-            <div class="mt-1.5 flex flex-wrap gap-1.5">
-              <span
-                v-for="id in staleGroupIds"
-                :key="id"
-                class="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-0.5 dark:bg-dark-800"
-              >
-                {{ t('admin.settings.features.pelicanShowcase.staleGroupLabel', { id }) }}
-                <button
-                  type="button"
-                  class="font-medium text-amber-600 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-                  @click="groupIds = config.group_ids.filter((groupId) => groupId !== id)"
-                >
-                  {{ t('admin.settings.features.pelicanShowcase.removeStaleGroup') }}
-                </button>
-              </span>
-            </div>
-          </div>
         </div>
+        <Toggle v-model="apiEnabledModel" data-testid="pelican-showcase-api-enabled" />
+      </div>
 
+      <div v-if="enabled" class="space-y-5 border-t border-gray-100 pt-5 dark:border-dark-700">
         <div class="grid gap-4 sm:grid-cols-2">
           <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
             <label class="input-label" for="pelican-showcase-max-items">
@@ -147,23 +115,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import GroupSelector from '@/components/common/GroupSelector.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import type { PelicanShowcaseConfig } from '@/api/admin/settings'
-import type { AdminGroup } from '@/types'
 import { PELICAN_SHOWCASE_MAX_ITEMS, PELICAN_SHOWCASE_MAX_RETENTION_DAYS } from './pelicanShowcase'
 
 const props = defineProps<{
   enabled: boolean
+  apiEnabled: boolean
   config: PelicanShowcaseConfig
-  /** Groups that can be showcased (active ones). */
-  groups: AdminGroup[]
-  groupsLoaded: boolean
-  groupsLoadFailed: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:enabled', value: boolean): void
+  (e: 'update:apiEnabled', value: boolean): void
   (e: 'update:config', value: PelicanShowcaseConfig): void
 }>()
 
@@ -180,15 +144,11 @@ const enabledModel = computed({
   get: () => props.enabled,
   set: (value: boolean) => emit('update:enabled', value),
 })
-const groupIds = field('group_ids')
+const apiEnabledModel = computed({
+  get: () => props.apiEnabled,
+  set: (value: boolean) => emit('update:apiEnabled', value),
+})
 const maxItems = field('max_items')
 const autoCleanup = field('auto_cleanup')
 const retentionDays = field('retention_days')
-
-// Selected groups that were deleted or disabled since; users no longer see them.
-const staleGroupIds = computed(() => {
-  if (!props.groupsLoaded) return []
-  const known = new Set(props.groups.map((group) => group.id))
-  return props.config.group_ids.filter((id) => !known.has(id))
-})
 </script>

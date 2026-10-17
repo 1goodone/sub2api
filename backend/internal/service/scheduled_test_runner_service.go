@@ -22,6 +22,7 @@ type ScheduledTestRunnerService struct {
 	judgeQuality   func(context.Context, int64, *PelicanTestConfig, string) *QualityJudgment
 	runPelican     func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error)
 	candyMonitor   *ChannelMonitorV2CandyService
+	groupTests     *PelicanGroupTestService
 
 	qualityTrigger *quality5xxTrigger
 	triggerCancel  context.CancelFunc
@@ -121,6 +122,9 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 			s.candyMonitor.RunDue(ctx, now)
 		}()
 		defer candy.Wait()
+	}
+	if s.groupTests != nil {
+		s.groupTests.RunDue(ctx, now)
 	}
 	if created, err := s.scheduledSvc.SyncQualityTemplates(ctx); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] quality template sync error: %v", err)

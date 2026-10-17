@@ -22,6 +22,27 @@ describe('monitor card data semantics', () => {
     expect(bars[2]).toMatchObject({ state: 'unknown', observed: false })
     expect(monitorCardTimeline(row, undefined)).toEqual([])
   })
+  it('keeps the latest dedicated samples even when they are outside the selected range', () => {
+    const metric = { request_count: 1, has_samples: true } as MonitorMetric
+    const sampleBuckets = Array.from({ length: 20 }, (_, index) => ({
+      bucket_start: new Date(Date.UTC(2026, 8, 20, 0, index * 5)).toISOString(),
+      metrics: metric,
+      health: { overall: index === 19 ? 'critical' : 'healthy' },
+    }))
+    const row = {
+      buckets: [{ bucket_start: '2026-09-28T00:06:00Z', metrics: metric, health: { overall: 'warning' } }],
+      sample_buckets: sampleBuckets,
+    } as MonitorMatrixRow
+    const coverage = { requested_start: '2026-09-28T00:00:00Z', requested_end: '2026-09-28T01:30:00Z', bucket_seconds: 300 } as MonitorCoverage
+    const samples = monitorCardTimeline(row, coverage, 'samples')
+    expect(samples).toHaveLength(18)
+    expect(samples[0].start).toBe(Date.parse(sampleBuckets[2].bucket_start))
+    expect(samples.at(-1)?.state).toBe('critical')
+    expect(samples[0].end - samples[0].start).toBe(5 * 60 * 1000)
+    expect(samples.some((bar) => bar.start === Date.parse('2026-09-28T00:06:00Z'))).toBe(false)
+    expect(monitorCardTimeline({ ...row, sample_buckets: [] }, coverage, 'samples')).toEqual([])
+    expect(monitorCardTimeline(row, coverage)).toHaveLength(18)
+  })
   it('distinguishes a wrong answer, failed probe, missing history and stale result', () => {
     const history: MonitorCandyHistory = { model: 'test', reasoning_effort: 'medium', interval_minutes: 1, results: [] }
     const now = Date.parse('2026-09-28T01:00:00Z')

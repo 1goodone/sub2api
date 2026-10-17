@@ -1,6 +1,15 @@
 export default {
     accounts: {
       sessionExport: {
+        "OPENAI_SESSION_DECRYPT_FAILED": "Could not decrypt the saved login credentials. Restore the original encryption key or replace the Cookie.",
+        "OPENAI_SESSION_ENCRYPTION_REQUIRED": "Configure the original or a fixed TOTP_ENCRYPTION_KEY to store and use web login credentials.",
+        "OPENAI_SESSION_STORAGE_FAILED": "Could not read or save login credentials. Check server storage.",
+        "settings": "Session login settings",
+        "deleteCookie": "Delete saved login credentials",
+        "storageDisabled": "A fixed TOTP_ENCRYPTION_KEY is not configured. Only one-off exports are available until encrypted storage is configured.",
+        "remember": "Encrypt and save the Cookie after verification for future exports",
+        "replaceCookie": "Replace Cookie (optional)",
+        "configured": "Web login credentials are saved. Leave the field empty to use them, or enter a new Cookie to replace them.",
         "OPENAI_SESSION_ACCOUNT_UNSUPPORTED": "Only OpenAI OAuth accounts with their own credentials support Session export.",
         "OPENAI_SESSION_COOKIE_REQUIRED": "A ChatGPT login Cookie containing __Secure-next-auth.session-token is required.",
         "OPENAI_SESSION_COOKIE_INVALID": "Invalid Cookie format. Copy the complete request Cookie on one line.",
@@ -15,10 +24,10 @@ export default {
         "OPENAI_SESSION_IDENTITY_MISMATCH": "The Cookie belongs to a different user, or this account lacks identity information to verify it.",
 
         "title": "Export ChatGPT Session",
-        "hint": "Request https://chatgpt.com/api/auth/session and download its real response. Copy this account’s request Cookie from browser developer tools while signed in to ChatGPT. OAuth tokens cannot replace a web login Cookie.",
+        "hint": "Paste this account’s full ChatGPT request Cookie once (the cURL -b value, including every session-token chunk). After verification and encrypted storage, use “Export ChatGPT Session” to download directly. Update the Cookie when the login expires.",
         "cookie": "ChatGPT login Cookie",
         "placeholder": "__Secure-next-auth.session-token=...",
-        "sensitive": "The Cookie is used only for this request and is never saved. The Session file contains login credentials; keep it secure.",
+        "sensitive": "When saving is selected, the Cookie is encrypted on the server and can be deleted at any time. Session files contain login credentials; keep them secure.",
         "download": "Request and download Session",
         "exporting": "Requesting…",
         "failed": "Session export failed. Check that the Cookie is valid, belongs to this account, and the account proxy can reach ChatGPT."

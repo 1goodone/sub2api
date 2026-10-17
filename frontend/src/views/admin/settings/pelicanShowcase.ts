@@ -5,7 +5,7 @@ export const PELICAN_SHOWCASE_MAX_ITEMS = 100
 export const PELICAN_SHOWCASE_MAX_RETENTION_DAYS = 90
 
 export function defaultPelicanShowcaseConfig(): PelicanShowcaseConfig {
-  return { group_ids: [], max_items: 20, auto_cleanup: true, retention_days: 7 }
+  return { max_items: 20, auto_cleanup: true, retention_days: 7 }
 }
 
 function clamp(value: unknown, max: number, fallback: number): number {
@@ -18,7 +18,6 @@ function clamp(value: unknown, max: number, fallback: number): number {
 export function sanitizePelicanShowcaseConfig(config: PelicanShowcaseConfig): PelicanShowcaseConfig {
   const defaults = defaultPelicanShowcaseConfig()
   return {
-    group_ids: [...config.group_ids],
     max_items: clamp(config.max_items, PELICAN_SHOWCASE_MAX_ITEMS, defaults.max_items),
     auto_cleanup: Boolean(config.auto_cleanup),
     retention_days: clamp(config.retention_days, PELICAN_SHOWCASE_MAX_RETENTION_DAYS, defaults.retention_days),

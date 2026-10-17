@@ -28,13 +28,34 @@
           </section>
         </fieldset>
         <fieldset :disabled="saving" class="grid min-w-0 gap-5 xl:grid-cols-2">
-          <section class="card space-y-5">
+          <section class="card initial-card">
             <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.initial') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.enabled" data-testid="initial-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
+            <div class="initial-scroll space-y-5">
             <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.initialHint') }}</p>
             <label class="block"><span class="field-label">{{ t('autoConfig.platform') }}</span><select v-model="draft.platform" data-testid="platform" class="input w-full" @change="draft.group_ids = []; draft.model_mappings = defaultOAuthModelMappings(draft.platform); draft.quality_rule = null; selectedQualityRule = ''"><option v-for="p in platforms" :key="p.value" :value="p.value">{{ p.label }}</option></select></label>
             <div class="grid gap-4 sm:grid-cols-3"><label v-for="field in initialFields" :key="field.key"><span class="field-label">{{ t('autoConfig.' + field.key) }}</span><input v-model.number="draft[field.key]" :data-testid="field.key" type="number" :min="field.min" max="10000" step="1" required class="input w-full" /></label></div>
             <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.loadHint') }}</p>
-            <fieldset><legend class="field-label">{{ t('autoConfig.groups') }}</legend><div class="group-list"><label v-for="g in initialGroups" :key="g.id" class="group-option"><input v-model="draft.group_ids" :value="g.id" type="checkbox" :data-testid="'initial-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">#{{ g.id }}</small></span></label><p v-if="!initialGroups.length" class="text-sm text-gray-500">{{ t('autoConfig.noGroups') }}</p></div></fieldset>
+            <fieldset><legend class="field-label">{{ t('autoConfig.groups') }}</legend><p class="mb-2 text-xs leading-5 text-gray-500">{{ t('autoConfig.groupsOptional') }}</p><div class="group-list"><label v-for="g in initialGroups" :key="g.id" class="group-option"><input v-model="draft.group_ids" :value="g.id" type="checkbox" :data-testid="'initial-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">#{{ g.id }}</small></span></label><p v-if="!initialGroups.length" class="text-sm text-gray-500">{{ t('autoConfig.noGroups') }}</p></div></fieldset>
+            <fieldset class="space-y-3 border-t border-gray-100 pt-4 dark:border-dark-700" data-testid="initial-account-settings">
+              <legend class="field-label">{{ t('autoConfig.account.title') }}</legend>
+              <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.account.hint') }}</p>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.rate') }}</span><input data-testid="account-rate" class="input w-full" type="number" min="0" step="any" :placeholder="t('autoConfig.account.unset')" :value="numberField('rate_multiplier')" @input="setNumber('rate_multiplier', $event)" /></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.cost') }}</span><input data-testid="account-cost" class="input w-full" type="number" min="0" max="1000000" step="any" :placeholder="t('autoConfig.account.unset')" :value="numberField('cost_multiplier')" @input="setNumber('cost_multiplier', $event)" /></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.proxy') }}</span><select data-testid="account-proxy" class="input w-full" :value="proxyField()" @change="setProxy($event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option value="0">{{ t('autoConfig.account.noProxy') }}</option><option v-for="proxy in proxies" :key="proxy.id" :value="String(proxy.id)">{{ proxy.name }} · #{{ proxy.id }}</option></select></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.autoPause') }}</span><select data-testid="account-auto-pause" class="input w-full" :value="boolField('auto_pause_on_expired')" @change="setBool('auto_pause_on_expired', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option value="true">{{ t('autoConfig.account.on') }}</option><option value="false">{{ t('autoConfig.account.off') }}</option></select></label>
+              </div>
+              <div v-if="draft.platform === 'openai'" class="grid gap-3 sm:grid-cols-2" data-testid="account-openai-settings">
+                <label v-for="field in openaiBoolFields" :key="field.key" class="block"><span class="field-label">{{ t('autoConfig.account.' + field.label) }}</span><select class="input w-full" :data-testid="'account-' + field.key" :value="boolField(field.key)" @change="onOpenAIBool(field.key, $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option value="true">{{ t('autoConfig.account.on') }}</option><option value="false">{{ t('autoConfig.account.off') }}</option></select></label>
+                <label v-if="boolField('codex_cli_only') === 'true'" class="block"><span class="field-label">{{ t('autoConfig.account.appServer') }}</span><select data-testid="account-app-server" class="input w-full" :value="boolField('codex_cli_only_app_server')" @change="setBool('codex_cli_only_app_server', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option value="true">{{ t('autoConfig.account.on') }}</option><option value="false">{{ t('autoConfig.account.off') }}</option></select></label>
+                <label v-if="boolField('slot_reservation_enabled') === 'true'" class="block"><span class="field-label">{{ t('autoConfig.account.slotSeconds') }}</span><input data-testid="account-slot-seconds" class="input w-full" type="number" min="1" max="3600" step="1" :value="numberField('slot_reservation_seconds')" @input="setNumber('slot_reservation_seconds', $event)" /></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.fingerprint') }}</span><select data-testid="account-fingerprint" class="input w-full" :value="stringField('codex_fingerprint_mode')" @change="setString('codex_fingerprint_mode', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option v-for="mode in fingerprintModes" :key="mode" :value="mode">{{ mode }}</option></select></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.compact') }}</span><select data-testid="account-compact" class="input w-full" :value="stringField('openai_compact_mode')" @change="setString('openai_compact_mode', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option v-for="mode in compactModes" :key="mode" :value="mode">{{ mode }}</option></select></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.ws') }}</span><select data-testid="account-ws" class="input w-full" :value="stringField('openai_ws_mode')" @change="setString('openai_ws_mode', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option v-for="mode in wsModes" :key="mode" :value="mode">{{ mode }}</option></select></label>
+                <label class="block"><span class="field-label">{{ t('autoConfig.account.timezone') }}</span><input data-testid="account-timezone" class="input w-full" type="text" maxlength="64" placeholder="UTC" :value="stringField('openai_request_timezone')" @input="setString('openai_request_timezone', $event)" /></label>
+              </div>
+              <label v-if="draft.platform === 'anthropic' || draft.platform === 'antigravity'" class="block"><span class="field-label">{{ t('autoConfig.account.warmup') }}</span><select data-testid="account-warmup" class="input w-full" :value="boolField('intercept_warmup')" @change="setBool('intercept_warmup', $event)"><option value="">{{ t('autoConfig.account.unset') }}</option><option value="true">{{ t('autoConfig.account.on') }}</option><option value="false">{{ t('autoConfig.account.off') }}</option></select></label>
+            </fieldset>
             <fieldset class="space-y-3" data-testid="initial-quality-rule">
               <legend class="field-label">{{ t('autoConfig.quality.title') }}</legend>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.quality.hint') }}</p>
@@ -58,6 +79,7 @@
               <button type="button" data-testid="mapping-add" class="btn btn-secondary" :disabled="draft.model_mappings.length >= 100" @click="draft.model_mappings.push({ from: '', to: '' })">{{ t('autoConfig.mapping.add') }}</button>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.mapping.allowlistHint') }}</p>
             </fieldset>
+            </div>
           </section>
           <section class="card space-y-5">
             <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.upgrade') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.upgrade_enabled" data-testid="upgrade-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
@@ -84,7 +106,9 @@ import { defaultOAuthModelMappings, oauthModelMappingsError, oauthModelMappingsP
 import { defaultExcelBPSDefaults, excelBPSDefaultsError, excelBPSDefaultsPayload, type ExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import AutoConfigHistory from '@/components/admin/operations/AutoConfigHistory.vue'
 import { getAll } from '@/api/admin/groups'
-import { getAutoConfig, saveAutoConfig, type AutoConfig } from '@/api/admin/autoConfig'
+import { getAll as listProxies } from '@/api/admin/proxies'
+import { getAutoConfig, saveAutoConfig, type AutoConfig, type OAuthInitialAccountSettings } from '@/api/admin/autoConfig'
+import type { Proxy } from '@/types'
 import { listQualityPlans } from '@/api/admin/accountQuality'
 import type { ScheduledTestPlan } from '@/types'
 import type { Group } from '@/types'
@@ -113,6 +137,21 @@ const historyRefreshKey = ref(0)
 let generation = 0, alive = true
 const validGeneration = (v: number) => alive && generation === v
 const platforms = [{ value: 'openai', label: 'OpenAI' }, { value: 'anthropic', label: 'Anthropic' }, { value: 'gemini', label: 'Gemini' }, { value: 'antigravity', label: 'Antigravity' }, { value: 'grok', label: 'Grok' }]
+const proxies = ref<Proxy[]>([])
+const fingerprintModes = ['off', 'device', 'session', 'full']
+const compactModes = ['auto', 'force_on', 'force_off']
+const wsModes = ['off', 'shared', 'dedicated', 'ctx_pool', 'passthrough', 'http_bridge']
+const openaiBoolFields = [
+ { key: 'openai_passthrough', label: 'passthrough' },
+ { key: 'openai_flatten_namespaces', label: 'flatten' },
+ { key: 'openai_long_context_billing', label: 'longContext' },
+ { key: 'codex_cli_only', label: 'cliOnly' },
+ { key: 'slot_reservation_enabled', label: 'slot' },
+] as const
+type SettingKey = keyof OAuthInitialAccountSettings
+type BoolKey = 'auto_pause_on_expired' | 'openai_passthrough' | 'openai_flatten_namespaces' | 'openai_long_context_billing' | 'codex_cli_only' | 'codex_cli_only_app_server' | 'slot_reservation_enabled' | 'intercept_warmup'
+type NumberKey = 'rate_multiplier' | 'cost_multiplier' | 'slot_reservation_seconds'
+type StringKey = 'codex_fingerprint_mode' | 'openai_compact_mode' | 'openai_ws_mode' | 'openai_request_timezone'
 const initialFields = [{ key: 'priority', min: 0 }, { key: 'load_factor', min: 1 }, { key: 'concurrency', min: 1 }] as const
 const upgradeFields = [{ key: 'successes_per_step', max: 100000 }, { key: 'upgrade_step', max: 1000 }, { key: 'max_concurrency', max: 10000 }, { key: 'cooldown_seconds', max: 86400 }] as const
 const initialGroups = computed(() => groups.value.filter(g => g.platform === draft.value?.platform))
@@ -131,18 +170,46 @@ async function save() {
  if (bpsError) { error.value = t(bpsError); return }
  const mappingError = oauthModelMappingsError(c.model_mappings)
  if (mappingError) { error.value = t(mappingError); return }
- if (c.enabled && !c.group_ids.length || c.upgrade_enabled && !c.upgrade_group_ids.length || [...initialFields, ...upgradeFields].some(f => !Number.isInteger(c[f.key]) || c[f.key] < ('min' in f ? f.min : 1) || c[f.key] > ('max' in f ? f.max : 10000))) { error.value = t('autoConfig.invalid'); return }
+ if (c.upgrade_enabled && !c.upgrade_group_ids.length || accountSettingsInvalid(c.account_settings) || [...initialFields, ...upgradeFields].some(f => !Number.isInteger(c[f.key]) || c[f.key] < ('min' in f ? f.min : 1) || c[f.key] > ('max' in f ? f.max : 10000))) { error.value = t('autoConfig.invalid'); return }
  const v = generation; saving.value = true; error.value = ''; notice.value = ''
- try { const { runtime_blocked: _blocked, ...payload } = c; const result = await saveAutoConfig({ ...payload, model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, model_billing: result.model_billing ?? defaultModelBillingConfig(), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
+ try { const { runtime_blocked: _blocked, account_settings, ...payload } = c; const body = account_settings && Object.keys(account_settings).length ? { ...payload, account_settings } : payload; const result = await saveAutoConfig({ ...body, model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, model_billing: result.model_billing ?? defaultModelBillingConfig(), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.saveFailed') }
  finally { if (validGeneration(v)) saving.value = false }
 }
-watch(() => auth.user ? auth.user.id + ':' + auth.user.role : '', () => { generation++; draft.value = null; groups.value = []; qualityPlans.value = []; selectedQualityRule.value = ''; qualityLoadFailed.value = false; error.value = notice.value = ''; loading.value = saving.value = false }, { flush: 'sync' })
-onMounted(() => { void load(); void loadQualityPlans() })
+function eventValue(event: Event) { return event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement ? event.target.value : '' }
+function patchSetting(key: SettingKey, value: string | number | boolean | null) {
+ if (!draft.value) return
+ const next: Record<string, string | number | boolean | null | undefined> = { ...(draft.value.account_settings ?? {}) }
+ if (value == null || value === '') delete next[key]
+ else next[key] = value
+ const accountSettings = Object.fromEntries(Object.entries(next).filter(([, item]) => item != null && item !== '')) as OAuthInitialAccountSettings
+ draft.value.account_settings = Object.keys(accountSettings).length ? accountSettings : undefined
+}
+function boolField(key: BoolKey) { const value = draft.value?.account_settings?.[key]; return value == null ? '' : String(value) }
+function numberField(key: NumberKey) { const value = draft.value?.account_settings?.[key]; return value == null ? '' : value }
+function stringField(key: StringKey) { return draft.value?.account_settings?.[key] ?? '' }
+function proxyField() { const value = draft.value?.account_settings?.proxy_id; return value == null ? '' : String(value) }
+function setBool(key: BoolKey, event: Event) { const raw = eventValue(event); patchSetting(key, raw === '' ? null : raw === 'true') }
+function setNumber(key: NumberKey, event: Event) { const raw = eventValue(event).trim(); patchSetting(key, raw === '' ? null : Number(raw)) }
+function setString(key: StringKey, event: Event) { const raw = eventValue(event).trim(); patchSetting(key, raw === '' ? null : raw) }
+function setProxy(event: Event) { const raw = eventValue(event); patchSetting('proxy_id', raw === '' ? null : Number(raw)) }
+function setCLI(event: Event) { const raw = eventValue(event); setBool('codex_cli_only', event); if (raw !== 'true') patchSetting('codex_cli_only_app_server', null) }
+function setSlot(event: Event) { const raw = eventValue(event); setBool('slot_reservation_enabled', event); if (raw === 'true') { if (draft.value?.account_settings?.slot_reservation_seconds == null) patchSetting('slot_reservation_seconds', 30) } else patchSetting('slot_reservation_seconds', null) }
+function onOpenAIBool(key: typeof openaiBoolFields[number]['key'], event: Event) { if (key === 'codex_cli_only') setCLI(event); else if (key === 'slot_reservation_enabled') setSlot(event); else setBool(key, event) }
+function accountSettingsInvalid(s?: OAuthInitialAccountSettings) {
+ if (!s) return false
+ const bad = (value: number | null | undefined, min: number, max: number) => value != null && (!Number.isFinite(value) || value < min || value > max)
+ return bad(s.rate_multiplier, 0, 1000000) || bad(s.cost_multiplier, 0, 1000000) || (s.proxy_id != null && (!Number.isInteger(s.proxy_id) || s.proxy_id < 0)) || (s.slot_reservation_enabled === true && bad(s.slot_reservation_seconds, 1, 3600)) || (s.codex_cli_only_app_server === true && s.codex_cli_only !== true)
+}
+async function loadProxies() { try { proxies.value = await listProxies() } catch { proxies.value = [] } }
+watch(() => auth.user ? auth.user.id + ':' + auth.user.role : '', () => { generation++; draft.value = null; groups.value = []; proxies.value = []; qualityPlans.value = []; selectedQualityRule.value = ''; qualityLoadFailed.value = false; error.value = notice.value = ''; loading.value = saving.value = false }, { flush: 'sync' })
+onMounted(() => { void load(); void loadQualityPlans(); void loadProxies() })
 onBeforeUnmount(() => { alive = false; generation++ })
 </script>
 <style scoped>
 .card { @apply min-w-0 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-dark-700 dark:bg-dark-900; }
+.initial-card { @apply flex max-h-[70vh] flex-col gap-5 overflow-hidden; }
+.initial-scroll { @apply min-h-0 flex-1 overflow-y-auto pr-1; }
 .field-label { @apply mb-2 block text-sm font-medium text-gray-600 dark:text-gray-300; }
 .group-list { @apply max-h-48 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-3 dark:border-dark-700; }
 .group-option { @apply flex items-center gap-2 text-sm; }

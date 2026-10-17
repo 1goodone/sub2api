@@ -29,6 +29,18 @@ const probePlan = () => {
 }
 
 describe('quality rule partial updates', () => {
+  it('bulk switches to generated questions without requiring fixed inputs or changing the judge', () => {
+    const input = draft()
+    input.pelican_config.question_kind = 'random_reasoning'
+    input.pelican_config.prompt = ''
+    input.pelican_config.quality.expected_answer = ''
+    input.pelican_config.quality.action = 'isolate_models'
+    const updated = buildQualityRulePatch(plan(), input, ['test', 'action'])
+    expect(updated.pelican_config).toMatchObject({ question_kind: 'random_reasoning', prompt: '', parallel_count: 3,
+      quality: { expected_answer: '', action: 'isolate_models', judge: input.pelican_config.quality.judge } })
+    expect(updated.pelican_config).not.toHaveProperty('random_question')
+  })
+
   it('sends only selected top-level fields, including an explicit false value', () => {
     expect(buildQualityRulePatch(plan(), draft(), ['model', 'schedule', 'enabled'])).toEqual({
       model_id: 'new-model', cron_expression: '0 * * * *', enabled: false,

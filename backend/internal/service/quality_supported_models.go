@@ -118,7 +118,7 @@ func (s *ScheduledTestService) supportedQualityModels(ctx context.Context, plan 
 			// names even when an upstream /models catalog omits them. This applies
 			// to every account type; it does not claim upstream availability.
 			// State probes and BPS retain their route-specific discovery checks.
-			if plan.PelicanConfig.QuestionKind == "candy" && plan.PelicanConfig.TestChannel != "bps" &&
+			if isQualityAnswerQuestion(plan.PelicanConfig.QuestionKind) && plan.PelicanConfig.TestChannel != "bps" &&
 				!account.IsExcelBPSEnabled() && !account.IsOpenAIPassthroughEnabled() {
 				for model := range account.GetModelMapping() {
 					catalog = append(catalog, model)

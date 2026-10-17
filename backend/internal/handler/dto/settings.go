@@ -344,8 +344,9 @@ type SystemSettings struct {
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
 	// Pelican showcase (user-facing gallery of scheduled Pelican HTML results)
-	PelicanShowcaseEnabled bool                          `json:"pelican_showcase_enabled"`
-	PelicanShowcase        service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+	PelicanShowcaseEnabled    bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcaseAPIEnabled bool                          `json:"pelican_showcase_api_enabled"`
+	PelicanShowcase           service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
 
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).

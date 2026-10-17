@@ -407,10 +407,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
 		GrokVideoSourceURLEnabled:      settings.GrokVideoSourceURLEnabled,
 
-		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
-		PelicanShowcaseEnabled:   settings.PelicanShowcaseEnabled,
-		PelicanShowcase:          settings.PelicanShowcase,
-		SubscriptionEnabled:      settings.SubscriptionEnabled,
+		AvailableChannelsEnabled:  settings.AvailableChannelsEnabled,
+		PelicanShowcaseEnabled:    settings.PelicanShowcaseEnabled,
+		PelicanShowcaseAPIEnabled: settings.PelicanShowcaseAPIEnabled,
+		PelicanShowcase:           settings.PelicanShowcase,
+		SubscriptionEnabled:       settings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

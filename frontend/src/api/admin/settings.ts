@@ -158,7 +158,6 @@ export interface WeChatConnectModeOption {
 
 /** Limits of the user-facing Pelican gallery; kept per group, independent of test history. */
 export interface PelicanShowcaseConfig {
-  group_ids: number[];
   /** Newest snapshots kept per group (1–100). */
   max_items: number;
   /** When on, snapshots older than retention_days (1–90) are removed. */
@@ -789,6 +788,7 @@ export interface SystemSettings {
 
   // Pelican showcase: user gallery of scheduled Pelican HTML results
   pelican_showcase_enabled?: boolean;
+  pelican_showcase_api_enabled?: boolean;
   pelican_showcase_config?: PelicanShowcaseConfig;
 
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
@@ -1148,6 +1148,7 @@ export interface UpdateSettingsRequest {
 
   // Pelican showcase switch + gallery limits
   pelican_showcase_enabled?: boolean;
+  pelican_showcase_api_enabled?: boolean;
   pelican_showcase_config?: PelicanShowcaseConfig;
 
   // Subscription feature switch

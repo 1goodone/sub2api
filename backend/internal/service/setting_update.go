@@ -500,12 +500,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Pelican showcase switch + gallery limits
 	updates[SettingKeyPelicanShowcaseEnabled] = strconv.FormatBool(settings.PelicanShowcaseEnabled)
+	updates[SettingKeyPelicanShowcaseAPIEnabled] = strconv.FormatBool(settings.PelicanShowcaseAPIEnabled)
 	showcase, showcaseErr := NormalizePelicanShowcaseConfig(settings.PelicanShowcase)
 	if showcaseErr != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_SHOWCASE", showcaseErr.Error())
-	}
-	if err := s.validateAddedPelicanShowcaseGroups(ctx, showcase.GroupIDs); err != nil {
-		return nil, err
 	}
 	showcaseJSON, _ := json.Marshal(showcase)
 	updates[SettingKeyPelicanShowcaseConfig] = string(showcaseJSON)

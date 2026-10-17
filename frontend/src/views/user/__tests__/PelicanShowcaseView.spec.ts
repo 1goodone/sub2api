@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PelicanShowcaseView from '../PelicanShowcaseView.vue'
 import type { PelicanShowcaseItem, PelicanShowcaseView as ShowcaseData } from '@/api/pelicanShowcase'
@@ -14,6 +14,7 @@ const { getShowcase, getShowcaseItem, removeShowcaseItem, showError, showSuccess
 vi.mock('@/api/pelicanShowcase', () => ({ getShowcase, getShowcaseItem, removeShowcaseItem }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess }) }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard: vi.fn() }) }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
   useI18n: () => ({ t: (key: string, named?: Record<string, unknown>) => (named ? `${key} ${JSON.stringify(named)}` : key) }),
@@ -25,6 +26,7 @@ const item = (id: number, groupId: number): PelicanShowcaseItem => ({
 })
 const showcase = (overrides: Partial<ShowcaseData> = {}): ShowcaseData => ({
   enabled: true,
+  api_enabled: true,
   max_items: 20,
   retention_days: 7,
   groups: [
@@ -41,6 +43,7 @@ const mountView = () => mount(PelicanShowcaseView, {
       AppLayout: { template: '<div><slot /></div>' },
       Icon: true,
       PlatformIcon: true,
+      RouterLink: RouterLinkStub,
       EmptyState: { props: ['title', 'description'], template: '<div class="empty-state">{{ title }}</div>' },
       ConfirmDialog: {
         props: ['show'], emits: ['confirm', 'cancel'],
@@ -64,8 +67,16 @@ class OnScreenObserver {
   unobserve() {}
 }
 
+// Cards report being on screen after a short dwell (see PelicanShowcaseCard); then their HTML is fetched.
+async function settle() {
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(1000)
+  await flushPromises()
+}
+
 let wrapper: ReturnType<typeof mountView>
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   vi.stubGlobal('IntersectionObserver', OnScreenObserver)
   getShowcase.mockReset()
   getShowcaseItem.mockReset().mockImplementation(async (id: number) => ({
@@ -80,6 +91,7 @@ beforeEach(() => {
 afterEach(() => {
   wrapper?.unmount()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe('PelicanShowcaseView', () => {
@@ -116,10 +128,38 @@ describe('PelicanShowcaseView', () => {
     expect(wrapper.find('[data-testid="showcase-notice"]').exists()).toBe(false)
   })
 
-  it('lists every group with the gallery rules and loads visible cards in a sandbox', async () => {
+  it('opens API examples with the effective access state and an existing result ID', async () => {
     getShowcase.mockResolvedValue(showcase())
     wrapper = mountView()
     await flushPromises()
+
+    expect(wrapper.find('[data-testid="showcase-api-dialog"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="showcase-api-open"]').trigger('click')
+    const dialog = wrapper.get('[data-testid="showcase-api-dialog"]')
+    expect(dialog.get('[data-testid="showcase-api-status"]').text()).toBe('pelicanShowcase.api.available')
+    expect(dialog.get('[data-testid="showcase-api-item-url"]').text()).toContain('/items/100')
+    expect(dialog.get('[data-testid="showcase-api-command"]').text()).toContain('Bearer YOUR_API_KEY')
+    await dialog.get('[data-testid="showcase-api-keys"]').trigger('click')
+    expect(wrapper.find('[data-testid="showcase-api-dialog"]').exists()).toBe(false)
+  })
+
+  it.each([false, undefined])('keeps API information available when api_enabled is %s', async (apiEnabled) => {
+    getShowcase.mockResolvedValue(showcase({ api_enabled: apiEnabled }))
+    wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="showcase-api-open"]').trigger('click')
+    const dialog = wrapper.get('[data-testid="showcase-api-dialog"]')
+    expect(dialog.get('[data-testid="showcase-api-status"]').text()).toBe('pelicanShowcase.api.unavailable')
+    expect(dialog.text()).toContain('pelicanShowcase.api.unavailableHint')
+    expect(dialog.get('[data-testid="showcase-api-command"]').text()).toContain('/api/v1/public/pelican-showcase')
+    expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(11)
+  })
+
+  it('lists every group as one row with the gallery rules and loads visible cards in a sandbox', async () => {
+    getShowcase.mockResolvedValue(showcase())
+    wrapper = mountView()
+    await settle()
 
     expect(wrapper.get('[data-testid="showcase-keep-rule"]').text()).toContain('"count":20')
     expect(wrapper.get('[data-testid="showcase-retention-rule"]').text()).toContain('"days":7')
@@ -128,9 +168,18 @@ describe('PelicanShowcaseView', () => {
     ])
     expect(wrapper.get('[data-testid="showcase-group-3"]').text()).toContain('pelicanShowcase.groupEmpty')
 
+    // Every item of a group sits in its row, in the order received (newest first); no paging.
+    const firstRow = wrapper.get('[data-testid="showcase-group-1"] [data-testid="pelican-showcase-row"]')
+    expect(firstRow.findAll('iframe').map((frame) => frame.attributes('srcdoc').match(/data-item="(\d+)"/)?.[1]))
+      .toEqual(Array.from({ length: 10 }, (_, i) => String(100 + i)))
+    expect(wrapper.find('[data-testid="showcase-group-3"] [data-testid="pelican-showcase-row"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="showcase-group-1"] [role="scrollbar"]').attributes('aria-label'))
+      .toBe('pelicanShowcase.scrollLabel {"group":"Claude Max"}')
+
     const cards = wrapper.findAll('[data-testid="pelican-showcase-card"]')
-    expect(cards).toHaveLength(9) // 8 of the first group, then the second group's only item
-    expect(getShowcaseItem).toHaveBeenCalledTimes(9)
+    expect(cards).toHaveLength(11)
+    expect(cards[0].classes()).toContain('shrink-0')
+    expect(getShowcaseItem).toHaveBeenCalledTimes(11)
     const frame = cards[0].get('iframe')
     expect(frame.attributes('sandbox')).toBe('allow-scripts')
     expect(frame.attributes('referrerpolicy')).toBe('no-referrer')
@@ -139,11 +188,6 @@ describe('PelicanShowcaseView', () => {
     expect(cards[0].text()).toContain('gpt-6-astra')
     expect(cards[0].text()).toContain('"seconds":"42.3"')
     expect(cards[0].text()).toContain('pelicanShowcase.efforts.high')
-
-    await wrapper.get('[data-testid="showcase-more-1"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="showcase-group-1"]').findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(10)
-    expect(wrapper.find('[data-testid="showcase-more-1"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="showcase-tab-2"]').trigger('click')
     expect(wrapper.find('[data-testid="showcase-group-1"]').exists()).toBe(false)
@@ -154,8 +198,8 @@ describe('PelicanShowcaseView', () => {
     vi.unstubAllGlobals() // back to the setup observer, which never reports a card as visible
     getShowcase.mockResolvedValue(showcase())
     wrapper = mountView()
-    await flushPromises()
-    expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(9)
+    await settle()
+    expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(11)
     expect(getShowcaseItem).not.toHaveBeenCalled()
   })
 
@@ -168,7 +212,7 @@ describe('PelicanShowcaseView', () => {
       return { ...item(id, 2), response_text: '21' }
     })
     wrapper = mountView()
-    await flushPromises()
+    await settle()
     const cards = wrapper.findAll('[data-testid="pelican-showcase-card"]')
     expect(cards[0].find('iframe').exists()).toBe(false)
     expect(cards[0].text()).toContain('pelicanShowcase.invalidHtml')
@@ -185,7 +229,7 @@ describe('PelicanShowcaseView', () => {
   it('previews a card, and only admins can take it down', async () => {
     getShowcase.mockResolvedValue(showcase())
     wrapper = mountView()
-    await flushPromises()
+    await settle()
 
     await wrapper.get('[data-testid="showcase-group-2"] [data-testid="pelican-showcase-card"] button').trigger('click')
     await flushPromises()
@@ -200,7 +244,7 @@ describe('PelicanShowcaseView', () => {
 
     auth.isAdmin = true
     wrapper = mountView()
-    await flushPromises()
+    await settle()
     await wrapper.get('[data-testid="showcase-group-2"] [data-testid="pelican-showcase-card"] button').trigger('click')
     await wrapper.get('[data-testid="showcase-remove"]').trigger('click')
     await wrapper.get('.confirm-yes').trigger('click')

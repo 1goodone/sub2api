@@ -2,6 +2,8 @@
 
 This directory contains files for deploying Sub2API on Linux servers and Apple-silicon Macs.
 
+网页注册额度、登录失败封禁及可信代理升级要求见 [网页认证 IP 防护](AUTH_IP_GUARD.md)。
+
 ## Deployment Methods
 
 | Method | Best For | Setup Wizard |

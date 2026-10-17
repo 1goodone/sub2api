@@ -151,6 +151,11 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 		models = plan.PelicanConfig.ModelIDs
 	}
 	results := make([]*ScheduledTestResult, len(models)*plan.PelicanConfig.ParallelCount)
+	var randomSamples []*PelicanTestConfig
+	var randomQuestionErr error
+	if plan.PelicanConfig.QuestionKind == QualityRandomQuestionKind {
+		randomSamples, randomQuestionErr = newQualityRandomSamples(plan.PelicanConfig)
+	}
 	// Samples are interleaved by model so each model can start before repeats.
 	// Bound upstream concurrency while waiting for every result, even failures.
 	jobs := make(chan int, len(results))
@@ -178,7 +183,16 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 				cfg := *plan.PelicanConfig
 				samplePlan.ModelID = models[index%len(models)]
 				cfg.ModelID = samplePlan.ModelID
+				if randomSamples != nil {
+					cfg = *randomSamples[index/len(models)]
+					cfg.ModelID = samplePlan.ModelID
+				}
 				samplePlan.PelicanConfig = &cfg
+				if randomQuestionErr != nil {
+					results[index] = &ScheduledTestResult{Status: "failed", ErrorMessage: "random_question_generation_failed", StartedAt: time.Now(), FinishedAt: time.Now(), PelicanConfig: &cfg,
+						QualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "random_question_generation_failed"}}
+					continue
+				}
 				_, excluded := unsupported.Load(samplePlan.ModelID)
 				if plan.PelicanConfig.Quality != nil && (catalogErr != nil || excluded || !containsString(allowed, samplePlan.ModelID)) {
 					reason := "model_unsupported"
@@ -221,7 +235,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 		}
 		if applyTriggeredQuality && freshSignal && qualityRoundHasResults(results) {
 			var actionErr error
-			qualityAction, actionErr = s.planRepo.ApplyQualityOutcome(saveCtx, plan, until, qualityRoundOutcome(results, len(models) > 1))
+			qualityAction, actionErr = s.planRepo.ApplyQualityOutcome(saveCtx, plan, until, qualityRoundOutcome(results))
 			if actionErr != nil {
 				qualityAction = "action_error"
 				logger.LegacyPrintf("service.scheduled_test_runner", "quality plan=%d action failed: %v", plan.ID, actionErr)
@@ -285,8 +299,11 @@ func (s *ScheduledTestRunnerService) runPelicanSample(ctx context.Context, plan 
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d account=%d sample panicked", plan.ID, plan.AccountID)
 		}
 	}()
+	if plan.PelicanConfig.QuestionKind == QualityRandomQuestionKind && (plan.PelicanConfig.RandomQuestion == nil || plan.PelicanConfig.Prompt == "" || plan.PelicanConfig.Quality == nil || plan.PelicanConfig.Quality.ExpectedAnswer == "") {
+		return failure("random_question_not_prepared")
+	}
 	var err error
-	result, err = s.runPelican(ctx, plan.AccountID, plan.ModelID, plan.PelicanConfig)
+	result, err = s.runPelicanAnswer(ctx, plan)
 	if err != nil {
 		return failure(fmt.Sprint(err))
 	}

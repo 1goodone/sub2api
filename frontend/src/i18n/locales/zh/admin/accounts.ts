@@ -1,6 +1,15 @@
 export default {
     accounts: {
       sessionExport: {
+        "OPENAI_SESSION_DECRYPT_FAILED": "无法解密已保存的登录凭据，请恢复原加密密钥或更新 Cookie。",
+        "OPENAI_SESSION_ENCRYPTION_REQUIRED": "请配置原有或固定的 TOTP_ENCRYPTION_KEY，才能保存和使用网页登录凭据。",
+        "OPENAI_SESSION_STORAGE_FAILED": "无法读取或保存登录凭据，请检查服务器存储。",
+        "settings": "Session 登录设置",
+        "deleteCookie": "删除已保存的登录凭据",
+        "storageDisabled": "服务器未配置固定 TOTP_ENCRYPTION_KEY，只能临时导出；配置后即可加密保存登录凭据。",
+        "remember": "验证成功后加密保存 Cookie，供以后直接导出",
+        "replaceCookie": "更新 Cookie（可选）",
+        "configured": "已保存网页登录凭据。留空可直接使用，填写新 Cookie 可替换。",
         "OPENAI_SESSION_ACCOUNT_UNSUPPORTED": "仅支持持有独立凭据的 OpenAI OAuth 账号。",
         "OPENAI_SESSION_COOKIE_REQUIRED": "缺少 ChatGPT 登录 Cookie，请提供包含 __Secure-next-auth.session-token 的 Cookie。",
         "OPENAI_SESSION_COOKIE_INVALID": "Cookie 格式无效，请复制完整的一行请求 Cookie。",
@@ -15,10 +24,10 @@ export default {
         "OPENAI_SESSION_IDENTITY_MISMATCH": "Cookie 对应用户与此账号不匹配，或账号缺少可核对的身份信息。",
 
         "title": "导出 ChatGPT Session",
-        "hint": "请求 https://chatgpt.com/api/auth/session 并下载真实响应。请在已登录 ChatGPT 的浏览器开发者工具中复制该账号的请求 Cookie；OAuth token 不能替代网页登录 Cookie。",
+        "hint": "首次粘贴该账号 ChatGPT 请求的完整 Cookie（cURL 的 -b 值，包含全部 session-token 分块）。验证身份并加密保存后，点击菜单“导出 ChatGPT Session”即可直接下载；登录过期时需更新 Cookie。",
         "cookie": "ChatGPT 登录 Cookie",
         "placeholder": "__Secure-next-auth.session-token=...",
-        "sensitive": "Cookie 仅用于本次请求，不会保存。Session 文件包含登录凭据，请妥善保管。",
+        "sensitive": "勾选保存后，Cookie 将加密存储在服务器；可随时删除。Session 文件包含登录凭据，请妥善保管。",
         "download": "请求并下载 Session",
         "exporting": "正在请求…",
         "failed": "Session 导出失败，请检查 Cookie 是否有效、是否属于此账号，以及账号代理是否可访问 ChatGPT。"

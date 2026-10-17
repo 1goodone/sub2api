@@ -40,7 +40,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	startTime := time.Now()
 
-	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
+	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
 	if err != nil {
 		return nil, err
 	}

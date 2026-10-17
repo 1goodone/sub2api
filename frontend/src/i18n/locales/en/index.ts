@@ -5,6 +5,7 @@ import accountOps from './accountOps'
 import requestTiming from './requestTiming'
 import tokenGuard from './tokenGuard'
 import tokenGuardV2 from './tokenGuardV2'
+import pelicanTests from './pelicanTests'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -26,6 +27,7 @@ export default {
   accountOps,
   tokenGuard,
   tokenGuardV2,
+  pelicanTests,
   requestTiming,
   ...landing,
   ...common,

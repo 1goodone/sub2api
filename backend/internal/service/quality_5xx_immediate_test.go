@@ -54,7 +54,7 @@ func TestQuality5xxWorkerProviderHasQueue(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 	// Exercise provider wiring and stop its cron before it can outlive the test.
 	cfg := &config.Config{Runtime: config.RuntimeConfig{Role: config.RuntimeRoleGateway}}
-	svc := ProvideScheduledTestRunnerService(nil, nil, &AccountTestService{}, &RateLimitService{}, cfg, &QualityJudgeService{}, rdb, &ChannelMonitorV2Service{})
+	svc := ProvideScheduledTestRunnerService(nil, nil, &AccountTestService{}, &RateLimitService{}, cfg, &QualityJudgeService{}, rdb, &ChannelMonitorV2Service{}, nil)
 	t.Cleanup(svc.Stop)
 	require.NotNil(t, svc.qualityTrigger, "worker provider must connect the cross-instance queue")
 }

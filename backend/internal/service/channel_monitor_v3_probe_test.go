@@ -213,10 +213,17 @@ type routeStep struct{ account *Account }
 
 type groupTestRouterFake struct {
 	steps    []routeStep
+	excluded [][]int64
 	released []int64
 }
 
-func (r *groupTestRouterFake) route(_ context.Context, _ *Group, model string, _ map[int64]struct{}) (*pelicanGroupRoute, error) {
+func (r *groupTestRouterFake) route(_ context.Context, _ *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
+	seen := make([]int64, 0, len(excluded))
+	for id := range excluded {
+		seen = append(seen, id)
+	}
+	slices.Sort(seen)
+	r.excluded = append(r.excluded, seen)
 	if len(r.steps) == 0 {
 		return nil, ErrNoAvailableAccounts
 	}

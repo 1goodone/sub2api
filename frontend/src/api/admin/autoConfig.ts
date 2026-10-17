@@ -4,11 +4,30 @@ import type { ModelBillingConfig } from '@/utils/modelBilling'
 import type { ExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import type { OAuthModelMappingRule } from '@/utils/oauthModelMappings'
 export type OAuthInitialQualityRule = Pick<ScheduledTestPlan, 'model_id' | 'cron_expression' | 'enabled' | 'max_results' | 'pelican_config'>
+export interface OAuthInitialAccountSettings {
+  rate_multiplier?: number | null
+  cost_multiplier?: number | null
+  proxy_id?: number | null
+  auto_pause_on_expired?: boolean | null
+  openai_passthrough?: boolean | null
+  openai_flatten_namespaces?: boolean | null
+  openai_long_context_billing?: boolean | null
+  codex_cli_only?: boolean | null
+  codex_cli_only_app_server?: boolean | null
+  codex_fingerprint_mode?: string | null
+  openai_compact_mode?: string | null
+  openai_request_timezone?: string | null
+  slot_reservation_enabled?: boolean | null
+  slot_reservation_seconds?: number | null
+  openai_ws_mode?: string | null
+  intercept_warmup?: boolean | null
+}
 export interface AutoConfig {
  quality_rule?: OAuthInitialQualityRule | null
  model_mappings?: OAuthModelMappingRule[] | null
  model_billing?: ModelBillingConfig
  excel_bps?: ExcelBPSDefaults
+ account_settings?: OAuthInitialAccountSettings
  enabled: boolean
  platform: string
  priority: number

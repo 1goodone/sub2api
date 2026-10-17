@@ -18,24 +18,25 @@ const AutoConfigConcurrencyExtraKey = "auto_config_concurrency"
 
 // Initial account fields, BPS defaults, model billing and concurrency upgrades are independent.
 type OAuthAutoConfig struct {
-	QualityRule      *OAuthInitialQualityRule `json:"quality_rule,omitempty"`
-	ModelMappings    []OAuthModelMappingRule  `json:"model_mappings"`
-	ModelBilling     ModelBillingConfig       `json:"model_billing"`
-	ExcelBPS         ExcelBPSDefaults         `json:"excel_bps"`
-	UpdatedAt        time.Time                `json:"updated_at"`
-	Enabled          bool                     `json:"enabled"`
-	Platform         string                   `json:"platform"`
-	Priority         int                      `json:"priority"`
-	LoadFactor       int                      `json:"load_factor"`
-	Concurrency      int                      `json:"concurrency"`
-	GroupIDs         []int64                  `json:"group_ids"`
-	UpgradeEnabled   bool                     `json:"upgrade_enabled"`
-	UpgradeGroupIDs  []int64                  `json:"upgrade_group_ids"`
-	SuccessesPerStep int                      `json:"successes_per_step"`
-	UpgradeStep      int                      `json:"upgrade_step"`
-	MaxConcurrency   int                      `json:"max_concurrency"`
-	CooldownSeconds  int                      `json:"cooldown_seconds"`
-	Revision         string                   `json:"revision"`
+	QualityRule      *OAuthInitialQualityRule    `json:"quality_rule,omitempty"`
+	ModelMappings    []OAuthModelMappingRule     `json:"model_mappings"`
+	ModelBilling     ModelBillingConfig          `json:"model_billing"`
+	ExcelBPS         ExcelBPSDefaults            `json:"excel_bps"`
+	UpdatedAt        time.Time                   `json:"updated_at"`
+	Enabled          bool                        `json:"enabled"`
+	Platform         string                      `json:"platform"`
+	Priority         int                         `json:"priority"`
+	LoadFactor       int                         `json:"load_factor"`
+	Concurrency      int                         `json:"concurrency"`
+	GroupIDs         []int64                     `json:"group_ids"`
+	UpgradeEnabled   bool                        `json:"upgrade_enabled"`
+	UpgradeGroupIDs  []int64                     `json:"upgrade_group_ids"`
+	SuccessesPerStep int                         `json:"successes_per_step"`
+	UpgradeStep      int                         `json:"upgrade_step"`
+	MaxConcurrency   int                         `json:"max_concurrency"`
+	CooldownSeconds  int                         `json:"cooldown_seconds"`
+	Revision         string                      `json:"revision"`
+	AccountSettings  OAuthInitialAccountSettings `json:"account_settings,omitempty"`
 }
 
 func DefaultOAuthAutoConfig() OAuthAutoConfig {
@@ -64,8 +65,8 @@ func ValidateOAuthAutoConfig(c OAuthAutoConfig) error {
 	if c.SuccessesPerStep < 1 || c.SuccessesPerStep > 100000 || c.UpgradeStep < 1 || c.UpgradeStep > 1000 || c.MaxConcurrency < 1 || c.MaxConcurrency > 10000 || c.CooldownSeconds < 1 || c.CooldownSeconds > 86400 {
 		return bad("invalid concurrency upgrade settings")
 	}
-	if c.Enabled && len(c.GroupIDs) == 0 {
-		return bad("select initial account groups")
+	if err := validateInitialAccountSettings(c); err != nil {
+		return err
 	}
 	if c.UpgradeEnabled && len(c.UpgradeGroupIDs) == 0 {
 		return bad("select concurrency upgrade groups")
@@ -157,13 +158,17 @@ func (s *adminServiceImpl) ApplyOAuthAutoConfig(ctx context.Context, input *Crea
 	lf := c.LoadFactor
 	input.LoadFactor = &lf
 	input.Concurrency = c.Concurrency
-	input.GroupIDs = append([]int64(nil), c.GroupIDs...)
+	// Empty groups are intentional: keep imported groups, or the platform default when none were imported.
+	if len(c.GroupIDs) > 0 {
+		input.GroupIDs = append([]int64(nil), c.GroupIDs...)
+	}
 	input.Extra = maps.Clone(input.Extra)
 	if input.Extra == nil {
 		input.Extra = map[string]any{}
 	}
 	// No credentials or account identity is stored in the marker.
 	input.Extra["auto_config_initial_revision"] = c.Revision
+	applyInitialAccountSettings(input, c)
 	return nil
 }
 func (s *AccountOpsService) GetOAuthAutoConfig(ctx context.Context) (OAuthAutoConfig, error) {

@@ -128,7 +128,7 @@
           <div class="flex flex-wrap items-center gap-3 text-sm"><button type="button" :aria-label="t('qualityOps.previousAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage <= 1" @click="searchAccounts(accountPage - 1)">←</button><span>{{ accountPage }} / {{ accountPages }}</span><button type="button" :aria-label="t('qualityOps.nextAccountPage')" :disabled="accountsLoading || selectingAccounts || accountPage >= accountPages" @click="searchAccounts(accountPage + 1)">→</button><span aria-live="polite" data-testid="quality-account-count">{{ accountScope === 'all' ? t('qualityOps.accountsMatched', { count: accountsTotal }) : t('qualityOps.selected', { count: selectedAccounts.length }) }}</span></div>
         </div>
         <div v-if="editsField('test')" class="space-y-2">
-          <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
+          <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option value="random_reasoning">{{ t('qualityOps.questionRandom') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
           <p v-if="isProbe" class="text-sm text-gray-500" data-testid="quality-probe-hint">{{ t('qualityOps.probeHint') }}</p>
           <label v-else class="block space-y-1"><span>{{ t('qualityOps.testChannel') }}</span><select v-model="form.pelican_config.test_channel" class="input" data-testid="quality-test-channel" @change="selectTestChannel"><option value="account">{{ t('qualityOps.accountChannel') }}</option><option value="bps">{{ t('qualityOps.bpsChannel') }}</option></select></label>
           <p v-if="form.pelican_config.test_channel === 'bps'" class="text-sm text-gray-500" data-testid="quality-bps-observation-hint">{{ t('qualityOps.bpsObservationHint') }}</p>
@@ -153,8 +153,11 @@
           </template>
         </div>
         <template v-if="editsField('test') && !isProbe">
+        <p v-if="isRandom" class="text-sm text-gray-500" data-testid="quality-random-hint">{{ t('qualityOps.randomHint') }}</p>
+        <template v-else>
         <div><div class="mb-2 flex items-center justify-between"><label for="quality-prompt">{{ t('qualityOps.prompt') }}</label><button type="button" class="text-sm text-primary-600" @click="useCandy">{{ t('qualityOps.candy') }}</button></div><textarea id="quality-prompt" v-model="form.pelican_config.prompt" required maxlength="32000" rows="5" class="input text-sm" /></div>
         <label class="block space-y-1"><span>{{ t('qualityOps.answer') }}</span><input v-model="form.pelican_config.quality.expected_answer" required maxlength="4000" class="input" /></label>
+        </template>
         <fieldset class="space-y-3 rounded-lg border p-4 dark:border-dark-600">
           <legend class="px-2 font-medium">{{ t('qualityOps.judgeTitle') }}</legend>
           <div class="grid gap-4 sm:grid-cols-2">
@@ -223,6 +226,7 @@
           <section class="answer-detail" :aria-busy="answerLoading">
             <div v-if="answerLoading" class="detail-loading" role="status"><span class="cell-skeleton" /><span class="cell-skeleton" />{{ t('qualityOps.loadingAnswer') }}</div>
             <template v-else-if="selectedResult"><header class="answer-heading"><h4>{{ t(isProbeResult(selectedResult) ? 'qualityOps.probeVerdictTitle' : 'qualityOps.answerAndVerdict') }}</h4><span class="outcome-badge" :class="resultTone(selectedResult)" data-testid="quality-result-badge">{{ resultLabel(selectedResult) }}</span></header>
+              <details v-if="selectedResult.pelican_config?.random_question" class="answer-reference" data-testid="quality-random-question-detail"><summary>{{ t('qualityOps.generatedQuestion') }} · {{ selectedResult.pelican_config.random_question.id }}</summary><pre class="whitespace-pre-wrap">{{ selectedResult.pelican_config.prompt }}</pre></details>
               <div v-if="selectedResult.status !== 'skipped' && !isProbeResult(selectedResult)" class="answer-reference"><span>{{ t('qualityOps.answer') }}</span><p>{{ selectedResult.pelican_config?.quality?.expected_answer || detailOperation?.pelican_config?.quality?.expected_answer || '—' }}</p></div>
               <div class="response-heading">{{ t(selectedResult.status === 'skipped' ? 'qualityOps.skipReason' : isProbeResult(selectedResult) ? 'qualityOps.probeDetail' : 'qualityOps.actualAnswer') }}<span v-if="selectedResult.latency_ms">{{ (selectedResult.latency_ms / 1000).toFixed(1) }}s</span></div>
               <pre class="response-content">{{ resultContent(selectedResult) }}</pre>
@@ -489,11 +493,12 @@ function resultContent(result: ScheduledTestResult) {
 }
 function defaults() {
   return { model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: true, max_results: 100, auto_recover: false,
-    pelican_config: { question_kind: 'candy' as 'candy' | typeof STATE_PROBE_QUESTION, test_channel: 'account' as 'account' | 'bps', prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1, model_ids: [] as string[],
+    pelican_config: { question_kind: 'candy' as 'candy' | 'random_reasoning' | typeof STATE_PROBE_QUESTION, test_channel: 'account' as 'account' | 'bps', prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1, model_ids: [] as string[],
       quality: { trigger_on_upstream_5xx: false, expected_answer: '21', action: 'remove_groups' as QualityPolicy['action'], remove_group_ids: [] as number[], remove_models: [] as string[], recovery_concurrency: 5, auto_restore: false, judge: { group_id: 0, model_id: '', prompt: t('qualityOps.defaultJudgePrompt') }, bps: defaultQualityBPS() } } }
 }
 const form = ref(defaults())
 const isProbe = computed(() => form.value.pelican_config.question_kind === STATE_PROBE_QUESTION)
+const isRandom = computed(() => form.value.pelican_config.question_kind === 'random_reasoning')
 const bps = computed(() => form.value.pelican_config.quality.bps)
 // BPS 设置可见时，「满血后自动关闭 BPS」放在设置里，底部的通用恢复开关不再重复出现。
 const bpsSettingsShown = computed(() => editsField('action') && isProbe.value && form.value.pelican_config.quality.action === 'enable_bps')
@@ -618,6 +623,11 @@ function selectQuestionKind() {
   const hadBPSAction = config.quality.action === 'enable_bps' || (bulkEditing.value && !bulkFields.value.includes('action') && plans.value.some(plan => bulkRuleIds.value.includes(plan.id) && plan.pelican_config?.quality?.action === 'enable_bps'))
   if (hadBPSAction) { config.test_channel = 'bps'; selectTestChannel() }
   config.quality.judge ||= defaults().pelican_config.quality.judge
+  if (config.question_kind === 'random_reasoning') {
+    config.prompt = ''
+    config.quality.expected_answer = ''
+    return
+  }
   if (!config.prompt.trim()) useCandy()
 }
 function selectTestChannel() {
@@ -642,6 +652,10 @@ function payload() {
     throw new Error(t(cause instanceof Error ? cause.message : 'qualityOps.error'))
   }
   if (nextQuality.action === 'isolate_models' && isProbe.value) throw new Error(t('qualityOps.isolationRequiresCandy'))
+  if (isRandom.value) {
+    nextQuality.expected_answer = ''
+    return { ...form.value, max_results, pelican_config: { ...form.value.pelican_config, model_ids, prompt: '', random_question: undefined, quality: nextQuality } }
+  }
   if (!isProbe.value) return { ...form.value, max_results, pelican_config: { ...form.value.pelican_config, model_ids, quality: nextQuality } }
   nextQuality.expected_answer = ''
   delete nextQuality.judge

@@ -113,9 +113,13 @@ func ProvideOpenAIOAuthService(
 	proxyRepo ProxyRepository,
 	oauthClient OpenAIOAuthClient,
 	privacyClientFactory PrivacyClientFactory,
+	sessionCookies OpenAISessionCookieRepository,
+	encryptor SecretEncryptor,
+	cfg *config.Config,
 ) *OpenAIOAuthService {
 	svc := NewOpenAIOAuthService(proxyRepo, oauthClient)
 	svc.SetPrivacyClientFactory(privacyClientFactory)
+	svc.SetSessionCookieStorage(sessionCookies, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
 	return svc
 }
 
@@ -751,6 +755,7 @@ func ProvideScheduledTestRunnerService(
 	judge *QualityJudgeService,
 	rdb *redis.Client,
 	monitor *ChannelMonitorV2Service,
+	groupTests *PelicanGroupTestService,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
 	if rdb != nil {
@@ -760,6 +765,7 @@ func ProvideScheduledTestRunnerService(
 	if monitor != nil {
 		svc.candyMonitor = monitor.candy
 	}
+	svc.groupTests = groupTests
 	svc.Start()
 	return svc
 }

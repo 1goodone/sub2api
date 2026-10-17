@@ -7742,10 +7742,8 @@
 
         <PelicanShowcaseSettings
           v-model:enabled="form.pelican_showcase_enabled"
+          v-model:api-enabled="form.pelican_showcase_api_enabled"
           v-model:config="form.pelican_showcase_config"
-          :groups="pelicanShowcaseGroups"
-          :groups-loaded="pelicanShowcaseGroupsLoaded"
-          :groups-load-failed="pelicanShowcaseGroupsLoadFailed"
         />
 
         <div class="card">
@@ -9746,9 +9744,7 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
-const pelicanShowcaseGroups = ref<AdminGroup[]>([]);
-const pelicanShowcaseGroupsLoaded = ref(false);
-const pelicanShowcaseGroupsLoadFailed = ref(false);
+
 
 // Upstream billing probe state
 const upstreamBillingProbeLoading = ref(true);
@@ -10295,6 +10291,7 @@ type SettingsForm = Omit<
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
   pelican_showcase_enabled: boolean;
+  pelican_showcase_api_enabled: boolean;
   pelican_showcase_config: PelicanShowcaseConfig;
   smtp_password: string;
   turnstile_secret_key: string;
@@ -10651,6 +10648,7 @@ const form = reactive<SettingsForm>({
   available_channels_enabled: false,
   // Pelican showcase switch + gallery limits (defaults match the backend)
   pelican_showcase_enabled: false,
+  pelican_showcase_api_enabled: true,
   pelican_showcase_config: defaultPelicanShowcaseConfig(),
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: true,
@@ -11855,18 +11853,12 @@ async function loadSubscriptionGroups() {
   try {
     const groups = await adminAPI.groups.getAll();
 
-    pelicanShowcaseGroups.value = groups.filter((group) => group.status === "active");
-    pelicanShowcaseGroupsLoaded.value = true;
-    pelicanShowcaseGroupsLoadFailed.value = false;
     subscriptionGroups.value = groups.filter(
       (group) =>
         group.subscription_type === "subscription" && group.status === "active",
     );
   } catch (_error: unknown) {
     subscriptionGroups.value = [];
-    pelicanShowcaseGroups.value = [];
-    pelicanShowcaseGroupsLoaded.value = false;
-    pelicanShowcaseGroupsLoadFailed.value = true;
   }
 }
 
@@ -12483,6 +12475,7 @@ async function saveSettings() {
       available_channels_enabled: form.available_channels_enabled,
       // Pelican showcase switch + gallery limits
       pelican_showcase_enabled: form.pelican_showcase_enabled,
+      pelican_showcase_api_enabled: form.pelican_showcase_api_enabled,
       pelican_showcase_config: sanitizePelicanShowcaseConfig(form.pelican_showcase_config),
       // Subscription feature switch
       subscription_enabled: form.subscription_enabled,

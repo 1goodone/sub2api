@@ -5,6 +5,7 @@ import AutoConfigView from '../AutoConfigView.vue'
 import { getAutoConfig, saveAutoConfig, type AutoConfig } from '@/api/admin/autoConfig'
 import { listQualityPlans } from '@/api/admin/accountQuality'
 import { getAll } from '@/api/admin/groups'
+import { getAll as listProxies } from '@/api/admin/proxies'
 import type { Group } from '@/types'
 import { defaultModelBillingConfig } from '@/utils/modelBilling'
 import { defaultExcelBPSDefaults } from '@/utils/excelBPSDefaults'
@@ -19,11 +20,12 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/autoConfig', () => ({ getAutoConfig: vi.fn(), saveAutoConfig: vi.fn() }))
 vi.mock('@/api/admin/accountQuality', () => ({ listQualityPlans: vi.fn() }))
 vi.mock('@/api/admin/groups', () => ({ getAll: vi.fn() }))
+vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn() }))
 const config: AutoConfig = { model_mappings: defaultOAuthModelMappings('openai'), model_billing: defaultModelBillingConfig(), excel_bps: defaultExcelBPSDefaults(), enabled: false, platform: 'openai', priority: 50, load_factor: 1, concurrency: 3, group_ids: [], upgrade_enabled: false, upgrade_group_ids: [], successes_per_step: 20, upgrade_step: 1, max_concurrency: 100, cooldown_seconds: 60, revision: '' }
 beforeEach(() => {
  vi.resetAllMocks(); vi.mocked(listQualityPlans).mockResolvedValue([]); state.auth = reactive({ user: { id: 1, role: 'admin' } })
  vi.mocked(getAutoConfig).mockResolvedValue(structuredClone(config)); vi.mocked(saveAutoConfig).mockImplementation(async c => c)
- vi.mocked(getAll).mockResolvedValue([{ id: 5, name: 'OpenAI test', platform: 'openai', status: 'active' }, { id: 6, name: 'Anthropic test', platform: 'anthropic', status: 'active' }] as Group[])
+ vi.mocked(getAll).mockResolvedValue([{ id: 5, name: 'OpenAI test', platform: 'openai', status: 'active' }, { id: 6, name: 'Anthropic test', platform: 'anthropic', status: 'active' }] as Group[]); vi.mocked(listProxies).mockResolvedValue([])
 })
 describe('AutoConfigView', () => {
  it('edits model mappings inside initial OAuth configuration using its existing switch and platform', async () => {
@@ -199,5 +201,14 @@ it('preserves the saved quality copy if listing fails and allows opting out', as
  await w.get('[data-testid="quality-rule-select"]').setValue('')
  await w.get('form').trigger('submit'); await flushPromises()
  expect(vi.mocked(saveAutoConfig).mock.calls[1][0].quality_rule).toBeNull()
+ w.unmount()
+})
+it('saves initial configuration without a group and includes filled account settings', async () => {
+ const w = mount(AutoConfigView); await flushPromises()
+ expect(w.get('section.initial-card .initial-scroll').exists()).toBe(true)
+ await w.get('[data-testid="initial-enabled"]').setValue(true)
+ await w.get('[data-testid="account-rate"]').setValue('1.5')
+ await w.get('form').trigger('submit'); await flushPromises()
+ expect(saveAutoConfig).toHaveBeenCalledWith({ ...config, enabled: true, account_settings: { rate_multiplier: 1.5 } })
  w.unmount()
 })

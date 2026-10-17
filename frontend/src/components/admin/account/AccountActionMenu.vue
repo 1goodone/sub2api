@@ -46,6 +46,10 @@
               <Icon name="download" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.sessionExport.title') }}
             </button>
+            <button v-if="isOpenAIOAuthParent" @click="$emit('configure-session', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="shield" size="sm" />
+              {{ t('admin.accounts.sessionExport.settings') }}
+            </button>
             <button v-if="isOpenAIOAuthParent" @click="$emit('create-spark-shadow', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}
@@ -92,7 +96,7 @@ const props = withDefaults(defineProps<{
   anchorRect: DOMRect | null
   codexOverdraftLoading?: boolean
 }>(), { codexOverdraftLoading: false })
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'iq-test', 'duplicate', 'reauth', 'refresh-token', 'export-session', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'toggle-codex-overdraft'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'iq-test', 'duplicate', 'reauth', 'refresh-token', 'export-session', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'toggle-codex-overdraft', 'configure-session'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()

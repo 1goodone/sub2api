@@ -482,6 +482,7 @@ const adminNavItems = computed((): NavItem[] => {
       { path: '/admin/account-ops', label: t('accountOps.title'), icon: AccountOpsIcon },
       { path: '/admin/token-guard', label: t('tokenGuard.title'), icon: TokenGuardIcon },
       { path: '/admin/token-guard-v2', label: t('tokenGuardV2.title'), icon: CredentialOpsIcon },
+      { path: '/admin/pelican-tests', label: t('pelicanTests.title'), icon: QualityOpsIcon },
       { path: '/admin/group-cache-tests', label: t('admin.groupCacheTest.title'), icon: QualityOpsIcon },
       { path: '/admin/gateway-borrow', label: t('nav.gatewayBorrow'), icon: FlowIcon },
     ] },

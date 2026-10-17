@@ -520,8 +520,8 @@
 
     <IQTestModal :show="showIQTest" :account="iqTestingAcc" :accounts="accounts" @close="closeIQTestModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" />
-    <OpenAISessionExportDialog :account="sessionExportAccount" @close="sessionExportAccount = null" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" />
+    <OpenAISessionExportDialog :account="sessionExportAccount" :auto-export="sessionAutoExport" @close="sessionExportAccount = null" />
     <SyncFromCrsModal v-if="authStore.isAdmin" :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -709,6 +709,7 @@ const updatingRoutingGroupId = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null}>({ show: false, acc: null, anchorRect: null })
 const exportingData = ref(false)
 const sessionExportAccount = ref<Account | null>(null)
+const sessionAutoExport = ref(true)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())

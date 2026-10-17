@@ -20,11 +20,14 @@ export interface PelicanShowcaseGroup {
   id: number
   name: string
   platform: string
+  /** Newest first (generated_at, then id, descending). */
   items: PelicanShowcaseItem[]
 }
 
 export interface PelicanShowcaseView {
   enabled: boolean
+  /** Effective API Key access; absent on older servers. */
+  api_enabled?: boolean
   /** Newest snapshots kept per group. */
   max_items: number
   /** Snapshots older than this are cleaned up; 0 = auto cleanup off. */

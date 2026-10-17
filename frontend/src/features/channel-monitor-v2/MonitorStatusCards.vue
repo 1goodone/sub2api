@@ -40,6 +40,7 @@
             <div class="mb-2 flex justify-between text-[10px] text-gray-500 dark:text-gray-400">
               <span>{{ timelineCaption(row) }}</span><span>{{ t('channelMonitorV2.cards.refreshIn', { seconds: countdown }) }}</span>
             </div>
+            <p v-if="timelineMode === 'samples' && !monitorCardTimeline(row, coverage, timelineMode).length" class="text-[10px] text-gray-400" data-testid="card-timeline-empty">{{ t('channelMonitorV2.cards.noSamples') }}</p>
             <div class="flex h-5 items-end gap-1" :aria-label="t('channelMonitorV2.cards.trafficHistory')">
               <span v-for="bar in monitorCardTimeline(row, coverage, timelineMode)" :key="bar.start" class="min-w-0 flex-1 rounded-sm" :class="healthBar[bar.state]" :title="`${time(bar.start)} - ${time(bar.end)}: ${t(`channelMonitorV2.cards.health.${bar.state}`)}`" />
             </div>

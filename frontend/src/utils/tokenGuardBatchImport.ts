@@ -6,6 +6,13 @@ export type TokenGuardBatchIssue = { line: number; kind: 'format' | 'email' | 'u
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// Four dashes win when both appear, so a password may still contain "---".
+function splitCredentialFields(line: string): { parts: string[]; separator: string } {
+  const separator = line.includes('----') ? '----' : line.includes('---') ? '---' : ''
+  const parts = (separator ? line.split(separator) : [line]).map(part => part.trim())
+  return { parts, separator }
+}
+
 export function parseTokenGuardBatchImport(text: string): { rows: TokenGuardBatchRow[]; issues: TokenGuardBatchIssue[] } {
   const issues: TokenGuardBatchIssue[] = []
   const order: string[] = []
@@ -14,7 +21,7 @@ export function parseTokenGuardBatchImport(text: string): { rows: TokenGuardBatc
     const line = raw.trim()
     if (!line) return
     const lineNumber = index + 1
-    const parts = line.split('----').map(part => part.trim())
+    const { parts, separator } = splitCredentialFields(line)
     if (parts.length < 2 || parts.some(part => part === '' && parts.length === 2)) {
       issues.push({ line: lineNumber, kind: 'format' })
       return
@@ -33,7 +40,7 @@ export function parseTokenGuardBatchImport(text: string): { rows: TokenGuardBatc
       row = { email, mode: 'email_otp_url', otpUrl: parts[1] }
     } else {
       const totp = parts[parts.length - 1]
-      const password = parts.slice(1, -1).join('----')
+      const password = parts.slice(1, -1).join(separator)
       if (!password) {
         issues.push({ line: lineNumber, kind: 'format' })
         return

@@ -470,6 +470,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		// 账号导出泄露上游凭证原文——要求 step-up 2FA
 		accounts.GET("/data", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportData)
 		accounts.POST("/:id/export-session", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportOpenAISession)
+		accounts.GET("/:id/session-cookie", h.Admin.Account.GetOpenAISessionCookie)
+		accounts.DELETE("/:id/session-cookie", gin.HandlerFunc(stepUpAuth), h.Admin.Account.DeleteOpenAISessionCookie)
 		accounts.POST("/data", h.Admin.Account.ImportData)
 		accounts.POST("/batch-update-credentials", h.Admin.Account.BatchUpdateCredentials)
 		accounts.POST("/batch-refresh-tier", h.Admin.Account.BatchRefreshTier)
@@ -901,7 +903,21 @@ func registerControlledExperimentRoutes(admin *gin.RouterGroup, h *handler.Handl
 
 // Admins browse the gallery through the user page; this only takes a snapshot down.
 func registerPelicanShowcaseRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	admin.DELETE("/pelican-showcase/items/:id", h.PelicanShowcase.DeleteItem)
+	if h.PelicanShowcase != nil {
+		admin.GET("/pelican-showcase/settings", h.PelicanShowcase.GetSettings)
+		admin.PUT("/pelican-showcase/settings", h.PelicanShowcase.UpdateSettings)
+		admin.DELETE("/pelican-showcase/items/:id", h.PelicanShowcase.DeleteItem)
+	}
+	if h.Admin == nil || h.Admin.PelicanGroupTest == nil {
+		return
+	}
+	admin.GET("/pelican-group-tests", h.Admin.PelicanGroupTest.ListPlans)
+	admin.POST("/pelican-group-tests", h.Admin.PelicanGroupTest.CreatePlan)
+	admin.PUT("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.UpdatePlan)
+	admin.DELETE("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.DeletePlan)
+	admin.POST("/pelican-group-tests/:id/run", h.Admin.PelicanGroupTest.RunPlan)
+	admin.GET("/pelican-group-test-results", h.Admin.PelicanGroupTest.ListResults)
+	admin.GET("/pelican-group-test-results/:id", h.Admin.PelicanGroupTest.GetResult)
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

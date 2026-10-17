@@ -139,6 +139,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     expect(body).not.toContain('admin.accounts.refreshToken')
     expect(body).not.toContain('admin.accounts.setPrivacy')
     expect(body).not.toContain('admin.accounts.sessionExport.title')
+    expect(body).not.toContain('admin.accounts.sessionExport.settings')
     wrapper.unmount()
   })
 
@@ -152,6 +153,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     expect(body).toContain('admin.accounts.reAuthorize')
     expect(body).toContain('admin.accounts.setPrivacy')
     expect(body).toContain('admin.accounts.sessionExport.title')
+    expect(body).toContain('admin.accounts.sessionExport.settings')
     wrapper.unmount()
   })
 
@@ -241,6 +243,15 @@ it('emits the selected account when exporting a session', () => {
   const wrapper = mount(AccountActionMenu, { props: { show: true, account, anchorRect }, attachTo: document.body })
   getBodyButtons().find(b => b.textContent?.includes('admin.accounts.sessionExport.title'))!.click()
   expect(wrapper.emitted('export-session')?.[0]).toEqual([account])
+  expect(wrapper.emitted('close')).toHaveLength(1)
+  wrapper.unmount()
+})
+
+it('opens session login settings for the selected account', () => {
+  const account = makeAccount({})
+  const wrapper = mount(AccountActionMenu, { props: { show: true, account, anchorRect }, attachTo: document.body })
+  getBodyButtons().find(b => b.textContent?.includes('admin.accounts.sessionExport.settings'))!.click()
+  expect(wrapper.emitted('configure-session')?.[0]).toEqual([account])
   expect(wrapper.emitted('close')).toHaveLength(1)
   wrapper.unmount()
 })

@@ -120,14 +120,16 @@ export function buildQualityRulePatch(
     else delete config.test_channel
     config.reasoning_effort = source.reasoning_effort
     const probe = source.question_kind === STATE_PROBE_QUESTION
-    config.prompt = probe ? '' : source.prompt
+    const random = source.question_kind === 'random_reasoning'
+    delete config.random_question
+    config.prompt = probe || random ? '' : source.prompt
     config.parallel_count = probe ? 1 : source.parallel_count
-    config.quality.expected_answer = probe ? '' : source.quality.expected_answer
+    config.quality.expected_answer = probe || random ? '' : source.quality.expected_answer
     if (probe) { delete config.quality.judge; config.model_ids = [patch.model_id || plan.model_id] }
     else {
       const judge = source.quality.judge
       if (!judge?.group_id || !judge.model_id.trim() || !judge.prompt.trim()) throw new Error('qualityOps.configureJudge')
-      if (!config.prompt.trim() || !config.quality.expected_answer.trim()) throw new Error('qualityOps.questionRequired')
+      if (!random && (!config.prompt.trim() || !config.quality.expected_answer.trim())) throw new Error('qualityOps.questionRequired')
       config.quality.judge = { ...judge }
     }
   }
@@ -157,7 +159,7 @@ export function buildQualityRulePatch(
     config.quality.bps.pass_threshold = from.pass_threshold
     config.quality.bps.hold_on_usage = from.hold_on_usage
   }
-  if (config.quality.action === 'isolate_models' && config.question_kind !== 'candy') throw new Error('qualityOps.isolationRequiresCandy')
+  if (config.quality.action === 'isolate_models' && config.question_kind !== 'candy' && config.question_kind !== 'random_reasoning') throw new Error('qualityOps.isolationRequiresCandy')
   if (config.question_kind === STATE_PROBE_QUESTION && (config.model_ids?.length || 0) > 1) throw new Error('qualityOps.probeSingleModel')
   const samples = (config.model_ids?.length || 1) * config.parallel_count
   if (samples > 100 || (config.model_ids?.length || 0) > 50) throw new Error('qualityOps.tooManyModelSamples')
