@@ -90,6 +90,138 @@ func TestGrokRealtimeEventHasAudio(t *testing.T) {
 	require.True(t, grokRealtimeEventHasAudio([]byte(`{"type":"response.output_audio.delta","audio":"abc"}`)))
 }
 
+func TestGrokRealtimeFrameIsAudio(t *testing.T) {
+	cases := []struct {
+		name string
+		kind coderws.MessageType
+		msg  []byte
+		want bool
+	}{
+		{"raw pcm binary frame", coderws.MessageBinary, []byte{0x00, 0x01, 0xfe, 0xff}, true},
+		{"binary frame that is a bare json number", coderws.MessageBinary, []byte("12"), true},
+		{"json event sent as binary frame", coderws.MessageBinary, []byte(`{"type":"input_audio_buffer.commit"}`), false},
+		{"empty binary frame", coderws.MessageBinary, nil, false},
+		{"text event", coderws.MessageText, []byte(`{"type":"response.output_audio.delta","delta":"abc"}`), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, grokRealtimeFrameIsAudio(tc.kind, tc.msg))
+		})
+	}
+}
+
+type grokRealtimeFrame struct {
+	kind coderws.MessageType
+	data []byte
+}
+
+// grokRealtimeFrameUpstreamStub records frames written upstream with their type
+// and replays queued upstream frames.
+type grokRealtimeFrameUpstreamStub struct {
+	mu       sync.Mutex
+	written  []grokRealtimeFrame
+	toClient chan grokRealtimeFrame
+}
+
+func (u *grokRealtimeFrameUpstreamStub) record(kind coderws.MessageType, data []byte) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.written = append(u.written, grokRealtimeFrame{kind, append([]byte(nil), data...)})
+}
+
+func (u *grokRealtimeFrameUpstreamStub) WriteJSON(_ context.Context, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	u.record(coderws.MessageText, data)
+	return nil
+}
+
+func (u *grokRealtimeFrameUpstreamStub) WriteFrame(_ context.Context, kind coderws.MessageType, data []byte) error {
+	u.record(kind, data)
+	return nil
+}
+
+func (u *grokRealtimeFrameUpstreamStub) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
+	select {
+	case frame := <-u.toClient:
+		return frame.kind, frame.data, nil
+	case <-ctx.Done():
+		return coderws.MessageText, nil, ctx.Err()
+	}
+}
+
+func (u *grokRealtimeFrameUpstreamStub) ReadMessage(ctx context.Context) ([]byte, error) {
+	_, data, err := u.ReadFrame(ctx)
+	return data, err
+}
+
+func (u *grokRealtimeFrameUpstreamStub) Ping(context.Context) error { return nil }
+func (u *grokRealtimeFrameUpstreamStub) Close() error               { return nil }
+
+func TestProxyGrokRealtimeConnPreservesBinaryAudioFrames(t *testing.T) {
+	upstreamAudio := []byte{0x10, 0x00, 0xf0, 0xff, 0x7b}
+	clientAudio := []byte{0x7b, 0x01, 0x02, 0x03}
+	stub := &grokRealtimeFrameUpstreamStub{toClient: make(chan grokRealtimeFrame, 2)}
+	stub.toClient <- grokRealtimeFrame{coderws.MessageBinary, upstreamAudio}
+	stub.toClient <- grokRealtimeFrame{coderws.MessageText, []byte(`{"type":"response.done"}`)}
+	svc := &OpenAIGatewayService{}
+	type proxyResult struct {
+		observed bool
+		err      error
+	}
+	results := make(chan proxyResult, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		observed, proxyErr := svc.ProxyGrokRealtimeConn(r.Context(), nil, conn, &GrokRealtimeUpstream{conn: stub})
+		results <- proxyResult{observed, proxyErr}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(t, err)
+	defer func() { _ = client.CloseNow() }()
+
+	kind, msg, err := client.Read(ctx)
+	require.NoError(t, err)
+	require.Equal(t, coderws.MessageBinary, kind)
+	require.Equal(t, upstreamAudio, msg)
+	kind, msg, err = client.Read(ctx)
+	require.NoError(t, err)
+	require.Equal(t, coderws.MessageText, kind)
+	require.JSONEq(t, `{"type":"response.done"}`, string(msg))
+
+	sessionUpdate := `{"type":"session.update","session":{"audio":{"input":{"transport":"binary"},"output":{"transport":"binary"}}}}`
+	require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(sessionUpdate)))
+	require.NoError(t, client.Write(ctx, coderws.MessageBinary, clientAudio))
+	require.NoError(t, client.Write(ctx, coderws.MessageBinary, []byte(`{"type":"input_audio_buffer.commit"}`)))
+	require.Eventually(t, func() bool {
+		stub.mu.Lock()
+		defer stub.mu.Unlock()
+		return len(stub.written) == 3
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, client.Close(coderws.StatusNormalClosure, ""))
+
+	result := <-results
+	require.Equal(t, coderws.StatusNormalClosure, coderws.CloseStatus(result.err))
+	require.True(t, result.observed, "binary audio frames must count as observed audio for billing")
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.Equal(t, coderws.MessageText, stub.written[0].kind)
+	require.JSONEq(t, sessionUpdate, string(stub.written[0].data))
+	require.Equal(t, grokRealtimeFrame{coderws.MessageBinary, clientAudio}, stub.written[1])
+	// A JSON event sent as a binary frame is still relayed as a text event.
+	require.Equal(t, coderws.MessageText, stub.written[2].kind)
+	require.JSONEq(t, `{"type":"input_audio_buffer.commit"}`, string(stub.written[2].data))
+}
+
 func TestForwardGrokVoice_RejectsUnknownEndpoint(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	_, err := svc.ForwardGrokVoice(context.Background(), nil, &Account{Platform: PlatformGrok}, "unknown", []byte(`{}`), "application/json")
