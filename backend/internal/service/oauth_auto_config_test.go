@@ -233,9 +233,24 @@ func TestOAuthAutoConfigOptionalGroupsAndAccountSettings(t *testing.T) {
 	slot := true
 	mode := "session"
 	ws := OpenAIWSIngressModePassthrough
+	image := "block"
+	plan := "plus"
+	pause5h := 0.8
+	reset := true
+	reset5h := 1.0
+	prism := true
+	aliases := true
+	sse := true
 	cfg.AccountSettings = OAuthInitialAccountSettings{
 		RateMultiplier: ratePtr(rate), CostMultiplier: &cost, ProxyID: &proxyID, AutoPauseOnExpired: &pause,
 		OpenAIPassthrough: &passthrough, CodexFingerprintMode: &mode, SlotReservationEnabled: &slot, SlotReservationSeconds: &seconds, OpenAIWSMode: &ws,
+		OpenAIWSSSEAcceleration: &sse, CodexImageToolMode: &image, PlanType: &plan, OpenAIModelAliases: &aliases,
+		CompactModelMappings:       []OAuthCompactModelMapping{{From: "gpt-5.4", To: "gpt-5.4-mini"}},
+		AutoPause5hThreshold:       &pause5h,
+		AutoResetCreditEnabled:     &reset,
+		AutoResetCredit5hThreshold: &reset5h,
+		PrismBrowser:               &prism,
+		PrismBrowserModels:         []string{"gpt-6-luna"},
 	}
 	raw, _ := json.Marshal(cfg)
 	settings := NewSettingService(&accountOpsSettingsStub{raw: string(raw)}, nil)
@@ -253,6 +268,20 @@ func TestOAuthAutoConfigOptionalGroupsAndAccountSettings(t *testing.T) {
 	require.Equal(t, OpenAIWSIngressModePassthrough, in.Extra["openai_oauth_responses_websockets_v2_mode"])
 	require.Equal(t, true, in.Extra["openai_oauth_responses_websockets_v2_enabled"])
 	require.Equal(t, "secret", in.Credentials["access_token"])
+	require.Equal(t, "strip", in.Extra["codex_image_generation_explicit_tool_policy"])
+	require.Equal(t, true, in.Extra["openai_oauth_ws_sse_acceleration"])
+	require.Equal(t, 0.8, in.Extra["auto_pause_5h_threshold"])
+	require.Equal(t, true, in.Extra["auto_reset_credit_enabled"])
+	require.Equal(t, 1.0, in.Extra["auto_reset_credit_5h_threshold"])
+	require.Equal(t, true, in.Extra["openai_prism_browser"])
+	require.Equal(t, []string{"gpt-6-luna"}, in.Extra["openai_prism_browser_models"])
+	require.Equal(t, "plus", in.Credentials["plan_type"])
+	require.Equal(t, "aliases", in.Credentials["model_mapping_mode"])
+	require.Equal(t, map[string]any{"gpt-5.4": "gpt-5.4-mini"}, in.Credentials["compact_model_mapping"])
+	badMode := "sideways"
+	invalid := cfg
+	invalid.AccountSettings.CodexImageToolMode = &badMode
+	require.Error(t, ValidateOAuthAutoConfig(invalid))
 	cfg.AccountSettings = OAuthInitialAccountSettings{}
 	cfg.Platform = PlatformAnthropic
 	warmup := true

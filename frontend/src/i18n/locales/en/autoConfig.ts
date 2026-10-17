@@ -46,7 +46,7 @@ export default {
   "loadHint": "Lower priority values run first. Load factor controls scheduling frequency independently of concurrency limits and billing multipliers.",
   "account": {
     "title": "Account settings",
-    "hint": "Same settings as the account editor. They are written only when a new OAuth account is created. Leave an item unchanged to keep the imported value.",
+    "hint": "Layout matches the account editor. Leave an item unchanged to keep the imported value.",
     "unset": "Leave unchanged",
     "on": "On",
     "off": "Off",

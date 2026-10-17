@@ -20,7 +20,25 @@ export interface OAuthInitialAccountSettings {
   slot_reservation_enabled?: boolean | null
   slot_reservation_seconds?: number | null
   openai_ws_mode?: string | null
+  openai_ws_sse_acceleration?: boolean | null
+  codex_image_tool_mode?: 'inherit' | 'enabled' | 'disabled' | 'block' | null
+  plan_type?: string | null
+  openai_model_aliases?: boolean | null
+  openai_compact_model_mapping?: OAuthCompactModelMapping[] | null
+  auto_pause_5h_disabled?: boolean | null
+  auto_pause_7d_disabled?: boolean | null
+  auto_pause_5h_threshold?: number | null
+  auto_pause_7d_threshold?: number | null
+  auto_reset_credit_enabled?: boolean | null
+  auto_reset_credit_5h_threshold?: number | null
+  auto_reset_credit_7d_threshold?: number | null
+  openai_prism_browser?: boolean | null
+  openai_prism_browser_models?: string[] | null
   intercept_warmup?: boolean | null
+}
+export interface OAuthCompactModelMapping {
+  from: string
+  to: string
 }
 export interface AutoConfig {
  quality_rule?: OAuthInitialQualityRule | null

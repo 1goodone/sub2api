@@ -206,6 +206,10 @@ it('preserves the saved quality copy if listing fails and allows opting out', as
 it('saves initial configuration without a group and includes filled account settings', async () => {
  const w = mount(AutoConfigView); await flushPromises()
  expect(w.get('section.initial-card .initial-scroll').exists()).toBe(true)
+ expect(w.text()).toContain('admin.accounts.openai.oauthPassthrough')
+ expect(w.text()).toContain('admin.accounts.openai.oauthPassthroughDesc')
+ expect(w.find('[data-testid="account-plan-type"]').exists()).toBe(true)
+ expect(w.find('[data-testid="codex-image-tool-enabled"]').exists()).toBe(true)
  await w.get('[data-testid="initial-enabled"]').setValue(true)
  await w.get('[data-testid="account-rate"]').setValue('1.5')
  await w.get('form').trigger('submit'); await flushPromises()
