@@ -136,7 +136,7 @@ export class TlsFingerprintTransport {
         self.assertEqual(result.returncode, 1)  # fixture stops before credentials
         self.assertIn('MOCK_EXCEL_AUTHORIZATION_REACHED', result.stderr)
         self.assertEqual(events, [
-            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080',
+            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080/',
              'url': 'https://auth.openai.com/'},
             {'event': 'fetch', 'origin': 'https://auth.openai.com',
              'path': '/api/accounts/authorize'},
@@ -148,7 +148,7 @@ export class TlsFingerprintTransport {
         self.assertEqual(result.returncode, 1)
         self.assertIn('MOCK_AUTH_PREFLIGHT_403', result.stderr)
         self.assertEqual(events, [
-            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080',
+            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080/',
              'url': 'https://auth.openai.com/'},
             {'event': 'closed'},
         ])
@@ -158,7 +158,7 @@ export class TlsFingerprintTransport {
         self.assertEqual(result.returncode, 1)
         self.assertIn('MOCK_CHATGPT_HOMEPAGE_403', result.stderr)
         self.assertEqual(events, [
-            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080',
+            {'event': 'preflight', 'proxy': 'http://127.0.0.1:18080/',
              'url': 'https://chatgpt.com/'},
             {'event': 'closed'},
         ])
