@@ -4,12 +4,6 @@
       <div v-for="index in 6" :key="index" class="h-72 animate-pulse rounded-3xl bg-gray-100 dark:bg-dark-800" />
     </div>
     <div v-else-if="!items.length" class="card py-16 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.empty.title') }}</div>
-    <div v-if="items.length" class="flex flex-wrap items-center justify-between gap-2" data-testid="card-timeline-mode">
-      <div class="tabs inline-flex shrink-0" role="group" :aria-label="t('channelMonitorV2.cards.timelineMode.label')">
-        <button type="button" class="tab !px-2.5 !py-1 text-xs" :class="timelineMode === 'windows' ? 'tab-active' : ''" data-testid="card-timeline-windows" @click="setTimelineMode('windows')">{{ t('channelMonitorV2.cards.timelineMode.windows') }}</button>
-        <button type="button" class="tab !px-2.5 !py-1 text-xs" :class="timelineMode === 'samples' ? 'tab-active' : ''" data-testid="card-timeline-samples" @click="setTimelineMode('samples')">{{ t('channelMonitorV2.cards.timelineMode.samples') }}</button>
-      </div>
-    </div>
     <section v-for="platform in platforms" :key="platform.name" class="space-y-3" :data-platform="platform.name">
       <h2 class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
         <span class="grid h-7 w-7 place-items-center rounded-full bg-gray-100 dark:bg-dark-700"><ProviderIcon :provider="platform.name" :size="17" /></span>
@@ -40,52 +34,174 @@
             <div class="mb-2 flex justify-between text-[10px] text-gray-500 dark:text-gray-400">
               <span>{{ timelineCaption(row) }}</span><span>{{ t('channelMonitorV2.cards.refreshIn', { seconds: countdown }) }}</span>
             </div>
-            <p v-if="timelineMode === 'samples' && !monitorCardTimeline(row, coverage, timelineMode).length" class="text-[10px] text-gray-400" data-testid="card-timeline-empty">{{ t('channelMonitorV2.cards.noSamples') }}</p>
-            <div class="flex h-5 items-end gap-1" :aria-label="t('channelMonitorV2.cards.trafficHistory')">
-              <span v-for="bar in monitorCardTimeline(row, coverage, timelineMode)" :key="bar.start" class="min-w-0 flex-1 rounded-sm" :class="healthBar[bar.state]" :title="`${time(bar.start)} - ${time(bar.end)}: ${t(`channelMonitorV2.cards.health.${bar.state}`)}`" />
-            </div>
-            <div class="mt-1 flex justify-between font-mono text-[9px] tracking-widest text-gray-400"><span>PAST</span><span>NOW</span></div>
+            <p v-if="timelineMode === 'samples' && !timelineBars(row).length" class="text-[10px] text-gray-400" data-testid="card-timeline-empty">{{ t('channelMonitorV2.cards.noSamples') }}</p>
+            <template v-else>
+              <div class="flex h-5 items-end gap-1" :aria-label="t('channelMonitorV2.cards.trafficHistory')">
+                <button v-for="(bar, index) in timelineBars(row)" :key="`${bar.start}-${index}`" type="button"
+                  class="min-w-0 flex-1 cursor-help rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-400"
+                  :class="healthBar[bar.state]" :aria-label="trafficLabel(row, bar)" :aria-describedby="isTrafficDetail(row, bar) ? tooltipId : undefined"
+                  data-testid="traffic-history-bar" @mouseenter="openDetail($event, { kind: 'traffic', row, bar })"
+                  @focus="openDetail($event, { kind: 'traffic', row, bar })" @click="openDetail($event, { kind: 'traffic', row, bar })"
+                  @mouseleave="scheduleClose" @blur="scheduleClose" />
+              </div>
+              <div class="mt-1 flex justify-between font-mono text-[9px] tracking-widest text-gray-400"><span>PAST</span><span>NOW</span></div>
+            </template>
           </div>
 
-          <section v-if="row.candy" class="mt-4 border-t border-gray-100 pt-3 dark:border-dark-700/70" data-testid="candy-history">
-            <div class="flex items-center justify-between gap-2 text-xs">
-              <h4 class="font-medium text-gray-700 dark:text-gray-200">{{ t('channelMonitorV2.candy.title') }}</h4>
-              <span class="flex items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400"><i class="h-2 w-2 rounded-full" :class="candyColor[candyDisplayState(row.candy, now)]" />{{ t(`channelMonitorV2.candy.states.${candyDisplayState(row.candy, now)}`) }}</span>
-            </div>
-            <p class="mt-1 break-words text-[10px] leading-relaxed text-gray-500 dark:text-gray-400">{{ row.candy.model }} · {{ row.candy.reasoning_effort }} · {{ t('channelMonitorV2.candy.cadence', { minutes: row.candy.interval_minutes }) }} · {{ t('channelMonitorV2.candy.window') }}</p>
-            <div v-if="row.candy.results.length" class="mt-2 flex h-5 gap-px">
-              <span v-for="result in row.candy.results" :key="result.checked_at" tabindex="0" class="min-w-0 flex-1 rounded-sm focus:outline focus:outline-2 focus:outline-primary-400" :class="candyColor[result.verdict]" :title="candyTooltip(result)" :aria-label="candyTooltip(result)" />
-            </div>
-            <p v-else class="mt-3 text-[10px] text-gray-400">{{ t('channelMonitorV2.candy.waiting') }}</p>
-            <div class="mt-2 flex items-center justify-between gap-2 text-[9px] text-gray-500 dark:text-gray-400"><span>{{ t('channelMonitorV2.candy.legend') }}</span><span>{{ row.candy.results.length ? time(row.candy.results.at(-1)!.checked_at) : '—' }}</span></div>
+          <section v-if="candyHistories(row).length" class="mt-4 border-t border-gray-100 pt-3 dark:border-dark-700/70" data-testid="candy-history">
+              <h4 class="text-xs font-medium text-gray-700 dark:text-gray-200">{{ t('channelMonitorV2.candy.title') }}</h4>
+              <div v-for="(history, historyIndex) in candyHistories(row)" :key="`${history.model}-${history.reasoning_effort}-${historyIndex}`" class="mt-2" data-testid="candy-model-history">
+                <div class="flex items-center justify-between gap-2 text-xs">
+                  <p class="min-w-0 break-words text-[10px] leading-relaxed text-gray-500 dark:text-gray-400">{{ history.model }} · {{ history.reasoning_effort }} · {{ t('channelMonitorV2.candy.cadence', { minutes: history.interval_minutes }) }} · {{ t('channelMonitorV2.candy.window', { count: candyHistoryLimit(history) }) }}</p>
+                  <span class="flex shrink-0 items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400"><i class="h-2 w-2 rounded-full" :class="candyColor[candyDisplayState(history, now)]" />{{ t(`channelMonitorV2.candy.states.${candyDisplayState(history, now)}`) }}</span>
+                </div>
+                <div class="mt-2 flex h-5 gap-px" role="group" :aria-label="t('channelMonitorV2.candy.historyCount', { count: Math.min(history.results.length, candyHistoryLimit(history)), limit: candyHistoryLimit(history) })" data-testid="candy-history-slots">
+                  <template v-for="(result, index) in candyHistorySlots(history)" :key="index">
+                    <button v-if="result" type="button"
+                    class="min-w-0 flex-1 cursor-help rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-400"
+                    :class="candyColor[result.verdict]" :aria-label="candyTooltip(result, history.model, history.reasoning_effort)" :aria-describedby="isCandyDetail(row, result, history.model, history.reasoning_effort) ? tooltipId : undefined"
+                    data-testid="candy-history-bar" @mouseenter="openDetail($event, { kind: 'candy', row, result, model: history.model, effort: history.reasoning_effort })"
+                    @focus="openDetail($event, { kind: 'candy', row, result, model: history.model, effort: history.reasoning_effort })" @click="openDetail($event, { kind: 'candy', row, result, model: history.model, effort: history.reasoning_effort })"
+                    @mouseleave="scheduleClose" @blur="scheduleClose" />
+                    <span v-else class="min-w-0 flex-1 rounded-sm bg-gray-200 dark:bg-dark-600" aria-hidden="true" :title="t('channelMonitorV2.candy.notChecked')" data-testid="candy-history-placeholder" />
+                  </template>
+                </div>
+                <p v-if="!history.results.length" class="mt-3 text-[10px] text-gray-400">{{ t('channelMonitorV2.candy.waiting') }}</p>
+              </div>
+              <div class="mt-2 flex items-center justify-between gap-2 text-[9px] text-gray-500 dark:text-gray-400"><span>{{ t('channelMonitorV2.candy.legend') }}</span><span>{{ latestCandyTime(row) }}</span></div>
           </section>
         </article>
       </div>
     </section>
+    <Teleport to="body">
+      <div v-if="detail" :id="tooltipId" ref="tooltipElement" role="tooltip" tabindex="0"
+        class="monitor-card-tooltip fixed z-[100] w-max max-w-[calc(100vw-24px)] rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed text-gray-800 shadow-xl dark:border-gray-400 dark:bg-dark-900 dark:text-gray-100"
+        :style="{ left: placement.left + 'px', top: placement.top + 'px', visibility: placement.ready ? 'visible' : 'hidden' }"
+        @mouseenter="cancelClose" @mouseleave="scheduleClose" @focus="cancelClose" @blur="scheduleClose">
+        <span aria-hidden="true" class="absolute h-2.5 w-2.5 rotate-45 border-gray-300 bg-white dark:border-gray-400 dark:bg-dark-900"
+          :class="placement.below ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-b border-r'" :style="{ left: placement.arrowLeft + 'px' }" />
+        <div class="max-h-[min(18rem,calc(100vh-48px))] max-w-lg overflow-y-auto overscroll-contain break-words" data-testid="monitor-card-tooltip-content">
+          <p class="font-semibold">{{ detail.row.group_name || '#' + detail.row.group_id }}</p>
+          <template v-if="detail.kind === 'traffic'">
+            <p class="text-gray-500 dark:text-gray-400">{{ dateTime(detail.bar.start) }} - {{ dateTime(detail.bar.end) }} · {{ t('channelMonitorV2.cards.health.' + detail.bar.state) }}</p>
+            <p v-if="!detail.bar.buckets.length" class="mt-1">{{ t('channelMonitorV2.matrix.noTraffic') }}</p>
+            <template v-else>
+              <p class="mt-1 text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.cards.bucketDetails') }}</p>
+              <p v-for="bucket in detail.bar.buckets" :key="bucket.bucket_start" class="mt-1" data-testid="monitor-card-tooltip-sample">{{ trafficSample(bucket) }}</p>
+            </template>
+          </template>
+          <p v-else class="mt-1 whitespace-pre-wrap">{{ candyTooltip(detail.result, detail.model, detail.effort) }}</p>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MonitorCandyResult, MonitorCoverage, MonitorMatrixRow } from '@/api/channelMonitorV2'
+import type { MonitorCandyResult, MonitorCoverage, MonitorMatrixBucket, MonitorMatrixRow } from '@/api/channelMonitorV2'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { formatMonitorMs, formatMonitorPercent } from './monitorFormat'
-import { candyDisplayState, hasMonitorSamples, monitorCardTimeline } from './monitorCards'
+import { candyDisplayState, candyHistoryLimit, candyHistorySlots, hasMonitorSamples, MONITOR_CARD_SLOT_COUNT, monitorCandyHistories, monitorCardTimeline, monitorCardTimelineMode, type MonitorCardTimelineMode } from './monitorCards'
 
-const props = defineProps<{ items: MonitorMatrixRow[]; coverage?: MonitorCoverage; countdown: number; loading: boolean; now: number; platformOrder?: string[] }>()
+const props = defineProps<{ items: MonitorMatrixRow[]; coverage?: MonitorCoverage; countdown: number; loading: boolean; now: number; platformOrder?: string[]; timelineMode?: MonitorCardTimelineMode }>()
 const { t, locale } = useI18n()
-const timelineMode = ref<'windows' | 'samples'>('windows')
-function setTimelineMode(mode: 'windows' | 'samples') { timelineMode.value = mode }
-function timelineCaption(row: MonitorMatrixRow) {
-  const bars = monitorCardTimeline(row, props.coverage, timelineMode.value)
-  const observed = bars.filter((bar) => bar.observed).length
-  if (!observed) return t('channelMonitorV2.cards.noSamples')
-  return timelineMode.value === 'samples'
-    ? t('channelMonitorV2.cards.sampledWindows', { count: observed })
-    : t('channelMonitorV2.cards.windows', { count: bars.length })
+type TrafficBar = ReturnType<typeof monitorCardTimeline>[number]
+type CardDetail = { kind: 'traffic'; row: MonitorMatrixRow; bar: TrafficBar } | { kind: 'candy'; row: MonitorMatrixRow; result: MonitorCandyResult; model: string; effort: string }
+const timelineMode = computed(() => monitorCardTimelineMode(props.timelineMode))
+const tooltipId = useId()
+const detail = shallowRef<CardDetail | null>(null)
+const anchor = shallowRef<HTMLElement | null>(null)
+const tooltipElement = ref<HTMLElement | null>(null)
+const placement = ref({ left: 0, top: 0, arrowLeft: 0, below: false, ready: false })
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+function cancelClose() {
+  if (closeTimer) clearTimeout(closeTimer)
+  closeTimer = undefined
 }
+function closeDetail() {
+  cancelClose()
+  detail.value = null
+  anchor.value = null
+}
+function scheduleClose() {
+  cancelClose()
+  // Allow the pointer to cross the arrow gap and scroll multi-bucket details.
+  closeTimer = setTimeout(() => {
+    if (document.activeElement !== anchor.value && !tooltipElement.value?.contains(document.activeElement)) closeDetail()
+  }, 120)
+}
+function openDetail(event: Event, value: CardDetail) {
+  cancelClose()
+  anchor.value = event.currentTarget as HTMLElement
+  detail.value = value
+  placement.value.ready = false
+  void nextTick(positionDetail)
+}
+function positionDetail() {
+  if (!anchor.value || !tooltipElement.value || !detail.value) return
+  const rect = anchor.value.getBoundingClientRect()
+  const box = tooltipElement.value.getBoundingClientRect()
+  const center = rect.left + rect.width / 2
+  const left = Math.max(12, Math.min(window.innerWidth - box.width - 12, center - box.width / 2))
+  const below = rect.top < box.height + 22
+  const top = Math.max(12, Math.min(window.innerHeight - box.height - 12, below ? rect.bottom + 10 : rect.top - box.height - 10))
+  placement.value = { left, top, below, ready: true, arrowLeft: Math.max(8, Math.min(box.width - 18, center - left - 5)) }
+}
+function onOutsidePointer(event: Event) {
+  if (!(event.target instanceof Node)) return
+  if (!anchor.value?.contains(event.target) && !tooltipElement.value?.contains(event.target)) closeDetail()
+}
+function onViewportChange(event: Event) {
+  if (event.target instanceof Node && tooltipElement.value?.contains(event.target)) return
+  closeDetail()
+}
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeDetail()
+}
+function isTrafficDetail(row: MonitorMatrixRow, bar: TrafficBar) {
+  return detail.value?.kind === 'traffic' && detail.value.row === row && detail.value.bar.start === bar.start
+}
+function isCandyDetail(row: MonitorMatrixRow, result: MonitorCandyResult, model: string, effort: string) {
+  return detail.value?.kind === 'candy' && detail.value.row === row && detail.value.model === model && detail.value.effort === effort && detail.value.result.checked_at === result.checked_at
+}
+function timelineBars(row: MonitorMatrixRow) {
+  return monitorCardTimeline(row, props.coverage, timelineMode.value)
+}
+function timelineCaption(row: MonitorMatrixRow) {
+  if (timelineMode.value === 'samples') return t('channelMonitorV2.cards.sampledWindows', { count: timelineBars(row).length, limit: MONITOR_CARD_SLOT_COUNT })
+  return t('channelMonitorV2.cards.windows', { count: MONITOR_CARD_SLOT_COUNT })
+}
+function candyHistories(row: MonitorMatrixRow) {
+  return monitorCandyHistories(row)
+}
+function latestCandyTime(row: MonitorMatrixRow) {
+  // Each history is ordered oldest-first. Compare instants, not ISO text:
+  // fractional seconds do not sort lexicographically.
+  let latest = Number.NEGATIVE_INFINITY
+  for (const history of candyHistories(row)) {
+    const parsed = Date.parse(history.results.at(-1)?.checked_at || '')
+    if (Number.isFinite(parsed) && parsed > latest) latest = parsed
+  }
+  return Number.isFinite(latest) ? time(latest) : '—'
+}
+watch([() => props.items, () => props.coverage, () => props.timelineMode], closeDetail)
+onMounted(() => {
+  document.addEventListener('pointerdown', onOutsidePointer, true)
+  document.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', onViewportChange)
+  window.addEventListener('scroll', onViewportChange, true)
+})
+onBeforeUnmount(() => {
+  cancelClose()
+  document.removeEventListener('pointerdown', onOutsidePointer, true)
+  document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onViewportChange)
+  window.removeEventListener('scroll', onViewportChange, true)
+})
 const { providerLabel, providerBadgeClass } = useChannelMonitorFormat()
 const platforms = computed(() => {
   const groups = new Map<string, MonitorMatrixRow[]>()
@@ -113,7 +229,22 @@ function metrics(row: MonitorMatrixRow) {
     { name: t('channelMonitorV2.cards.ttft'), title: t('channelMonitorV2.metrics.ttftP50'), value: formatMonitorMs(row.metrics.ttft.p50_ms), color: 'text-gray-800 dark:text-gray-100' }
   ]
 }
-function candyTooltip(result: MonitorCandyResult) {
-  return `${time(result.checked_at)} · ${t(`channelMonitorV2.candy.states.${result.verdict}`)}${result.answer_preview ? ` · ${result.answer_preview}` : ''}`
+function dateTime(value: number | string) {
+  return new Date(value).toLocaleString(locale.value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+function trafficLabel(row: MonitorMatrixRow, bar: TrafficBar) {
+  return (row.group_name || '#' + row.group_id) + ' · ' + dateTime(bar.start) + ' - ' + dateTime(bar.end) + ' · ' + t('channelMonitorV2.cards.health.' + bar.state)
+}
+function trafficSample(bucket: MonitorMatrixBucket) {
+  return t('channelMonitorV2.cards.sampleDetails', {
+    time: dateTime(bucket.bucket_start), availability: formatMonitorPercent(1 - bucket.metrics.error_rate),
+    cache: formatMonitorPercent(bucket.metrics.cache_rate), ttft: formatMonitorMs(bucket.metrics.ttft.p50_ms),
+  })
+}
+function candyTooltip(result: MonitorCandyResult, model?: string, effort?: string) {
+  const label = [model, effort].filter(Boolean).join(' · ')
+  return (label ? label + ' · ' : '') + dateTime(result.checked_at) + ' · ' + t('channelMonitorV2.candy.states.' + result.verdict)
+    + ' · ' + t('channelMonitorV2.metrics.durationValue', { value: formatMonitorMs(result.latency_ms) })
+    + (result.answer_preview ? '\n' + result.answer_preview : '')
 }
 </script>
