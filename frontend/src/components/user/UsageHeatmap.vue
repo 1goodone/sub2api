@@ -18,7 +18,7 @@
     </div>
     <div class="heatmap-summary">
       <span class="heatmap-date">{{ startDate }} ~ {{ endDate }}</span>
-      <span v-if="!loading && !error">{{ formatCompactNumber(totals.tokens) }} Tokens · {{ totals.requests.toLocaleString() }} {{ t('usage.personal.requests') }} · ${{ totals.cost.toFixed(2) }}</span>
+      <span v-if="(!loading || data.length > 0) && !error">{{ formatCompactNumber(totals.tokens) }} Tokens · {{ totals.requests.toLocaleString() }} {{ t('usage.personal.requests') }} · ${{ totals.cost.toFixed(2) }}</span>
       <span v-else-if="loading">{{ t('common.loading') }}</span>
       <div class="heatmap-navigation">
         <button type="button" :title="t('usage.personal.previousPeriod')" :aria-label="t('usage.personal.previousPeriod')" :disabled="loading" @click="$emit('navigate', -1)"><Icon name="chevronLeft" size="sm" /></button>
@@ -31,7 +31,7 @@
     </div>
     <template v-else>
       <div class="heatmap-scroll" tabindex="0" :aria-label="t('usage.personal.heatmap')">
-        <div class="heatmap-calendar" :class="{ 'is-loading': loading }">
+        <div class="heatmap-calendar" :class="{ 'is-loading': loading && !data.length }">
           <div class="heatmap-months" aria-hidden="true">
             <span v-for="month in months" :key="month.column" :style="{ gridColumn: month.column }">{{ month.label }}</span>
           </div>
@@ -207,6 +207,7 @@ button:disabled { opacity: .35; cursor: default; }
 .heatmap-weekdays span { align-self: center; }
 .heatmap-days { grid-column: 2; grid-row: 2; display: grid; grid-auto-flow: column; grid-template-columns: repeat(53, minmax(0, 1fr)); grid-template-rows: repeat(7, auto); gap: 4px; }
 .heatmap-day { display: block; width: 100%; min-width: 0; aspect-ratio: 1; border-radius: 3px; }
+.heatmap-day:disabled { opacity: 1; }
 .heatmap-day:focus-visible { outline: 2px solid var(--usage-text, #17171d); outline-offset: 1px; }
 .heatmap-day:hover:not(:disabled) { outline: 1px solid var(--usage-muted, #666672); outline-offset: 1px; }
 .heatmap-day.is-selected { outline: 2px solid var(--usage-text, #17171d); outline-offset: 1px; }

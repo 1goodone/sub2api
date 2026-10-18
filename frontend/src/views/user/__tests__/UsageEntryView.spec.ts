@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, it, vi } from 'vitest'
-import UsageEntryView from '../UsageEntryView.vue'
+import UsageEntryView, { preloadUsageView } from '../UsageEntryView.vue'
 
 const auth = vi.hoisted(() => ({ isObserver: false }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
@@ -12,6 +12,16 @@ it.each([false, true])('selects the role-appropriate usage page (observer=%s)', 
   const wrapper = mount(UsageEntryView)
   await vi.dynamicImportSettled()
   await flushPromises()
+  expect(wrapper.find('[data-test="personal"]').exists()).toBe(!observer)
+  expect(wrapper.find('[data-test="management"]').exists()).toBe(observer)
+  if (observer) expect(wrapper.text()).toBe('true')
+  wrapper.unmount()
+})
+
+it.each([false, true])('renders the preloaded page on the first render (observer=%s)', async (observer) => {
+  auth.isObserver = observer
+  await preloadUsageView(observer)
+  const wrapper = mount(UsageEntryView)
   expect(wrapper.find('[data-test="personal"]').exists()).toBe(!observer)
   expect(wrapper.find('[data-test="management"]').exists()).toBe(observer)
   if (observer) expect(wrapper.text()).toBe('true')

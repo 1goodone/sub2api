@@ -15,7 +15,22 @@ type ScrollBehavior = (
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
   scrollBehavior: null as ScrollBehavior | null,
+  usageLoader: null as null | (() => Promise<unknown>),
 }))
+
+const usageImports = vi.hoisted(() => ({
+  user: { started: vi.fn(), resolve: null as null | (() => void) },
+  observer: { started: vi.fn(), resolve: null as null | (() => void) },
+}))
+
+vi.mock('@/views/user/UsageView.vue', async () => {
+  await new Promise<void>((resolve) => { usageImports.user.resolve = resolve; usageImports.user.started() })
+  return { default: { name: 'PersonalUsage' } }
+})
+vi.mock('@/views/admin/UsageView.vue', async () => {
+  await new Promise<void>((resolve) => { usageImports.observer.resolve = resolve; usageImports.observer.started() })
+  return { default: { name: 'ManagementUsage' } }
+})
 
 const authStore = vi.hoisted(() => ({
   checkAuth: vi.fn(),
@@ -43,8 +58,9 @@ const appStore = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   createWebHistory: vi.fn(() => ({})),
-  createRouter: vi.fn((options: { scrollBehavior?: ScrollBehavior }) => {
+  createRouter: vi.fn((options: { scrollBehavior?: ScrollBehavior; routes: Array<{ path: string; component?: () => Promise<unknown> }> }) => {
     routerHarness.scrollBehavior = options.scrollBehavior ?? null
+    routerHarness.usageLoader = options.routes.find((route) => route.path === '/usage')?.component ?? null
     return {
       beforeEach: vi.fn((guard: NavigationGuard) => {
         routerHarness.guard = guard
@@ -133,6 +149,19 @@ describe('feature route guard', () => {
     appStore.publicSettingsLoaded = false
     appStore.cachedPublicSettings = null
     appStore.fetchPublicSettings.mockReset()
+  })
+
+  it.each([false, true])('waits for the role-specific usage page before resolving navigation (observer=%s)', async (observer) => {
+    authStore.isObserver = observer
+    const pending = observer ? usageImports.observer : usageImports.user
+    const resolved = vi.fn()
+    const navigation = routerHarness.usageLoader!().then(resolved)
+    await vi.waitFor(() => expect(pending.started).toHaveBeenCalledTimes(1))
+    expect(resolved).not.toHaveBeenCalled()
+    if (!observer) expect(usageImports.observer.started).not.toHaveBeenCalled()
+    pending.resolve!()
+    await navigation
+    expect(resolved).toHaveBeenCalledWith(expect.objectContaining({ default: expect.objectContaining({ __name: 'UsageEntryView' }) }))
   })
 
   it('allows observers own usage in backend mode without opening other user or admin pages', async () => {

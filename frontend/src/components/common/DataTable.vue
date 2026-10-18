@@ -1,6 +1,6 @@
 <template>
-  <div v-if="!isDesktopViewport" class="space-y-3">
-    <template v-if="loading">
+  <div v-if="!isDesktopViewport" class="space-y-3" :aria-busy="loading" :inert="loading || undefined">
+    <template v-if="loading && !data?.length">
       <div v-for="i in 5" :key="i" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
         <div class="space-y-3">
           <div v-for="column in dataColumns" :key="column.key" class="flex justify-between">
@@ -94,6 +94,8 @@
     v-else
     ref="tableWrapperRef"
     class="table-wrapper"
+    :aria-busy="loading"
+    :inert="loading || undefined"
     :class="{
       'actions-expanded': actionsExpanded,
       'is-scrollable': isScrollable
@@ -168,7 +170,7 @@
       </thead>
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
-        <tr v-if="loading" v-for="i in 5" :key="i">
+        <tr v-if="loading && !data?.length" v-for="i in 5" :key="i">
           <td v-if="selectable" class="w-11 min-w-11 px-3 py-4">
             <div class="mx-auto h-4 w-4 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
           </td>

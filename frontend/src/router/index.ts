@@ -257,7 +257,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/usage',
     name: 'Usage',
-    component: () => import('@/views/user/UsageEntryView.vue'),
+    // Keep the current page visible until the role-specific async child is ready.
+    component: async () => {
+      const entry = await import('@/views/user/UsageEntryView.vue')
+      await entry.preloadUsageView(useAuthStore().isObserver)
+      return entry
+    },
     meta: {
       requiresAuth: true,
       requiresAdmin: false,

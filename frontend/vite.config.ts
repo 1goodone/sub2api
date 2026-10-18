@@ -146,8 +146,13 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
+            // Keep the export-only library out of every page using VueUse.
+            if (id.includes('/xlsx/')) {
+              return 'vendor-xlsx'
+            }
+
             // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
+            if (id.includes('/@vueuse/')) {
               return 'vendor-ui'
             }
 

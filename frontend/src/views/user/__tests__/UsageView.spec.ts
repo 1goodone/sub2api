@@ -6,7 +6,6 @@ import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
 import UsageHeatmap from '@/components/user/UsageHeatmap.vue'
-import UsageTrendChart from '@/components/user/UsageTrendChart.vue'
 
 const {
   query,
@@ -170,7 +169,7 @@ function mountUsageView() {
         UsageStatsCards: chartStub,
         UsageTable: { ...chartStub, props: ['columns'] },
         UsageHeatmap: true,
-        UsageTrendChart: true,
+        UsageTrendChart: { ...chartStub, name: 'UsageTrendChart', props: ['data', 'startDate', 'endDate', 'granularity', 'loading', 'error'] },
         PlatformIcon: true,
         UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
@@ -231,28 +230,56 @@ describe('user UsageView', () => {
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
-  it('loads logs, stats, model stats, and snapshot on first render', async () => {
+  it('loads logs, stats and heatmap without requesting hidden analysis data on first render', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
     expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toEqual([
-      'created_at', 'api_key', 'group', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost',
-      'reasoning_effort', 'endpoint', 'stream', 'billing_mode', 'tokens', 'latency',
+      'created_at', 'api_key', 'group', 'model', 'reasoning_effort', 'endpoint', 'stream', 'billing_mode',
+      'input_tokens', 'output_tokens', 'cache_read_tokens', 'tokens', 'cost', 'latency',
     ])
     expect(query).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
     expect(getDashboardModels).toHaveBeenCalled()
-    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
-      include_trend: true,
-      include_model_stats: false,
-      include_group_stats: true,
-    }))
+    expect(getDashboardSnapshotV2).not.toHaveBeenCalled()
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
     expect(getDashboardTrend).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' }))
     expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
-    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('refreshes before filters while preserving the current query and preventing duplicate clicks', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.filters.api_key_id = 1
+    vm.filters.model = 'gpt-5.4'
+    vm.handleSort('model', 'asc')
+    vm.handlePageChange(2)
+    await flushPromises()
+    const previousParams = { ...query.mock.calls.at(-1)![0] }
+    query.mockClear()
+    let resolveLogs!: (value: unknown) => void
+    query.mockReturnValueOnce(new Promise((resolve) => { resolveLogs = resolve }))
+    const refresh = wrapper.find('.usage-record-actions button')
+    expect(refresh.attributes('aria-label')).toBe('Refresh')
+    expect(refresh.attributes('title')).toBe('Refresh')
+    expect(refresh.element.nextElementSibling?.classList.contains('usage-filter-button')).toBe(true)
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(query).toHaveBeenCalledWith(previousParams, expect.anything())
+    expect(previousParams).toMatchObject({ api_key_id: 1, model: 'gpt-5.4', page: 2, sort_by: 'model', sort_order: 'asc' })
+    expect(refresh.attributes('disabled')).toBeDefined()
+    expect(refresh.find('icon-stub').classes()).toContain('animate-spin')
+    await refresh.trigger('click')
+    expect(query).toHaveBeenCalledTimes(1)
+    resolveLogs({ items: [usageLog], total: 1, pages: 1 })
+    await flushPromises()
+    expect(refresh.attributes('disabled')).toBeUndefined()
+    expect(refresh.find('icon-stub').classes()).not.toContain('animate-spin')
     wrapper.unmount()
   })
 
@@ -265,19 +292,19 @@ describe('user UsageView', () => {
     getDashboardTrend.mockClear()
     expect(wrapper.find('[data-testid="usage-all-dates"]').exists()).toBe(false)
     expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
-    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).exists()).toBe(false)
     wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-13', endDate: '2026-10-13', preset: 'today' })
     await flushPromises()
     expect(heatmap.props()).toMatchObject(annualRange)
     expect(getDashboardTrend).not.toHaveBeenCalled()
-    expect(wrapper.findComponent(UsageTrendChart).props('granularity')).toBe('hour')
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).props('granularity')).toBe('hour')
     expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ granularity: 'hour', start_date: '2026-10-13', end_date: '2026-10-13', api_key_id: 1 }))
 
     wrapper.findComponent(DateRangePicker).vm.$emit('change', { startDate: '2026-10-01', endDate: '2026-10-13', preset: null })
     await flushPromises()
     expect(heatmap.props()).toMatchObject(annualRange)
     expect(getDashboardTrend).not.toHaveBeenCalled()
-    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -316,7 +343,7 @@ describe('user UsageView', () => {
     await flushPromises()
     const expected = { model_provider: 'anthropic', group_id: 3, model: undefined }
     expect(query).toHaveBeenLastCalledWith(expect.objectContaining(expected), expect.anything())
-    for (const endpoint of [getStats, getDashboardModels, getDashboardSnapshotV2, getDashboardTrend]) {
+    for (const endpoint of [getStats, getDashboardModels, getDashboardTrend]) {
       expect(endpoint).toHaveBeenLastCalledWith(expect.objectContaining(expected))
     }
     expect(wrapper.find('.usage-group-tabs button[aria-label="Claude"]').attributes('aria-pressed')).toBe('true')
@@ -336,10 +363,10 @@ describe('user UsageView', () => {
     await flushPromises()
     const expected = { period: 'all', start_date: undefined, end_date: undefined }
     expect(query).toHaveBeenLastCalledWith(expect.objectContaining(expected), expect.anything())
-    for (const endpoint of [getStats, getDashboardModels, getDashboardSnapshotV2]) {
+    for (const endpoint of [getStats, getDashboardModels]) {
       expect(endpoint).toHaveBeenLastCalledWith(expect.objectContaining(expected))
     }
-    expect(wrapper.findComponent(UsageTrendChart).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).exists()).toBe(false)
     expect(wrapper.findAll('.usage-stat')[0].attributes('title')).toContain('All')
     expect(getDashboardTrend).not.toHaveBeenCalled()
     await wrapper.find('.usage-group-tabs button[aria-label="Grok"]').trigger('click')
@@ -410,7 +437,8 @@ describe('user UsageView', () => {
     const picker = wrapper.findComponent(DateRangePicker)
     picker.vm.$emit('change', { startDate: '2026-10-01', endDate: '2026-10-05', preset: null })
     await flushPromises()
-    expect(wrapper.findAll('.usage-stat-value').map((card) => card.text())).toEqual(['-', '-', '-', '-'])
+    expect(wrapper.find('.usage-summary').attributes('aria-busy')).toBe('true')
+    expect(wrapper.findAll('.usage-stat-value').map((card) => card.text())).toEqual(['$0.08', '$0.10', '1', '30'])
 
     const latest = {
       total_requests: 12, total_input_tokens: 100, total_output_tokens: 50,
@@ -491,7 +519,7 @@ describe('user UsageView', () => {
     expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-03-08', end_date: '2026-03-08', api_key_id: 1 }))
     expect(getDashboardTrend).not.toHaveBeenCalled()
     expect(wrapper.findComponent(UsageHeatmap).exists()).toBe(true)
-    expect(wrapper.findComponent(UsageTrendChart).props()).toMatchObject({ startDate: '2026-03-08', endDate: '2026-03-08', granularity: 'hour' })
+    expect(wrapper.findComponent({ name: 'UsageTrendChart' }).props()).toMatchObject({ startDate: '2026-03-08', endDate: '2026-03-08', granularity: 'hour' })
     wrapper.unmount()
   })
 
@@ -548,6 +576,51 @@ describe('user UsageView', () => {
     expect(wrapper.find('#usage-view-panel').attributes('aria-labelledby')).toBe('usage-tab-models')
     await wrapper.find('#usage-tab-usage').trigger('click')
     expect(wrapper.findComponent(UsageTable).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('loads chart data on demand, reuses it between tabs, and invalidates it when filters change', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(getDashboardSnapshotV2).not.toHaveBeenCalled()
+    await wrapper.find('#usage-tab-groups').trigger('click')
+    await flushPromises()
+    expect(getDashboardSnapshotV2).toHaveBeenCalledTimes(1)
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      include_trend: true, include_model_stats: false, include_group_stats: true,
+    }))
+    await wrapper.find('#usage-tab-analysis').trigger('click')
+    await flushPromises()
+    expect(getDashboardSnapshotV2).toHaveBeenCalledTimes(1)
+    await wrapper.find('#usage-tab-usage').trigger('click')
+    ;(wrapper.vm as any).filters.api_key_id = 1
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+    expect(getDashboardSnapshotV2).toHaveBeenCalledTimes(1)
+    await wrapper.find('#usage-tab-groups').trigger('click')
+    await flushPromises()
+    expect(getDashboardSnapshotV2).toHaveBeenCalledTimes(2)
+    expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ api_key_id: 1 }))
+    wrapper.unmount()
+  })
+
+  it('ignores chart data from before a hidden-tab filter change', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    let resolveOld!: (value: unknown) => void
+    getDashboardSnapshotV2.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    await wrapper.find('#usage-tab-groups').trigger('click')
+    await wrapper.find('#usage-tab-usage').trigger('click')
+    ;(wrapper.vm as any).filters.api_key_id = 1
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+    const latest = [{ group_id: 1, name: 'Current group', requests: 2 }]
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [], groups: latest })
+    await wrapper.find('#usage-tab-groups').trigger('click')
+    await flushPromises()
+    resolveOld({ trend: [], groups: [{ group_id: 2, name: 'Old group', requests: 999 }] })
+    await flushPromises()
+    expect((wrapper.vm as any).groupStats).toEqual(latest)
     wrapper.unmount()
   })
 
@@ -640,6 +713,8 @@ describe('user UsageView', () => {
 
   it('propagates and resets the native compaction filter across page requests', async () => {
     const wrapper = mountUsageView()
+    await flushPromises()
+    await wrapper.find('#usage-tab-analysis').trigger('click')
     await flushPromises()
 
     expect((wrapper.vm as any).compactionOptions).toEqual([

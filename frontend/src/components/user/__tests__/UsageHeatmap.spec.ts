@@ -118,7 +118,12 @@ describe('UsageHeatmap', () => {
   })
   it('disables selection while loading and shows retry instead of a misleading empty chart on failure', async () => {
     const wrapper = render()
+    const day = wrapper.find('[data-date="2026-10-13"]').element
+    const summary = wrapper.find('.heatmap-summary').text()
     await wrapper.setProps({ loading: true })
+    expect(wrapper.find('[data-date="2026-10-13"]').element).toBe(day)
+    expect(wrapper.find('.heatmap-summary').text()).toBe(summary)
+    expect(wrapper.find('.heatmap-calendar').classes()).not.toContain('is-loading')
     expect(wrapper.find('[data-date="2026-10-13"]').attributes('disabled')).toBeDefined()
     await wrapper.setProps({ loading: false, error: true })
     expect(wrapper.find('.heatmap-days').exists()).toBe(false)

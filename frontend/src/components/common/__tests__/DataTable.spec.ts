@@ -47,6 +47,30 @@ describe('DataTable', () => {
     localStorage.clear()
   })
 
+  it.each([true, false])('keeps existing cells mounted and inert during refresh (desktop=%s)', async (desktop) => {
+    if (!desktop) stubMobileMatchMedia()
+    const wrapper = mount(DataTable, {
+      props: { columns: [{ key: 'name', label: 'Name' }], data: [], loading: true },
+      slots: { 'cell-name': '<button data-test="row-action">{{ params.row.name }}</button>' },
+    })
+    expect(wrapper.find('.animate-pulse').exists()).toBe(true)
+    await wrapper.setProps({ data: [{ id: 1, name: 'Existing' }], loading: false })
+    const cell = wrapper.get('[data-test="row-action"]').element
+    await wrapper.setProps({ loading: true })
+    expect(wrapper.get('[data-test="row-action"]').element).toBe(cell)
+    expect(wrapper.text()).toContain('Existing')
+    expect(wrapper.find('.animate-pulse').exists()).toBe(false)
+    expect(wrapper.attributes('aria-busy')).toBe('true')
+    expect(wrapper.attributes('inert')).toBeDefined()
+    await wrapper.setProps({ data: [{ id: 1, name: 'Updated' }], loading: false })
+    expect(wrapper.text()).toContain('Updated')
+    expect(wrapper.attributes('aria-busy')).toBe('false')
+    expect(wrapper.attributes('inert')).toBeUndefined()
+    await wrapper.setProps({ data: [] })
+    expect(wrapper.text()).toContain('empty.noData')
+    wrapper.unmount()
+  })
+
   it('renders paired sort arrows and highlights the active direction', async () => {
     const wrapper = mount(DataTable, {
       props: {

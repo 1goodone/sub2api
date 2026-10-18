@@ -35,7 +35,7 @@
             {{ metric.label }}
             <span v-if="metric.hint && metric.showHintIcon" tabindex="0" :title="metric.hint" :aria-label="metric.hint"><Icon name="questionCircle" size="xs" /></span>
           </div>
-          <div class="usage-stat-value" :style="{ '--usage-value-length': metric.value.length }">{{ statsLoading ? '-' : metric.value }}</div>
+          <div class="usage-stat-value" :style="{ '--usage-value-length': metric.value.length }">{{ statsLoading && !usageStats ? '-' : metric.value }}</div>
         </div>
         <button type="button" class="usage-more-metrics" :aria-expanded="showMoreMetrics" aria-controls="usage-extra-metrics" @click="showMoreMetrics = !showMoreMetrics">{{ t('usage.personal.moreMetrics') }}<Icon :name="showMoreMetrics ? 'chevronUp' : 'chevronDown'" size="sm" /></button>
       </div>
@@ -80,6 +80,7 @@
           <button v-for="tab in usageTabs" :id="`usage-tab-${tab.value}`" :key="tab.value" type="button" role="tab" :aria-selected="activeTab === tab.value" aria-controls="usage-view-panel" :class="{ selected: activeTab === tab.value }" @click="selectTab(tab.value)">{{ tab.label }}</button>
         </div>
         <div class="usage-record-actions">
+          <button type="button" class="usage-icon-button" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="pageLoading" @click="refreshData"><Icon name="refresh" size="sm" :class="{ 'animate-spin': pageLoading }" /></button>
           <button type="button" class="usage-filter-button" :class="{ selected: showAdvancedFilters }" :aria-expanded="showAdvancedFilters" aria-controls="usage-advanced-filters" @click="showAdvancedFilters = !showAdvancedFilters"><Icon name="filter" size="sm" />{{ t('usage.personal.filters') }}<span v-if="advancedFilterCount" class="usage-filter-count">{{ advancedFilterCount }}</span></button>
           <template v-if="activeTab === 'usage' || activeTab === 'errors'">
             <div class="relative" ref="columnDropdownRef">
@@ -232,7 +233,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch, type AsyncComponentLoader } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
@@ -244,13 +245,8 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import UsageHeatmap from '@/components/user/UsageHeatmap.vue'
-import UsageTrendChart from '@/components/user/UsageTrendChart.vue'
-import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
-import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'
-import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
-import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
-import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatCompactNumber, formatReasoningEffort } from '@/utils/format'
 import { formatUsageCacheRate, showUsageCacheRate } from '@/utils/usageCacheRate'
@@ -271,6 +267,18 @@ import type {
 } from '@/types'
 import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
+
+const panelLoading = {
+  inheritAttrs: false,
+  render: () => h('div', { class: 'flex h-64 items-center justify-center', 'aria-busy': 'true' }, h(LoadingSpinner)),
+}
+const lazyPanel = (loader: AsyncComponentLoader) => defineAsyncComponent({ loader, loadingComponent: panelLoading, delay: 0 })
+const UsageTrendChart = lazyPanel(() => import('@/components/user/UsageTrendChart.vue'))
+const ModelDistributionChart = lazyPanel(() => import('@/components/charts/ModelDistributionChart.vue'))
+const GroupDistributionChart = lazyPanel(() => import('@/components/charts/GroupDistributionChart.vue'))
+const EndpointDistributionChart = lazyPanel(() => import('@/components/charts/EndpointDistributionChart.vue'))
+const TokenUsageTrend = lazyPanel(() => import('@/components/charts/TokenUsageTrend.vue'))
+const UserErrorRequestsTable = lazyPanel(() => import('@/components/user/UserErrorRequestsTable.vue'))
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -617,8 +625,16 @@ const loadModelStats = async () => {
   }
 }
 
+const chartDataVisible = computed(() => activeTab.value === 'groups' || activeTab.value === 'analysis' || Boolean(startDate.value && startDate.value === endDate.value))
+let chartDataLoaded = false
+
 const loadChartData = async () => {
   const seq = ++chartReqSeq
+  chartDataLoaded = false
+  if (!chartDataVisible.value) {
+    chartsLoading.value = false
+    return
+  }
   chartsLoading.value = true
   chartsError.value = false
   try {
@@ -632,6 +648,7 @@ const loadChartData = async () => {
     if (seq !== chartReqSeq) return
     trendData.value = snapshot.trend || []
     groupStats.value = snapshot.groups || []
+    chartDataLoaded = true
   } catch (error) {
     if (seq !== chartReqSeq) return
     console.error('Failed to load chart data:', error)
@@ -642,6 +659,10 @@ const loadChartData = async () => {
     if (seq === chartReqSeq) chartsLoading.value = false
   }
 }
+
+watch(activeTab, () => {
+  if (chartDataVisible.value && !chartDataLoaded && !chartsLoading.value) void loadChartData()
+})
 
 const refreshModelOptions = (models: ModelStat[]) => {
   const current = filters.value.model
@@ -835,17 +856,17 @@ const allColumns = computed<Column[]>(() => [
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
   { key: 'group', label: t('admin.usage.group'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
-  { key: 'input_tokens', label: t('usage.in'), sortable: false },
-  { key: 'output_tokens', label: t('usage.out'), sortable: false },
-  { key: 'cache_read_tokens', label: t('usage.cacheHit'), sortable: false },
-  { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'tps', label: t('usage.latencyTps'), sortable: false },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
   { key: 'ip_address', label: 'IP', sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
+  { key: 'input_tokens', label: t('usage.in'), sortable: false },
+  { key: 'output_tokens', label: t('usage.out'), sortable: false },
+  { key: 'cache_read_tokens', label: t('usage.cacheHit'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
+  { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
 ])
