@@ -113,6 +113,17 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 401, "User account is not active")
 			return
 		}
+		if apiKey.MixedMode {
+			effectiveKey, state, routeErr := apiKeyService.PrepareAPIKeyRouting(c.Request.Context(), apiKey)
+			if routeErr != nil {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+				abortWithGoogleError(c, 403, "No configured automatic routing group is currently available")
+				return
+			}
+			apiKey = effectiveKey
+			c.Request = c.Request.WithContext(service.WithAPIKeyRoutingState(c.Request.Context(), state))
+			SetOpsFallbackAPIKey(c, apiKey)
+		}
 		apiKey, err = selectAPIKeyRequestGroup(c, apiKeyService, subscriptionService, cfg, apiKey, true)
 		if err != nil || c.IsAborted() {
 			return
