@@ -68,9 +68,11 @@ export async function create(
   expiresInDays?: number,
   rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
   routingData?: Pick<CreateApiKeyRequest, 'mixed_mode_enabled' | 'mixed_group_ids'>,
-  concurrencyLimit: number = 0
+  concurrencyLimit: number = 0,
+  groupIds?: number[]
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name, concurrency_limit: concurrencyLimit, ...routingData }
+  if (groupIds !== undefined) payload.group_ids = groupIds
   if (groupId !== undefined) {
     payload.group_id = groupId
   }

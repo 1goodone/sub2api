@@ -8,6 +8,7 @@ type APIKeyAuthSnapshot struct {
 	Version          int                       `json:"version"`
 	APIKeyID         int64                     `json:"api_key_id"`
 	UserID           int64                     `json:"user_id"`
+	GroupIDs         []int64                   `json:"group_ids,omitempty"`
 	GroupID          *int64                    `json:"group_id,omitempty"`
 	MixedMode        bool                      `json:"mixed_mode_enabled"`
 	MixedGroupIDs    []int64                   `json:"mixed_group_ids,omitempty"`

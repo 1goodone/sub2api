@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 31 // v31: group Codex client and subagent ingress policy
+const apiKeyAuthSnapshotVersion = 32 // v32: configured API key groups, after local Codex ingress policy
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -360,6 +360,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		Version:          apiKeyAuthSnapshotVersion,
 		APIKeyID:         apiKey.ID,
 		UserID:           apiKey.UserID,
+		GroupIDs:         append([]int64(nil), apiKey.GroupIDs...),
 		GroupID:          apiKey.GroupID,
 		MixedMode:        apiKey.MixedMode,
 		MixedGroupIDs:    append([]int64(nil), apiKey.MixedGroupIDs...),
@@ -425,6 +426,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 	apiKey := &APIKey{
 		ID:               snapshot.APIKeyID,
 		UserID:           snapshot.UserID,
+		GroupIDs:         append([]int64(nil), snapshot.GroupIDs...),
 		GroupID:          snapshot.GroupID,
 		MixedMode:        snapshot.MixedMode,
 		MixedGroupIDs:    append([]int64(nil), snapshot.MixedGroupIDs...),

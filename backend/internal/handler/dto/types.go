@@ -60,6 +60,7 @@ type APIKey struct {
 	PackageID   *int64     `json:"package_id"`
 	Key         string     `json:"key"`
 	Name        string     `json:"name"`
+	GroupIDs    []int64    `json:"group_ids"`
 	GroupID     *int64     `json:"group_id"`
 	MixedMode   bool       `json:"mixed_mode_enabled"`
 	MixedGroups []int64    `json:"mixed_group_ids"`
