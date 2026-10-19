@@ -125,6 +125,41 @@ func isGrokAccountAccessCode(value string) bool {
 	}
 }
 
+// isGrokUnknownForbidden identifies a 403 that is neither a request-scoped
+// content refusal nor a recognized quota, billing, or account-access failure.
+func isGrokUnknownForbidden(statusCode int, responseBody []byte) bool {
+	if statusCode != http.StatusForbidden {
+		return false
+	}
+	if isGrokContentPolicyRejection(statusCode, responseBody) {
+		return false
+	}
+	if grokRecognizedForbiddenAccountState(responseBody) {
+		return false
+	}
+	return true
+}
+
+func grokRecognizedForbiddenAccountState(responseBody []byte) bool {
+	if len(responseBody) == 0 {
+		return false
+	}
+	if grokAccountAccessMessage(string(responseBody)) || isGrokSpendingLimitError(responseBody) ||
+		isOpenAIHTTPUpstreamAccessStateError(http.StatusForbidden, "", responseBody) || openAIStreamCredentialAuthFailure(responseBody) {
+		return true
+	}
+	decision := classifyGrokUpstreamFailure(http.StatusForbidden, responseBody, "")
+	switch decision.Class {
+	case GrokFailureFreeUsage, GrokFailureBilling, GrokFailureRateLimit:
+		return true
+	}
+	var payload any
+	if json.Unmarshal(responseBody, &payload) == nil && grokStructuredAccountAccessMarker(payload) {
+		return true
+	}
+	return false
+}
+
 func grokAccountAccessMessage(value string) bool {
 	lower := strings.ToLower(strings.TrimSpace(value))
 	for _, phrase := range []string{
@@ -175,6 +210,10 @@ func grokContentPolicyMessage(value string) bool {
 		"input violates content policy",
 		"input violates policy",
 		"violates usage guidelines",
+		// xAI chat safety refusal, returned as 403 permission-denied with the
+		// model's refusal sentence as the error string.
+		"can't help with that request",
+		"can’t help with that request",
 	} {
 		if strings.Contains(lower, phrase) {
 			return true

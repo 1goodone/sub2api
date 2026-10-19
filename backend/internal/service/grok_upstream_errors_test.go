@@ -54,6 +54,12 @@ func TestIsGrokContentPolicyRejection(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "xAI chat safety refusal sentence",
+			status: http.StatusForbidden,
+			body:   `{"error":{"message":"I'm sorry, I can't help with that request."}}`,
+			want:   true,
+		},
+		{
 			name:   "entitlement forbidden",
 			status: http.StatusForbidden,
 			body:   `{"error":{"message":"subscription required"}}`,

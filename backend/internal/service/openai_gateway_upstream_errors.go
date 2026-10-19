@@ -580,10 +580,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		setOpsUpstreamError(c, resp.StatusCode, clientMsg, truncateString(string(body), 2048))
 		writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 		MarkResponseCommitted(c)
-		c.JSON(http.StatusForbidden, gin.H{
+		// A passthrough rule may still localize the refusal; the request stays
+		// on this account either way.
+		status, errType, errMsg, _ := applyErrorPassthroughRule(
+			c, account.Platform, resp.StatusCode, body,
+			http.StatusForbidden, "invalid_request_error", clientMsg,
+		)
+		c.JSON(status, gin.H{
 			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": clientMsg,
+				"type":    errType,
+				"message": errMsg,
 			},
 		})
 		return nil, fmt.Errorf("grok content policy rejection: %s", clientMsg)
@@ -830,7 +836,11 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 		clientMsg := grokContentPolicyClientMessage(body)
 		setOpsUpstreamError(c, resp.StatusCode, clientMsg, truncateString(string(body), 2048))
 		MarkResponseCommitted(c)
-		writeError(c, http.StatusForbidden, "invalid_request_error", clientMsg)
+		status, errType, errMsg, _ := applyErrorPassthroughRule(
+			c, account.Platform, resp.StatusCode, body,
+			http.StatusForbidden, "invalid_request_error", clientMsg,
+		)
+		writeError(c, status, errType, errMsg)
 		return nil, fmt.Errorf("grok content policy rejection: %s", clientMsg)
 	}
 
