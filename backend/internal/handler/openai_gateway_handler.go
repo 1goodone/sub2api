@@ -834,6 +834,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
+	if imageIntent {
+		c.Request = c.Request.WithContext(service.WithOpenAIImageGenerationRequest(c.Request.Context(), reqModel, body))
+	}
 	if imageIntent && !restrictMixedKeyRouting(c, apiKey, service.GroupAllowsImageGeneration) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -2944,6 +2947,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	ctx = c.Request.Context()
+	if imageIntent {
+		ctx = service.WithOpenAIImageGenerationRequest(ctx, reqModel, firstMessage)
+		c.Request = c.Request.WithContext(ctx)
+	}
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return

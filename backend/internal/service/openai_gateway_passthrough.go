@@ -361,7 +361,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		SetOpsUpstreamModel(c, actualModel)
 		upstreamCtx, releaseUpstreamCtx := openAIPassthroughContext(ctx, account)
-		latest, admissionErr := s.admitOpenAITurn(upstreamCtx, c, account, actualModel)
+		latest, admissionErr := s.admitOpenAITurn(upstreamCtx, c, account, actualModel, body)
 		if admissionErr != nil {
 			releaseUpstreamCtx()
 			return nil, admissionErr

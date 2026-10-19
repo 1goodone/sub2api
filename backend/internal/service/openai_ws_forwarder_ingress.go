@@ -1426,7 +1426,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		WSURL:          wsURL,
 		Headers:        wsHeaders,
 		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
-			latest, err := s.admitOpenAITurnForGroup(factoryCtx, groupID, account, firstRoutingFields[0].String())
+			latest, err := s.admitOpenAITurnForGroup(factoryCtx, groupID, account, firstRoutingFields[0].String(), firstPayload.payloadRaw)
 			if err != nil {
 				s.invalidateOpenAIWSTurnStateAfterAdmissionFailure(
 					factoryCtx,
@@ -1455,7 +1455,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return s.bindOpenAIWSHandshake(account, firstRoutingFields[0].String(), headers)
 		},
 		CheckBinding: func(checkCtx context.Context, binding *openAIWSTurnBinding) error {
-			latest, err := s.admitOpenAITurnForGroup(checkCtx, groupID, account, firstRoutingFields[0].String())
+			latest, err := s.admitOpenAITurnForGroup(checkCtx, groupID, account, firstRoutingFields[0].String(), firstPayload.payloadRaw)
 			if err != nil {
 				s.invalidateOpenAIWSTurnStateAfterAdmissionFailure(
 					checkCtx,
@@ -2157,7 +2157,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return true
 	}
 	for {
-		if _, err := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(currentPayload)); err != nil {
+		if _, err := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(currentPayload), currentPayload); err != nil {
 			if sessionLease != nil {
 				sessionLease.MarkBroken()
 			}
