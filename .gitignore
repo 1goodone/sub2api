@@ -198,6 +198,7 @@ output/
 **/.credential-key-*
 !docs/credential-encryption.md
 !docs/new-api-upstream-probe.md
+!docs/minimax-h3-video-relay.md
 !docs/account-ops-notifications.md
 
 !docs/typesafe-jev.md
