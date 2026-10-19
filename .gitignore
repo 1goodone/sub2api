@@ -167,6 +167,7 @@ docs/*
 !docs/account-token-guard.md
 !docs/cyber-session-blocking.md
 !docs/request-capture.md
+!docs/gateway-transport-diagnostics.md
 !docs/codex-credits.md
 !docs/priority-scheduling.md
 !docs/legal/
