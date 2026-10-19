@@ -31,3 +31,23 @@ export async function verifyTOTP(id: number, taskId: number, action: 'verify_new
 export async function exportTOTP(id: number, source: TOTPExportSource, includePassword: boolean): Promise<TOTPExport> {
   return (await apiClient.post(`${base(id)}/totp-export`, { source, include_password: includePassword })).data
 }
+export interface OpenAISessionExportTask {
+  id: number
+  account_id: number
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'expired'
+  stage: string
+  error_code?: string
+  attempt: number
+  created_at: string
+  updated_at: string
+  finished_at?: string
+}
+export async function exportChatGPTSession(id: number): Promise<OpenAISessionExportTask> {
+  return (await apiClient.post(`${base(id)}/chatgpt-session-export`, {})).data
+}
+export async function getChatGPTSessionExportTask(id: number, taskId: number): Promise<OpenAISessionExportTask> {
+  return (await apiClient.get(`${base(id)}/chatgpt-session-export/${taskId}`)).data
+}
+export async function downloadChatGPTSession(id: number, taskId: number): Promise<Record<string, unknown>> {
+  return (await apiClient.get(`${base(id)}/chatgpt-session-export/${taskId}/download`)).data
+}

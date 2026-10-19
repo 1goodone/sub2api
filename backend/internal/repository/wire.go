@@ -168,6 +168,7 @@ var ProviderSet = wire.NewSet(
 	// Encryptors
 	NewAESEncryptor,
 	NewOpenAISessionCookieRepository,
+	NewOpenAISessionExportRepository,
 	NewNewAPIAuthorizationRepository,
 	NewOpenAICredentialEncryptor,
 

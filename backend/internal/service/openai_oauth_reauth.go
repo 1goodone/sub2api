@@ -223,6 +223,8 @@ type OpenAIOAuthReauthService struct {
 	workerLastSeen          atomic.Int64
 	totpWorkerLastSeen      atomic.Int64
 	repo                    OpenAIOAuthReauthRepository
+	sessionExportRepo       OpenAISessionExportRepository
+	sessionExportResults    *sessionExportResultStore
 	accounts                OpenAIOAuthReauthAccountReader
 	credentialUpdater       OpenAIOAuthReauthCredentialUpdater
 	oauth                   *OpenAIOAuthService

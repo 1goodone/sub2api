@@ -338,7 +338,7 @@ import {
   type TokenGuardV2WorkerStatus
 } from '@/api/admin/accountTokenGuardV2'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const encryptionReady = ref(false)
 const emptyStatus = (): TokenGuardV2Status => ({
   accounts: [],
@@ -495,7 +495,11 @@ const isRetired = (item: TokenGuardV2Account) => item.blocked_reason === 'accoun
 const probeLabel = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retired') : t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`)
 const probeClass = (item: TokenGuardV2Account) => isRetired(item) || item.probe_state === 'auth' ? 'danger' : item.probe_state === 'ok' ? 'ok' : ''
 const statusDetail = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retiredDetail') : (item.blocked_reason || item.probe_detail || '-')
-const taskLabel = (task: TokenGuardV2Task) => task.error ? `${task.status}: ${task.error}` : `${task.status} · ${task.stage}`
+const taskErrorLabel = (errorCode: string) => {
+  const path = `tokenGuardV2.reauthErrors.${errorCode}`
+  return te(path) ? t(path) : errorCode
+}
+const taskLabel = (task: TokenGuardV2Task) => task.error ? `${task.status}: ${taskErrorLabel(task.error)}` : `${task.status} · ${task.stage}`
 const canStopTask = (task?: TokenGuardV2Task) => Boolean(task && ['queued', 'running', 'callback_processing'].includes(task.status))
 const configurationDetail = (item: TokenGuardV2Account) => {
   const config = item.login_config

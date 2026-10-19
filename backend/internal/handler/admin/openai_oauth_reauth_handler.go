@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -216,6 +218,7 @@ func (h *OpenAIOAuthReauthHandler) RuntimeSettings(c *gin.Context) {
 	if !h.requireWorker(c) {
 		return
 	}
+	h.service.MarkWorkerSeen()
 	cfg, err := h.service.GetRuntimeSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -312,4 +315,169 @@ func (h *OpenAIOAuthReauthHandler) Fail(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"accepted": true})
+}
+
+type sessionExportClaimRequest struct {
+	WorkerID     string   `json:"worker_id"`
+	Capabilities []string `json:"capabilities"`
+}
+
+type sessionExportProgressRequest struct {
+	WorkerID string `json:"worker_id"`
+	Stage    string `json:"stage" binding:"required"`
+}
+
+type sessionExportResultRequest struct {
+	WorkerID string          `json:"worker_id"`
+	Session  json.RawMessage `json:"session" binding:"required"`
+}
+
+type sessionExportFailRequest struct {
+	WorkerID string `json:"worker_id"`
+	Code     string `json:"code"`
+}
+
+func (h *OpenAIOAuthReauthHandler) CreateSessionExport(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+	var input map[string]any
+	if c.Request.Body != nil {
+		if err := json.NewDecoder(c.Request.Body).Decode(&input); err != nil && err != io.EOF {
+			response.BadRequest(c, "Invalid Session export request")
+			return
+		}
+	}
+	if len(input) != 0 {
+		response.BadRequest(c, "Session export does not accept credentials or cookies")
+		return
+	}
+	task, err := h.service.CreateSessionExportTask(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, task)
+}
+
+func (h *OpenAIOAuthReauthHandler) GetSessionExport(c *gin.Context) {
+	accountID, taskID, ok := parseReauthSessionExportIDs(c)
+	if !ok {
+		return
+	}
+	task, err := h.service.GetSessionExportTask(c.Request.Context(), accountID, taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, task)
+}
+
+func (h *OpenAIOAuthReauthHandler) DownloadSessionExport(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	accountID, taskID, ok := parseReauthSessionExportIDs(c)
+	if !ok {
+		return
+	}
+	body, err := h.service.DownloadSessionExport(c.Request.Context(), accountID, taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, body)
+}
+
+func (h *OpenAIOAuthReauthHandler) ClaimSessionExport(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	var req sessionExportClaimRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid worker request")
+		return
+	}
+	claim, err := h.service.ClaimSessionExportTask(c.Request.Context(), req.WorkerID, req.Capabilities)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, claim)
+}
+
+func (h *OpenAIOAuthReauthHandler) SessionExportProgress(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(c.Param("task_id")), 10, 64)
+	if err != nil || taskID <= 0 {
+		response.BadRequest(c, "Invalid task ID")
+		return
+	}
+	var req sessionExportProgressRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid worker request")
+		return
+	}
+	if err := h.service.UpdateSessionExportStage(c.Request.Context(), taskID, req.WorkerID, req.Stage); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"accepted": true})
+}
+
+func (h *OpenAIOAuthReauthHandler) SessionExportResult(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(c.Param("task_id")), 10, 64)
+	if err != nil || taskID <= 0 {
+		response.BadRequest(c, "Invalid task ID")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	var req sessionExportResultRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid worker request")
+		return
+	}
+	if err := h.service.SubmitSessionExport(c.Request.Context(), taskID, req.WorkerID, req.Session); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"accepted": true})
+}
+
+func (h *OpenAIOAuthReauthHandler) SessionExportFail(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(c.Param("task_id")), 10, 64)
+	if err != nil || taskID <= 0 {
+		response.BadRequest(c, "Invalid task ID")
+		return
+	}
+	var req sessionExportFailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid worker request")
+		return
+	}
+	if err := h.service.FailSessionExport(c.Request.Context(), taskID, req.WorkerID, req.Code); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"accepted": true})
+}
+
+func parseReauthSessionExportIDs(c *gin.Context) (int64, int64, bool) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	taskID, taskErr := strconv.ParseInt(c.Param("task_id"), 10, 64)
+	if err != nil || taskErr != nil || accountID <= 0 || taskID <= 0 {
+		response.BadRequest(c, "Invalid Session export task ID")
+		return 0, 0, false
+	}
+	return accountID, taskID, true
 }

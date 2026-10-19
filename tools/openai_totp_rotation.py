@@ -121,6 +121,7 @@ class WebSession:
             token = payload.get('accessToken')
             if not isinstance(token, str) or not token:
                 raise RotationError('login_failed')
+            self.auth_session_payload = payload
             self.client.headers.update({'Authorization': 'Bearer ' + token, 'Origin': 'https://chatgpt.com',
                                         'Referer': 'https://chatgpt.com/', 'oai-device-id': data.get('web', {}).get('deviceId', '')})
         except Exception:

@@ -471,6 +471,11 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/data", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportData)
 		accounts.POST("/:id/export-session", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportOpenAISession)
 		accounts.GET("/:id/session-cookie", h.Admin.Account.GetOpenAISessionCookie)
+		if h.Admin.OpenAIOAuthReauth != nil {
+			accounts.POST("/:id/chatgpt-session-export", gin.HandlerFunc(stepUpAuth), h.Admin.OpenAIOAuthReauth.CreateSessionExport)
+			accounts.GET("/:id/chatgpt-session-export/:task_id", h.Admin.OpenAIOAuthReauth.GetSessionExport)
+			accounts.GET("/:id/chatgpt-session-export/:task_id/download", gin.HandlerFunc(stepUpAuth), h.Admin.OpenAIOAuthReauth.DownloadSessionExport)
+		}
 		accounts.DELETE("/:id/session-cookie", gin.HandlerFunc(stepUpAuth), h.Admin.Account.DeleteOpenAISessionCookie)
 		accounts.POST("/data", h.Admin.Account.ImportData)
 		accounts.POST("/batch-update-credentials", h.Admin.Account.BatchUpdateCredentials)
@@ -500,6 +505,10 @@ func registerOpenAIOAuthReauthWorkerRoutes(v1 *gin.RouterGroup, h *handler.Handl
 	worker := v1.Group("/internal/openai-reauth")
 	{
 		worker.POST("/claim", h.Admin.OpenAIOAuthReauth.Claim)
+		worker.POST("/session-export/claim", h.Admin.OpenAIOAuthReauth.ClaimSessionExport)
+		worker.POST("/:task_id/session-export/progress", h.Admin.OpenAIOAuthReauth.SessionExportProgress)
+		worker.POST("/:task_id/session-export/result", h.Admin.OpenAIOAuthReauth.SessionExportResult)
+		worker.POST("/:task_id/session-export/fail", h.Admin.OpenAIOAuthReauth.SessionExportFail)
 		worker.POST("/totp-claim", h.Admin.OpenAIOAuthReauth.ClaimTOTP)
 		worker.POST("/:task_id/totp-phase", h.Admin.OpenAIOAuthReauth.TOTPPhase)
 		worker.POST("/:task_id/totp-finish", h.Admin.OpenAIOAuthReauth.TOTPFinish)

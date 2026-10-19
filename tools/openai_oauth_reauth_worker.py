@@ -49,6 +49,7 @@ SENSITIVE_JSON_RE = re.compile(
 EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?\b")
 BEARER_RE = re.compile(r"(?i)\bBearer\s+\S+")
+CHATGPT_SESSION_COOKIE = "__Secure-next-auth.session-token"
 CONTEXT_CODE_RE = re.compile(
     r"(?i)(?:verification|verify|login|temporary|验证码|登录代码|認証|code)"
     r"[^0-9]{0,80}(\d{6})"
@@ -376,6 +377,31 @@ class WorkerAPI:
             {"worker_id": self.config.worker_id, "engines": ["local_worker", "session_studio"]},
         )
         return data if isinstance(data, dict) else None
+
+    def claim_session_export(self) -> dict[str, Any] | None:
+        data = self._post(
+            "/api/v1/internal/openai-reauth/session-export/claim",
+            {"worker_id": self.config.worker_id, "capabilities": ["chatgpt_session_export"]},
+        )
+        return data if isinstance(data, dict) else None
+
+    def session_export_progress(self, task_id: int, stage: str) -> None:
+        self._post(
+            f"/api/v1/internal/openai-reauth/{task_id}/session-export/progress",
+            {"worker_id": self.config.worker_id, "stage": stage},
+        )
+
+    def session_export_result(self, task_id: int, session: dict[str, Any]) -> None:
+        self._post(
+            f"/api/v1/internal/openai-reauth/{task_id}/session-export/result",
+            {"worker_id": self.config.worker_id, "session": session},
+        )
+
+    def session_export_fail(self, task_id: int, code: str) -> None:
+        self._post(
+            f"/api/v1/internal/openai-reauth/{task_id}/session-export/fail",
+            {"worker_id": self.config.worker_id, "code": code},
+        )
 
     def progress(self, task_id: int, stage: str) -> None:
         self._post(
@@ -1208,6 +1234,122 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     LOGGER.info("task=%s account=%s succeeded", task_id, account_id)
 
 
+def _extract_chatgpt_session_token(cookies: Any) -> str:
+    """Return the Web session cookie, joining NextAuth chunked cookies safely."""
+    base = ""
+    chunks: dict[int, str] = {}
+    prefix = CHATGPT_SESSION_COOKIE + "."
+    for cookie in cookies if isinstance(cookies, list) else []:
+        if not isinstance(cookie, dict):
+            continue
+        name = str(cookie.get("name") or "")
+        value = str(cookie.get("value") or "")
+        if name == CHATGPT_SESSION_COOKIE:
+            base = value
+        elif name.startswith(prefix):
+            suffix = name[len(prefix):]
+            if suffix.isdigit() and value:
+                chunks[int(suffix)] = value
+    if chunks:
+        indexes = sorted(chunks)
+        if indexes != list(range(indexes[-1] + 1)):
+            return ""
+        return "".join(chunks[index] for index in indexes)
+    return base
+
+
+def process_session_export_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
+    """Login to ChatGPT Web with the saved password/TOTP and return one session payload."""
+    task_id = int(claim.get("task_id") or 0)
+    if task_id <= 0:
+        raise WorkerError("claimed Session export task is missing task id")
+    email = str(claim.get("login_email") or "").strip()
+    password = str(claim.get("password") or "")
+    totp_secret = str(claim.get("totp_secret") or "").strip()
+    if not email or not password or not totp_secret:
+        raise WorkerError("Session export credentials are incomplete")
+    root = getattr(getattr(api, "config", None), "tosub2_root", None)
+    if root is None:
+        raise WorkerError("TOSUB2_ROOT is required for ChatGPT Session export")
+    try:
+        from .openai_totp_rotation import WebSession, login_web
+    except ImportError:
+        from openai_totp_rotation import WebSession, login_web
+
+    _best_effort_session_progress(api, task_id, "starting")
+    _best_effort_session_progress(api, task_id, "protocol_connecting")
+    session = None
+    try:
+        login_claim = {
+            "login_email": email,
+            "password": password,
+            "proxy_url": str(claim.get("proxy_url") or ""),
+        }
+        _best_effort_session_progress(api, task_id, "password_submitted")
+        data = login_web(api.config, login_claim, totp_secret)
+        if not isinstance(data, dict):
+            raise WorkerError("totp_rejected")
+        if data.get("web", {}).get("mfaVerified") is not True:
+            raise WorkerError("ChatGPT Web login did not verify 2FA")
+        _best_effort_session_progress(api, task_id, "mfa_submitted")
+        session = WebSession(api.config, login_claim, totp_secret, login=lambda *_args: data)
+        _best_effort_session_progress(api, task_id, "session_request")
+        payload = getattr(session, "auth_session_payload", None)
+        if not isinstance(payload, dict):
+            raise WorkerError("ChatGPT returned an invalid Session")
+        user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+        expected_user_id = str(claim.get("expected_user_id") or "").strip()
+        if expected_user_id and str(user.get("id") or "").strip() != expected_user_id:
+            raise WorkerError("ChatGPT Session identity mismatch")
+        if not str(payload.get("accessToken") or "").strip() or not str(payload.get("expires") or "").strip():
+            raise WorkerError("ChatGPT returned an incomplete Session")
+        session_token = _extract_chatgpt_session_token(data.get("cookies"))
+        if not session_token:
+            raise WorkerError("ChatGPT returned no session token")
+        payload = {**payload, "sessionToken": session_token}
+        _best_effort_session_progress(api, task_id, "identity_verification")
+        api.session_export_result(task_id, payload)
+    finally:
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+
+def _best_effort_session_progress(api: WorkerAPI, task_id: int, stage: str) -> None:
+    try:
+        api.session_export_progress(task_id, stage)
+    except WorkerError as exc:
+        LOGGER.warning("task=%s Session export progress=%s failed: %s", task_id, stage, sanitize_error(str(exc)))
+
+
+def session_export_error_code(exc: BaseException) -> str:
+    """Collapse protocol/network exceptions to the small API error-code set."""
+    text = sanitize_error(str(exc)).lower()
+    if "credentials are incomplete" in text:
+        return "credentials_required"
+    if "no session token" in text:
+        return "session_token_missing"
+    if "tosub2_root" in text or ("worker" in text and "required" in text):
+        return "worker_offline"
+    if "proxy_unavailable" in text or ("proxy" in text and "unavailable" in text):
+        return "proxy_unavailable"
+    if "totp" in text or "verification_failed" in text or "2fa" in text or "mfa" in text:
+        return "totp_rejected"
+    if "password_rejected" in text:
+        return "password_rejected"
+    if "login_failed" in text:
+        return "upstream_rejected"
+    if "identity" in text:
+        return "identity_mismatch"
+    if "timeout" in text:
+        return "worker_timeout"
+    if "upstream" in text or "response" in text or "http" in text:
+        return "upstream_rejected"
+    return "worker_failed"
+
+
 def run_once(api: WorkerAPI, protocol: SimpleNamespace | None) -> bool:
     if callable(getattr(api, "claim_totp", None)):
         try:
@@ -1227,7 +1369,25 @@ def run_once(api: WorkerAPI, protocol: SimpleNamespace | None) -> bool:
         LOGGER.warning("claim failed: %s", sanitize_error(str(exc)))
         return False
     if not claim:
-        return False
+        try:
+            claim = api.claim_session_export()
+        except WorkerError as exc:
+            LOGGER.warning("Session export claim failed: %s", sanitize_error(str(exc)))
+            return False
+        if not claim:
+            return False
+        task_id = int(claim.get("task_id") or 0)
+        try:
+            process_session_export_claim(api, claim)
+        except Exception as exc:
+            reason = session_export_error_code(exc)
+            LOGGER.error("Session export task=%s failed: %s", task_id or "?", reason)
+            if task_id > 0:
+                try:
+                    api.session_export_fail(task_id, reason)
+                except WorkerError as fail_exc:
+                    LOGGER.error("Session export task=%s failure report rejected: %s", task_id, sanitize_error(str(fail_exc)))
+        return True
     task_id = int(claim.get("task_id") or 0)
     try:
         process_claim(api, protocol, claim)

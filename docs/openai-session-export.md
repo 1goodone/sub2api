@@ -50,3 +50,20 @@ Cookie 以 AES-GCM 密文保存在独立的 `openai_session_cookies` 表中，�
 已保存凭据的管理界面：
 
 [Session 登录设置](https://github.com/ambi-vip/sub2api/blob/c0f49b8b3fe190d75ce506e33ff0448d9805bc9c/docs/images/openai-session-export-saved.png)
+
+## 使用已保存密码和 TOTP 导出
+
+账号已在凭证运营中保存邮箱、密码和 TOTP 时，可以不粘贴浏览器 Cookie，改由本地 Worker 完成一次网页登录后导出。这条路径与上面的 Cookie 导出并存：Cookie 接口、存储和账号菜单都保留。
+
+1. 在凭证运营中打开该账号的 2FA 管理，点击“使用 2FA 导出 ChatGPT Session”。
+2. 服务端只创建任务状态和凭据快照哈希，不把密码、TOTP 或 Cookie 写入任务。
+3. 本地 Worker 认领任务，使用 `protocol-login.mjs --web-only --output-mode session` 登录，校验 Session 身份后回传。
+4. 下载结果只保留 `accessToken` 和 `sessionToken`，结果只在当前进程内存中保留 10 分钟，下载一次后失效。
+
+管理 API：
+
+- `POST /api/v1/admin/accounts/:id/chatgpt-session-export`：请求体必须为空对象。返回任务。
+- `GET /api/v1/admin/accounts/:id/chatgpt-session-export/:task_id`：查询任务状态。
+- `GET /api/v1/admin/accounts/:id/chatgpt-session-export/:task_id/download`：一次性下载精简 Session JSON。
+
+创建和下载要求现有 step-up 策略。迁移是 `291_openai_session_export_tasks.sql`，避免与本地已有的 285/286 以及后续分组功能迁移撞号。原 `POST /accounts/:id/export-session` 仍是 Cookie 导出。
