@@ -24,10 +24,14 @@ export default {
             "warning": "降级",
             "critical": "异常",
             "unknown": "样本不足"
-        }
+        },
+        "bucketDetails": "各采样时段",
+        "sampleDetails": "{time} · 可用率 {availability} · 缓存率 {cache} · 首 TOKEN {ttft}"
     },
     "candy": {
         "invalid": '请填写检测模型, 间隔必须是 1-1440 的整数分钟.',
+        "historyCount": "最近 {count} 次检测，显示上限 {limit}",
+        "notChecked": "未检测",
         "historyLimit": "最近检测次数",
         "historyLimitHint": "每个模型在卡片上显示最近多少次检测，15-100，默认 100。还没有那么多次检测时，空位显示为未检测。",
         "historyLimitInvalid": "最近检测次数必须是 15-100 的整数。",

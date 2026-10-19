@@ -24,10 +24,14 @@ export default {
             "warning": "Degraded",
             "critical": "Unhealthy",
             "unknown": "Insufficient samples"
-        }
+        },
+        "bucketDetails": "Sample windows",
+        "sampleDetails": "{time} · Availability {availability} · Cache {cache} · First token {ttft}"
     },
     "candy": {
         "invalid": 'Enter a model and an integer interval from 1 to 1440 minutes.',
+        "historyCount": "Latest {count} checks, display limit {limit}",
+        "notChecked": "Not checked",
         "historyLimit": "Recent checks to show",
         "historyLimitHint": "How many recent checks each model shows on a card. 15–100, default 100. Missing checks stay gray.",
         "historyLimitInvalid": "Recent checks must be an integer from 15 to 100.",
