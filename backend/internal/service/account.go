@@ -2559,6 +2559,20 @@ func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
 	return ok && enabled
 }
 
+const anthropicStripClaudeCodeIdentityExtraKey = "anthropic_strip_claude_code_identity"
+
+// IsAnthropicStripClaudeCodeIdentityEnabled 返回 Anthropic API Key 账号是否启用
+// "抹除 Claude Code 身份"（转发与测试连接前剥离客户端 Claude Code / Agent SDK 特征）。
+// 字段：accounts.extra.anthropic_strip_claude_code_identity。
+// 字段缺失或类型不正确时，按 false（关闭）处理。
+func (a *Account) IsAnthropicStripClaudeCodeIdentityEnabled() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra[anthropicStripClaudeCodeIdentityExtraKey].(bool)
+	return ok && enabled
+}
+
 // WebSearch 模拟三态常量
 const (
 	WebSearchModeDefault  = "default"  // 跟随渠道配置
