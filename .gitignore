@@ -163,6 +163,7 @@ docs/*
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
+!docs/modeltrace-tests.md
 !docs/account-token-guard.md
 !docs/cyber-session-blocking.md
 !docs/request-capture.md

@@ -166,6 +166,7 @@ type AccountTestService struct {
 	bpsProbeMu                sync.Mutex
 	bpsProbeAccounts          map[int64]struct{}
 	stateProbeAccounts        sync.Map
+	modelTraceAccounts        sync.Map
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -390,6 +391,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
+	if expected, ok := ctx.Value(modelTraceContextKey{}).(modelTraceEnvironment); ok {
+		actual, err := modelTraceEnvironmentForAccount(account, modelID)
+		if err != nil || actual != expected {
+			return s.sendErrorAndEnd(c, "ModelTrace account route is unsupported or changed during the test")
+		}
+	}
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		if options.testChannel == "bps" {
 			model := strings.TrimSpace(modelID)
@@ -637,6 +644,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -995,6 +1003,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayloadForContext(ctx, upstreamTestModelID, isOAuth)
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
 
@@ -2337,6 +2346,10 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if pelicanUsageFromContext(ctx) != nil {
 		payload["stream_options"] = map[string]any{"include_usage": true}
 	}
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
+		payload["reasoning_effort"] = options.reasoningEffort
+	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -3035,11 +3048,16 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
 	usage := startPelicanTestStream(c, "anthropic")
+	stopReason := ""
+	messageStopped := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if modelTraceRequested(c.Request.Context()) && (!messageStopped || stopReason != "end_turn") {
+					return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -3072,7 +3090,17 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
+		case "message_delta":
+			if delta, ok := data["delta"].(map[string]any); ok {
+				if reason, ok := delta["stop_reason"].(string); ok && reason != "" {
+					stopReason = reason
+				}
+			}
 		case "message_stop":
+			messageStopped = true
+			if modelTraceRequested(c.Request.Context()) && stopReason != "end_turn" {
+				return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "error":
@@ -3120,6 +3148,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
+			if modelTraceRequested(c.Request.Context()) && !seenFinish {
+				return s.sendErrorAndEnd(c, "ModelTrace generation ended without a finish reason")
+			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -3159,6 +3190,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if modelTraceRequested(c.Request.Context()) && finishReason != "stop" {
+					return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+				}
 				seenFinish = true
 			}
 		}
@@ -3213,6 +3247,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if modelTraceRequested(c.Request.Context()) {
+				if responseData, ok := data["response"].(map[string]any); ok {
+					if status, _ := responseData["status"].(string); status != "" && status != "completed" {
+						return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+					}
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":

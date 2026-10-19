@@ -6,6 +6,7 @@ import requestTiming from './requestTiming'
 import tokenGuard from './tokenGuard'
 import tokenGuardV2 from './tokenGuardV2'
 import pelicanTests from './pelicanTests'
+import modelTrace from './modelTrace'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -28,6 +29,7 @@ export default {
   tokenGuard,
   tokenGuardV2,
   pelicanTests,
+  modelTrace,
   requestTiming,
   ...landing,
   ...common,
