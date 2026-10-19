@@ -549,10 +549,12 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 
 	out, err := ResponsesToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.Len(t, out.Tools, 1, "namespace 子工具中仅 function 类型被摊平")
+	require.Len(t, out.Tools, 2, "namespace 中的 function/custom 子工具都应被摊平")
 
 	assert.Equal(t, "gmail__send", out.Tools[0].Function.Name)
 	assert.Equal(t, "Send mail", out.Tools[0].Function.Description)
+	assert.Equal(t, "gmail__ignored_child", out.Tools[1].Function.Name)
+	assert.JSONEq(t, customToolInputSchema, string(out.Tools[1].Function.Parameters))
 }
 
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
@@ -776,8 +778,9 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	}
 
 	m := NamespaceToolNames(tools)
-	require.Len(t, m, 2)
+	require.Len(t, m, 3)
 	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "send"}, m["gmail__send"])
+	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "skip_me", Custom: true}, m["gmail__skip_me"])
 	assert.Equal(t, NamespacedToolName{Namespace: "crm", Name: "query"}, m["crm__query"])
 
 	// 摊平名超长时截断加哈希，无法按字符串切分还原，必须经映射反查。

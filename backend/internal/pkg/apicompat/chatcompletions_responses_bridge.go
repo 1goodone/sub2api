@@ -207,6 +207,8 @@ func FunctionToolNames(tools []ResponsesTool) map[string]bool {
 type NamespacedToolName struct {
 	Namespace string
 	Name      string
+	// Custom preserves a namespace child's Responses tool type across the Chat bridge.
+	Custom bool
 }
 
 // NamespaceToolNames 收集 Responses 请求中 namespace 子工具的摊平名 →（namespace,
@@ -226,7 +228,7 @@ func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 			children = tool.Children
 		}
 		for _, child := range children {
-			if child.Type != "function" || child.Name == "" {
+			if (child.Type != "function" && child.Type != "custom") || child.Name == "" {
 				continue
 			}
 			if out == nil {
@@ -235,10 +237,31 @@ func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 			out[flattenNamespaceToolName(tool.Name, child.Name)] = NamespacedToolName{
 				Namespace: tool.Name,
 				Name:      child.Name,
+				Custom:    child.Type == "custom",
 			}
 		}
 	}
 	return out
+}
+
+// namespaceChildByBareName resolves a chat tool call name that omits the
+// flattened namespace prefix (for example "exec" instead of "functions__exec")
+// back to the unique namespace child it names. An ambiguous bare name resolves
+// to false so the call stays a plain function call.
+func namespaceChildByBareName(name string, namespaceTools map[string]NamespacedToolName) (NamespacedToolName, bool) {
+	var match NamespacedToolName
+	found := false
+	for _, ns := range namespaceTools {
+		if ns.Name != name {
+			continue
+		}
+		if found {
+			return NamespacedToolName{}, false
+		}
+		match = ns
+		found = true
+	}
+	return match, found
 }
 
 // customToolCallName restores both the exact downgraded custom-tool name and
@@ -253,8 +276,11 @@ func customToolCallName(name string, customTools, functionTools map[string]bool,
 	if customTools[name] {
 		return name, true
 	}
-	if _, ok := namespaceTools[name]; ok {
-		return "", false
+	if namespaced, ok := namespaceTools[name]; ok {
+		return namespaced.Name, namespaced.Custom
+	}
+	if namespaced, ok := namespaceChildByBareName(name, namespaceTools); ok {
+		return namespaced.Name, namespaced.Custom
 	}
 	match := ""
 	for customName := range customTools {
@@ -1199,11 +1225,11 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]bool, 
 	}
 	var out []ChatTool
 	for _, child := range children {
-		if child.Type != "function" || child.Name == "" {
+		if (child.Type != "function" && child.Type != "custom") || child.Name == "" {
 			continue
 		}
 		flat := flattenNamespaceToolName(tool.Name, child.Name)
-		entry := NamespacedToolName{Namespace: tool.Name, Name: child.Name}
+		entry := NamespacedToolName{Namespace: tool.Name, Name: child.Name, Custom: child.Type == "custom"}
 		if topLevel[flat] {
 			return nil, fmt.Errorf("namespace tool %q/%q flattens to %q which conflicts with a top-level tool of the same name; this upstream cannot disambiguate them, rename one of the tools", tool.Name, child.Name, flat)
 		}
@@ -1214,12 +1240,16 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]bool, 
 			return nil, fmt.Errorf("namespace tools %q/%q and %q/%q both flatten to %q; this upstream cannot disambiguate them, rename one of the tools", prev.Namespace, prev.Name, tool.Name, child.Name, flat)
 		}
 		flatOwner[flat] = entry
+		parameters := child.Parameters
+		if child.Type == "custom" {
+			parameters = json.RawMessage(customToolInputSchema)
+		}
 		out = append(out, ChatTool{
 			Type: "function",
 			Function: &ChatFunction{
 				Name:        flat,
 				Description: child.Description,
-				Parameters:  child.Parameters,
+				Parameters:  parameters,
 				Strict:      child.Strict,
 			},
 		})
@@ -1430,13 +1460,20 @@ func chatMessageToResponsesOutput(message ChatMessage, customTools, functionTool
 			arguments = "{}"
 		}
 		if customName, ok := customToolCallName(toolCall.Function.Name, customTools, functionTools, namespaceTools); ok {
+			namespace := ""
+			if namespaced, exists := namespaceTools[toolCall.Function.Name]; exists && namespaced.Custom {
+				customName, namespace = namespaced.Name, namespaced.Namespace
+			} else if namespaced, bareOK := namespaceChildByBareName(toolCall.Function.Name, namespaceTools); bareOK && namespaced.Custom {
+				customName, namespace = namespaced.Name, namespaced.Namespace
+			}
 			outputs = append(outputs, ResponsesOutput{
-				Type:   "custom_tool_call",
-				ID:     generateItemID(),
-				CallID: toolCall.ID,
-				Name:   customName,
-				Input:  extractCustomToolCallInput(arguments),
-				Status: "completed",
+				Type:      "custom_tool_call",
+				ID:        generateItemID(),
+				CallID:    toolCall.ID,
+				Name:      customName,
+				Namespace: namespace,
+				Input:     extractCustomToolCallInput(arguments),
+				Status:    "completed",
 			})
 			continue
 		}
@@ -1629,8 +1666,10 @@ type ChatCompletionsToResponsesStreamState struct {
 	// 尚未到达时延迟宣告，待名字可判定类型后再补发（见 announceChatToolItem）。
 	toolAnnounced map[int]bool
 
-	FinishReason string
-	Usage        *ResponsesUsage
+	// UpstreamError terminates a malformed stream before any tool is completed.
+	UpstreamError *ResponsesError
+	FinishReason  string
+	Usage         *ResponsesUsage
 }
 
 // NewChatCompletionsToResponsesStreamState returns an initialized stream state.
@@ -1803,6 +1842,17 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	}
 	var events []ResponsesStreamEvent
 	events = append(events, ensureChatToResponsesCreated(state)...)
+
+	if state.UpstreamError != nil {
+		state.CompletedSent = true
+		return append(events, chatToResponsesEvent(state, "response.failed", &ResponsesStreamEvent{
+			Response: &ResponsesResponse{
+				ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
+				Model: state.Model, Status: "failed", ServiceTier: state.ServiceTier,
+				Output: []ResponsesOutput{}, Usage: state.Usage, Error: state.UpstreamError,
+			},
+		}))
+	}
 
 	// Close a reasoning item that never transitioned to content (reasoning-only
 	// or empty completion).
@@ -2033,7 +2083,10 @@ func announceChatToolItem(
 	if isCustom {
 		itemName = customName
 	}
-	if ns, ok := state.NamespaceTools[stored.Function.Name]; ok && !isCustom && !isToolSearch {
+	if ns, ok := state.NamespaceTools[stored.Function.Name]; ok && !isToolSearch {
+		state.toolNamespace[idx] = ns
+		itemName, itemNamespace = ns.Name, ns.Namespace
+	} else if ns, ok := namespaceChildByBareName(stored.Function.Name, state.NamespaceTools); ok && !isToolSearch {
 		state.toolNamespace[idx] = ns
 		itemName, itemNamespace = ns.Name, ns.Namespace
 	}
@@ -2090,6 +2143,10 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 			// custom 调用按 custom_tool_call 生命周期收尾：input 在此处一次性下发
 			// （流中不产出增量，见 ChatCompletionsChunkToResponsesEvents）。
 			input := extractCustomToolCallInput(arguments)
+			name, namespace := customNameForStreamTool(state, toolCall.Function.Name), ""
+			if ns, ok := state.toolNamespace[i]; ok {
+				name, namespace = ns.Name, ns.Namespace
+			}
 			if input != "" {
 				events = append(events, chatToResponsesEvent(state, "response.custom_tool_call_input.delta", &ResponsesStreamEvent{
 					OutputIndex: outputIndex,
@@ -2102,18 +2159,19 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 					OutputIndex: outputIndex,
 					ItemID:      itemID,
 					CallID:      toolCall.ID,
-					Name:        customNameForStreamTool(state, toolCall.Function.Name),
+					Name:        name,
 					Input:       input,
 				}),
 				chatToResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
 					OutputIndex: outputIndex,
 					Item: &ResponsesOutput{
-						Type:   "custom_tool_call",
-						ID:     itemID,
-						CallID: toolCall.ID,
-						Name:   customNameForStreamTool(state, toolCall.Function.Name),
-						Input:  input,
-						Status: "completed",
+						Type:      "custom_tool_call",
+						ID:        itemID,
+						CallID:    toolCall.ID,
+						Name:      name,
+						Namespace: namespace,
+						Input:     input,
+						Status:    "completed",
 					},
 				}),
 			)
@@ -2198,13 +2256,18 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 			arguments = "{}"
 		}
 		if state.toolIsCustom[i] {
+			name, namespace := customNameForStreamTool(state, toolCall.Function.Name), ""
+			if ns, ok := state.toolNamespace[i]; ok {
+				name, namespace = ns.Name, ns.Namespace
+			}
 			outputs = append(outputs, ResponsesOutput{
-				Type:   "custom_tool_call",
-				ID:     generateItemID(),
-				CallID: toolCall.ID,
-				Name:   customNameForStreamTool(state, toolCall.Function.Name),
-				Input:  extractCustomToolCallInput(arguments),
-				Status: "completed",
+				Type:      "custom_tool_call",
+				ID:        generateItemID(),
+				CallID:    toolCall.ID,
+				Name:      name,
+				Namespace: namespace,
+				Input:     extractCustomToolCallInput(arguments),
+				Status:    "completed",
 			})
 			continue
 		}
