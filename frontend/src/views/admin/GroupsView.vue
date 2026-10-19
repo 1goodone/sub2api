@@ -134,6 +134,12 @@
               data-testid="group-stream-only-badge"
               >{{ t("admin.groups.form.streamOnlyBadge") }}</span
             >
+            <span
+              v-if="row.codex_cli_only"
+              class="badge badge-warning ml-2"
+              data-testid="group-codex-cli-only-badge"
+              >{{ t("admin.groups.form.codexCLIOnlyBadge") }}</span
+            >
           </template>
 
           <template #cell-id="{ value }">
@@ -681,6 +687,28 @@
             data-testid="create-disable-non-streaming"
             :aria-label="t('admin.groups.form.streamOnly')"
             v-model="createForm.disable_non_streaming"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.codexCLIOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.codexCLIOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-codex-cli-only"
+            :aria-label="t('admin.groups.form.codexCLIOnly')"
+            v-model="createForm.codex_cli_only"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.blockSubagents") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.blockSubagentsHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-block-subagents"
+            :aria-label="t('admin.groups.form.blockSubagents')"
+            v-model="createForm.block_subagents"
           />
         </div>
         <ReasoningEffortPolicyFields
@@ -2370,6 +2398,28 @@
             data-testid="edit-disable-non-streaming"
             :aria-label="t('admin.groups.form.streamOnly')"
             v-model="editForm.disable_non_streaming"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.codexCLIOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.codexCLIOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-codex-cli-only"
+            :aria-label="t('admin.groups.form.codexCLIOnly')"
+            v-model="editForm.codex_cli_only"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.blockSubagents") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.blockSubagentsHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-block-subagents"
+            :aria-label="t('admin.groups.form.blockSubagents')"
+            v-model="editForm.block_subagents"
           />
         </div>
         <ReasoningEffortPolicyFields
@@ -5082,6 +5132,8 @@ const createForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   disable_non_streaming: false,
+  codex_cli_only: false,
+  block_subagents: false,
   free_openai_fast: false,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
@@ -5451,6 +5503,8 @@ const editForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   disable_non_streaming: false,
+  codex_cli_only: false,
+  block_subagents: false,
   free_openai_fast: false,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
@@ -5932,6 +5986,8 @@ const closeCreateModal = () => {
   createForm.long_context_pricing_enabled = true;
   createForm.force_openai_fast = false;
   createForm.disable_non_streaming = false;
+  createForm.codex_cli_only = false;
+  createForm.block_subagents = false;
   createForm.free_openai_fast = false;
   createForm.model_pricing = [];
   createForm.web_search_price_per_call = null;
@@ -6199,6 +6255,8 @@ const handleEdit = async (group: AdminGroup) => {
     group.long_context_pricing_enabled ?? true;
   editForm.force_openai_fast = group.force_openai_fast ?? false;
   editForm.disable_non_streaming = group.disable_non_streaming ?? false;
+  editForm.codex_cli_only = group.codex_cli_only ?? false;
+  editForm.block_subagents = group.block_subagents ?? false;
   editForm.free_openai_fast = group.free_openai_fast ?? false;
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
@@ -6337,6 +6395,8 @@ const closeEditModal = () => {
   editForm.long_context_pricing_enabled = true;
   editForm.force_openai_fast = false;
   editForm.disable_non_streaming = false;
+  editForm.codex_cli_only = false;
+  editForm.block_subagents = false;
   editForm.free_openai_fast = false;
   editForm.model_pricing = [];
   editForm.web_search_price_per_call = null;

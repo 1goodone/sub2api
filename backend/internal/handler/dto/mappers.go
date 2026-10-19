@@ -159,6 +159,8 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		DisableNonStreaming:         g.DisableNonStreaming,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		StreamOnly:                  g.DisableNonStreaming,
+		CodexCLIOnly:                g.CodexCLIOnly,
+		BlockSubagents:              g.BlockSubagents,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
 		ProfitMinMargin:             g.ProfitMinMargin,
 		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,

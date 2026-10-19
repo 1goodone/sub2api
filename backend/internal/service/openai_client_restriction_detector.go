@@ -95,7 +95,10 @@ func (d *OpenAICodexClientRestrictionDetector) Detect(c *gin.Context, account *A
 	if d != nil && d.cfg != nil && d.cfg.Gateway.ForceCodexCLI {
 		return CodexClientRestrictionDetectionResult{Enabled: true, Matched: true, Reason: CodexClientRestrictionReasonForceCodexCLI}
 	}
+	return detectCodexClient(c, policy, body, account.IsCodexCLIOnlyAppServerAllowed())
+}
 
+func detectCodexClient(c *gin.Context, policy CodexRestrictionPolicy, body []byte, allowAppServer bool) CodexClientRestrictionDetectionResult {
 	userAgent := ""
 	originator := ""
 	var header http.Header
@@ -124,7 +127,7 @@ func (d *OpenAICodexClientRestrictionDetector) Detect(c *gin.Context, account *A
 		if entry, ok := openai.MatchClientEntry(userAgent, originator, policy.Whitelist); ok {
 			reason = CodexClientRestrictionReasonMatchedWhitelistClient
 			skipFingerprint = entry.SkipEngineFingerprint
-		} else if policy.AllowAppServerClients || account.IsCodexCLIOnlyAppServerAllowed() {
+		} else if policy.AllowAppServerClients || allowAppServer {
 			reason = CodexClientRestrictionReasonMatchedAppServerClient
 		}
 	}
@@ -169,6 +172,15 @@ func (d *OpenAICodexClientRestrictionDetector) Detect(c *gin.Context, account *A
 	}
 
 	return CodexClientRestrictionDetectionResult{Enabled: true, Matched: true, Reason: reason}
+}
+
+// DetectCodexGroupClient applies the same Codex client evidence to a group
+// policy. Account-level app-server allowance is not inherited here.
+func DetectCodexGroupClient(c *gin.Context, group *Group, policy CodexRestrictionPolicy, body []byte) CodexClientRestrictionDetectionResult {
+	if group == nil || !group.CodexCLIOnly {
+		return CodexClientRestrictionDetectionResult{Enabled: false, Matched: false, Reason: CodexClientRestrictionReasonDisabled}
+	}
+	return detectCodexClient(c, policy, body, false)
 }
 
 // CodexClientRestrictionMessage 把检测结果映射为面向客户端的 403 文案。

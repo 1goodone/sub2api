@@ -78,6 +78,13 @@ func (Group) Fields() []ent.Field {
 		field.Bool("disable_non_streaming").
 			Default(false).
 			Comment("Reject non-streaming text generation requests"),
+		// Employee API ingress only. Account tests and quality judges do not pass this gate.
+		field.Bool("codex_cli_only").
+			Default(false).
+			Comment("Only allow Codex clients at employee API ingress"),
+		field.Bool("block_subagents").
+			Default(false).
+			Comment("Reject employee API requests that carry a subagent identifier"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

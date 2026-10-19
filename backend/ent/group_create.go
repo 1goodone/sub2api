@@ -210,6 +210,34 @@ func (_c *GroupCreate) SetNillableDisableNonStreaming(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (_c *GroupCreate) SetCodexCliOnly(v bool) *GroupCreate {
+	_c.mutation.SetCodexCliOnly(v)
+	return _c
+}
+
+// SetNillableCodexCliOnly sets the "codex_cli_only" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCodexCliOnly(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetCodexCliOnly(*v)
+	}
+	return _c
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (_c *GroupCreate) SetBlockSubagents(v bool) *GroupCreate {
+	_c.mutation.SetBlockSubagents(v)
+	return _c
+}
+
+// SetNillableBlockSubagents sets the "block_subagents" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableBlockSubagents(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetBlockSubagents(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *GroupCreate) SetStatus(v string) *GroupCreate {
 	_c.mutation.SetStatus(v)
@@ -1150,6 +1178,14 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDisableNonStreaming
 		_c.mutation.SetDisableNonStreaming(v)
 	}
+	if _, ok := _c.mutation.CodexCliOnly(); !ok {
+		v := group.DefaultCodexCliOnly
+		_c.mutation.SetCodexCliOnly(v)
+	}
+	if _, ok := _c.mutation.BlockSubagents(); !ok {
+		v := group.DefaultBlockSubagents
+		_c.mutation.SetBlockSubagents(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := group.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -1349,6 +1385,12 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.DisableNonStreaming(); !ok {
 		return &ValidationError{Name: "disable_non_streaming", err: errors.New(`ent: missing required field "Group.disable_non_streaming"`)}
+	}
+	if _, ok := _c.mutation.CodexCliOnly(); !ok {
+		return &ValidationError{Name: "codex_cli_only", err: errors.New(`ent: missing required field "Group.codex_cli_only"`)}
+	}
+	if _, ok := _c.mutation.BlockSubagents(); !ok {
+		return &ValidationError{Name: "block_subagents", err: errors.New(`ent: missing required field "Group.block_subagents"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "Group.status"`)}
@@ -1600,6 +1642,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DisableNonStreaming(); ok {
 		_spec.SetField(group.FieldDisableNonStreaming, field.TypeBool, value)
 		_node.DisableNonStreaming = value
+	}
+	if value, ok := _c.mutation.CodexCliOnly(); ok {
+		_spec.SetField(group.FieldCodexCliOnly, field.TypeBool, value)
+		_node.CodexCliOnly = value
+	}
+	if value, ok := _c.mutation.BlockSubagents(); ok {
+		_spec.SetField(group.FieldBlockSubagents, field.TypeBool, value)
+		_node.BlockSubagents = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
@@ -2181,6 +2231,30 @@ func (u *GroupUpsert) SetDisableNonStreaming(v bool) *GroupUpsert {
 // UpdateDisableNonStreaming sets the "disable_non_streaming" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateDisableNonStreaming() *GroupUpsert {
 	u.SetExcluded(group.FieldDisableNonStreaming)
+	return u
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsert) SetCodexCliOnly(v bool) *GroupUpsert {
+	u.Set(group.FieldCodexCliOnly, v)
+	return u
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCodexCliOnly() *GroupUpsert {
+	u.SetExcluded(group.FieldCodexCliOnly)
+	return u
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsert) SetBlockSubagents(v bool) *GroupUpsert {
+	u.Set(group.FieldBlockSubagents, v)
+	return u
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateBlockSubagents() *GroupUpsert {
+	u.SetExcluded(group.FieldBlockSubagents)
 	return u
 }
 
@@ -3388,6 +3462,34 @@ func (u *GroupUpsertOne) SetDisableNonStreaming(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDisableNonStreaming() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDisableNonStreaming()
+	})
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsertOne) SetCodexCliOnly(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexCliOnly(v)
+	})
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCodexCliOnly() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexCliOnly()
+	})
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsertOne) SetBlockSubagents(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBlockSubagents(v)
+	})
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateBlockSubagents() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBlockSubagents()
 	})
 }
 
@@ -4918,6 +5020,34 @@ func (u *GroupUpsertBulk) SetDisableNonStreaming(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDisableNonStreaming() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDisableNonStreaming()
+	})
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsertBulk) SetCodexCliOnly(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexCliOnly(v)
+	})
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCodexCliOnly() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexCliOnly()
+	})
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsertBulk) SetBlockSubagents(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBlockSubagents(v)
+	})
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateBlockSubagents() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBlockSubagents()
 	})
 }
 

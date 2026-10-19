@@ -144,6 +144,8 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetAllowLive(groupIn.AllowLive).
 		SetForceOpenaiFast(groupIn.ForceOpenAIFast).
 		SetDisableNonStreaming(groupIn.DisableNonStreaming).
+		SetCodexCliOnly(groupIn.CodexCLIOnly).
+		SetBlockSubagents(groupIn.BlockSubagents).
 		SetFreeOpenaiFast(groupIn.FreeOpenAIFast).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
@@ -355,6 +357,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetAllowLive(groupIn.AllowLive).
 		SetForceOpenaiFast(groupIn.ForceOpenAIFast).
 		SetDisableNonStreaming(groupIn.DisableNonStreaming).
+		SetCodexCliOnly(groupIn.CodexCLIOnly).
+		SetBlockSubagents(groupIn.BlockSubagents).
 		SetFreeOpenaiFast(groupIn.FreeOpenAIFast).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).

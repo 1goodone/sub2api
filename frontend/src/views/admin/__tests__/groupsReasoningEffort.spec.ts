@@ -29,6 +29,7 @@ describe("groupsReasoningEffort", () => {
       "high",
       "xhigh",
       "max",
+      "ultra",
     ];
     for (const platform of ["openai", "composite"] as const) {
       expect(
@@ -73,6 +74,7 @@ describe("groupsReasoningEffort", () => {
       [
         { from: " max ", to: " xhigh " },
         { from: "ultra", to: "high" },
+        { from: "ludicrous", to: "high" },
       ],
       "openai",
     );
@@ -80,6 +82,7 @@ describe("groupsReasoningEffort", () => {
     expect(rows).toHaveLength(1);
     expect(reasoningEffortMappingsToAPI(rows)).toEqual([
       { from: "max", to: "xhigh" },
+      { from: "ultra", to: "high" },
     ]);
   });
 
@@ -321,7 +324,7 @@ describe("groupsReasoningEffort", () => {
   });
 
   it("rejects custom mappings", () => {
-    const row = createReasoningEffortMappingRow({ from: "ultra", to: "high" });
+    const row = createReasoningEffortMappingRow({ from: "ludicrous", to: "high" });
     expect(validateReasoningEffortMappings([row], "openai")).toEqual({
       [row.pairs[0].id]: { from: "unsupportedFrom" },
     });

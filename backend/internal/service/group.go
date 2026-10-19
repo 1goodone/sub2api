@@ -34,11 +34,11 @@ type Group struct {
 	CacheReadReductionPercent float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
-	PeakRateEnabled     bool
-	PeakStart           string
-	PeakEnd             string
-	PeakRateMultiplier  float64
-	IsExclusive bool
+	PeakRateEnabled    bool
+	PeakStart          string
+	PeakEnd            string
+	PeakRateMultiplier float64
+	IsExclusive        bool
 	// DisableNonStreaming 仅允许流式请求：非流式对话生成在网关入口拒绝。
 	// 对应 ranxi 2.8.8 的 StreamOnly，本地列名沿用 disable_non_streaming。
 	DisableNonStreaming bool
@@ -96,6 +96,10 @@ type Group struct {
 	FallbackGroupIDOnInvalidRequest *int64
 	// StreamOnly 仅允许流式请求：非流式对话在网关入口拒绝。
 	StreamOnly bool
+	// CodexCLIOnly 仅在员工 API 入口限制客户端；后台账号测试与质量判题不受影响。
+	// 与账号级 extra.codex_cli_only 独立，不互相覆盖。
+	CodexCLIOnly   bool
+	BlockSubagents bool
 
 	// 模型路由配置
 	// key: 模型匹配模式（支持 * 通配符，如 "claude-opus-*"）

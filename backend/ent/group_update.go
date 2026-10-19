@@ -236,6 +236,34 @@ func (_u *GroupUpdate) SetNillableDisableNonStreaming(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (_u *GroupUpdate) SetCodexCliOnly(v bool) *GroupUpdate {
+	_u.mutation.SetCodexCliOnly(v)
+	return _u
+}
+
+// SetNillableCodexCliOnly sets the "codex_cli_only" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCodexCliOnly(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetCodexCliOnly(*v)
+	}
+	return _u
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (_u *GroupUpdate) SetBlockSubagents(v bool) *GroupUpdate {
+	_u.mutation.SetBlockSubagents(v)
+	return _u
+}
+
+// SetNillableBlockSubagents sets the "block_subagents" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableBlockSubagents(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetBlockSubagents(*v)
+	}
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *GroupUpdate) SetStatus(v string) *GroupUpdate {
 	_u.mutation.SetStatus(v)
@@ -1708,6 +1736,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.DisableNonStreaming(); ok {
 		_spec.SetField(group.FieldDisableNonStreaming, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.CodexCliOnly(); ok {
+		_spec.SetField(group.FieldCodexCliOnly, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.BlockSubagents(); ok {
+		_spec.SetField(group.FieldBlockSubagents, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
 	}
@@ -2561,6 +2595,34 @@ func (_u *GroupUpdateOne) SetDisableNonStreaming(v bool) *GroupUpdateOne {
 func (_u *GroupUpdateOne) SetNillableDisableNonStreaming(v *bool) *GroupUpdateOne {
 	if v != nil {
 		_u.SetDisableNonStreaming(*v)
+	}
+	return _u
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (_u *GroupUpdateOne) SetCodexCliOnly(v bool) *GroupUpdateOne {
+	_u.mutation.SetCodexCliOnly(v)
+	return _u
+}
+
+// SetNillableCodexCliOnly sets the "codex_cli_only" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCodexCliOnly(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCodexCliOnly(*v)
+	}
+	return _u
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (_u *GroupUpdateOne) SetBlockSubagents(v bool) *GroupUpdateOne {
+	_u.mutation.SetBlockSubagents(v)
+	return _u
+}
+
+// SetNillableBlockSubagents sets the "block_subagents" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableBlockSubagents(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetBlockSubagents(*v)
 	}
 	return _u
 }
@@ -4066,6 +4128,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.DisableNonStreaming(); ok {
 		_spec.SetField(group.FieldDisableNonStreaming, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CodexCliOnly(); ok {
+		_spec.SetField(group.FieldCodexCliOnly, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.BlockSubagents(); ok {
+		_spec.SetField(group.FieldBlockSubagents, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)

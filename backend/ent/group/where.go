@@ -120,6 +120,16 @@ func DisableNonStreaming(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDisableNonStreaming, v))
 }
 
+// CodexCliOnly applies equality check predicate on the "codex_cli_only" field. It's identical to CodexCliOnlyEQ.
+func CodexCliOnly(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexCliOnly, v))
+}
+
+// BlockSubagents applies equality check predicate on the "block_subagents" field. It's identical to BlockSubagentsEQ.
+func BlockSubagents(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldBlockSubagents, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldStatus, v))
@@ -913,6 +923,26 @@ func DisableNonStreamingEQ(v bool) predicate.Group {
 // DisableNonStreamingNEQ applies the NEQ predicate on the "disable_non_streaming" field.
 func DisableNonStreamingNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldDisableNonStreaming, v))
+}
+
+// CodexCliOnlyEQ applies the EQ predicate on the "codex_cli_only" field.
+func CodexCliOnlyEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexCliOnly, v))
+}
+
+// CodexCliOnlyNEQ applies the NEQ predicate on the "codex_cli_only" field.
+func CodexCliOnlyNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCodexCliOnly, v))
+}
+
+// BlockSubagentsEQ applies the EQ predicate on the "block_subagents" field.
+func BlockSubagentsEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldBlockSubagents, v))
+}
+
+// BlockSubagentsNEQ applies the NEQ predicate on the "block_subagents" field.
+func BlockSubagentsNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldBlockSubagents, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

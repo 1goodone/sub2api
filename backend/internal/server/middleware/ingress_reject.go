@@ -31,6 +31,8 @@ const (
 	IngressRejectModelNotAllowed        IngressRejectReason = "model_not_allowed"
 	IngressRejectNonStreamingDisabled   IngressRejectReason = "non_streaming_disabled"
 	IngressRejectStreamRequired         IngressRejectReason = "stream_required"
+	IngressRejectCodexClientRequired    IngressRejectReason = "codex_client_required"
+	IngressRejectSubagentsBlocked       IngressRejectReason = "subagents_blocked"
 )
 
 const ingressRejectReasonContextKey = "ingress_reject_reason"

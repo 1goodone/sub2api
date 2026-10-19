@@ -637,6 +637,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		AllowLive:                       input.AllowLive,
 		ForceOpenAIFast:                 input.ForceOpenAIFast,
 		DisableNonStreaming:             input.DisableNonStreaming || input.StreamOnly,
+		CodexCLIOnly:                    input.CodexCLIOnly,
+		BlockSubagents:                  input.BlockSubagents,
 		FreeOpenAIFast:                  input.FreeOpenAIFast,
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
@@ -980,6 +982,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.StreamOnly != nil {
 		group.DisableNonStreaming = *input.StreamOnly
+	}
+	if input.CodexCLIOnly != nil {
+		group.CodexCLIOnly = *input.CodexCLIOnly
+	}
+	if input.BlockSubagents != nil {
+		group.BlockSubagents = *input.BlockSubagents
 	}
 	if input.FallbackGroupID != nil {
 		// 校验降级分组

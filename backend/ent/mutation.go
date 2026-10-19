@@ -23725,6 +23725,8 @@ type GroupMutation struct {
 	addpeak_rate_multiplier                 *float64
 	is_exclusive                            *bool
 	disable_non_streaming                   *bool
+	codex_cli_only                          *bool
+	block_subagents                         *bool
 	status                                  *string
 	duplicate_operation_id                  *string
 	platform                                *string
@@ -24521,6 +24523,78 @@ func (m *GroupMutation) OldDisableNonStreaming(ctx context.Context) (v bool, err
 // ResetDisableNonStreaming resets all changes to the "disable_non_streaming" field.
 func (m *GroupMutation) ResetDisableNonStreaming() {
 	m.disable_non_streaming = nil
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (m *GroupMutation) SetCodexCliOnly(b bool) {
+	m.codex_cli_only = &b
+}
+
+// CodexCliOnly returns the value of the "codex_cli_only" field in the mutation.
+func (m *GroupMutation) CodexCliOnly() (r bool, exists bool) {
+	v := m.codex_cli_only
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCodexCliOnly returns the old "codex_cli_only" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCodexCliOnly(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCodexCliOnly is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCodexCliOnly requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCodexCliOnly: %w", err)
+	}
+	return oldValue.CodexCliOnly, nil
+}
+
+// ResetCodexCliOnly resets all changes to the "codex_cli_only" field.
+func (m *GroupMutation) ResetCodexCliOnly() {
+	m.codex_cli_only = nil
+}
+
+// SetBlockSubagents sets the "block_subagents" field.
+func (m *GroupMutation) SetBlockSubagents(b bool) {
+	m.block_subagents = &b
+}
+
+// BlockSubagents returns the value of the "block_subagents" field in the mutation.
+func (m *GroupMutation) BlockSubagents() (r bool, exists bool) {
+	v := m.block_subagents
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBlockSubagents returns the old "block_subagents" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldBlockSubagents(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBlockSubagents is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBlockSubagents requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBlockSubagents: %w", err)
+	}
+	return oldValue.BlockSubagents, nil
+}
+
+// ResetBlockSubagents resets all changes to the "block_subagents" field.
+func (m *GroupMutation) ResetBlockSubagents() {
+	m.block_subagents = nil
 }
 
 // SetStatus sets the "status" field.
@@ -27795,7 +27869,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 70)
+	fields := make([]string, 0, 73)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -27837,6 +27911,12 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.disable_non_streaming != nil {
 		fields = append(fields, group.FieldDisableNonStreaming)
+	}
+	if m.codex_cli_only != nil {
+		fields = append(fields, group.FieldCodexCliOnly)
+	}
+	if m.block_subagents != nil {
+		fields = append(fields, group.FieldBlockSubagents)
 	}
 	if m.status != nil {
 		fields = append(fields, group.FieldStatus)
@@ -28045,6 +28125,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.IsExclusive()
 	case group.FieldDisableNonStreaming:
 		return m.DisableNonStreaming()
+	case group.FieldCodexCliOnly:
+		return m.CodexCliOnly()
+	case group.FieldBlockSubagents:
+		return m.BlockSubagents()
 	case group.FieldStatus:
 		return m.Status()
 	case group.FieldDuplicateOperationID:
@@ -28196,6 +28280,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldIsExclusive(ctx)
 	case group.FieldDisableNonStreaming:
 		return m.OldDisableNonStreaming(ctx)
+	case group.FieldCodexCliOnly:
+		return m.OldCodexCliOnly(ctx)
+	case group.FieldBlockSubagents:
+		return m.OldBlockSubagents(ctx)
 	case group.FieldStatus:
 		return m.OldStatus(ctx)
 	case group.FieldDuplicateOperationID:
@@ -28416,6 +28504,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDisableNonStreaming(v)
+		return nil
+	case group.FieldCodexCliOnly:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCodexCliOnly(v)
+		return nil
+	case group.FieldBlockSubagents:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBlockSubagents(v)
 		return nil
 	case group.FieldStatus:
 		v, ok := value.(string)
@@ -29386,6 +29488,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDisableNonStreaming:
 		m.ResetDisableNonStreaming()
+		return nil
+	case group.FieldCodexCliOnly:
+		m.ResetCodexCliOnly()
+		return nil
+	case group.FieldBlockSubagents:
+		m.ResetBlockSubagents()
 		return nil
 	case group.FieldStatus:
 		m.ResetStatus()

@@ -44,6 +44,10 @@ const (
 	FieldIsExclusive = "is_exclusive"
 	// FieldDisableNonStreaming holds the string denoting the disable_non_streaming field in the database.
 	FieldDisableNonStreaming = "disable_non_streaming"
+	// FieldCodexCliOnly holds the string denoting the codex_cli_only field in the database.
+	FieldCodexCliOnly = "codex_cli_only"
+	// FieldBlockSubagents holds the string denoting the block_subagents field in the database.
+	FieldBlockSubagents = "block_subagents"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldDuplicateOperationID holds the string denoting the duplicate_operation_id field in the database.
@@ -256,6 +260,8 @@ var Columns = []string{
 	FieldPeakRateMultiplier,
 	FieldIsExclusive,
 	FieldDisableNonStreaming,
+	FieldCodexCliOnly,
+	FieldBlockSubagents,
 	FieldStatus,
 	FieldDuplicateOperationID,
 	FieldPlatform,
@@ -372,6 +378,10 @@ var (
 	DefaultIsExclusive bool
 	// DefaultDisableNonStreaming holds the default value on creation for the "disable_non_streaming" field.
 	DefaultDisableNonStreaming bool
+	// DefaultCodexCliOnly holds the default value on creation for the "codex_cli_only" field.
+	DefaultCodexCliOnly bool
+	// DefaultBlockSubagents holds the default value on creation for the "block_subagents" field.
+	DefaultBlockSubagents bool
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -541,6 +551,16 @@ func ByIsExclusive(opts ...sql.OrderTermOption) OrderOption {
 // ByDisableNonStreaming orders the results by the disable_non_streaming field.
 func ByDisableNonStreaming(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDisableNonStreaming, opts...).ToFunc()
+}
+
+// ByCodexCliOnly orders the results by the codex_cli_only field.
+func ByCodexCliOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCodexCliOnly, opts...).ToFunc()
+}
+
+// ByBlockSubagents orders the results by the block_subagents field.
+func ByBlockSubagents(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBlockSubagents, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

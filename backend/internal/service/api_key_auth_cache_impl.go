@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 30 // v30: include API key concurrency limit after v29 cache-read reclassification
+const apiKeyAuthSnapshotVersion = 31 // v31: group Codex client and subagent ingress policy
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -524,6 +524,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		AllowLive:                       group.AllowLive,
 		ForceOpenAIFast:                 group.ForceOpenAIFast,
 		DisableNonStreaming:             group.DisableNonStreaming,
+		CodexCLIOnly:                    group.CodexCLIOnly,
+		BlockSubagents:                  group.BlockSubagents,
 		FreeOpenAIFast:                  group.FreeOpenAIFast,
 		FocusAccountID:                  group.FocusAccountID,
 		FocusAccountIDs:                 append([]int64(nil), group.FocusAccountIDs...),
@@ -596,6 +598,8 @@ func apiKeyAuthGroupSnapshotToGroup(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		AllowLive:                       snapshot.AllowLive,
 		ForceOpenAIFast:                 snapshot.ForceOpenAIFast,
 		DisableNonStreaming:             snapshot.DisableNonStreaming,
+		CodexCLIOnly:                    snapshot.CodexCLIOnly,
+		BlockSubagents:                  snapshot.BlockSubagents,
 		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
 		FocusAccountID:                  snapshot.FocusAccountID,
 		FocusAccountIDs:                 append([]int64(nil), snapshot.FocusAccountIDs...),

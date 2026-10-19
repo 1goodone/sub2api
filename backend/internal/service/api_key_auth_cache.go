@@ -4,7 +4,7 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	ConcurrencyLimit int                      `json:"concurrency_limit"`
+	ConcurrencyLimit int                       `json:"concurrency_limit"`
 	Version          int                       `json:"version"`
 	APIKeyID         int64                     `json:"api_key_id"`
 	UserID           int64                     `json:"user_id"`
@@ -115,6 +115,8 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowLive                   bool                              `json:"allow_live"`
 	ForceOpenAIFast             bool                              `json:"force_openai_fast"`
 	DisableNonStreaming         bool                              `json:"disable_non_streaming"`
+	CodexCLIOnly                bool                              `json:"codex_cli_only"`
+	BlockSubagents              bool                              `json:"block_subagents"`
 	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
 	FocusAccountIDs             []int64                           `json:"focus_account_ids,omitempty"`
