@@ -21,4 +21,4 @@
 
 客户端指纹和子代理标识由客户端提供，不能证明软件来源，也不能可靠识别主动删除所有标识的客户端。ultra 限制针对显式 effort 字段和模型名的 ultra 后缀；省略 effort 时保留现有上游默认行为。此策略不能对客户端本地运行的工具或并发活动做绝对限制。
 
-迁移仅追加 `groups.codex_cli_only` 和 `groups.block_subagents` 两个非空布尔字段，默认值均为 false；鉴权缓存版本更新为 29。复制分组保留这些策略。回退二进制不会撤销数据库字段，旧二进制也不会执行新增准入策略。
+迁移仅追加 `groups.codex_cli_only` 和 `groups.block_subagents` 两个非空布尔字段，默认值均为 false。本分支使用 `292_group_codex_cli_only.sql` 和 `293_group_block_subagents.sql`，不复用上游已占用的迁移号。鉴权缓存版本更新为 31。复制分组保留这些策略。账号级 `codex_cli_only` 仍然独立，分组策略不会继承账号的 app-server 放行。回退二进制不会撤销数据库字段，旧二进制也不会执行新增准入策略。

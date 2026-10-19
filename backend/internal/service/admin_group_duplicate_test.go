@@ -168,6 +168,8 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		AllowLive:                       true,
 		ForceOpenAIFast:                 true,
 		DisableNonStreaming:             true,
+		CodexCLIOnly:                    true,
+		BlockSubagents:                  true,
 		FreeOpenAIFast:                  true,
 		RequireOAuthOnly:                true,
 		RequirePrivacySet:               true,
@@ -218,6 +220,8 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.MessagesDispatchModelConfig, duplicate.MessagesDispatchModelConfig)
 	require.Equal(t, source.ForceOpenAIFast, duplicate.ForceOpenAIFast)
 	require.Equal(t, source.DisableNonStreaming, duplicate.DisableNonStreaming)
+	require.True(t, duplicate.CodexCLIOnly, "duplicating a group must preserve its client restriction")
+	require.True(t, duplicate.BlockSubagents)
 	require.Equal(t, source.FreeOpenAIFast, duplicate.FreeOpenAIFast)
 	require.Equal(t, source.ModelAllowlist, duplicate.ModelAllowlist)
 	require.Equal(t, source.RPMLimit, duplicate.RPMLimit)

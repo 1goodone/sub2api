@@ -164,10 +164,6 @@ func applyAnthropicReasoningEffortPolicyForRequest(c *gin.Context, apiKey *servi
 	return service.ApplyReasoningEffortPolicy(body, maxEffort, mappings, overLimit)
 }
 
-func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *service.APIKey, body []byte) {
-	_, _ = prepareOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
-}
-
 func prepareOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *service.APIKey, body []byte) ([]byte, error) {
 	if c == nil || c.Request == nil {
 		return body, nil
