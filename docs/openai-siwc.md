@@ -15,7 +15,8 @@ Open an OpenAI OAuth parent account and use the **OpenAI request protocol** pane
    login proxy applies to this authorization; inference uses the account proxy.
 2. Initial consent, an account selector that requires interaction, or another
    verification challenge may require **Browser authorization**. Follow
-   **Continue with ChatGPT**, authorize the intended subscriber/workspace, then
+   **Open ChatGPT authorization**, or copy the full authorization URL shown in
+   the editor into a browser. Keep the editor open, authorize the intended subscriber/workspace, then
    paste the browser page or the `http://127.0.0.1:1455/auth/callback?...` URL.
    A full copy and the callback segment alone are both accepted; the server
    extracts that loopback URL and rejects any other host. The loopback page
@@ -33,6 +34,14 @@ Returning authorization retains the host ID and issued OAuth client ID, and
 uses the retained ID token as an account hint. Normal requests refresh expiring
 access tokens without password/TOTP login. A revoked refresh token or a policy
 challenge requires renewed authorization; no different billing path is selected.
+
+Worker failures report fixed `stage` and `reason` labels without copying raw
+runner output. `browser_interaction_required` after `mfa_accepted` means the
+password and TOTP steps completed but further browser interaction is needed;
+it does not mean the account is bound. Other reasons distinguish credential
+rejection, workspace mismatch, network/security checks and runtime failures.
+An old automatic-task error is hidden while a new browser session is displayed;
+callback failures remain visible and preserve the entered callback for correction.
 
 ## Storage and concurrency
 
@@ -96,8 +105,14 @@ Regression cases cover signed ID-token validation, callback state/account/client
 binding, one-time session consumption, primary-grant preservation, refresh/401
 isolation, SQL compare-and-swap and task ownership, request routing, password/TOTP
 callback handling, consent handoff and UI selection. The existing backend,
-frontend and packaged-worker CI workflows run these checks. They have not been
-run locally for this change. No live subscriber login or inference was performed.
+frontend and packaged-worker CI workflows run these checks. The authorization UI
+regression now uses the real API client and response interceptor, mocking only
+HTTP. The packaged dependency test executes its actual password, TOTP, workspace
+and callback helpers with an offline HTTP transport; it also checks initial
+consent, wrong state and rejected passwords. These checks do not establish live
+subscriber entitlement or inference availability. An isolated live password/TOTP
+attempt on 2026-10-21 reached the browser-interaction handoff; no live SIWC grant
+was bound and no inference request was made during that check.
 
 Protocol references, checked 2026-10-20:
 

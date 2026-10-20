@@ -16,12 +16,19 @@
     </div>
     <p class="input-hint">{{ t('siwc.loginHint') }}</p>
     <p v-if="activeTask" class="text-sm" data-testid="siwc-task">{{ t('siwc.running') }}</p>
-    <p v-if="status?.task?.error" class="text-sm text-amber-700 dark:text-amber-300">{{ status.task.error }}</p>
+    <p v-if="status?.task?.error && !authorization" class="text-sm text-amber-700 dark:text-amber-300">{{ status.task.error }}</p>
     <div v-if="authorization" class="space-y-2" data-testid="siwc-browser-flow">
-      <a class="link-btn" :href="authorization.auth_url" target="_blank" rel="noopener noreferrer">{{ t('siwc.continue') }}</a>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn btn-primary btn-sm" :href="authorization.auth_url" target="_blank" rel="noopener noreferrer" data-testid="siwc-open">{{ t('siwc.continue') }}</a>
+        <button type="button" class="btn btn-secondary btn-sm" data-testid="siwc-copy" @click="copyAuthorization">{{ t('siwc.copyLink') }}</button>
+      </div>
+      <label :for="`siwc-auth-url-${accountId}`" class="input-label">{{ t('siwc.authLink') }}</label>
+      <textarea :id="`siwc-auth-url-${accountId}`" class="input w-full break-all font-mono text-xs" :value="authorization.auth_url"
+        readonly rows="4" spellcheck="false" data-testid="siwc-auth-url" @focus="($event.target as HTMLTextAreaElement).select()" />
+      <p class="input-hint">{{ t('siwc.authLinkHint') }}</p>
       <p class="input-hint">{{ t('siwc.callbackHint') }}</p>
       <label :for="`siwc-callback-${accountId}`" class="input-label">{{ t('siwc.callback') }}</label>
-      <textarea :id="`siwc-callback-${accountId}`" v-model="callback" rows="3" class="input w-full resize-y font-mono text-sm" autocomplete="off" spellcheck="false"></textarea>
+      <textarea :id="`siwc-callback-${accountId}`" v-model="callback" rows="3" class="input w-full resize-y font-mono text-sm" autocomplete="off" spellcheck="false" data-testid="siwc-callback"></textarea>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !callback.trim()" data-testid="siwc-complete" @click="complete">{{ t('siwc.complete') }}</button>
     </div>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
@@ -31,12 +38,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useClipboard } from '@/composables/useClipboard'
 import { authorizeSIWC, completeSIWC, getSIWCStatus, loginSIWCWithSavedCredentials, type SIWCAuthorization, type SIWCStatus } from '@/api/admin/siwc'
 import { extractSIWCCallback } from '@/utils/siwcCallback'
 
 const props = defineProps<{ accountId: number; enabled: boolean; active: boolean }>()
 const emit = defineEmits<{ 'update:enabled': [boolean] }>()
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 const status = ref<SIWCStatus | null>(null)
 const authorization = ref<SIWCAuthorization | null>(null)
 const callback = ref('')
@@ -80,9 +89,24 @@ function automatic() {
 }
 function browser() {
   return run(async (id, current) => {
+    authorization.value = null
+    callback.value = ''
     const result = await authorizeSIWC(id)
-    if (current === generation) { authorization.value = result; callback.value = '' }
+    if (current !== generation) return
+    let url: URL
+    try { url = new URL(result.auth_url) } catch { throw new Error(t('siwc.invalidAuthorization')) }
+    if (url.origin !== 'https://auth.openai.com' || url.pathname !== '/api/accounts/authorize' ||
+        url.username || url.password || url.hash || !result.session_id?.trim()) {
+      throw new Error(t('siwc.invalidAuthorization'))
+    }
+    authorization.value = result
   })
+}
+async function copyAuthorization() {
+  if (!authorization.value) return
+  const current = generation
+  const copied = await copyToClipboard(authorization.value.auth_url)
+  if (current === generation) error.value = copied ? '' : t('siwc.copyFailed')
 }
 function complete() {
   if (!authorization.value) return
