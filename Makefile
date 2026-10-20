@@ -1,6 +1,8 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/features/security-penalties/__tests__/SecurityRecords.spec.ts \
+	src/views/user/__tests__/ProfileView.spec.ts \
 	src/components/account/__tests__/SIWCAccountSettings.spec.ts \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \

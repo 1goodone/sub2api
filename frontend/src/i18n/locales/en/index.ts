@@ -1,3 +1,4 @@
+import securityRecords from './securityRecords'
 import siwc from './siwc'
 import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
@@ -22,6 +23,7 @@ import misc from './misc'
 import autoConfig from './autoConfig'
 
 export default {
+  securityRecords,
   siwc,
   autoConfig,
   priorityScheduling,
