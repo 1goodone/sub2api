@@ -614,7 +614,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		// Both paths share the same claim key so the customer is charged once.
 		if endpoint == service.MiniMaxH3EndpointStatus || endpoint == service.MiniMaxH3EndpointContent {
 			if billResult := prepareMiniMaxH3CompletionBilling(requestCtx, h, apiKey, subject, requestID, result); billResult != nil {
-				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, requestID)
+				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, channelMapping, billResult.Model, body, requestID)
 			}
 		} else if endpoint == service.SeedanceEndpointStatus {
 			if billResult := prepareSeedanceCompletionBilling(requestCtx, h, apiKey, subject, requestID, result); billResult != nil {
