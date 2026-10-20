@@ -663,6 +663,13 @@ func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	adminSettings := admin.Group("/settings")
 	{
+		adminSettings.GET("/ip-risk", h.Admin.Setting.GetIPRisk)
+		adminSettings.PUT("/ip-risk", h.Admin.Setting.SaveIPRisk)
+		adminSettings.GET("/ip-risk/events", h.Admin.Setting.GetIPRiskEvents)
+		adminSettings.DELETE("/ip-risk/events", h.Admin.Setting.ClearIPRiskEvents)
+		adminSettings.GET("/ip-risk/bans", h.Admin.Setting.GetIPRiskBans)
+		adminSettings.POST("/ip-risk/unban", h.Admin.Setting.UnbanIPRisk)
+		adminSettings.POST("/ip-risk/check", h.Admin.Setting.CheckIPRisk)
 		adminSettings.GET("/astra-routing", h.Admin.Setting.GetAstraRouting)
 		adminSettings.PUT("/astra-routing", h.Admin.Setting.UpdateAstraRouting)
 		adminSettings.GET("", h.Admin.Setting.GetSettings)

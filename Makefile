@@ -4,6 +4,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \
 	src/components/admin/account/__tests__/IQTestModal.modelTrace.spec.ts \
+	src/features/ip-risk/__tests__/IPRiskSettings.spec.ts \
 	src/components/admin/account/__tests__/OpenAISessionExportDialog.spec.ts \
 	src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts \
 	src/api/__tests__/groupCacheTest.spec.ts \

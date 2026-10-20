@@ -1,5 +1,8 @@
+import ipRisk from './ipRisk'
+
 export default {
     settings: {
+      ipRisk,
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',
       tabs: {

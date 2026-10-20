@@ -154,6 +154,7 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/ip-risk-control.md
 !docs/openai-ws-sse-acceleration.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
