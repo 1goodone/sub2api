@@ -379,6 +379,9 @@ type UpdateSettingsRequest struct {
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
+	// Desktop pages switch (小羊咩咩 download, connect, sidebar and homepage links).
+	DesktopEnabled *bool `json:"desktop_enabled"`
+
 	// Model Plaza feature switches + description
 	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
@@ -2351,6 +2354,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.SubscriptionEnabled
 		}(),
+		DesktopEnabled: func() bool {
+			if req.DesktopEnabled != nil {
+				return *req.DesktopEnabled
+			}
+			return previousSettings.DesktopEnabled
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2846,6 +2855,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PelicanShowcaseAPIEnabled: updatedSettings.PelicanShowcaseAPIEnabled,
 		PelicanShowcase:           updatedSettings.PelicanShowcase,
 		SubscriptionEnabled:       updatedSettings.SubscriptionEnabled,
+		DesktopEnabled:            updatedSettings.DesktopEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

@@ -41,6 +41,7 @@
             <Icon name="book" size="md" />
           </a>
           <router-link
+            v-if="desktopEnabled"
             to="/desktop"
             class="flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
             :title="t('home.desktopDownload')"
@@ -494,7 +495,7 @@
           <div>
             <h3>{{ t('home.viewDocs') }}</h3>
             <a v-if="docUrl" :href="docUrl" target="_blank" rel="noopener noreferrer">{{ t('home.docs') }} ↗</a>
-            <router-link to="/desktop">{{ t('home.desktopDownload') }}</router-link>
+            <router-link v-if="desktopEnabled" to="/desktop">{{ t('home.desktopDownload') }}</router-link>
             <a :href="githubUrl" target="_blank" rel="noopener noreferrer">GitHub</a>
           </div>
           <div>
@@ -536,6 +537,7 @@ import { useHomeMotion } from '@/components/home/useHomeMotion'
 import { splitTokens } from '@/components/home/splitTokens'
 import type { Chapter } from '@/components/home/universe'
 import { sanitizeUrl } from '@/utils/url'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { buildGatewayUrl } from '@/api/url'
 import '@fontsource-variable/manrope'
 
@@ -562,6 +564,7 @@ const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const dashboardPath = computed(() => authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
 const registrationEnabled = computed(() => appStore.cachedPublicSettings?.registration_enabled === true)
+const desktopEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.desktop))
 const primaryDestination = computed(() => isAuthenticated.value ? dashboardPath.value : registrationEnabled.value ? '/register' : '/login')
 const primaryLabel = computed(() => t(isAuthenticated.value ? 'home.goToDashboard' : registrationEnabled.value ? 'home.getStarted' : 'home.login'))
 const currentYear = new Date().getFullYear()

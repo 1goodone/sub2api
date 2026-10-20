@@ -240,6 +240,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyPelicanShowcaseEnabled,
 		SettingKeySubscriptionEnabled,
+		SettingKeyDesktopEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyPluginManagementEnabled,
@@ -381,6 +382,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		PelicanShowcaseEnabled:   settings[SettingKeyPelicanShowcaseEnabled] == "true",
 
 		SubscriptionEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
+		DesktopEnabled:      !isFalseSettingValue(settings[SettingKeyDesktopEnabled]),
 
 		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
@@ -707,6 +709,7 @@ type PublicSettingsInjectionPayload struct {
 	AvailableChannelsEnabled              bool `json:"available_channels_enabled"`
 	PelicanShowcaseEnabled                bool `json:"pelican_showcase_enabled"`
 	SubscriptionEnabled                   bool `json:"subscription_enabled"`
+	DesktopEnabled                        bool `json:"desktop_enabled"`
 	ModelPlazaEnabled                     bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth                 bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled               bool `json:"plugin_management_enabled"`
@@ -801,6 +804,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:              settings.AvailableChannelsEnabled,
 		PelicanShowcaseEnabled:                settings.PelicanShowcaseEnabled,
 		SubscriptionEnabled:                   settings.SubscriptionEnabled,
+		DesktopEnabled:                        settings.DesktopEnabled,
 		ModelPlazaEnabled:                     settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                 settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled:               settings.PluginManagementEnabled,

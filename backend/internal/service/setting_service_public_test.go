@@ -298,6 +298,26 @@ func TestSettingService_GetPublicSettingsForInjection_MirrorsSubscriptionEnabled
 		payload, ok := raw.(*PublicSettingsInjectionPayload)
 		require.True(t, ok)
 		require.Equal(t, value == "true", payload.SubscriptionEnabled, "value=%q", value)
+		require.True(t, payload.DesktopEnabled, "desktop stays enabled when its own key is absent")
+	}
+}
+
+func TestSettingService_GetPublicSettings_DesktopEnabledOnlyExplicitFalseDisables(t *testing.T) {
+	cases := []struct {
+		name   string
+		values map[string]string
+		want   bool
+	}{
+		{name: "missing key defaults to enabled", values: map[string]string{}, want: true},
+		{name: "explicit false disables", values: map[string]string{SettingKeyDesktopEnabled: "false"}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewSettingService(&settingPublicRepoStub{values: tc.values}, &config.Config{})
+			settings, err := svc.GetPublicSettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, settings.DesktopEnabled)
+		})
 	}
 }
 

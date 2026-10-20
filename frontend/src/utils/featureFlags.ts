@@ -116,6 +116,11 @@ export const FeatureFlags = {
     mode: 'opt-out',
     label: 'Subscription',
   }),
+  desktop: defineFlag({
+    key: 'desktop_enabled',
+    mode: 'opt-out',
+    label: 'Xiaoyang desktop',
+  }),
   modelPlaza: defineFlag({
     key: 'model_plaza_enabled',
     mode: 'opt-in',

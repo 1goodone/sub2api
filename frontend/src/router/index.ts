@@ -189,7 +189,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: '桌面端下载',
-      titleKey: 'desktop.title'
+      titleKey: 'desktop.title',
+      requiresDesktop: true
     }
   },
   {
@@ -199,7 +200,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: '授权小羊咩咩'
+      title: '授权小羊咩咩',
+      requiresDesktop: true
     }
   },
   {
@@ -1029,7 +1031,7 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresSubscription || to.meta.requiresSupportTickets) && !appStore.publicSettingsLoaded) {
+  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresSubscription || to.meta.requiresSupportTickets || to.meta.requiresDesktop) && !appStore.publicSettingsLoaded) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -1073,6 +1075,20 @@ router.beforeEach(async (to, _from, next) => {
     appStore.publicSettingsLoaded &&
     appStore.cachedPublicSettings?.subscription_enabled === false
   ) {
+    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+    return
+  }
+
+  // 小羊咩咩桌面端是 opt-out 开关：只有显式 false 才拦截下载页和授权页。
+  if (
+    to.meta.requiresDesktop &&
+    appStore.publicSettingsLoaded &&
+    appStore.cachedPublicSettings?.desktop_enabled === false
+  ) {
+    if (!authStore.isAuthenticated) {
+      next('/home')
+      return
+    }
     next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
     return
   }

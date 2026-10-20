@@ -70,6 +70,12 @@ declare module 'vue-router' {
     requiresSubscription?: boolean
 
     /**
+     * 是否要求小羊咩咩桌面端开关（desktop_enabled，opt-out）未被显式关闭
+     * @default false
+     */
+    requiresDesktop?: boolean
+
+    /**
      * i18n key for the page title
      */
     titleKey?: string

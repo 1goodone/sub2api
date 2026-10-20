@@ -82,6 +82,12 @@ export default {
           hideUserRankingHint:
             'When on, the user Channel Monitor V2 page hides the user ranking tab and the user API returns no ranking rows. Admins still see the ranking.',
         },
+        desktop: {
+          title: 'Xiaoyang desktop',
+          description: 'Controls the download page, the connect page, sidebar entries and homepage download links. Enabled by default.',
+          enabled: 'Enable Xiaoyang desktop',
+          enabledHint: 'When off, the download page, connect page and every desktop entry are hidden.',
+        },
         availableChannels: {
           title: 'Available Channels',
           description: 'Show logged-in users an aggregate view of the channels, models and pricing they can access. Disabled by default.',

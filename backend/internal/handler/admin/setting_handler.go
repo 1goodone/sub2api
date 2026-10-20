@@ -414,6 +414,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PelicanShowcaseAPIEnabled: settings.PelicanShowcaseAPIEnabled,
 		PelicanShowcase:           settings.PelicanShowcase,
 		SubscriptionEnabled:       settings.SubscriptionEnabled,
+		DesktopEnabled:            settings.DesktopEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

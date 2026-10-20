@@ -285,6 +285,8 @@ export interface PublicSettings {
   pelican_showcase_enabled?: boolean
   /** When false, the whole user-facing subscription surface is hidden. Default true. */
   subscription_enabled: boolean
+  /** When false, 小羊咩咩 desktop pages and entry points are hidden. Default true. */
+  desktop_enabled?: boolean
   /** Mirrors payment config BALANCE_PAYMENT_DISABLED; true = balance top-up closed (subscription-only site). */
   payment_balance_disabled: boolean
   model_plaza_enabled: boolean

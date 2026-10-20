@@ -48,6 +48,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { tab: 'features', id: 'features-excel-bps-images', titleKey: 'admin.settings.features.excelBpsImages.title' },
   { tab: 'features', id: 'features-channel-monitor', titleKey: 'admin.settings.features.channelMonitor.title' },
   { tab: 'features', id: 'features-available-channels', titleKey: 'admin.settings.features.availableChannels.title' },
+  { tab: 'features', id: 'features-desktop', titleKey: 'admin.settings.features.desktop.title' },
   { tab: 'features', id: 'features-pelican-showcase', titleKey: 'admin.settings.features.pelicanShowcase.title' },
   { tab: 'features', id: 'features-model-plaza', titleKey: 'admin.settings.features.modelPlaza.title' },
   { tab: 'features', id: 'features-site-billing-mode', titleKey: 'admin.settings.features.siteBillingMode.title' },

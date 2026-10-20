@@ -82,6 +82,12 @@ export default {
           hideUserRankingHint:
             '开启后，用户端渠道监控 V2 不再显示「用户排行」页，用户 API 也不返回排行数据。管理员仍可查看。',
         },
+        desktop: {
+          title: '小羊咩咩桌面端',
+          description: '控制下载页、授权页、侧边栏入口和首页下载链接。默认开启。',
+          enabled: '启用小羊咩咩桌面端',
+          enabledHint: '关闭后，下载页、授权页和所有桌面端入口都不再显示。',
+        },
         availableChannels: {
           title: '可用渠道',
           description: '向已登录用户展示他们能访问的渠道、模型和定价聚合视图。默认关闭。',

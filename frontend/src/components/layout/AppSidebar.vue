@@ -363,6 +363,7 @@ const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
 const flagPelicanShowcase = makeSidebarFlag(FeatureFlags.pelicanShowcase)
 const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)
+const flagDesktop = makeSidebarFlag(FeatureFlags.desktop)
 
 // 购买入口文案随站点计费模式切换：仅充值 → 「充值」，仅订阅 → 「订阅」，否则「充值/订阅」。
 const purchaseNavLabel = computed(() => {
@@ -401,7 +402,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     items.push({ path: '/packages', label: t('nav.keyPackages'), icon: PackageIcon })
   }
   items.push(
-    { path: '/desktop', label: t('nav.desktop'), icon: DownloadIcon },
+    { path: '/desktop', label: t('nav.desktop'), icon: DownloadIcon, featureFlag: flagDesktop },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: !authStore.isObserver },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -543,7 +544,9 @@ const adminNavItems = computed((): NavItem[] => {
     if (keyPackagesEnabled) {
       filtered.push({ path: '/packages', label: t('nav.keyPackages'), icon: PackageIcon })
     }
-    filtered.push({ path: '/desktop', label: t('nav.desktop'), icon: DownloadIcon })
+    if (flagDesktop()) {
+      filtered.push({ path: '/desktop', label: t('nav.desktop'), icon: DownloadIcon, featureFlag: flagDesktop })
+    }
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
       filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })

@@ -7797,6 +7797,30 @@
           </div>
         </div>
 
+        <div class="card" data-testid="desktop-settings">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 id="settings-section-features-desktop" tabindex="-1" class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.desktop.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.desktop.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.desktop.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.desktop.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.desktop_enabled" />
+            </div>
+          </div>
+        </div>
+
         <PelicanShowcaseSettings
           v-model:enabled="form.pelican_showcase_enabled"
           v-model:api-enabled="form.pelican_showcase_api_enabled"
@@ -10349,6 +10373,7 @@ type SettingsForm = Omit<
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
   pelican_showcase_enabled: boolean;
+  desktop_enabled: boolean;
   pelican_showcase_api_enabled: boolean;
   pelican_showcase_config: PelicanShowcaseConfig;
   smtp_password: string;
@@ -10712,6 +10737,7 @@ const form = reactive<SettingsForm>({
   pelican_showcase_config: defaultPelicanShowcaseConfig(),
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: true,
+  desktop_enabled: true,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11765,6 +11791,7 @@ async function loadSettings() {
     form.channel_monitor_hide_user_ranking = Boolean(
       settings.channel_monitor_hide_user_ranking
     );
+    form.desktop_enabled = settings.desktop_enabled !== false;
     form.excel_bps_enabled = settings.excel_bps_enabled !== false;
     form.prism_browser_enabled = Boolean(settings.prism_browser_enabled);
     form.prism_browser_base_url =
@@ -12544,6 +12571,7 @@ async function saveSettings() {
       pelican_showcase_config: sanitizePelicanShowcaseConfig(form.pelican_showcase_config),
       // Subscription feature switch
       subscription_enabled: form.subscription_enabled,
+      desktop_enabled: form.desktop_enabled,
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

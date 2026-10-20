@@ -233,6 +233,9 @@ type SystemSettings struct {
 	// to form the admin-facing "site billing mode" selector.
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
+	// Desktop pages (小羊咩咩 download, connect, sidebar and homepage links).
+	DesktopEnabled bool `json:"desktop_enabled"`
+
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
@@ -468,6 +471,9 @@ type PublicSettings struct {
 
 	// Subscription feature switch (see SystemSettings.SubscriptionEnabled)
 	SubscriptionEnabled bool `json:"subscription_enabled"`
+
+	// Desktop pages (小羊咩咩 download, connect, sidebar and homepage links).
+	DesktopEnabled bool `json:"desktop_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled       bool `json:"model_plaza_enabled"`
