@@ -607,6 +607,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return admissionErr
 	}
 	account = latest
+	if account.IsSIWCEnabled() {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "SIWC accounts require HTTP/SSE", nil)
+	}
 	if account.IsPrismBrowserEnabledForModel(extractOpenAICodexTicketModel(firstClientMessage)) && s.prismBrowserGloballyEnabled(ctx) {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "Prism accounts require HTTP/SSE", nil)
 	}

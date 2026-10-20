@@ -7,7 +7,7 @@ const ipGeoMocks = vi.hoisted(() => ({
 const appStoreMocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
-  cachedPublicSettings: undefined as { usage_show_long_context_badge?: boolean; usage_show_average_tps?: boolean } | undefined,
+  cachedPublicSettings: undefined as { usage_show_long_context_badge?: boolean; usage_show_average_tps?: boolean; usage_show_cache_rate?: boolean; usage_show_cache_rate_to_users?: boolean; usage_show_upstream_response_model_to_users?: boolean } | undefined,
 }))
 
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
@@ -572,6 +572,30 @@ describe('admin UsageTable tooltip', () => {
 		expect(text).toContain('gpt-5.5')
 		expect(text).toContain(responseModel)
 		expect(text).toContain(expectedBadge)
+		expect(wrapper.find('[data-testid="user-upstream-response-model"]').exists()).toBe(false)
+	})
+
+	it('shows the upstream response model to users only when the admin setting is on', () => {
+		const row = {
+			request_id: 'req-user-response-model',
+			model: 'gpt-5.4',
+			upstream_response_model: 'gpt-5.4-actual',
+		}
+		appStoreMocks.cachedPublicSettings = undefined
+		const hidden = mount(UsageTable, {
+			props: { data: [row], loading: false, columns: [], cacheRateAudience: 'user' },
+			global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+		})
+		expect(hidden.find('[data-testid="user-upstream-response-model"]').exists()).toBe(false)
+
+		appStoreMocks.cachedPublicSettings = { usage_show_upstream_response_model_to_users: true }
+		const shown = mount(UsageTable, {
+			props: { data: [row], loading: false, columns: [], cacheRateAudience: 'user' },
+			global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+		})
+		expect(shown.find('[data-testid="user-upstream-response-model"]').text()).toContain('gpt-5.4-actual')
+		expect(shown.text()).not.toContain('Different model')
+		appStoreMocks.cachedPublicSettings = undefined
 	})
 
   it.each([
@@ -966,7 +990,7 @@ describe('UsageTable compact user records', () => {
       },
     })
     expect(wrapper.findAll('[data-testid="timing"]').map((cell) => cell.text())).toEqual([
-      '首字-总耗时-', '首字0ms总耗时0ms', '首字100ms总耗时345ms', '首字200ms总耗时5.20s', '首字300ms总耗时1m 1s', '首字400ms总耗时1h 2m',
+      '首字-总耗时-usage.latencyCacheRate-', '首字0ms总耗时0msusage.latencyCacheRate-', '首字100ms总耗时345msusage.latencyCacheRate-', '首字200ms总耗时5.20susage.latencyCacheRate-', '首字300ms总耗时1m 1susage.latencyCacheRate-', '首字400ms总耗时1h 2musage.latencyCacheRate-',
     ])
     expect(wrapper.find('[data-testid="latency-tps"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="tps"]')).toHaveLength(6)

@@ -151,6 +151,7 @@
           :show-upstream-endpoint="false"
           compact
           flat
+          cache-rate-audience="user"
           default-sort-key="created_at"
           default-sort-order="desc"
           @sort="handleSort"
@@ -251,6 +252,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatCompactNumber, formatReasoningEffort } from '@/utils/format'
 import { formatUsageCacheRate, showUsageCacheRate } from '@/utils/usageCacheRate'
 import { platformIconClass } from '@/utils/platformColors'
+import { showUpstreamResponseModelToUsers } from '@/utils/upstreamResponseModel'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import type {
@@ -282,7 +284,6 @@ const UserErrorRequestsTable = lazyPanel(() => import('@/components/user/UserErr
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const includeCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, 'user'))
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -415,6 +416,8 @@ const usageTabs = computed<{ value: UsageTab; label: string }[]>(() => [
   { value: 'analysis', label: t('usage.personal.analysis') },
   ...(errorViewEnabled.value ? [{ value: 'errors' as const, label: t('usage.tabs.errors') }] : []),
 ])
+const includeCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, 'user'))
+const includeUpstreamResponseModel = computed(() => showUpstreamResponseModelToUsers(appStore.cachedPublicSettings))
 
 const filters = ref<UsageQueryParams>({
   start_date: startDate.value,
@@ -762,6 +765,7 @@ const escapeCSVValue = (value: unknown): string => {
   if (value == null) return ''
   const str = String(value)
   const escaped = str.replace(/"/g, '""')
+  if (str === '-') return str
   if (/^[=+\-@\t\r]/.test(str)) return `"\'${escaped}"`
   if (/[,"\n\r]/.test(str)) return `"${escaped}"`
   return str
@@ -791,6 +795,7 @@ const exportToCSV = async () => {
       'Time',
       'API Key Name',
       'Model',
+      ...(includeUpstreamResponseModel.value ? ['Upstream Response Model'] : []),
       'Reasoning Effort',
       'Inbound Endpoint',
       'IP Address',
@@ -811,6 +816,7 @@ const exportToCSV = async () => {
       log.created_at,
       log.api_key?.name || '',
       log.model,
+      ...(includeUpstreamResponseModel.value ? [log.upstream_response_model?.trim() || ''] : []),
       formatReasoningEffort(log.reasoning_effort),
       log.inbound_endpoint || '',
       log.ip_address || '',

@@ -690,6 +690,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyUsageShowCacheRate] = strconv.FormatBool(settings.UsageShowCacheRate)
 	updates[SettingKeyUsageShowCacheRateToUsers] = strconv.FormatBool(settings.UsageShowCacheRateToUsers)
 	updates[SettingKeyUsageShowAverageTPS] = strconv.FormatBool(settings.UsageShowAverageTPS)
+	updates[SettingKeyUsageShowUpstreamResponseModelToUsers] = strconv.FormatBool(settings.UsageShowUpstreamResponseModelToUsers)
 	updates[SettingKeyRequestCaptureEnabled] = strconv.FormatBool(captureConfig.Enabled)
 	updates[SettingKeyRequestCaptureQuotaMiB] = strconv.FormatInt(captureConfig.QuotaMiB, 10)
 	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)

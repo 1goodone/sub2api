@@ -848,6 +848,10 @@ readLoop:
 				errMsg = "Upstream websocket error"
 			}
 			fallbackReason, canFallback := classifyOpenAIWSErrorEventFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
+			if fallbackReason == openAIWSFallbackReasonInvalidEncryptedContent {
+				// 已向下游写出时返回的普通错误不携带 fallback reason，由 Forward 读取该标记补记 lineage。
+				markOpenAIStreamInvalidEncryptedContent(c)
+			}
 			errCode, errType, errMessage := summarizeOpenAIWSErrorEventFieldsFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
 			logOpenAIWSModeInfo(
 				"error_event account_id=%d conn_id=%s idx=%d fallback_reason=%s can_fallback=%v err_code=%s err_type=%s err_message=%s",

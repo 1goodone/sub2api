@@ -1463,7 +1463,7 @@ func (a *Account) IsOpenAIOAuthLike() bool {
 // UsesOpenAICodexProtocol preserves legacy OpenAI gateway OAuth routing for
 // accounts whose platform is implicit, while adding OpenAI SetupToken.
 func (a *Account) UsesOpenAICodexProtocol() bool {
-	return a != nil && (a.Type == AccountTypeOAuth || a.IsOpenAIOAuthLike())
+	return a != nil && !a.IsSIWCEnabled() && (a.Type == AccountTypeOAuth || a.IsOpenAIOAuthLike())
 }
 
 func (a *Account) IsOpenAIChatGPTSubscription() bool {
@@ -2195,6 +2195,9 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 // IsExcelBPSEnabled routes an existing ChatGPT OAuth account to the Excel gateway.
 // Credentials and refresh remain on the original account; no sidecar is involved.
 func (a *Account) IsExcelBPSEnabled() bool {
+	if a.IsSIWCEnabled() {
+		return false
+	}
 	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth || a.IsShadow() || a.IsOpenAIAgentIdentity() || a.IsOpenAIPersonalAccessToken() {
 		return false
 	}
@@ -2363,6 +2366,9 @@ func (a *Account) IsCopilotSDKEnabled() bool {
 // 1. 按账号类型读取分类型字段
 // 2. 分类型字段缺失时，回退兼容字段
 func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
+	if a.IsSIWCEnabled() {
+		return false
+	}
 	if a.IsCopilotSDKEnabled() || a.isExcelBPSAllModelsEnabled() {
 		return false
 	}
@@ -2434,6 +2440,9 @@ func normalizeOpenAIWSIngressDefaultMode(mode string) string {
 // 3. 兼容 enabled 旧字段（bool）
 // 4. defaultMode（非法时回退 ctx_pool）
 func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) string {
+	if a.IsSIWCEnabled() {
+		return OpenAIWSIngressModeOff
+	}
 	if a.IsCopilotSDKEnabled() || a.isExcelBPSAllModelsEnabled() {
 		return OpenAIWSIngressModeOff
 	}

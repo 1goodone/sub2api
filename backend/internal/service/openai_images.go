@@ -571,6 +571,18 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	requestModel := strings.TrimSpace(parsed.Model)
+	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
+		requestModel = mapped
+	}
+	latest, admissionErr := s.admitOpenAITurn(context.WithoutCancel(ctx), c, account, requestModel)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	account = latest
+	if account.IsSIWCEnabled() {
+		return nil, fmt.Errorf("SIWC does not support image generation; select Codex for this account")
+	}
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)

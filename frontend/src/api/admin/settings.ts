@@ -816,6 +816,9 @@ export interface SystemSettings {
   allow_user_view_error_requests: boolean;
   usage_show_long_context_badge: boolean;
   usage_show_average_tps: boolean;
+  usage_show_cache_rate: boolean;
+  usage_show_cache_rate_to_users: boolean;
+  usage_show_upstream_response_model_to_users: boolean;
   request_capture_enabled: boolean;
   request_capture_quota_mib: number;
   request_capture_retention_days: number;
@@ -1177,6 +1180,9 @@ export interface UpdateSettingsRequest {
   allow_user_view_error_requests?: boolean;
   usage_show_long_context_badge?: boolean;
   usage_show_average_tps?: boolean;
+  usage_show_cache_rate?: boolean;
+  usage_show_cache_rate_to_users?: boolean;
+  usage_show_upstream_response_model_to_users?: boolean;
   request_capture_enabled?: boolean;
   request_capture_quota_mib?: number;
   request_capture_retention_days?: number;

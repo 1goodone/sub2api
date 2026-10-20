@@ -154,7 +154,11 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/ip-risk-control.md
 !docs/openai-ws-sse-acceleration.md
+!docs/openai-outbound-identity.md
+!docs/openai-2fa-dual-oauth.md
+!docs/openai-siwc.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -168,6 +172,7 @@ docs/*
 !docs/cyber-session-blocking.md
 !docs/request-capture.md
 !docs/gateway-transport-diagnostics.md
+!docs/chat-responses-bridge-recovery.md
 !docs/codex-credits.md
 !docs/priority-scheduling.md
 !docs/legal/

@@ -1,3 +1,4 @@
+import siwc from './siwc'
 import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
 import controlledExperiments from './controlledExperiments'
@@ -21,6 +22,7 @@ import misc from './misc'
 import autoConfig from './autoConfig'
 
 export default {
+  siwc,
   autoConfig,
   priorityScheduling,
   qualityOps,

@@ -469,6 +469,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 		if reqStream {
 			result, handleErr := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+			if phaseErr := openAIHTTPPhaseError(resp); phaseErr != nil {
+				return nil, handleOpenAIHTTPPhaseError(c, account, phaseErr)
+			}
 			if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
 					c, account, requestedModel, body, handleErr, compactModelFallbackRetried, resp,
@@ -496,6 +499,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			imageOutputSizes = result.imageOutputSizes
 		} else {
 			result, handleErr := s.handleNonStreamingResponsePassthrough(ctx, resp, c, account, reqModel, upstreamPassthroughModel)
+			if phaseErr := openAIHTTPPhaseError(resp); phaseErr != nil {
+				return nil, handleOpenAIHTTPPhaseError(c, account, phaseErr)
+			}
 			if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
 					c, account, requestedModel, body, handleErr, compactModelFallbackRetried, resp,
@@ -606,6 +612,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	token string,
 ) (*http.Request, error) {
 	defer requesttiming.Observe(ctx, "build_upstream_request")()
+	if account.IsSIWCEnabled() {
+		return s.buildSIWCRequest(ctx, c, body, token)
+	}
 	if codexAccountIdentitySource(c, account).IsExcelOAuth() {
 		return nil, errExcelOAuthRouteUnavailable
 	}
@@ -1956,6 +1965,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	terminalEventType := ""
 	terminalSuccessful := false
 	semanticOutputSeen := false
+	budgetProgressPending := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
@@ -2238,6 +2248,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType)
 			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
 				semanticOutputSeen = true
+				budgetProgressPending = true
 			}
 			lineStartsClientOutput = lineStartsClientOutput || (firstResponseEnabled && !clientOutputStarted && isStreamFirstResponse(trimmedData, eventType))
 			// OpenAI Responses streams that terminate with an empty
@@ -2269,6 +2280,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
 		}
 		if line == "" {
+			if budgetProgressPending && !sawFailedEvent {
+				observeOpenAIHTTPProgress(ctx)
+				budgetProgressPending = false
+			}
 			pendingSSEEventType = ""
 			if suppressCurrentEvent {
 				suppressCurrentEvent = false

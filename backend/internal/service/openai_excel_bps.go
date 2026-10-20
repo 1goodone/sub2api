@@ -941,6 +941,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	var completed []byte
 	var upstreamFailure *basispoints.UpstreamFailure
+	var bridgeFailure *basispoints.BridgeFailure
 	terminal := ""
 	terminalSuccessful := false
 	cacheCreationAsInput := account.IsExcelBPSCacheCreationAsInputEnabled()
@@ -968,7 +969,8 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			switch kind {
 			case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
-				if kind != "response.completed" {
+				bridgeFailure = basispoints.ParseBridgeFailure(payload)
+				if kind != "response.completed" && bridgeFailure == nil {
 					s.rateLimitService.observeQualityStatus(ctx, account, openAIStreamFailureStatus(payload, extractOpenAISSEErrorMessage(payload)))
 				}
 				if kind == "response.completed" && lease != nil {
@@ -980,6 +982,21 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				result.ResponseID = gjson.GetBytes(payload, "response.id").String()
 				result.UpstreamResponseModel = gjson.GetBytes(payload, "response.model").String()
 				upstreamFailure = basispoints.ParseUpstreamFailure(payload)
+				if bridgeFailure != nil {
+					setOpsUpstreamError(c, resp.StatusCode, "", "")
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+						ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+						UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+						UpstreamURL: basispoints.ResponsesURL, Kind: "bridge_error", Stage: bridgeFailure.FailureStage,
+						Reason: bridgeFailure.RepairSkippedReason, Message: bridgeFailure.Message,
+					})
+					MarkOpsStreamErrorValue(c, OpsStreamError{
+						ErrType: "server_error", Code: "basispoints_protocol_error", Message: bridgeFailure.Message,
+						IntendedStatus: http.StatusBadGateway, CountTowardsSLA: true, NonStream: !stream,
+						BridgeFailure: bridgeFailure,
+					})
+				}
 				if upstreamFailure != nil {
 					// Preserve the actual HTTP status separately from the event's
 					// semantic status. An accepted generation is never replayed.
@@ -1046,7 +1063,17 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				c.JSON(upstreamFailure.Status, gin.H{"error": upstreamFailure.Details()})
 			}
 		} else if terminal != "response.completed" {
-			c.JSON(502, gin.H{"error": gin.H{"code": "basispoints_protocol_error", "message": "Excel BPS did not complete the response"}})
+			message := "Excel BPS did not complete the response"
+			detail := map[string]any{"code": "basispoints_protocol_error", "message": message}
+			if bridgeFailure != nil {
+				detail = bridgeFailure.Details()
+				message = bridgeFailure.Message
+			}
+			if StopOpenAICompactSSEKeepaliveCommitted(c) {
+				writeOpenAICompactSSEFailureMessage(c, http.StatusBadGateway, "basispoints_protocol_error", message)
+			} else {
+				c.JSON(http.StatusBadGateway, gin.H{"error": detail})
+			}
 		} else {
 			c.Data(200, "application/json", completed)
 		}

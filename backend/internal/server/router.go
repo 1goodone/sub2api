@@ -69,6 +69,11 @@ func SetupRouter(
 		return nil
 	}))
 	r.Use(middleware2.ServerTiming(cfg.Server.EnableServerTiming))
+	// Run before embedded HTML and business handlers. Verified serverless IPs
+	// have already been attached by SessionBindingContext.
+	if settingService.IPRisk != nil {
+		r.Use(settingService.IPRisk.Middleware())
+	}
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {

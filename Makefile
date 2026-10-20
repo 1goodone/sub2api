@@ -1,9 +1,11 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/account/__tests__/SIWCAccountSettings.spec.ts \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \
 	src/components/admin/account/__tests__/IQTestModal.modelTrace.spec.ts \
+	src/features/ip-risk/__tests__/IPRiskSettings.spec.ts \
 	src/components/admin/account/__tests__/OpenAISessionExportDialog.spec.ts \
 	src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts \
 	src/api/__tests__/groupCacheTest.spec.ts \

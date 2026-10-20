@@ -699,7 +699,7 @@ func (s *OpenAIOAuthReauthService) CreateTask(ctx context.Context, accountID int
 }
 
 func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, accountID int64, profile string) (*OpenAIOAuthReauthTask, error) {
-	if profile != "codex" && profile != "excel" {
+	if profile != "codex" && profile != "excel" && profile != "siwc" {
 		return nil, infraerrors.BadRequest("OPENAI_REAUTH_PROFILE_INVALID", "Invalid OAuth profile")
 	}
 	if err := s.ensureReady(); err != nil {
@@ -726,6 +726,9 @@ func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, acc
 	if view == nil || !view.Configured {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_REAUTH_CONFIG_REQUIRED", "save a complete re-login configuration first")
 	}
+	if profile == "siwc" && stored.CredentialMode != OpenAIOAuthReauthModePasswordTOTP {
+		return nil, infraerrors.BadRequest("OPENAI_SIWC_LOGIN_REQUIRED", "SIWC automatic authorization requires saved password/TOTP login")
+	}
 	if profile == "excel" && (stored.CredentialMode != OpenAIOAuthReauthModePasswordTOTP || !QualityBPSEligible(account)) {
 		return nil, infraerrors.BadRequest("OPENAI_REAUTH_EXCEL_CONFIG_REQUIRED", "Excel authorization requires a paid OAuth parent account with saved password/TOTP login")
 	}
@@ -737,13 +740,20 @@ func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, acc
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_CREDENTIAL_SNAPSHOT_FAILED", "failed to snapshot account credentials")
 	}
 	var record *OpenAIOAuthReauthTaskRecord
-	if profile == "excel" {
+	switch profile {
+	case "siwc":
+		siwcRepo, repoErr := s.siwcRepository()
+		if repoErr != nil {
+			return nil, repoErr
+		}
+		record, err = siwcRepo.CreateSIWCTask(ctx, accountID, expectedCredentialsHash)
+	case "excel":
 		excelRepo, ok := s.repo.(OpenAIExcelOAuthRepository)
 		if !ok {
 			return nil, infraerrors.ServiceUnavailable("OPENAI_REAUTH_EXCEL_UNAVAILABLE", "Excel authorization queue is unavailable")
 		}
 		record, err = excelRepo.CreateExcelTask(ctx, accountID, expectedCredentialsHash)
-	} else {
+	default:
 		record, err = s.repo.CreateTask(ctx, accountID, expectedCredentialsHash)
 	}
 	if err != nil {
@@ -859,10 +869,10 @@ func (s *OpenAIOAuthReauthService) ClaimTaskWithEngines(ctx context.Context, wor
 		mode = OpenAIOAuthReauthModeEmailOTPURL
 	}
 	engine := effectiveReauthEngine(mode, stored.Engine, runtimeSettings.Engine)
-	if record.OAuthProfile == "excel" {
+	if record.OAuthProfile == "excel" || record.OAuthProfile == "siwc" {
 		engine = OpenAIOAuthReauthEngineLocal
 		if mode != OpenAIOAuthReauthModePasswordTOTP {
-			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "Excel authorization requires password/TOTP mode")
+			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "Selected OAuth profile requires password/TOTP mode")
 			return nil, nil
 		}
 	}
@@ -969,6 +979,19 @@ func (s *OpenAIOAuthReauthService) ClaimTaskWithEngines(ctx context.Context, wor
 		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "re-login credential mode is invalid")
 		return nil, nil
 	}
+	if record.OAuthProfile == "siwc" {
+		auth, authErr := s.beginSIWCAuthorization(ctx, account, proxyURL)
+		if authErr != nil {
+			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "failed to prepare SIWC authorization")
+			return nil, nil
+		}
+		if err := s.repo.SetSession(ctx, record.ID, workerID, auth.SessionID); err != nil {
+			s.oauth.sessionStore.Delete(auth.SessionID)
+			_ = s.repo.MarkFailed(ctx, record.ID, workerID, "failed to persist SIWC session")
+			return nil, nil
+		}
+		claim.AuthURL = auth.AuthURL
+	}
 	if release != nil {
 		s.replaceMihomoLease(record.ID, release)
 		leaseStored = true
@@ -1030,6 +1053,16 @@ func (s *OpenAIOAuthReauthService) SubmitCallback(ctx context.Context, taskID in
 	if err != nil || subtle.ConstantTimeCompare([]byte(currentCredentialsHash), []byte(record.ExpectedCredentialsHash)) != 1 {
 		return s.failCallback(ctx, taskID, "account credentials changed while re-login was running", errors.New("credential snapshot mismatch"))
 	}
+	if record.OAuthProfile == "siwc" {
+		if err := s.CompleteSIWCAuthorization(ctx, record.AccountID, record.AuthSessionID, callback, record); err != nil {
+			return s.failCallback(ctx, taskID, "SIWC authorization failed; retry or complete browser consent", err)
+		}
+		final, err := s.repo.GetTask(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		return safeReauthTask(final), nil
+	}
 	code, state, err := parseReauthCallback(callback)
 	if err != nil {
 		return s.failCallback(ctx, taskID, "invalid OAuth callback", err)
@@ -1069,6 +1102,9 @@ func (s *OpenAIOAuthReauthService) SubmitCredentials(ctx context.Context, taskID
 	currentCredentialsHash, err := hashReauthCredentials(account.Credentials)
 	if err != nil || subtle.ConstantTimeCompare([]byte(currentCredentialsHash), []byte(record.ExpectedCredentialsHash)) != 1 {
 		return s.failCallback(ctx, taskID, "account credentials changed while re-login was running", errors.New("credential snapshot mismatch"))
+	}
+	if record.OAuthProfile == "siwc" {
+		return s.failCallback(ctx, taskID, "SIWC requires a server-bound callback", errors.New("direct SIWC credentials are not accepted"))
 	}
 	if record.OAuthProfile == "excel" {
 		return s.applyExcelReauthCredentials(ctx, record, account, credentials)

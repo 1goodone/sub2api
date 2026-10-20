@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -1293,12 +1294,25 @@ func hashSensitiveValueForLog(raw string) string {
 
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	defer requesttiming.Observe(ctx, "upstream_credentials")()
+	selectedSIWC := account.IsSIWCEnabled()
 	if account.IsShadow() {
 		credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil {
 			return "", "", err
 		}
 		account = credAccount
+	}
+	if selectedSIWC {
+		if s.excelOAuthReauth == nil {
+			return "", "", errors.New("SIWC credential service is unavailable")
+		}
+		var cache OpenAITokenCache
+		if s.openAITokenProvider != nil {
+			cache = s.openAITokenProvider.tokenCache
+		}
+		token, err := s.excelOAuthReauth.SIWCAccessToken(ctx, account, cache)
+		return token, "siwc", err
 	}
 	switch account.Type {
 	case AccountTypeOAuth:

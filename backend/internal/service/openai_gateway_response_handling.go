@@ -297,6 +297,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	completeGuardedEvent := func(queueDrained bool) {
 		completedProgressEvent := eventStartsClientOutput
 		completedTTFTEvent := eventStartsTTFTOutput
+		if completedProgressEvent && !terminalFailurePending && !sawFailedEvent {
+			observeOpenAIHTTPProgress(ctx)
+		}
 		shouldFlush := eventShouldFlush || (queueDrained && clientOutputStarted)
 		eventInProgress = false
 		if !clientDisconnected {
@@ -546,6 +549,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				failedMessage = extractOpenAISSEErrorMessage(dataBytes)
 				if failedMessage == "" {
 					failedMessage = "Upstream response failed"
+				}
+				if isOpenAIInvalidEncryptedContentEvent(dataBytes) {
+					markOpenAIStreamInvalidEncryptedContent(c)
 				}
 				// response.failed 自带上游已消耗的 usage（input token 通常已扣）；必须先解析
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费

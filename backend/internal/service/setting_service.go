@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/iprisk"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"golang.org/x/sync/singleflight"
@@ -131,6 +132,7 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
+	IPRisk                             *iprisk.Manager // Initialized before requests start.
 	modelBillingCache                  modelBillingConfigCache
 	prioritySchedulingConfig           priorityConfigCache
 	requestCapture                     *requestcapture.Manager

@@ -8,7 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const forwardedIPSettingsKey = "sub2api.forwarded_ip_settings"
+const (
+	forwardedIPSettingsKey = "sub2api.forwarded_ip_settings"
+	verifiedForwardedIPKey = "sub2api.verified_forwarded_ip"
+)
 
 type forwardedIPSettings struct {
 	trustForwarded bool
@@ -31,6 +34,30 @@ func SetForwardedIPSettings(c *gin.Context, enabled bool, headers []string) {
 // Gin's server.trusted_proxies chain for this request.
 func SetLegacyForwardedIPTrust(c *gin.Context, enabled bool) {
 	SetForwardedIPSettings(c, enabled, nil)
+}
+
+// SetVerifiedForwardedIP records an address already authenticated by the
+// internal forwarding path. Both client-IP resolvers prefer it over headers.
+func SetVerifiedForwardedIP(c *gin.Context, address string) {
+	if c == nil {
+		return
+	}
+	c.Set(verifiedForwardedIPKey, address)
+}
+
+func verifiedForwardedIP(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, ok := c.Get(verifiedForwardedIPKey)
+	if !ok {
+		return ""
+	}
+	address, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return normalizeIP(address)
 }
 
 func requestForwardedIPSettings(c *gin.Context) (forwardedIPSettings, bool) {
@@ -57,6 +84,9 @@ func requestUsesLegacyForwardedIPTrust(c *gin.Context) bool {
 func GetClientIP(c *gin.Context) string {
 	if c == nil {
 		return ""
+	}
+	if address := verifiedForwardedIP(c); address != "" {
+		return address
 	}
 	if !requestUsesLegacyForwardedIPTrust(c) {
 		return GetTrustedClientIP(c)
@@ -153,6 +183,9 @@ func resolveLegacyForwardedHeaderIP(c *gin.Context) (string, string) {
 func GetTrustedClientIP(c *gin.Context) string {
 	if c == nil {
 		return ""
+	}
+	if address := verifiedForwardedIP(c); address != "" {
+		return address
 	}
 	return normalizeIP(c.ClientIP())
 }
