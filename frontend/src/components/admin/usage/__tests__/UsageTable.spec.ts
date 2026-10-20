@@ -990,7 +990,7 @@ describe('UsageTable compact user records', () => {
       },
     })
     expect(wrapper.findAll('[data-testid="timing"]').map((cell) => cell.text())).toEqual([
-      '首字-总耗时-', '首字0ms总耗时0ms', '首字100ms总耗时345ms', '首字200ms总耗时5.20s', '首字300ms总耗时1m 1s', '首字400ms总耗时1h 2m',
+      '首字-总耗时-usage.latencyCacheRate-', '首字0ms总耗时0msusage.latencyCacheRate-', '首字100ms总耗时345msusage.latencyCacheRate-', '首字200ms总耗时5.20susage.latencyCacheRate-', '首字300ms总耗时1m 1susage.latencyCacheRate-', '首字400ms总耗时1h 2musage.latencyCacheRate-',
     ])
     expect(wrapper.find('[data-testid="latency-tps"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="tps"]')).toHaveLength(6)
