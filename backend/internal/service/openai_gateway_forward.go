@@ -903,6 +903,28 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 		}
 	}
+	// 上游拒绝发生在流已开始之后时（WS 错误事件、HTTP SSE 流内 error /
+	// response.failed），本请求无法剥离重试，但仍需把进场 body 的密文摘要记入
+	// lineage，否则客户端下一轮带着同一失效密文进场会再次被拒，会话无法恢复。
+	markInvalidEncryptedContentLineage := func(transport string) {
+		if isControlledExperiment(ctx) {
+			return
+		}
+		invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
+		if len(invalidDigests) == 0 {
+			return
+		}
+		if lineageSessionHash == "" {
+			lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
+		}
+		s.markOpenAIWSInvalidEncryptedContentLineage(lineageGroupID, lineageSessionHash, invalidDigests)
+		logOpenAIWSModeInfo(
+			"invalid_encrypted_content_lineage_mark account_id=%d transport=%s digests=%d",
+			account.ID,
+			transport,
+			len(invalidDigests),
+		)
+	}
 	imageBillingModel := ""
 	imageSizeTier := ""
 	imageInputSize := ""
@@ -1036,6 +1058,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	wsRetryLoop:
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			wsAttempts = attempt
+			_ = takeOpenAIStreamInvalidEncryptedContent(c)
 			wsResult, wsErr = s.forwardOpenAIWSV2(
 				ctx,
 				c,
@@ -1057,14 +1080,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
-			if c != nil && c.Writer != nil && c.Writer.Written() {
-				break
-			}
+			written := c != nil && c.Writer != nil && c.Writer.Written()
 			var capacityFailover *UpstreamFailoverError
-			if errors.As(wsErr, &capacityFailover) {
+			if errors.As(wsErr, &capacityFailover) && !written {
 				return nil, capacityFailover
 			}
-			if accelerateHTTPSSE {
+			if IsOpenAITurnAdmissionError(wsErr) {
+				return nil, wsErr
+			}
+			streamRejectedEncryptedContent := takeOpenAIStreamInvalidEncryptedContent(c)
+			if written || accelerateHTTPSSE {
+				// 下方的剥离重试在这里不可达，只补记 lineage 供下一轮进场预剥离。
+				if streamRejectedEncryptedContent && codexWSAnchorFromContext(ctx) == nil {
+					markInvalidEncryptedContentLineage("ws")
+				}
 				break
 			}
 			var taskRecoveredErr *agentIdentityTaskRecoveredError
@@ -1414,8 +1443,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		searchCount := 0
 		var imageOutputSizes []string
 		if reqStream {
+			_ = takeOpenAIStreamInvalidEncryptedContent(c)
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
 			if err != nil {
+				if takeOpenAIStreamInvalidEncryptedContent(c) {
+					markInvalidEncryptedContentLineage("http")
+				}
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 						c, account, requestedModel, body, http.StatusBadRequest, signal.message, signal.payload, compactModelFallbackRetried,

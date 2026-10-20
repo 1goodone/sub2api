@@ -547,6 +547,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				if failedMessage == "" {
 					failedMessage = "Upstream response failed"
 				}
+				if isOpenAIInvalidEncryptedContentEvent(dataBytes) {
+					markOpenAIStreamInvalidEncryptedContent(c)
+				}
 				// response.failed 自带上游已消耗的 usage（input token 通常已扣）；必须先解析
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
 				// 而漏记真实用量。对齐 WS V2 / Chat 流式路径（均先解析 usage 再 Mark）。

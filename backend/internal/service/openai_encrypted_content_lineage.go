@@ -24,6 +24,48 @@ const openAIWSFallbackReasonInvalidEncryptedContent = "invalid_encrypted_content
 // 供 HTTP bridge turn 内的 lineage 记录复用同一会话键。
 const openAIWSIngressSessionHashContextKey = "openai_ws_ingress_session_hash"
 
+// openAIStreamInvalidEncryptedContentContextKey 标记本次上游流内出现过
+// invalid_encrypted_content 拒绝（error / response.failed 事件）。流内拒绝发生时
+// 响应已开始，本请求无法再剥离重试；Forward 读取该标记补记 lineage，让下一轮
+// 进场预剥离同一失效密文，避免会话每轮都被同一密文拒绝。
+const openAIStreamInvalidEncryptedContentContextKey = "openai_stream_invalid_encrypted_content"
+
+// isOpenAIInvalidEncryptedContentEvent 判断流内 error / response.failed 事件是否
+// 为上游 invalid_encrypted_content 拒绝。判定规则复用 isExcelBPSInvalidEncryptedContent
+// （显式错误码优先，缺码时才匹配固定诊断文案），并覆盖 response.failed 嵌套的
+// response.error。
+func isOpenAIInvalidEncryptedContentEvent(payload []byte) bool {
+	if isExcelBPSInvalidEncryptedContent(payload) {
+		return true
+	}
+	nested := gjson.GetBytes(payload, "response.error")
+	if !nested.IsObject() {
+		return false
+	}
+	return isExcelBPSInvalidEncryptedContent([]byte(`{"error":` + nested.Raw + `}`))
+}
+
+func markOpenAIStreamInvalidEncryptedContent(c *gin.Context) {
+	if c != nil {
+		c.Set(openAIStreamInvalidEncryptedContentContextKey, true)
+	}
+}
+
+// takeOpenAIStreamInvalidEncryptedContent 读取并清除流内拒绝标记，避免同一请求
+// 内后续尝试误用上一次尝试遗留的标记。
+func takeOpenAIStreamInvalidEncryptedContent(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(openAIStreamInvalidEncryptedContentContextKey)
+	if !ok {
+		return false
+	}
+	c.Set(openAIStreamInvalidEncryptedContentContextKey, false)
+	flagged, _ := value.(bool)
+	return flagged
+}
+
 func openAIEncryptedContentDigest(encrypted string) string {
 	sum := sha256.Sum256([]byte(encrypted))
 	return hex.EncodeToString(sum[:])
