@@ -1,4 +1,4 @@
--- Durable metadata for one-shot ChatGPT Web Session exports.
+﻿-- Durable metadata for one-shot ChatGPT Web Session exports.
 -- Session JSON is intentionally kept in process memory only.
 CREATE TABLE IF NOT EXISTS openai_session_export_tasks (
     id BIGSERIAL PRIMARY KEY,
