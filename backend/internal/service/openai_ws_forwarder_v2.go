@@ -45,6 +45,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	turnStateOwner := s.codexTurnStateOwner(ctx, account)
 	ctx = withCodexTurnStateOwner(ctx, turnStateOwner)
+	ctx = withOpenAITransportMode(ctx, "ctx_pool")
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)

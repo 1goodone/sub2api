@@ -89,6 +89,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		PackageID:          k.PackageID,
 		Key:                k.Key,
 		Name:               k.Name,
+		GroupIDs:           k.ConfiguredGroupIDs(),
 		GroupID:            k.GroupID,
 		MixedMode:          k.MixedMode,
 		MixedGroups:        append([]int64(nil), k.MixedGroupIDs...),

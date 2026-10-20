@@ -226,6 +226,7 @@ type APIKeyAuthCacheInvalidator interface {
 type CreateAPIKeyRequest struct {
 	ConcurrencyLimit int      `json:"concurrency_limit"`
 	Name             string   `json:"name"`
+	GroupIDs         []int64  `json:"group_ids"`
 	GroupID          *int64   `json:"group_id"`
 	MixedMode        bool     `json:"mixed_mode_enabled"`
 	MixedGroupIDs    []int64  `json:"mixed_group_ids"`
@@ -247,6 +248,7 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	ConcurrencyLimit *int      `json:"concurrency_limit"` // nil = no change, 0 = no additional limit
 	Name             *string   `json:"name"`
+	GroupIDs         *[]int64  `json:"group_ids"`
 	GroupID          *int64    `json:"group_id"`
 	MixedMode        *bool     `json:"mixed_mode_enabled"`
 	MixedGroupIDs    *[]int64  `json:"mixed_group_ids"`
@@ -308,6 +310,7 @@ type APIKeyService struct {
 	regionalAuthRuntime       *regionalSchedulerRuntime
 	apiKeyRepo                APIKeyRepository
 	userRepo                  UserRepository
+	groupRouter               APIKeyGroupRouter
 	groupRepo                 GroupRepository
 	userSubRepo               UserSubscriptionRepository
 	userGroupRateRepo         UserGroupRateRepository
@@ -507,6 +510,9 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
+		if s.userSubRepo == nil {
+			return false
+		}
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
 		return err == nil // 有有效订阅则允许
 	}
@@ -589,27 +595,26 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if err != nil {
 		return nil, err
 	}
+	var groupIDs []int64
 	if req.MixedMode {
 		if err := s.validateMixedGroups(ctx, user, mixedGroupIDs); err != nil {
 			return nil, err
 		}
 		primaryGroupID := mixedGroupIDs[0]
 		req.GroupID = &primaryGroupID
-	}
-
-	// 验证分组权限（如果指定了单分组）
-	if !req.MixedMode && req.GroupID != nil {
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		groupIDs = []int64{primaryGroupID}
+	} else {
+		groupIDs, err = normalizeAPIKeyGroupIDs(req.GroupID, req.GroupIDs)
 		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
+			return nil, err
 		}
-
-		// 检查用户是否可以绑定该分组
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
+		if err := s.validateAPIKeyGroups(ctx, user, groupIDs); err != nil {
+			return nil, err
+		}
+		if len(groupIDs) > 0 {
+			req.GroupID = &groupIDs[0]
 		}
 	}
-
 	var key string
 
 	// 判断是否使用自定义Key
@@ -654,6 +659,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		UserID:           userID,
 		Key:              key,
 		Name:             html.EscapeString(req.Name),
+		GroupIDs:         groupIDs,
 		GroupID:          req.GroupID,
 		MixedMode:        req.MixedMode,
 		MixedGroupIDs:    mixedGroupIDs,
@@ -1000,6 +1006,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			}
 			primaryGroupID := ids[0]
 			apiKey.GroupID = &primaryGroupID
+			apiKey.GroupIDs = []int64{primaryGroupID}
 			fields.GroupID = true
 		}
 		apiKey.MixedMode = enabled
@@ -1007,27 +1014,30 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.MixedConfig = true
 	}
 
-	if req.GroupID != nil && apiKey.MixedMode {
-		if len(apiKey.MixedGroupIDs) == 0 || *req.GroupID != apiKey.MixedGroupIDs[0] {
-			return nil, ErrMixedGroupPrimary
-		}
-	} else if req.GroupID != nil {
-		// 验证单分组权限
+	if apiKey.MixedMode && (req.GroupIDs != nil || (req.GroupID != nil && (len(apiKey.MixedGroupIDs) == 0 || *req.GroupID != apiKey.MixedGroupIDs[0]))) {
+		return nil, ErrMixedGroupPrimary
+	} else if !apiKey.MixedMode && (req.GroupID != nil || req.GroupIDs != nil) {
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("get user: %w", err)
 		}
-
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		var requested []int64
+		if req.GroupIDs != nil {
+			requested = *req.GroupIDs
+		}
+		ids, err := normalizeAPIKeyGroupIDs(req.GroupID, requested)
 		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
+			return nil, err
 		}
-
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
+		if err := s.validateAPIKeyGroups(ctx, user, ids); err != nil {
+			return nil, err
 		}
-
-		apiKey.GroupID = req.GroupID
+		apiKey.GroupIDs = ids
+		apiKey.GroupID = nil
+		apiKey.Group = nil
+		if len(ids) > 0 {
+			apiKey.GroupID = &ids[0]
+		}
 		fields.GroupID = true
 	}
 

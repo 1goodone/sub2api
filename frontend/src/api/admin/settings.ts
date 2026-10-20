@@ -430,6 +430,7 @@ export interface SystemSettings {
 	excel_bps_enabled: boolean;
   // Registration settings
   registration_enabled: boolean;
+  login_rate_limit_enabled: boolean;
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
   registration_email_domain_quota_enabled: boolean;
@@ -838,6 +839,7 @@ export interface SystemSettings {
 export interface UpdateSettingsRequest {
 	excel_bps_enabled?: boolean;
   registration_enabled?: boolean;
+  login_rate_limit_enabled?: boolean;
   email_verify_enabled?: boolean;
   registration_email_suffix_whitelist?: string[];
   registration_email_domain_quota_enabled?: boolean;

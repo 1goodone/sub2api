@@ -646,6 +646,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	}
 	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		payloadBytes = stripAnthropicClaudeCodeIdentityFromBody(payloadBytes)
+	}
 
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -676,6 +679,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，
 		// 其余保持 extra/default 行为。
 		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
+	}
+
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		stripAnthropicClaudeCodeIdentityFromHeaders(req.Header)
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头

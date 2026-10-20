@@ -35,6 +35,7 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 type CreateAPIKeyRequest struct {
 	ConcurrencyLimit int      `json:"concurrency_limit" binding:"gte=0"`
 	Name             string   `json:"name" binding:"required"`
+	GroupIDs         []int64  `json:"group_ids"`
 	GroupID          *int64   `json:"group_id"` // nullable
 	MixedMode        bool     `json:"mixed_mode_enabled"`
 	MixedGroupIDs    []int64  `json:"mixed_group_ids"`
@@ -54,6 +55,7 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	ConcurrencyLimit *int      `json:"concurrency_limit" binding:"omitempty,gte=0"`
 	Name             string    `json:"name"`
+	GroupIDs         *[]int64  `json:"group_ids"`
 	GroupID          *int64    `json:"group_id"`
 	MixedMode        *bool     `json:"mixed_mode_enabled"`
 	MixedGroupIDs    *[]int64  `json:"mixed_group_ids"`
@@ -211,6 +213,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	svcReq := service.CreateAPIKeyRequest{
 		ConcurrencyLimit: req.ConcurrencyLimit,
 		Name:             req.Name,
+		GroupIDs:         req.GroupIDs,
 		GroupID:          req.GroupID,
 		MixedMode:        req.MixedMode,
 		MixedGroupIDs:    req.MixedGroupIDs,
@@ -282,6 +285,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	if req.Name != "" {
 		svcReq.Name = &req.Name
 	}
+	svcReq.GroupIDs = req.GroupIDs
 	svcReq.GroupID = req.GroupID
 	if req.Status != "" {
 		svcReq.Status = &req.Status

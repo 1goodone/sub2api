@@ -120,6 +120,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, markOpenAIInitialAdmissionError(admissionErr)
 	}
 	account = latest
+	ctx = withOpenAITransportRoute(ctx, "http", "native", "", "")
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	// A failed account attempt must not leave a bypass reason on a later BPS response.
@@ -167,14 +168,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, err
 	}
 	if !account.IsExcelOAuth() && account.IsPrismBrowserEnabledForModel(modelForBPS) && s.prismBrowserGloballyEnabled(ctx) {
-		return s.forwardPrismBrowser(ctx, c, account, body, startTime)
+		return s.forwardPrismBrowser(withOpenAITransportMode(ctx, "prism_browser"), c, account, body, startTime)
 	}
 	if c.GetBool(bpsAccountProbeRequiredContextKey) &&
 		(!account.IsExcelBPSEnabledForModel(modelForBPS) || account.excelBPSNativeFallbackReason(body) != "") {
 		return nil, errors.New("bps probe path is unavailable")
 	}
 	if account.IsExcelBPSEnabledForModel(modelForBPS) && s.excelBPSGloballyEnabled(ctx) {
-		return s.forwardExcelBPS(ctx, c, account, body, startTime)
+		return s.forwardExcelBPS(withOpenAITransportMode(ctx, "bps"), c, account, body, startTime)
 	}
 
 	if account.IsOpenAIOAuthLike() {
@@ -377,6 +378,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		c.Set("openai_ws_transport_decision", string(wsDecision.Transport))
 		c.Set("openai_ws_transport_reason", wsDecision.Reason)
 	}
+	ctx = withOpenAITransportRoute(ctx, "http", "native", wsDecision.Reason, "")
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
 		logOpenAIWSModeDebug(
 			"selected account_id=%d account_type=%s transport=%s reason=%s model=%s stream=%v",
@@ -1204,6 +1206,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reqBody = nil
 		c.Set("openai_ws_transport_decision", string(OpenAIUpstreamTransportHTTPSSE))
 		c.Set("openai_ws_transport_reason", fallbackReason)
+		ctx = withOpenAITransportRoute(ctx, "http", "native", fallbackReason, fallbackReason)
 	}
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
