@@ -18,6 +18,17 @@ func (s *OpenAIGatewayService) SetRequestTimezoneProber(prober ProxyExitInfoProb
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (result *http.Response, resultErr error) {
+	var phaseGuard *openAIHTTPPhaseGuard
+	request, phaseGuard = s.guardOpenAIHTTPRequest(request, account)
+	defer func() {
+		if result != nil && result.Request == nil {
+			result.Request = request
+		}
+		result, resultErr = phaseGuard.finish(result, resultErr)
+	}()
+	if phaseGuard != nil && phaseGuard.ctx.Err() != nil {
+		return nil, context.Cause(phaseGuard.ctx)
+	}
 	request = s.stickBoundCodexTicketRequest(request, account)
 	boundTicket := s.boundCodexTicket(request, account)
 	observationTicket := boundTicket
