@@ -514,6 +514,7 @@ describe('user KeysView column settings', () => {
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       { mixed_mode_enabled: true, mixed_group_ids: [1, 2] },
       0,
+      undefined,
     )
   })
 
