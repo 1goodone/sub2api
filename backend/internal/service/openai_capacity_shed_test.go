@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -559,7 +558,7 @@ func TestSanitizeOpenAICapacityShedErrorCodeForClient(t *testing.T) {
 // 各自硬编码会漂移成互相矛盾的身份，而自相矛盾或陈旧的身份会被上游优先降载。
 func TestCodexOutboundVersionHasSingleSource(t *testing.T) {
 	require.True(t,
-		strings.HasPrefix(codexCLIUserAgent, openai.CodexDefaultOriginator+"/"+codexCLIVersion+" "),
+		strings.HasPrefix(codexCLIUserAgent, codexOutboundOriginator+"/"+codexCLIVersion+" "),
 		"codexCLIUserAgent=%q 必须以 codexCLIVersion=%q 作为版本段", codexCLIUserAgent, codexCLIVersion,
 	)
 	require.GreaterOrEqual(t, CompareVersions(codexCLIVersion, codexUpstreamMinVersion), 0,

@@ -593,13 +593,10 @@ func (m *PluginManager) Enable(ctx context.Context, id int64, acceptUntested boo
 			return installation, nil
 		}
 	}
-	if installation.Manifest.ID == "even.sub2api.codex-rs-transport" {
+	if installation.Manifest.ID == "even.sub2api.codex-rs-transport" || installation.Manifest.ID == "even.sub2api.codex-desktop-transport" {
 		configJSON, cfgErr := m.decryptConfig(installation)
 		if cfgErr == nil && !pluginJSONEnabled(configJSON) {
-			return nil, errors.New("codex-rs-transport 配置 enabled=false，无法启用出站能力")
-		}
-		if m.cfg == nil || len(m.cfg.Plugins.OpenAIOAuthAccountAllowlist) == 0 {
-			return nil, errors.New("首次启用 rustls 传输必须配置 plugins.openai_oauth_account_allowlist")
+			return nil, fmt.Errorf("%s 配置 enabled=false，无法启用出站能力", installation.Manifest.ID)
 		}
 	}
 	compatibility := EvaluatePluginCompatibility(installation.Manifest, m.hostInfo)

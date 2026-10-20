@@ -42,6 +42,20 @@ func TestCodexRSTransportManifestSupportsSub2API2819(t *testing.T) {
 	assert.Equal(t, "0.1.2", manifest.Version)
 }
 
+func TestCodexDesktopTransportManifestSupportsSub2API212(t *testing.T) {
+	raw, err := os.ReadFile("../../cmd/codex-desktop-transport-plugin/manifest.source.json")
+	require.NoError(t, err)
+
+	var manifest PluginManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "2.12.0", BuildType: "release"})
+	require.True(t, result.Compatible)
+	assert.False(t, result.Tested)
+	assert.Equal(t, "untested", result.Status)
+	assert.Equal(t, "0.1.1", manifest.Version)
+}
+
 func TestEvaluatePluginCompatibility(t *testing.T) {
 	manifest := testPluginManifest(nil)
 	host := PluginHostInfo{Version: "0.1.179", BuildType: "release"}

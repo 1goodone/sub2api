@@ -279,7 +279,7 @@ func looksLikeDesktopHello(raw []byte) bool {
 	if has13 && len(view.KeyShareGroups) > 0 {
 		return true
 	}
-	// Desktop-bundled Windows engine (0.153.4) uses Schannel TLS 1.2: no
+	// Desktop-bundled Windows engine uses Schannel TLS 1.2: no
 	// supported_versions, no key_share, X25519/P-256/P-384, no GREASE.
 	return view.LegacyVersion == 0x0303 && len(view.KeyShareGroups) == 0
 }

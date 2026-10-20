@@ -1742,7 +1742,7 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	if gotAccountID != "acc-123" {
 		t.Errorf("chatgpt-account-id header: got %q", gotAccountID)
 	}
-	if gotOriginator != openai.CodexDefaultOriginator {
+	if gotOriginator != codexOutboundOriginator {
 		t.Errorf("originator header: got %q", gotOriginator)
 	}
 	if gotClientVersion != "0.137.0" {
@@ -2014,7 +2014,7 @@ func TestFetchCodexModelsManifestAPIKeyCustomUpstream(t *testing.T) {
 	if gotRequest.Header.Get("Authorization") != "Bearer sk-upstream" {
 		t.Errorf("authorization header: got %q", gotRequest.Header.Get("Authorization"))
 	}
-	if gotRequest.Header.Get("Originator") != openai.CodexDefaultOriginator {
+	if gotRequest.Header.Get("Originator") != codexOutboundOriginator {
 		t.Errorf("originator header: got %q", gotRequest.Header.Get("Originator"))
 	}
 	if gotRequest.Header.Get("Version") != "0.144.0" {

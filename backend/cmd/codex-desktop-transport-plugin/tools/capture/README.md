@@ -13,14 +13,14 @@ This is not a production proxy and must not be aimed at `chatgpt.com` as a load 
 ## Host pin
 
 Capture `codex_cli_version` **must equal**
-`portrait.RequiredHostCodexCLIVersion` (`0.153.4`, the Desktop-bundled
+`portrait.RequiredHostCodexCLIVersion` (`0.163.0-alpha.10.2`, the Desktop-bundled
 `codex.exe --version`) and stay ≥ `0.144.0`. Also record
-`codex_desktop_app_version` (`26.903.9818.0`).
+`codex_desktop_app_version` (`26.1013.4894.0`).
 
 ## Windows CONNECT proxy (recommended)
 
 ```text
-go run ./tools/capture -listen 127.0.0.1:9443 -connect-proxy 127.0.0.1:18080 -out ../../portrait/captures/work -cli-version 0.153.4 -desktop-app-version 26.903.9818.0 -spawn-codex path\to\codex.exe
+go run ./tools/capture -listen 127.0.0.1:9443 -connect-proxy 127.0.0.1:18080 -out ../../portrait/captures/work -cli-version 0.163.0-alpha.10.2 -desktop-app-version 26.1013.4894.0 -spawn-codex path\to\codex.exe
 ```
 
 Trust the generated CA (not the leaf) in the *current user* store:

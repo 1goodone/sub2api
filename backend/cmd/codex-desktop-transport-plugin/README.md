@@ -2,7 +2,7 @@
 
 OpenAI OAuth outbound transport plugin that mimics **Codex Desktop** bundled engine TLS (not the Chromium `ChatGPT.exe` shell, and not the host TUI identity).
 
-On Windows, Desktop `app/resources/codex.exe` (`codex-cli` 0.153.4) sends a **Schannel TLS 1.2** ClientHello (no GREASE, no ALPN → HTTP/1.1). Runtime (`service.go` / `transport.go`) replays that hello with uTLS `HelloCustom` from `portrait/captures/P2.json` over a **per-request** connection. Headers pass through unchanged.
+On Windows, Desktop-bundled `codex.exe` (`codex-cli` 0.163.0-alpha.10.2) sends a **Schannel TLS 1.2** ClientHello (no GREASE, no ALPN → HTTP/1.1). Runtime (`service.go` / `transport.go`) replays that hello with uTLS `HelloCustom` from `portrait/captures/P2.json` over a **per-request** connection. Headers pass through unchanged.
 
 Install remains disabled until plugin config `"enabled": true`. Host `Enable` refuses `enabled=false` and refuses an empty `plugins.openai_oauth_account_allowlist`. This plugin is mutually exclusive with the CLI rustls plugin and the CPA Chrome plugin.
 

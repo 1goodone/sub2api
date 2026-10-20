@@ -22,7 +22,7 @@ import (
 
 const (
 	pluginID      = "even.sub2api.codex-desktop-transport"
-	pluginVersion = "0.1.0"
+	pluginVersion = "0.1.1"
 	capabilityID  = "openai.oauth.outbound_transport.v1"
 )
 
@@ -98,7 +98,7 @@ func (s *transportService) TestConfig(_ context.Context, request *pluginv1.TestC
 	if err := localHandshake(config); err != nil {
 		return &pluginv1.TestConfigResponse{Success: false, Message: err.Error()}, nil
 	}
-	return &pluginv1.TestConfigResponse{Success: true, Message: "rustls HelloCustom handshake ok", LatencyMs: time.Since(started).Milliseconds()}, nil
+	return &pluginv1.TestConfigResponse{Success: true, Message: "Schannel HelloCustom handshake ok", LatencyMs: time.Since(started).Milliseconds()}, nil
 }
 
 func parseConfig(raw []byte) (pluginConfig, []byte, error) {

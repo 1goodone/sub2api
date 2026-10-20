@@ -32,13 +32,13 @@ func NormalizeCodexClientVersion(version string) string {
 	return version
 }
 
-// buildCodexCLIUserAgent 按版本号拼出规范 Codex TUI User-Agent。
-// UA 形态只在 codexCLIUserAgentSuffix 一处定义，避免多处拼装漂移。
+// buildCodexCLIUserAgent 按版本号拼出规范出站 User-Agent。
+// 客户端名与 OS 后缀只在常量处定义，尾部括号组的版本与首段同源。
 func buildCodexCLIUserAgent(version string) string {
 	if version = NormalizeCodexClientVersion(version); version == "" {
 		return codexCLIUserAgent
 	}
-	return openai.CodexDefaultOriginator + "/" + version + codexCLIUserAgentSuffix
+	return codexOutboundOriginator + "/" + version + codexCLIUserAgentSuffix + " (" + codexOutboundOriginator + "; " + version + ")"
 }
 
 // codexIdentityEnforcement 控制 enforceCodexIdentityHeaders 是否强制统一出站身份，
@@ -149,7 +149,7 @@ func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 	originator, pairedUA, ok := openai.PairCodexClientIdentity(ua)
 	if !ok {
 		if originator, pairedUA, ok = openai.PairCodexClientIdentity(canonical); !ok {
-			originator, pairedUA = openai.CodexDefaultOriginator, codexCLIUserAgent
+			originator, pairedUA = codexOutboundOriginator, codexCLIUserAgent
 		}
 	}
 	// 生效版本只有一个来源：规范身份（面板版本号 → 自动同步值 → 内置常量，见
@@ -184,9 +184,8 @@ func ensureCodexIdentityHeaders(h http.Header) {
 	if strings.TrimSpace(h.Get("originator")) == "" {
 		h.Set("originator", identity.originator)
 	}
-	if strings.TrimSpace(h.Get("version")) == "" {
-		h.Set("version", identity.version)
-	}
+	// codex exec 抓包没有 version 头，版本只留在 User-Agent 里。
+	h.Del("version")
 	h.Set("OpenAI-Beta", "responses=experimental")
 }
 
@@ -233,7 +232,8 @@ func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string) {
 	}
 	identity := resolveCodexOutboundIdentity(overrideUA)
 	h.Set("user-agent", identity.userAgent)
-	h.Set("version", identity.version)
+	// 规范身份对应的 exec 抓包不带 version；客户端自带的 version 也去掉。
+	h.Del("version")
 	if !keepOriginatorAbsent {
 		h.Set("originator", identity.originator)
 	}

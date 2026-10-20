@@ -1,27 +1,9 @@
-# HTTP/2 residuals vs Codex Desktop hyper
+# HTTP/2 residuals vs Codex Desktop
 
-The Windows inspector capture of Desktop-bundled `codex.exe` 0.153.4 records
-the rustls ClientHello. HTTP/2 SETTINGS are empty when rustls offers ECH and
-Go `crypto/tls` fails the handshake (`error decrypting message` / `BadSignature`).
-`P2.json` then has empty `http2.settings` and `connection.reuse=per_request`.
-
-Go `golang.org/x/net/http2.Transport` can apply:
-
-| Setting | Applied |
-|---|---|
-| MAX_FRAME_SIZE (5) | `MaxReadFrameSize` |
-| MAX_HEADER_LIST_SIZE (6) | `MaxHeaderListSize` |
-
-Not applied without forking `x/net/http2`:
-
-- HEADER_TABLE_SIZE
-- ENABLE_PUSH
-- MAX_CONCURRENT_STREAMS
-- INITIAL_WINDOW_SIZE / connection WINDOW_UPDATE
-- header table / HPACK dynamic table size
-- PRIORITY frames
-- pseudo-header order
-
-Until a later inspector session records `reuse=pool`, the plugin keeps
-**per-request `NewClientConn`** and `ValidateConfig` rejects `connection_reuse=pool`.
-Two `account_id`s with the same SNI and proxy never share a TCP/TLS connection.
+The Windows inspector capture of Desktop-bundled `codex.exe` 0.163.0-alpha.10.2 is
+Schannel TLS 1.2 with no ALPN, so the session is HTTP/1.1. `P2.json` has empty
+`http2.settings` because there is no HTTP/2 preface to capture, and
+`connection.reuse=per_request` because the same process opened ten new
+ClientHellos. Do not add HTTP/2 settings or `connection_reuse=pool` to this
+portrait. `ValidateConfig` still rejects `connection_reuse=pool`. The runtime uses
+HTTP/1.1 when the replayed hello has no ALPN.

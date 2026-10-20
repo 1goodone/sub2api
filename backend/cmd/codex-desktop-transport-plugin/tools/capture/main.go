@@ -209,7 +209,7 @@ func portraitFromHelloFile(helloPath, out, cliVersion, desktopAppVersion string)
 		Arch:                   runtime.GOARCH,
 		Method:                 portrait.MethodInspector,
 		Inspector:              inspectorName,
-		Notes:                  "Desktop-bundled Windows codex.exe 0.153.4 via CONNECT proxy; Schannel TLS 1.2 ClientHello (no GREASE, no ALPN); 4 new connections same process; HTTP/1.1; no production load",
+		Notes:                  "Desktop-bundled Windows codex.exe " + cliVersion + " via CONNECT proxy; Schannel TLS 1.2 ClientHello (no GREASE, no ALPN); no production load",
 	}
 	if err := portrait.ValidateReleasePortrait(p, manifest, filepath.Join(out, "P2.json")); err != nil {
 		return err

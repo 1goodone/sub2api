@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "id": "even.sub2api.codex-desktop-transport",
-  "name": "Codex Desktop rustls OpenAI Transport",
-  "version": "0.1.0",
-  "description": "OpenAI OAuth outbound transport that mimics Codex Desktop bundled rustls ClientHello and hyper HTTP/2.",
+  "name": "Codex Desktop Schannel OpenAI Transport",
+  "version": "0.1.1",
+  "description": "OpenAI OAuth outbound transport that replays the Windows Codex Desktop bundled codex.exe Schannel TLS 1.2 ClientHello over per-request HTTP/1.1.",
   "author": "Even",
   "requires": {
-    "sub2api": ">=0.1.179 <1.0.0",
-    "recommended_sub2api_version": "0.2.1",
+    "sub2api": ">=0.1.179 <3.0.0",
+    "recommended_sub2api_version": "2.12.0",
     "tested_sub2api_versions": ["0.1.183", "0.2.0", "0.2.1"],
     "plugin_protocol": 1,
     "transport_api": 1,
