@@ -1090,10 +1090,10 @@ def process_session_studio_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
 
 def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     oauth_profile = str(claim.get("oauth_profile") or "codex")
-    if oauth_profile not in {"codex", "excel"}:
+    if oauth_profile not in {"codex", "excel", "siwc"}:
         raise WorkerError("unsupported OAuth login profile")
     engine = str(claim.get("engine") or "local_worker")
-    if oauth_profile == "excel" and engine != "local_worker":
+    if oauth_profile in {"excel", "siwc"} and engine != "local_worker":
         raise WorkerError("Excel OAuth requires the local password/TOTP worker")
     if engine == "session_studio":
         process_session_studio_claim(api, claim)
@@ -1133,6 +1133,15 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                 script = prepare_excel_runtime(root.resolve(), Path(temp_dir))
             except ValueError as exc:
                 raise WorkerError(str(exc)) from None
+        if oauth_profile == "siwc":
+            try:
+                from .openai_siwc_oauth_adapter import prepare_siwc_runtime
+            except ImportError:
+                from openai_siwc_oauth_adapter import prepare_siwc_runtime
+            try:
+                script = prepare_siwc_runtime(root.resolve(), Path(temp_dir))
+            except ValueError as exc:
+                raise WorkerError(str(exc)) from None
         command = [
             node_executable,
             str(script),
@@ -1158,6 +1167,15 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             child_env.pop("OPENAI_EXCEL_EXPECTED_WORKSPACE", None)
             if claim.get("expected_workspace"):
                 child_env["OPENAI_EXCEL_EXPECTED_WORKSPACE"] = str(claim["expected_workspace"])
+        # Ambient credentials and alternate endpoints never select the SIWC flow.
+        child_env.pop("OPENAI_SIWC_AUTH_URL", None)
+        child_env.pop("OPENAI_SIWC_EXPECTED_WORKSPACE", None)
+        if oauth_profile == "siwc":
+            child_env["OPENAI_SIWC_AUTH_URL"] = str(claim.get("auth_url") or "")
+            child_env["OPENAI_SIWC_EXPECTED_WORKSPACE"] = str(claim.get("expected_workspace") or "")
+            for key in ("CHATGPT_BASE", "AUTH_BASE", "CHATGPT_PROXY_URL"):
+                child_env.pop(key, None)
+            child_env["CHATGPT_PROXY_MAX_ATTEMPTS"] = "1"
         child_env["CHATGPT_LOGIN_PASSWORD"] = password
         if totp_secret:
             child_env["CHATGPT_TOTP_SECRET"] = totp_secret
@@ -1171,7 +1189,7 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
-                timeout=10 * 60 if oauth_profile == "excel" else 25 * 60,
+                timeout=10 * 60 if oauth_profile in {"excel", "siwc"} else 25 * 60,
                 check=False,
             )
         except subprocess.TimeoutExpired:
@@ -1181,6 +1199,10 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             # cannot select a path or persist raw external-runner output.
             api.private_protocol_diagnostics(result.stdout, result.stderr)
         if result.returncode != 0:
+            if oauth_profile == "siwc":
+                if "SIWC_INTERACTION_REQUIRED" in result.stdout + result.stderr:
+                    raise WorkerError("SIWC requires browser consent or additional verification; use browser authorization in account edit")
+                raise WorkerError("SIWC password/TOTP authorization failed; credentials retained")
             # The external runner may echo unlabeled secrets that regexes cannot redact.
             protocol_output = (result.stdout or "") + "\n" + (result.stderr or "")
             if protocol_output_is_retired(protocol_output):
@@ -1209,6 +1231,14 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         except (OSError, UnicodeDecodeError, ValueError):
             raise WorkerError("password/TOTP protocol did not produce valid OAuth credentials") from None
 
+    if oauth_profile == "siwc":
+        callback = payload.get("siwc_callback_url") if isinstance(payload, dict) else None
+        if not isinstance(callback, str) or not callback:
+            raise WorkerError("SIWC callback was not produced")
+        result = api.callback(task_id, callback)
+        if not result or result.get("status") != "succeeded":
+            raise WorkerError("SIWC callback was not accepted")
+        return
     accounts = payload.get("accounts") if isinstance(payload, dict) else None
     account = accounts[0] if isinstance(accounts, list) and len(accounts) == 1 else None
     credentials = account.get("credentials") if isinstance(account, dict) else None

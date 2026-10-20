@@ -156,6 +156,9 @@ docs/*
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
 !docs/ip-risk-control.md
 !docs/openai-ws-sse-acceleration.md
+!docs/openai-outbound-identity.md
+!docs/openai-2fa-dual-oauth.md
+!docs/openai-siwc.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

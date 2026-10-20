@@ -172,3 +172,33 @@ func TestOpenAIPreOutputBudgetDoesNotRestartAfterResponseOrAccountSwitch(t *test
 		require.Equal(t, "pre_output_budget", phaseErr.phase)
 	})
 }
+
+func TestSIWCEgressKeepsHTTPPhaseDeadlines(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		gateway config.GatewayConfig
+		phase   string
+	}{
+		{name: "upload", gateway: config.GatewayConfig{OpenAIUploadTimeoutSeconds: 1}, phase: "upload_timeout"},
+		{name: "pre-output", gateway: config.GatewayConfig{OpenAIPreOutputBudgetSeconds: 1}, phase: "pre_output_budget"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				upstream := &blockingOpenAIResponseHeaderUpstream{canceled: make(chan struct{})}
+				svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: tc.gateway}, httpUpstream: upstream}
+				req, err := http.NewRequestWithContext(svc.withOpenAIHTTPBudget(context.Background(), nil), http.MethodPost, "https://api.openai.com/v1/responses", strings.NewReader(`{"input":"hello"}`))
+				require.NoError(t, err)
+				account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{OpenAISIWCEnabledKey: true}}
+				_, err = svc.doOpenAIUpstream(req, "", account)
+				var phaseErr *openAIHTTPPhaseTimeout
+				require.ErrorAs(t, err, &phaseErr)
+				require.Equal(t, tc.phase, phaseErr.phase)
+				select {
+				case <-upstream.canceled:
+				default:
+					t.Fatal("SIWC upstream must be canceled by the shared HTTP deadline")
+				}
+			})
+		})
+	}
+}

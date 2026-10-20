@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 )
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
@@ -28,6 +30,29 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	}()
 	if phaseGuard != nil && phaseGuard.ctx.Err() != nil {
 		return nil, context.Cause(phaseGuard.ctx)
+	}
+	if account.IsSIWCEnabled() {
+		if request.URL == nil || request.URL.Scheme != "https" || request.URL.Host != "api.openai.com" || request.URL.Path != "/v1/responses" {
+			return nil, fmt.Errorf("SIWC request must use the official Responses endpoint")
+		}
+		// Compatibility adapters can add internal headers after building a request.
+		// Enforce SIWC headers at the final send boundary as well.
+		authorization := request.Header.Get("Authorization")
+		request.Header = make(http.Header)
+		request.Header.Set("Authorization", authorization)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Accept", "text/event-stream")
+		request.Header.Set("User-Agent", "Sub2API")
+		request.Host = ""
+		resp, err := s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+		if err == nil && resp != nil && resp.StatusCode == http.StatusUnauthorized && s.excelOAuthReauth != nil {
+			var cache OpenAITokenCache
+			if s.openAITokenProvider != nil {
+				cache = s.openAITokenProvider.tokenCache
+			}
+			s.excelOAuthReauth.rejectSIWCAccessToken(request.Context(), account, strings.TrimPrefix(authorization, "Bearer "), cache)
+		}
+		return resp, err
 	}
 	request = s.stickBoundCodexTicketRequest(request, account)
 	boundTicket := s.boundCodexTicket(request, account)

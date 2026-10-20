@@ -901,6 +901,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 	}
 
+	if account.IsSIWCEnabled() {
+		if s.openaiGatewayService == nil {
+			return s.sendErrorAndEnd(c, "SIWC gateway is unavailable")
+		}
+		if mode == AccountTestModeBPSTools || isOpenAIImageModel(account.GetMappedModel(strings.TrimSpace(modelID))) {
+			return s.sendErrorAndEnd(c, "This test mode is not supported by SIWC")
+		}
+		return s.testResponsesGatewayAccountConnection(c, account, modelID, prompt)
+	}
 	// Excel/BPS accounts must use the same gateway path as user Responses
 	// requests. The legacy account-test probe hard-codes ChatGPT Codex and
 	// silently bypasses the account's protocol toggle, producing misleading
@@ -1117,6 +1126,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	return s.testResponsesGatewayAccountConnection(c, account, modelID, prompt)
+}
+
+func (s *AccountTestService) testResponsesGatewayAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
 	model := strings.TrimSpace(modelID)
 	if model == "" {
 		model = openai.DefaultTestModel
@@ -1185,13 +1198,13 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 		}
 	}
 	if result == nil || result.ClientDisconnect {
-		return s.sendErrorAndEnd(c, "Excel BPS test response was interrupted")
+		return s.sendErrorAndEnd(c, "Responses gateway test response was interrupted")
 	}
 	if !completed {
-		return s.sendErrorAndEnd(c, "Excel BPS test response ended before completion")
+		return s.sendErrorAndEnd(c, "Responses gateway test response ended before completion")
 	}
 	if strings.TrimSpace(answer.String()) == "" {
-		return s.sendErrorAndEnd(c, "Excel BPS returned empty output")
+		return s.sendErrorAndEnd(c, "Responses gateway returned empty output")
 	}
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
