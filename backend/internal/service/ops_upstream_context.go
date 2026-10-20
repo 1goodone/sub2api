@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -185,6 +186,9 @@ func IsOpsRequestScopedError(c *gin.Context) bool {
 // 由于 HTTP 状态码停留在 2xx，ops_error_logger 中间件在 status<400 分支消费该标记并
 // 补记错误日志；标记方是 handler.handleStreamingAwareError 或各 service 的带内检测。
 type OpsStreamError struct {
+	// BridgeFailure is set only by the local BPS conversion boundary. It keeps
+	// real upstream HTTP evidence while assigning failure ownership to gateway.
+	BridgeFailure *basispoints.BridgeFailure
 	// ErrType 是写入 SSE 帧的对客错误类型（如 rate_limit_error / upstream_error / api_error）。
 	ErrType string
 	// Code 是可选的稳定错误分类；用于既保留通用 OpenAI error.type，又向客户端和 Ops
@@ -476,7 +480,7 @@ type OpsUpstreamErrorEvent struct {
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
-	// Kind: http_error | request_error | retry_exhausted | failover
+	// Kind: http_error | request_error | retry_exhausted | failover | bridge_error
 	Kind string `json:"kind,omitempty"`
 	// Stage/Scope/Reason distinguish credential acquisition from inference
 	// without overloading upstream_status_code with a synthetic HTTP status.
