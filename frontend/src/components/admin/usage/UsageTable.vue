@@ -73,6 +73,13 @@
             </div>
             <span v-else class="font-medium text-gray-900 dark:text-white">{{ row.model }}</span>
             <div
+              v-if="userVisibleResponseModel(row)"
+              class="break-all text-gray-500 dark:text-gray-400"
+              data-testid="user-upstream-response-model"
+            >
+              <span class="mr-0.5">↳</span>{{ t('usage.upstreamResponseModel') }}: {{ userVisibleResponseModel(row) }}
+            </div>
+            <div
               v-if="row.upstream_model_mismatch === true && row.upstream_response_model"
               class="break-all pl-3 text-[11px]"
               :class="isLikelyModelVariant(row) ? 'text-amber-600 dark:text-amber-400' : 'text-orange-600 dark:text-orange-400'"
@@ -266,6 +273,16 @@
                   :title="t('usage.latencyTpsHint')"
                 >{{ formatUsageOutputTps(row) }}</span>
                 <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
+              </template>
+              <template v-if="showCacheRate">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyCacheRate') }}</span>
+                <span
+                  v-if="formatUsageCacheRate(row)"
+                  data-testid="latency-cache-rate"
+                  class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+                  :title="cacheRateTitle(row)"
+                >{{ formatUsageCacheRate(row) }}</span>
+                <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               </template>
             </div>
           </component>
@@ -598,6 +615,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
+import { userVisibleUpstreamResponseModel } from '@/utils/upstreamResponseModel'
 import type { AdminUsageLog } from '@/types'
 import type { Column } from '@/components/common/types'
 
@@ -614,6 +632,8 @@ interface Props {
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
   compact?: boolean
+  /** 管理端默认可见；用户端还要打开「向用户展示」。 */
+  cacheRateAudience?: 'admin' | 'user'
 }
 
 const observerMode = inject(observerUsageContext, false)
@@ -629,6 +649,7 @@ const props = withDefaults(defineProps<Props>(), {
   enableTimingDetails: false,
   showUpstreamEndpoint: true,
   flat: false,
+  cacheRateAudience: 'admin',
   compact: false
 })
 const emit = defineEmits<{
@@ -648,7 +669,12 @@ const ipGeoBatchLoading = ref(false)
 // 长上下文计费 x2 徽标展示开关（公开设置，默认开启；未加载/缺失时按开启处理）
 const showLongContextBadge = computed(() => appStore.cachedPublicSettings?.usage_show_long_context_badge !== false)
 const showAverageTps = computed(() => appStore.cachedPublicSettings?.usage_show_average_tps !== false)
-const showCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, observerMode ? 'user' : 'admin'))
+const showCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, props.cacheRateAudience))
+const userVisibleResponseModel = (row: AdminUsageLog): string => (
+  props.cacheRateAudience === 'user'
+    ? userVisibleUpstreamResponseModel(appStore.cachedPublicSettings, row)
+    : ''
+)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 

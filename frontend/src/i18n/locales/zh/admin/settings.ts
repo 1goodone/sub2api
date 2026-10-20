@@ -1454,6 +1454,10 @@ export default {
         label: '展示平均 TPS',
         description: '开启后，用量记录中的平均输出速度会显示为 TPS；默认开启。',
       },
+      upstream_response_model_to_users: {
+        label: '向用户展示上游实际响应模型',
+        description: '开启后，用户在用量记录中可以看到上游响应里声明的实际模型。默认关闭，仅管理端可见。不影响计费，也不会展示映射后的请求模型或账号信息。',
+      },
       saveSettings: '保存设置',
       saving: '保存中...',
       settingsSaved: '设置保存成功',

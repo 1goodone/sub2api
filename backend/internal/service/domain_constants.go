@@ -827,3 +827,9 @@ const SettingKeyUsageShowCacheRateToUsers = "usage_show_cache_rate_to_users"
 // SettingKeyUsageShowAverageTPS controls whether average output TPS is shown
 // in usage tables. Default true (opt-out).
 const SettingKeyUsageShowAverageTPS = "usage_show_average_tps"
+
+// SettingKeyUsageShowUpstreamResponseModelToUsers controls whether end users
+// can see the model declared by the upstream response on their own usage
+// records. Default false. Admins always see it. This does not change billing
+// or the client-facing model rewritten into gateway responses.
+const SettingKeyUsageShowUpstreamResponseModelToUsers = "usage_show_upstream_response_model_to_users"
