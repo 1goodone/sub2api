@@ -57,6 +57,9 @@ func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gi
 	if errors.Is(err, context.Canceled) || (errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		return err
 	}
+	if s != nil && s.rateLimitService != nil {
+		s.rateLimitService.NoteAccountOpsTransportFailure(account)
+	}
 
 	// Transport attempt left local validation; count Ollama Cloud activity.
 	scheduleOllamaCloudUsageActivity(s.deferredService, account)

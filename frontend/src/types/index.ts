@@ -238,6 +238,7 @@ export interface PublicSettings {
   site_name: string
   site_logo: string
   site_subtitle: string
+  home_particle_text?: string
   api_base_url: string
   contact_info: string
   doc_url: string

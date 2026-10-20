@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -14,22 +15,26 @@ import (
 const accountOpsSettingsKey = "account_ops_notifications_v1"
 
 type AccountOpsConfig struct {
-	Enabled             bool                    `json:"enabled"`
-	Recipient           string                  `json:"recipient"`
-	EmailName           string                  `json:"email_name,omitempty"`
-	BalanceLow          bool                    `json:"balance_low"`
-	WeeklyQuota         bool                    `json:"weekly_quota"`
-	CooldownMinutes     int                     `json:"cooldown_minutes"`
-	Webhooks            []AccountOpsWebhook     `json:"webhooks"`
-	Groups              []AccountOpsGroup       `json:"groups"`
-	GroupsInitialized   bool                    `json:"groups_initialized,omitempty"`
-	UngroupedAccountIDs []int64                 `json:"ungrouped_account_ids,omitempty"`
-	BalanceThresholds   []AccountOpsBalanceRule `json:"balance_thresholds"`
-	QuotaThresholds     []AccountOpsQuotaRule   `json:"quota_thresholds"`
+	Enabled               bool                    `json:"enabled"`
+	Recipient             string                  `json:"recipient"`
+	EmailName             string                  `json:"email_name,omitempty"`
+	BalanceLow            bool                    `json:"balance_low"`
+	WeeklyQuota           bool                    `json:"weekly_quota"`
+	CooldownMinutes       int                     `json:"cooldown_minutes"`
+	Webhooks              []AccountOpsWebhook     `json:"webhooks"`
+	Groups                []AccountOpsGroup       `json:"groups"`
+	GroupsInitialized     bool                    `json:"groups_initialized,omitempty"`
+	UngroupedAccountIDs   []int64                 `json:"ungrouped_account_ids,omitempty"`
+	BalanceThresholds     []AccountOpsBalanceRule `json:"balance_thresholds"`
+	QuotaThresholds       []AccountOpsQuotaRule   `json:"quota_thresholds"`
+	ErrorCloseEnabled     bool                    `json:"error_close_enabled"`
+	ErrorCloseConsecutive int                     `json:"error_close_consecutive"`
+	ErrorCloseNotifyEmail bool                    `json:"error_close_notify_email"`
+	ErrorCloseCodes       []string                `json:"error_close_codes,omitempty"`
 }
 
 func defaultAccountOpsConfig() AccountOpsConfig {
-	return AccountOpsConfig{BalanceLow: true, WeeklyQuota: true, CooldownMinutes: 60}
+	return AccountOpsConfig{BalanceLow: true, WeeklyQuota: true, CooldownMinutes: 60, ErrorCloseConsecutive: 3}
 }
 func ValidateAccountOpsConfig(c AccountOpsConfig) (err error) {
 	defer func() {
@@ -51,6 +56,15 @@ func ValidateAccountOpsConfig(c AccountOpsConfig) (err error) {
 	}
 	if c.Enabled && (!c.hasDestination() || (!c.BalanceLow && !c.WeeklyQuota && !c.hasThreshold() && !c.hasQuotaThreshold())) {
 		return errors.New("select an alert type and configure a recipient before enabling")
+	}
+	if c.ErrorCloseEnabled && (c.ErrorCloseConsecutive < accountOpsErrorCloseMin || c.ErrorCloseConsecutive > accountOpsErrorCloseMax) {
+		return fmt.Errorf("error_close_consecutive must be between %d and %d", accountOpsErrorCloseMin, accountOpsErrorCloseMax)
+	}
+	if c.ErrorCloseEnabled && c.ErrorCloseNotifyEmail && c.Recipient == "" {
+		return errors.New("configure a recipient before enabling close notifications")
+	}
+	if _, err := normalizeAccountOpsErrorCloseCodes(c.ErrorCloseCodes); err != nil {
+		return err
 	}
 	return nil
 }
@@ -101,37 +115,41 @@ type AccountOpsService struct {
 	newAPIGroupReader      interface {
 		GetBinding(context.Context, int64) (*NewAPIAccountBinding, error)
 	}
-	newAPIGroupCache sync.Map
-	accounts         AccountRepository
-	usageCache       *UsageCache
-	encryptor        SecretEncryptor
-	fixedKey         bool
-	timezone         *time.Location
-	robotClient      *http.Client
-	robotMu          sync.Mutex
-	robotLast        map[string]time.Time
-	autoSeen         map[int64]bool
-	autoConfigMu     sync.Mutex
-	autoGroups       GroupRepository
-	autoAccounts     AccountConcurrencyRepository
-	autoConfig       atomic.Value
-	autoBlocked      atomic.Bool
-	autoResults      chan AccountConcurrencyResult
-	settings         SettingRepository
-	repo             AccountOpsRepository
-	email            accountOpsEmailSender
-	config           atomic.Value
-	queue            chan AccountOpsEvent
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	lifecycle        sync.Mutex
-	settingsMu       sync.Mutex
-	dropped          atomic.Uint64
-	failures         atomic.Uint64
+	newAPIGroupCache  sync.Map
+	accounts          AccountRepository
+	usageCache        *UsageCache
+	encryptor         SecretEncryptor
+	fixedKey          bool
+	timezone          *time.Location
+	robotClient       *http.Client
+	robotMu           sync.Mutex
+	robotLast         map[string]time.Time
+	autoSeen          map[int64]bool
+	autoConfigMu      sync.Mutex
+	autoGroups        GroupRepository
+	autoAccounts      AccountConcurrencyRepository
+	autoConfig        atomic.Value
+	autoBlocked       atomic.Bool
+	autoResults       chan AccountConcurrencyResult
+	settings          SettingRepository
+	repo              AccountOpsRepository
+	email             accountOpsEmailSender
+	errorClose        func(context.Context, int64, string) error
+	errorCloseMu      sync.Mutex
+	errorCloseStreak  map[int64]int
+	errorClosePending map[int64]bool
+	config            atomic.Value
+	queue             chan AccountOpsEvent
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	lifecycle         sync.Mutex
+	settingsMu        sync.Mutex
+	dropped           atomic.Uint64
+	failures          atomic.Uint64
 }
 
 func NewAccountOpsService(settings SettingRepository, repo AccountOpsRepository, email accountOpsEmailSender) *AccountOpsService {
-	s := &AccountOpsService{settings: settings, repo: repo, email: email, queue: make(chan AccountOpsEvent, 256), timezone: time.FixedZone("Asia/Shanghai", 8*3600), robotLast: make(map[string]time.Time)}
+	s := &AccountOpsService{settings: settings, repo: repo, email: email, queue: make(chan AccountOpsEvent, 256), timezone: time.FixedZone("Asia/Shanghai", 8*3600), robotLast: make(map[string]time.Time), errorCloseStreak: map[int64]int{}}
 	s.config.Store(defaultAccountOpsConfig())
 	s.autoConfig.Store(DefaultOAuthAutoConfig())
 	s.autoResults = make(chan AccountConcurrencyResult, 1024)
@@ -169,6 +187,7 @@ func (s *AccountOpsService) Observe(account *Account, status int, headers http.H
 	if s == nil || account == nil || account.ID <= 0 {
 		return
 	}
+	s.noteErrorClose(account, status, headers, body)
 	c := s.currentConfig()
 	if !c.Enabled {
 		return

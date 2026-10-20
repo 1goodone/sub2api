@@ -21,19 +21,24 @@ type AccountOpsUsageWindow struct {
 	ObservedAt  *time.Time `json:"observed_at,omitempty"`
 	ResetsAt    *time.Time `json:"resets_at,omitempty"`
 }
+type AccountOpsRoutingGroup struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
 type AccountOpsBalanceAccount struct {
-	AccountID     int64                   `json:"account_id"`
-	AccountName   string                  `json:"account_name"`
-	GroupID       string                  `json:"group_id"`
-	GroupName     string                  `json:"group_name"`
-	GroupMode     string                  `json:"group_mode"`
-	Platform      string                  `json:"platform"`
-	Type          string                  `json:"type"`
-	Balance       *float64                `json:"balance"`
-	Unit          string                  `json:"unit"`
-	BalanceStatus string                  `json:"balance_status"`
-	ReceivedAt    *time.Time              `json:"received_at"`
-	UsageWindows  []AccountOpsUsageWindow `json:"usage_windows"`
+	AccountID     int64                    `json:"account_id"`
+	AccountName   string                   `json:"account_name"`
+	GroupID       string                   `json:"group_id"`
+	GroupName     string                   `json:"group_name"`
+	GroupMode     string                   `json:"group_mode"`
+	RoutingGroups []AccountOpsRoutingGroup `json:"routing_groups"`
+	Platform      string                   `json:"platform"`
+	Type          string                   `json:"type"`
+	Balance       *float64                 `json:"balance"`
+	Unit          string                   `json:"unit"`
+	BalanceStatus string                   `json:"balance_status"`
+	ReceivedAt    *time.Time               `json:"received_at"`
+	UsageWindows  []AccountOpsUsageWindow  `json:"usage_windows"`
 }
 
 func opsNumber(v any) (float64, bool) {
@@ -78,6 +83,34 @@ func opsTime(v any) *time.Time {
 }
 func opsFresh(observed, until *time.Time, now time.Time) bool {
 	return observed != nil && until != nil && !observed.IsZero() && !observed.After(now) && until.After(*observed) && until.After(now)
+}
+func opsRoutingGroups(a *Account) []AccountOpsRoutingGroup {
+	out := []AccountOpsRoutingGroup{}
+	if a == nil {
+		return out
+	}
+	seen := map[int64]struct{}{}
+	for _, group := range a.Groups {
+		if group == nil || group.ID <= 0 {
+			continue
+		}
+		if _, ok := seen[group.ID]; ok {
+			continue
+		}
+		seen[group.ID] = struct{}{}
+		name := strings.TrimSpace(group.Name)
+		if name == "" {
+			name = fmt.Sprintf("#%d", group.ID)
+		}
+		out = append(out, AccountOpsRoutingGroup{ID: group.ID, Name: name})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }
 func opsBalanceAccount(a *Account, now time.Time) AccountOpsBalanceAccount {
 	item := AccountOpsBalanceAccount{AccountID: a.ID, AccountName: a.Name, Platform: a.Platform, Type: a.Type, Unit: "USD", BalanceStatus: "unknown", UsageWindows: []AccountOpsUsageWindow{}}
@@ -272,6 +305,7 @@ func (s *AccountOpsService) thresholdAccounts(ctx context.Context, apiOnly bool)
 			continue
 		}
 		item := opsBalanceAccount(a, now)
+		item.RoutingGroups = opsRoutingGroups(a)
 		group := s.accountOpsGroupAssignment(ctx, a, c)
 		item.GroupID, item.GroupName, item.GroupMode = group.ID, group.Name, group.Mode
 		if a.Type == AccountTypeOAuth {

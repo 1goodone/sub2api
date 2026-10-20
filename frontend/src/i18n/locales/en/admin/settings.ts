@@ -760,6 +760,9 @@ export default {
         siteSubtitle: 'Site Subtitle',
         siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
         siteSubtitleHint: 'Displayed on login and register pages',
+        homeParticleText: 'Homepage Particle Text',
+        homeParticleTextPlaceholder: 'Leave empty to follow the site name',
+        homeParticleTextHint: 'Shown as the large particle wordmark on the homepage. Leave empty to use the site name.',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:

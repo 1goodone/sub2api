@@ -153,6 +153,7 @@ type SystemSettings struct {
 	SiteName                    string
 	SiteLogo                    string
 	SiteSubtitle                string
+	HomeParticleText            string
 	APIBaseURL                  string
 	ContactInfo                 string
 	DocURL                      string
@@ -406,6 +407,7 @@ type PublicSettings struct {
 	SiteName                            string
 	SiteLogo                            string
 	SiteSubtitle                        string
+	HomeParticleText                    string
 	APIBaseURL                          string
 	ContactInfo                         string
 	DocURL                              string

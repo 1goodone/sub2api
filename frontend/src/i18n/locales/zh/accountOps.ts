@@ -128,6 +128,14 @@ export default {
   "globalSettings": "全局设置",
   "saveGlobalSettings": "保存全局设置",
   "globalFailuresHint": "适用于所有账号的请求失败提醒，邮件和机器人共用此间隔。账号阈值预警与恢复仍每轮各通知一次。",
+  "errorClose": "连续报错自动关闭",
+  "errorCloseCount": "连续次数",
+  "errorCloseNotify": "关闭后发送邮件",
+  "errorCloseCodes": "额外错误码",
+  "errorCloseCodesPlaceholder": "每行一个，例如 custom_stream_error",
+  "errorCloseHint": "连续命中限流、断流、过载或网关传输失败后关闭账号。请求成功会重新计数。额度用尽和用户请求错误不计数。留空则只用这组默认错误；填写的错误码会额外计入。",
+  "errorCloseInvalid": "连续次数需为 2～50 的整数。",
+  "errorCloseEmailRequired": "发送邮件前，请先配置收件邮箱。",
   "cooldownInvalid": "重复提醒间隔需为 5～1440 的整数分钟。",
   "editEmail": "编辑邮件通道",
   "notificationSettings": "通知设置",
@@ -208,6 +216,9 @@ export default {
   ,"accountGroups": "账号组"
   ,"accountGroupsSummary": "按上游站点或用户合并提醒，共 {count} 组；可自定义名称和手动调整成员。"
   ,"accountGroupsHint": "账号组由管理员手动维护。每个账号只能属于一个组；新账号会加入同站点的第一个组。"
+  ,"routingGroupFilter": "分组筛选"
+  ,"allRoutingGroups": "全部分组"
+  ,"ungroupedRouting": "未分组"
   ,"noAccountGroups": "暂无可配置的账号组"
   ,"groupName": "账号组名称"
   ,"manualGroup": "手动组"

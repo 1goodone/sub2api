@@ -131,6 +131,9 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	if errors.Is(err, context.Canceled) || (errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		return err
 	}
+	if s != nil && s.rateLimitService != nil {
+		s.rateLimitService.NoteAccountOpsTransportFailure(account)
+	}
 
 	// Transport attempt reached the network path; count as Ollama Cloud activity.
 	if s != nil {

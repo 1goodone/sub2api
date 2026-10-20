@@ -126,6 +126,7 @@ func (c AccountOpsConfig) public() AccountOpsConfig {
 	c.UngroupedAccountIDs = append([]int64{}, c.UngroupedAccountIDs...)
 	c.BalanceThresholds = append([]AccountOpsBalanceRule{}, c.BalanceThresholds...)
 	c.QuotaThresholds = append([]AccountOpsQuotaRule{}, c.QuotaThresholds...)
+	c.ErrorCloseCodes = append([]string{}, c.ErrorCloseCodes...)
 	normalizeOpsFlags(&c, AccountOpsConfig{})
 	for i := range c.Webhooks {
 		w := &c.Webhooks[i]

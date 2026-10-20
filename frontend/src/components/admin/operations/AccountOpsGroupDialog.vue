@@ -2,6 +2,14 @@
   <BaseDialog :show="show" :title="t('accountOps.accountGroups')" width="wide" @close="close">
     <div class="space-y-4">
       <p class="text-sm leading-6 text-gray-500">{{ t('accountOps.accountGroupsHint') }}</p>
+      <label v-if="draftGroups.length" class="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <span>{{ t('accountOps.routingGroupFilter') }}</span>
+        <select v-model="routingFilter" class="input w-auto min-w-40" data-testid="account-group-routing-filter">
+          <option value="">{{ t('accountOps.allRoutingGroups') }}</option>
+          <option value="ungrouped">{{ t('accountOps.ungroupedRouting') }}</option>
+          <option v-for="group in routingGroups" :key="group.id" :value="String(group.id)">{{ group.name }} #{{ group.id }}</option>
+        </select>
+      </label>
       <div v-if="!draftGroups.length" class="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-dark-600">
         {{ t('accountOps.noAccountGroups') }}
       </div>
@@ -20,7 +28,7 @@
           </div>
         </div>
         <div class="mt-4 grid max-h-48 gap-2 overflow-y-auto sm:grid-cols-2">
-          <label v-for="account in accounts" :key="account.account_id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-dark-800">
+          <label v-for="account in filteredAccounts" :key="account.account_id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-dark-800">
             <input type="checkbox" :checked="group.account_ids.includes(account.account_id)" :data-testid="`account-group-member-${group.id}-${account.account_id}`" @change="toggleMember(group.id, account.account_id, ($event.target as HTMLInputElement).checked)" />
             <span class="min-w-0 truncate">{{ account.account_name }} <span class="text-xs text-gray-500">#{{ account.account_id }}</span></span>
           </label>
@@ -37,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { saveAccountOpsGroups } from '@/api/admin/accountOps'
@@ -48,13 +56,30 @@ const props = defineProps<{ show: boolean; groups: AccountOpsGroup[]; accounts: 
 const emit = defineEmits<{ (event: 'close'): void; (event: 'saved', config: AccountOpsConfig): void; (event: 'error', message: string): void }>()
 const { t } = useI18n()
 const draftGroups = ref<AccountOpsGroup[]>([])
+const routingFilter = ref('')
 const busy = ref(false)
 const error = ref('')
 let sequence = 0
+const routingGroups = computed(() => {
+  const names = new Map<number, string>()
+  for (const account of props.accounts) {
+    for (const group of account.routing_groups ?? []) {
+      if (group.id > 0 && !names.has(group.id)) names.set(group.id, group.name || `#${group.id}`)
+    }
+  }
+  return [...names.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
+})
+const filteredAccounts = computed(() => {
+  if (!routingFilter.value) return props.accounts
+  if (routingFilter.value === 'ungrouped') return props.accounts.filter(account => !(account.routing_groups ?? []).some(group => group.id > 0))
+  const id = Number(routingFilter.value)
+  return props.accounts.filter(account => (account.routing_groups ?? []).some(group => group.id === id))
+})
 
 watch(() => [props.show, props.groups] as const, () => {
   sequence++
   error.value = ''
+  routingFilter.value = ''
   draftGroups.value = props.groups.map(group => ({ ...group, account_ids: Array.isArray(group.account_ids) ? [...group.account_ids] : [] }))
 }, { immediate: true, deep: true })
 

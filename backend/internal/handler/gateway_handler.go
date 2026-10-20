@@ -580,6 +580,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
+			h.gatewayService.NoteAccountOpsSuccess(account)
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
@@ -1157,6 +1158,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
+			h.gatewayService.NoteAccountOpsSuccess(account)
 
 			// 绑定粘性会话（成功转发后绑定/刷新）
 			// - 无现有绑定（首次请求）：创建绑定
@@ -2206,6 +2208,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionHash)
 		return
 	}
+	h.gatewayService.NoteAccountOpsSuccess(account)
 }
 
 // InterceptType 表示请求拦截类型

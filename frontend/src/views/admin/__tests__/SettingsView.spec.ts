@@ -413,6 +413,7 @@ const baseSettingsResponse = {
   site_name: "Sub2API",
   site_logo: "",
   site_subtitle: "",
+  home_particle_text: "",
   api_base_url: "",
   contact_info: "",
   doc_url: "",

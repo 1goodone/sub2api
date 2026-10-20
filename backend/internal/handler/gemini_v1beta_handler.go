@@ -840,6 +840,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				).Error("gemini.record_usage_failed", zap.Error(err))
 			}
 		})
+		h.gatewayService.NoteAccountOpsSuccess(account)
 		reqLog.Debug("gemini.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", fs.SwitchCount),

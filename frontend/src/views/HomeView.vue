@@ -550,7 +550,7 @@ const siteName = computed(() => {
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || t('home.heroSubtitle'))
 const customSubtitle = computed(() => siteSubtitle.value.trim())
-const wordmark = computed(() => siteName.value === '小羊咩咩' ? 'XYMM' : siteName.value.toUpperCase())
+const wordmark = computed(() => appStore.cachedPublicSettings?.home_particle_text?.trim() || siteName.value)
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const hasHomeContent = computed(() => homeContent.value.trim().length > 0)

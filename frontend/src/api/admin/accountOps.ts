@@ -42,6 +42,7 @@ export interface AccountOpsThresholdAccount {
   group_id?: string
   group_name?: string
   group_mode?: 'auto' | 'manual' | 'account'
+  routing_groups?: Array<{ id: number; name: string }>
   platform: string
   type: 'apikey' | 'oauth'
   balance: number | null
@@ -77,6 +78,10 @@ export interface AccountOpsConfig {
   groups?: Array<{ id: string; name: string; provider?: string; site?: string; account_ids?: number[] }>
   balance_thresholds?: AccountOpsBalanceThreshold[]
   quota_thresholds?: AccountOpsQuotaThreshold[]
+  error_close_enabled?: boolean
+  error_close_consecutive?: number
+  error_close_notify_email?: boolean
+  error_close_codes?: string[]
 }
 export type AccountOpsConfigInput = Omit<AccountOpsConfig, 'webhooks'> & { webhooks?: AccountOpsWebhookInput[] }
 export interface AccountOpsEvent {
@@ -101,7 +106,7 @@ export interface AccountOpsEvent {
   details?: { balance?: number; threshold?: number; unit?: string; used_percent?: number; threshold_percent?: number; window?: string; observed_at?: string; resets_at?: string }
   deliveries?: Record<string, { provider: string; name?: string; status: 'sent' | 'failed'; attempts: number; last_sent_at?: string }>
 }
-export type AccountOpsNotificationSettings = Partial<Pick<AccountOpsConfig, 'enabled' | 'recipient' | 'email_name' | 'balance_low' | 'weekly_quota' | 'cooldown_minutes'>>
+export type AccountOpsNotificationSettings = Partial<Pick<AccountOpsConfig, 'enabled' | 'recipient' | 'email_name' | 'balance_low' | 'weekly_quota' | 'cooldown_minutes' | 'error_close_enabled' | 'error_close_consecutive' | 'error_close_notify_email' | 'error_close_codes'>>
 export interface AccountOpsRuleInput {
   metric: 'balance' | 'quota'
   enabled: boolean

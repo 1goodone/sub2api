@@ -8,12 +8,16 @@ import (
 )
 
 type AccountOpsNotificationSettings struct {
-	Enabled         *bool   `json:"enabled"`
-	Recipient       *string `json:"recipient"`
-	EmailName       *string `json:"email_name"`
-	BalanceLow      *bool   `json:"balance_low"`
-	WeeklyQuota     *bool   `json:"weekly_quota"`
-	CooldownMinutes *int    `json:"cooldown_minutes"`
+	Enabled               *bool     `json:"enabled"`
+	Recipient             *string   `json:"recipient"`
+	EmailName             *string   `json:"email_name"`
+	BalanceLow            *bool     `json:"balance_low"`
+	WeeklyQuota           *bool     `json:"weekly_quota"`
+	CooldownMinutes       *int      `json:"cooldown_minutes"`
+	ErrorCloseEnabled     *bool     `json:"error_close_enabled"`
+	ErrorCloseConsecutive *int      `json:"error_close_consecutive"`
+	ErrorCloseNotifyEmail *bool     `json:"error_close_notify_email"`
+	ErrorCloseCodes       *[]string `json:"error_close_codes"`
 }
 type AccountOpsRuleUpdate struct {
 	Metric           string   `json:"metric"`
@@ -146,6 +150,22 @@ func (s *AccountOpsService) SaveNotificationSettings(ctx context.Context, v Acco
 		}
 		if v.CooldownMinutes != nil {
 			c.CooldownMinutes = *v.CooldownMinutes
+		}
+		if v.ErrorCloseEnabled != nil {
+			c.ErrorCloseEnabled = *v.ErrorCloseEnabled
+		}
+		if v.ErrorCloseConsecutive != nil {
+			c.ErrorCloseConsecutive = *v.ErrorCloseConsecutive
+		}
+		if v.ErrorCloseNotifyEmail != nil {
+			c.ErrorCloseNotifyEmail = *v.ErrorCloseNotifyEmail
+		}
+		if v.ErrorCloseCodes != nil {
+			codes, err := normalizeAccountOpsErrorCloseCodes(*v.ErrorCloseCodes)
+			if err != nil {
+				return err
+			}
+			c.ErrorCloseCodes = codes
 		}
 		return nil
 	})

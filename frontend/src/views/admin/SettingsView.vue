@@ -6708,6 +6708,25 @@
                     {{ t("admin.settings.site.siteSubtitleHint") }}
                   </p>
                 </div>
+                <div class="md:col-span-2">
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.site.homeParticleText") }}
+                  </label>
+                  <input
+                    v-model="form.home_particle_text"
+                    type="text"
+                    maxlength="32"
+                    class="input"
+                    :placeholder="
+                      t('admin.settings.site.homeParticleTextPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.site.homeParticleTextHint") }}
+                  </p>
+                </div>
               </div>
 
               <!-- API Base URL -->
@@ -10411,6 +10430,7 @@ const form = reactive<SettingsForm>({
   site_name: "Sub2API",
   site_logo: "",
   site_subtitle: "Subscription to API Conversion Platform",
+  home_particle_text: "",
   api_base_url: "",
   contact_info: "",
   doc_url: "",
@@ -12205,6 +12225,7 @@ async function saveSettings() {
       site_name: form.site_name,
       site_logo: form.site_logo,
       site_subtitle: form.site_subtitle,
+      home_particle_text: form.home_particle_text.trim(),
       api_base_url: form.api_base_url,
       contact_info: form.contact_info,
       doc_url: form.doc_url,

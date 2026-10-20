@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+func TestOpsRoutingGroupsDedupesAndSorts(t *testing.T) {
+	groups := opsRoutingGroups(&Account{Groups: []*Group{{ID: 8, Name: "beta"}, nil, {ID: 8, Name: "ignored"}, {ID: 3, Name: " alpha "}, {ID: 0, Name: "drop"}, {ID: 5}}})
+	require.Equal(t, []AccountOpsRoutingGroup{{ID: 5, Name: "#5"}, {ID: 3, Name: "alpha"}, {ID: 8, Name: "beta"}}, groups)
+	require.Empty(t, opsRoutingGroups(nil))
+}
 func TestAccountOpsFreshBalanceBoundary(t *testing.T) {
 	now := time.Now()
 	received := now.Add(-time.Minute)

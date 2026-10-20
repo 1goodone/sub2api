@@ -16,6 +16,19 @@
       <button type="submit" :disabled="!dirty" class="btn btn-secondary py-1.5 text-sm">{{ t(busy ? 'common.loading' : 'accountOps.saveGlobalSettings') }}</button>
     </fieldset>
     <p class="mt-3 text-xs leading-5 text-gray-500">{{ t('accountOps.globalFailuresHint') }}</p>
+    <div class="mt-4 grid gap-3 border-t border-gray-200 pt-4 dark:border-dark-700 md:grid-cols-2">
+      <label class="flex items-center gap-2 text-sm md:col-span-2"><input v-model="draft.error_close_enabled" type="checkbox" data-testid="global-error-close" @change="dirty = true" />{{ t('accountOps.errorClose') }}</label>
+      <label class="flex flex-wrap items-center gap-2 text-sm">
+        <span>{{ t('accountOps.errorCloseCount') }}</span>
+        <input v-model.number="draft.error_close_consecutive" type="number" min="2" max="50" step="1" class="input w-24 py-1.5 text-sm" data-testid="global-error-close-count" @input="dirty = true" />
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input v-model="draft.error_close_notify_email" type="checkbox" data-testid="global-error-close-email" @change="dirty = true" />{{ t('accountOps.errorCloseNotify') }}</label>
+      <label class="block text-sm md:col-span-2">
+        <span>{{ t('accountOps.errorCloseCodes') }}</span>
+        <textarea v-model="draft.error_close_codes" rows="3" maxlength="2000" class="input mt-1 w-full py-1.5 text-sm" data-testid="global-error-close-codes" :placeholder="t('accountOps.errorCloseCodesPlaceholder')" @input="dirty = true" />
+      </label>
+      <p class="text-xs leading-5 text-gray-500 md:col-span-2">{{ t('accountOps.errorCloseHint') }}</p>
+    </div>
   </form>
 </template>
 <script setup lang="ts">
@@ -28,14 +41,20 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 const props = defineProps<{ config: AccountOpsConfig; disabled?: boolean }>()
 const emit = defineEmits<{ (event: 'saved', config: AccountOpsConfig): void; (event: 'error', message: string): void; (event: 'saving', value: boolean): void }>()
 const { t } = useI18n()
-const draft = reactive({ balance_low: true, weekly_quota: true, cooldown_minutes: 60 })
+const draft = reactive({ balance_low: true, weekly_quota: true, cooldown_minutes: 60, error_close_enabled: false, error_close_consecutive: 3, error_close_notify_email: false, error_close_codes: '' })
 const dirty = ref(false), busy = ref(false)
 let alive = true
-watch(() => [props.config.balance_low, props.config.weekly_quota, props.config.cooldown_minutes], () => {
+watch(() => [props.config.balance_low, props.config.weekly_quota, props.config.cooldown_minutes, props.config.error_close_enabled, props.config.error_close_consecutive, props.config.error_close_notify_email, props.config.error_close_codes?.join('\n')], () => {
   if (!dirty.value && !busy.value) reset(props.config)
 }, { immediate: true })
 function reset(config: AccountOpsConfig) {
-  Object.assign(draft, { balance_low: config.balance_low, weekly_quota: config.weekly_quota, cooldown_minutes: config.cooldown_minutes })
+  Object.assign(draft, {
+    balance_low: config.balance_low, weekly_quota: config.weekly_quota, cooldown_minutes: config.cooldown_minutes,
+    error_close_enabled: config.error_close_enabled === true,
+    error_close_consecutive: config.error_close_consecutive || 3,
+    error_close_notify_email: config.error_close_notify_email === true,
+    error_close_codes: (config.error_close_codes ?? []).join('\n'),
+  })
   dirty.value = false
 }
 onBeforeUnmount(() => { alive = false; emit('saving', false) })
@@ -45,10 +64,27 @@ async function save() {
     emit('error', t('accountOps.cooldownInvalid'))
     return
   }
+  if (!Number.isInteger(draft.error_close_consecutive) || draft.error_close_consecutive < 2 || draft.error_close_consecutive > 50) {
+    emit('error', t('accountOps.errorCloseInvalid'))
+    return
+  }
+  if (draft.error_close_enabled && draft.error_close_notify_email && !props.config.recipient) {
+    emit('error', t('accountOps.errorCloseEmailRequired'))
+    return
+  }
+  const errorCloseCodes = draft.error_close_codes.split(/[\n,]/).map(code => code.trim()).filter(Boolean)
   busy.value = true
   emit('saving', true)
   try {
-    const config = await saveAccountOpsNotificationSettings({ ...draft })
+    const config = await saveAccountOpsNotificationSettings({
+      balance_low: draft.balance_low,
+      weekly_quota: draft.weekly_quota,
+      cooldown_minutes: draft.cooldown_minutes,
+      error_close_enabled: draft.error_close_enabled,
+      error_close_consecutive: draft.error_close_consecutive,
+      error_close_notify_email: draft.error_close_notify_email,
+      error_close_codes: errorCloseCodes,
+    })
     if (alive) { reset(config); emit('saved', config) }
   } catch (e) {
     if (alive) emit('error', extractApiErrorMessage(e, t('accountOps.saveFailed')))

@@ -128,6 +128,14 @@ export default {
   "globalSettings": "Global settings",
   "saveGlobalSettings": "Save global settings",
   "globalFailuresHint": "Request-failure alerts apply to all accounts. Email and robots share this repeat interval. Threshold warning and recovery still send once per episode.",
+  "errorClose": "Close after consecutive errors",
+  "errorCloseCount": "Consecutive errors",
+  "errorCloseNotify": "Email when closed",
+  "errorCloseCodes": "Extra error codes",
+  "errorCloseCodesPlaceholder": "One code per line, for example custom_stream_error",
+  "errorCloseHint": "Close an account after this many consecutive rate limits, stream breaks, overloads, or gateway transport failures. A successful request starts the count again. Quota exhaustion and user-request errors do not count. Leave the list empty to use those defaults; listed codes are added.",
+  "errorCloseInvalid": "Enter an integer between 2 and 50.",
+  "errorCloseEmailRequired": "Configure a recipient before sending email.",
   "cooldownInvalid": "Enter an integer repeat interval between 5 and 1440 minutes.",
   "editEmail": "Edit email channel",
   "notificationSettings": "Notification settings",
@@ -208,6 +216,9 @@ export default {
   ,"accountGroups": "Account groups"
   ,"accountGroupsSummary": "Merge alerts by upstream site or user. {count} groups are available; names and membership can be customized."
   ,"accountGroupsHint": "Administrators manage account groups manually. Each account belongs to at most one group; new accounts join the first group for their site."
+  ,"routingGroupFilter": "Group filter"
+  ,"allRoutingGroups": "All groups"
+  ,"ungroupedRouting": "Ungrouped"
   ,"noAccountGroups": "No configurable account groups"
   ,"groupName": "Group name"
   ,"manualGroup": "Manual group"
