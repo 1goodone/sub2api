@@ -369,3 +369,35 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentAfterOutputStri
 	require.Empty(t, gjson.GetBytes(requests[1], "input.#.encrypted_content").Array(), "下一轮进场应预剥离已被拒绝的密文")
 	require.Equal(t, "hello", gjson.GetBytes(requests[1], `input.#(type=="input_text").text`).String())
 }
+
+// Generic stream failures do not identify which input item was rejected. Keep
+// opaque history and ambiguous inputs intact on both the failing and next turn.
+func TestHTTPStreamInvalidEncryptedContentPreservesOpaqueAndAmbiguousHistory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, input := range []string{
+		`[{"type":"compaction","encrypted_content":"history"},{"type":"input_text","text":"continue"}]`,
+		`[{"type":"compaction_summary","encrypted_content":"history"},{"type":"input_text","text":"continue"}]`,
+		`[{"type":"reasoning","encrypted_content":"one"},{"type":"reasoning","encrypted_content":"two"},{"type":"input_text","text":"continue"}]`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			rejection := `data: {"type":"response.failed","response":{"error":{"code":"invalid_encrypted_content","message":"Invalid encrypted content"}}}` + "\n\n"
+			upstream := &httpUpstreamSequenceRecorder{responses: []*http.Response{
+				newStreamLineageSSEResponse(streamLineageCreatedEvent, streamLineageDeltaEvent, rejection),
+				newStreamLineageSSEResponse(streamLineageCreatedEvent, streamLineageDeltaEvent, streamLineageDoneEvent),
+			}}
+			svc := newStreamLineageHTTPService(upstream)
+			account := newStreamLineageHTTPAccount()
+			body := []byte(`{"model":"gpt-5.1","stream":true,"input":` + input + `}`)
+			first, _ := newStreamLineageTestContext("opaque-history")
+			_, err := svc.Forward(context.Background(), first, account, body)
+			require.Error(t, err)
+			require.Equal(t, 1, upstream.callCount, "no replay after output")
+			next, _ := newStreamLineageTestContext("opaque-history")
+			_, err = svc.Forward(context.Background(), next, account, body)
+			require.NoError(t, err)
+			require.Len(t, upstream.bodies, 2)
+			require.JSONEq(t, gjson.GetBytes(upstream.bodies[0], "input").Raw, gjson.GetBytes(upstream.bodies[1], "input").Raw)
+			require.True(t, gjson.GetBytes(upstream.bodies[1], "input.0.encrypted_content").Exists())
+		})
+	}
+}
