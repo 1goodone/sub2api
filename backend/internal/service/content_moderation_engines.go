@@ -14,6 +14,7 @@ const (
 
 type ContentModerationEngineConfig struct {
 	BaseURL    string             `json:"base_url"`
+	BaseURLs   []string           `json:"base_urls,omitempty"`
 	Model      string             `json:"model"`
 	ProxyID    *int64             `json:"proxy_id,omitempty"`
 	APIKeys    []string           `json:"api_keys,omitempty"`
@@ -70,10 +71,11 @@ func (cfg *ContentModerationConfig) engineProfile(engine string) *ContentModerat
 		}
 		p = *cfg.TypeSafe
 	} else {
-		p = ContentModerationEngineConfig{BaseURL: cfg.BaseURL, Model: cfg.Model, ProxyID: cfg.ProxyID, APIKeys: cfg.apiKeys(), TimeoutMS: cfg.TimeoutMS, RetryCount: cfg.RetryCount, Thresholds: cfg.Thresholds}
+		p = ContentModerationEngineConfig{BaseURL: cfg.BaseURL, BaseURLs: append([]string(nil), cfg.BaseURLs...), Model: cfg.Model, ProxyID: cfg.ProxyID, APIKeys: cfg.apiKeys(), TimeoutMS: cfg.TimeoutMS, RetryCount: cfg.RetryCount, Thresholds: cfg.Thresholds}
 	}
 	p.ProxyID = cloneInt64Ptr(p.ProxyID)
 	p.APIKeys = append([]string(nil), p.APIKeys...)
+	p.BaseURLs = append([]string(nil), p.BaseURLs...)
 	p.Thresholds = cloneFloatMap(p.Thresholds)
 	p.normalize(engine)
 	return &p
@@ -84,10 +86,11 @@ func (p *ContentModerationEngineConfig) normalize(engine string) {
 		return
 	}
 	defaults := moderationEngineDefaults(engine)
-	p.BaseURL = strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
-	if p.BaseURL == "" {
-		p.BaseURL = defaults.BaseURL
+	p.BaseURLs = collectModerationBaseURLs(append([]string{p.BaseURL}, p.BaseURLs...))
+	if len(p.BaseURLs) == 0 {
+		p.BaseURLs = []string{defaults.BaseURL}
 	}
+	p.BaseURL = p.BaseURLs[0]
 	p.Model = strings.TrimSpace(p.Model)
 	if p.Model == "" {
 		p.Model = defaults.Model
@@ -106,8 +109,21 @@ func (p *ContentModerationEngineConfig) normalize(engine string) {
 	}
 }
 
+func (p *ContentModerationEngineConfig) baseURLs() []string {
+	if p == nil {
+		return nil
+	}
+	if len(p.BaseURLs) > 0 {
+		return p.BaseURLs
+	}
+	if strings.TrimSpace(p.BaseURL) != "" {
+		return []string{strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")}
+	}
+	return nil
+}
+
 func (cfg *ContentModerationConfig) applyEngineProfile(p *ContentModerationEngineConfig) {
-	cfg.BaseURL, cfg.Model, cfg.ProxyID = p.BaseURL, p.Model, cloneInt64Ptr(p.ProxyID)
+	cfg.BaseURL, cfg.BaseURLs, cfg.Model, cfg.ProxyID = p.BaseURL, append([]string(nil), p.BaseURLs...), p.Model, cloneInt64Ptr(p.ProxyID)
 	cfg.APIKey, cfg.APIKeys = "", append([]string(nil), p.APIKeys...)
 	cfg.TimeoutMS, cfg.RetryCount = p.TimeoutMS, p.RetryCount
 	cfg.Thresholds = cloneFloatMap(p.Thresholds)
@@ -127,10 +143,12 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	p := cfg.engineProfile(engine)
 	defaults := moderationEngineDefaults(engine)
 	if input.BaseURL != nil {
-		p.BaseURL = strings.TrimSpace(*input.BaseURL)
-		if p.BaseURL == "" {
-			p.BaseURL = defaults.BaseURL
+		urls := collectModerationBaseURLs([]string{*input.BaseURL})
+		if len(urls) == 0 {
+			urls = []string{defaults.BaseURL}
 		}
+		p.BaseURLs = urls
+		p.BaseURL = urls[0]
 	}
 	if input.Model != nil {
 		p.Model = strings.TrimSpace(*input.Model)
@@ -177,7 +195,7 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	if err := s.validateConfig(ctx, check); err != nil {
 		return err
 	}
-	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
+	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, BaseURLs: append([]string(nil), check.BaseURLs...), Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
 	if engine == ContentModerationEngineTypeSafe {
 		cfg.TypeSafe = p
 	} else {

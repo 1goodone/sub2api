@@ -262,6 +262,7 @@ export default {
       modeOff: 'Off',
       modeOffDesc: 'Content moderation is disabled and no audit records are written.',
       baseUrl: 'Base URL',
+      baseUrlHint: 'One address per line, paired with the API key on the same line. One request uses one pair and fails over to the next pair. Keys are never sent to another address. Counts must match, up to 16 pairs.',
       model: 'Model',
       apiKey: 'API Key',
       apiKeys: 'API Keys',

@@ -415,9 +415,10 @@
               <div v-if="configForm.engine === 'typesafe'" class="lg:col-span-2 text-sm text-amber-700 dark:text-amber-300" role="status">
                 {{ t('admin.riskControl.typeSafeNotice') }}
               </div>
-              <div>
+              <div class="lg:col-span-2">
                 <label class="input-label">{{ t('admin.riskControl.baseUrl') }}</label>
-                <input v-model.trim="configForm.base_url" data-test="audit-base-url" type="url" class="input" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" />
+                <textarea v-model="configForm.base_url" data-test="audit-base-url" rows="3" class="input font-mono text-sm" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" />
+                <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.baseUrlHint') }}</p>
               </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.model') }}</label>
@@ -1318,9 +1319,15 @@ function switchEngine(value: string | number | boolean | null) {
   moderationTestResult.value = null
 }
 
+function moderationBaseURLText(config: Pick<ContentModerationConfig, 'base_url' | 'base_urls'> | undefined, fallback: string) {
+  const urls = config?.base_urls?.map(url => url.trim()).filter(Boolean)
+  if (urls?.length) return urls.join('\n')
+  return config?.base_url || fallback
+}
+
 function engineDraftFromConfig(config: ContentModerationConfig | undefined, engine: ModerationEngine): EngineDraft {
   return {
-    base_url: config?.base_url || (engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'),
+    base_url: moderationBaseURLText(config, engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'),
     model: config?.model || (engine === 'typesafe' ? 'jev-latest' : 'omni-moderation-latest'),
     proxy_id: config?.proxy_id ?? null, api_keys_text: '', api_key_configured: config?.api_key_configured ?? false,
     api_key_masked: config?.api_key_masked ?? '', api_key_count: config?.api_key_count ?? 0,
@@ -1790,7 +1797,7 @@ function applyConfig(config: ContentModerationConfig) {
   configForm.engine = savedEngine.value
   configForm.enabled = config.enabled
   configForm.mode = config.mode
-  configForm.base_url = config.base_url || 'https://api.openai.com'
+  configForm.base_url = moderationBaseURLText(config, 'https://api.openai.com')
   configForm.model = config.model || 'omni-moderation-latest'
   configForm.proxy_id = config.proxy_id || null
   configForm.api_keys_text = ''

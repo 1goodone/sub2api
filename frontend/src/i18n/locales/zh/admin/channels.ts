@@ -262,6 +262,7 @@ export default {
       modeOff: '关闭',
       modeOffDesc: '不执行内容审计，也不会写入审核记录。',
       baseUrl: 'Base URL',
+      baseUrlHint: '每行一个地址，顺序对应 API Key：第 1 行只用第 1 个 Key，第 2 行只用第 2 个 Key。一次请求只用一对，失败才换下一对，不会交叉使用。数量必须相同，最多 16 对。',
       model: '模型名',
       apiKey: 'API Key',
       apiKeys: 'API Keys',

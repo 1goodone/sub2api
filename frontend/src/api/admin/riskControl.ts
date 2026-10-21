@@ -22,6 +22,7 @@ export interface ContentModerationConfig {
   enabled: boolean
   mode: ModerationMode
   base_url: string
+  base_urls?: string[]
   model: string
   proxy_id: number | null
   api_key_configured: boolean

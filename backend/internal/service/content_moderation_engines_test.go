@@ -216,3 +216,73 @@ func TestContentModerationEngineRuntimeSwitchKeepsInFlightSnapshot(t *testing.T)
 	require.Equal(t, "typesafe", status.Engine)
 	require.Equal(t, scopedModerationKeyHash("typesafe-key", "typesafe"), status.APIKeyStatuses[0].KeyHash)
 }
+
+func TestContentModerationBaseURLsNormalizeRotateAndPersist(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURL = "https://a.example/,\nhttps://b.example/;https://a.example"
+	cfg.normalize()
+	require.Equal(t, "https://a.example", cfg.BaseURL)
+	require.Equal(t, []string{"https://a.example", "https://b.example"}, cfg.BaseURLs)
+
+	cfg.BaseURL = "not a url"
+	cfg.BaseURLs = nil
+	cfg.normalize()
+	require.Error(t, (&ContentModerationService{}).validateConfig(context.Background(), cfg))
+
+	var first, second atomic.Int32
+	var downAuth, upAuth atomic.Value
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first.Add(1)
+		downAuth.Store(r.Header.Get("Authorization"))
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	defer down.Close()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		second.Add(1)
+		upAuth.Store(r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Model: "omni", Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.1}}}})
+	}))
+	defer up.Close()
+
+	runtime := defaultContentModerationConfig()
+	runtime.Enabled = true
+	runtime.BaseURL = down.URL + "\n" + up.URL
+	runtime.APIKeys = []string{"sk-a", "sk-b"}
+	runtime.RetryCount = 0
+	runtime.normalize()
+	svc := &ContentModerationService{httpClient: http.DefaultClient}
+	result, err := svc.callModeration(context.Background(), runtime, "hello")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int32(1), first.Load())
+	require.Equal(t, int32(1), second.Load())
+	require.Equal(t, "Bearer sk-a", downAuth.Load())
+	require.Equal(t, "Bearer sk-b", upAuth.Load())
+	require.True(t, svc.isAPIKeyFrozen("sk-a", time.Now()))
+	require.False(t, svc.isAPIKeyFrozen("sk-b", time.Now()))
+
+	result, err = svc.callModeration(context.Background(), runtime, "hello")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int32(1), first.Load())
+	require.Equal(t, int32(2), second.Load())
+
+	mismatch := defaultContentModerationConfig()
+	mismatch.BaseURL = "https://a.example\nhttps://b.example"
+	mismatch.APIKeys = []string{"only-one"}
+	mismatch.normalize()
+	require.Error(t, (&ContentModerationService{}).validateConfig(context.Background(), mismatch))
+
+	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{"enabled":true,"mode":"pre_block","base_url":"https://openai.example","model":"omni"}`}}
+	store := &ContentModerationService{settingRepo: repo}
+	engine := ContentModerationEngineTypeSafe
+	base := "https://typesafe-a.example\nhttps://typesafe-b.example"
+	view, err := store.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Engine: &engine, BaseURL: &base})
+	require.NoError(t, err)
+	require.Equal(t, "https://typesafe-a.example", view.BaseURL)
+	require.Equal(t, []string{"https://typesafe-a.example", "https://typesafe-b.example"}, view.BaseURLs)
+	var stored ContentModerationConfig
+	require.NoError(t, json.Unmarshal([]byte(repo.values[SettingKeyContentModerationConfig]), &stored))
+	require.Equal(t, "https://openai.example", stored.BaseURL)
+	require.Equal(t, []string{"https://typesafe-a.example", "https://typesafe-b.example"}, stored.TypeSafe.BaseURLs)
+}

@@ -58,6 +58,7 @@ const (
 	ContentModerationProtocolOpenAIImages      = "openai_images"
 
 	defaultContentModerationBaseURL   = "https://api.openai.com"
+	maxContentModerationBaseURLs      = 16
 	defaultContentModerationModel     = "omni-moderation-latest"
 	defaultContentModerationTimeoutMS = 3000
 	maxContentModerationTimeoutMS     = 30000
@@ -144,6 +145,7 @@ type ContentModerationConfig struct {
 	Enabled  bool                           `json:"enabled"`
 	Mode     string                         `json:"mode"`
 	BaseURL  string                         `json:"base_url"`
+	BaseURLs []string                       `json:"base_urls,omitempty"`
 	Model    string                         `json:"model"`
 	// ProxyID 指定审计请求使用的代理服务器（IP管理-代理服务器），nil 表示直连。
 	ProxyID              *int64                       `json:"proxy_id,omitempty"`
@@ -182,6 +184,7 @@ type ContentModerationConfigView struct {
 	Enabled                        bool                                    `json:"enabled"`
 	Mode                           string                                  `json:"mode"`
 	BaseURL                        string                                  `json:"base_url"`
+	BaseURLs                       []string                                `json:"base_urls,omitempty"`
 	Model                          string                                  `json:"model"`
 	ProxyID                        *int64                                  `json:"proxy_id"`
 	APIKeyConfigured               bool                                    `json:"api_key_configured"`
@@ -522,6 +525,7 @@ type ContentModerationService struct {
 	asyncQueue               chan contentModerationTask
 	workerCount              int
 	apiKeyCursor             atomic.Uint64
+	baseURLCursor            atomic.Uint64
 	asyncActive              atomic.Int64
 	asyncEnqueued            atomic.Int64
 	asyncDropped             atomic.Int64
@@ -760,7 +764,15 @@ func (s *ContentModerationService) TestAPIKeys(ctx context.Context, input TestCo
 		configured = true
 	}
 	if strings.TrimSpace(input.BaseURL) != "" {
-		cfg.BaseURL = input.BaseURL
+		urls := collectModerationBaseURLs([]string{input.BaseURL})
+		if len(urls) == 0 {
+			return nil, infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "审计 Base URL 无效")
+		}
+		if err := validateModerationBaseURLs(urls); err != nil {
+			return nil, err
+		}
+		cfg.BaseURLs = urls
+		cfg.BaseURL = urls[0]
 	}
 	if strings.TrimSpace(input.Model) != "" {
 		cfg.Model = input.Model
@@ -800,7 +812,7 @@ func (s *ContentModerationService) TestAPIKeys(ctx context.Context, input TestCo
 	for idx, key := range keys {
 		start := time.Now()
 		httpStatus := 0
-		result, err := s.callModerationOnceWithInput(ctx, cfg, key, testInput, &httpStatus)
+		result, err := s.callKeyAcrossBaseURLs(ctx, cfg, key, testInput, &httpStatus)
 		latency := int(time.Since(start).Milliseconds())
 		keyHash := scopedModerationKeyHash(key, cfg.Engine)
 		if err != nil {
@@ -1705,8 +1717,19 @@ func (s *ContentModerationService) validateConfig(ctx context.Context, cfg *Cont
 	default:
 		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_MODE", "内容审计模式无效")
 	}
-	if _, err := url.ParseRequestURI(cfg.BaseURL); err != nil {
-		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "审计 Base URL 无效")
+	if err := validateModerationBaseURLs(cfg.baseURLs()); err != nil {
+		return err
+	}
+	if err := validateModerationEndpointPairs(cfg.baseURLs(), cfg.apiKeys()); err != nil {
+		return err
+	}
+	if cfg.TypeSafe != nil {
+		if err := validateModerationBaseURLs(cfg.TypeSafe.baseURLs()); err != nil {
+			return err
+		}
+		if err := validateModerationEndpointPairs(cfg.TypeSafe.baseURLs(), cfg.TypeSafe.APIKeys); err != nil {
+			return err
+		}
 	}
 	if cfg.ProxyID != nil && s.proxyRepo != nil {
 		if _, err := s.proxyRepo.GetByID(ctx, *cfg.ProxyID); err != nil {
@@ -1736,6 +1759,9 @@ func (s *ContentModerationService) callModeration(ctx context.Context, cfg *Cont
 	}
 	if attempts > maxContentModerationRetryCount+1 {
 		attempts = maxContentModerationRetryCount + 1
+	}
+	if len(cfg.baseURLs()) > 1 {
+		return s.callModerationAcrossBaseURLs(ctx, cfg, input, len(trackKeyLoad) > 0 && trackKeyLoad[0])
 	}
 	trackLoad := len(trackKeyLoad) > 0 && trackKeyLoad[0]
 	var lastErr error
@@ -1778,6 +1804,89 @@ func (s *ContentModerationService) callModeration(ctx context.Context, cfg *Cont
 		}
 	}
 	return nil, lastErr
+}
+
+// callModerationAcrossBaseURLs uses one address with the API key on the same line.
+// A failed pair tries the next pair. Keys are never sent to another address.
+func (s *ContentModerationService) callModerationAcrossBaseURLs(ctx context.Context, cfg *ContentModerationConfig, input any, trackLoad bool) (*moderationAPIResult, error) {
+	urls := cfg.baseURLs()
+	keys := cfg.apiKeys()
+	if len(urls) == 0 || len(keys) != len(urls) {
+		return nil, errors.New("moderation base url and api key count mismatch")
+	}
+	tries := len(urls)
+	if tries > maxContentModerationRetryCount+1 {
+		tries = maxContentModerationRetryCount + 1
+	}
+	start := 0
+	if s != nil {
+		start = int(s.baseURLCursor.Add(1)-1) % len(urls)
+	}
+	var lastErr error
+	skipped := 0
+	for attempt := 0; attempt < tries; attempt++ {
+		idx := (start + attempt) % len(urls)
+		key := keys[idx]
+		if s.isAPIKeyFrozen(key, time.Now(), cfg.Engine) {
+			lastErr = errors.New("no moderation api key available")
+			skipped++
+			continue
+		}
+		if trackLoad {
+			s.beginModerationAPIKeyCall(key, cfg.Engine)
+		}
+		attemptCfg := *cfg
+		attemptCfg.BaseURL = urls[idx]
+		startAt := time.Now()
+		httpStatus := 0
+		result, err := s.callModerationOnceWithInput(ctx, &attemptCfg, key, input, &httpStatus)
+		latency := int(time.Since(startAt).Milliseconds())
+		if err == nil {
+			if trackLoad {
+				s.finishModerationAPIKeyCall(key, latency, true, cfg.Engine)
+			}
+			s.markAPIKeySuccess(key, latency, httpStatus, cfg.Engine)
+			return result, nil
+		}
+		if trackLoad {
+			s.finishModerationAPIKeyCall(key, latency, false, cfg.Engine)
+		}
+		s.markAPIKeyError(key, err.Error(), latency, httpStatus, cfg.Engine)
+		lastErr = err
+		if httpStatus == http.StatusBadRequest || attempt == tries-1 {
+			break
+		}
+		wait := time.Duration(100*(attempt+1)) * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	if lastErr == nil && skipped == tries {
+		lastErr = errors.New("no moderation api key available")
+	}
+	return nil, lastErr
+}
+
+func (s *ContentModerationService) callKeyAcrossBaseURLs(ctx context.Context, cfg *ContentModerationConfig, key string, input any, httpStatus *int) (*moderationAPIResult, error) {
+	urls := cfg.baseURLs()
+	if len(urls) <= 1 {
+		return s.callModerationOnceWithInput(ctx, cfg, key, input, httpStatus)
+	}
+	base := urls[0]
+	keys := cfg.apiKeys()
+	if len(keys) == len(urls) {
+		for i, candidate := range keys {
+			if candidate == key {
+				base = urls[i]
+				break
+			}
+		}
+	}
+	attempt := *cfg
+	attempt.BaseURL = base
+	return s.callModerationOnceWithInput(ctx, &attempt, key, input, httpStatus)
 }
 
 func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Context, cfg *ContentModerationConfig, apiKey string, input any, httpStatus *int) (*moderationAPIResult, error) {
@@ -2171,6 +2280,7 @@ func cloneContentModerationConfig(cfg *ContentModerationConfig) *ContentModerati
 	}
 	clone.ProxyID = cloneInt64Ptr(cfg.ProxyID)
 	clone.APIKeys = append([]string(nil), cfg.APIKeys...)
+	clone.BaseURLs = append([]string(nil), cfg.BaseURLs...)
 	clone.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
 	clone.BlockedKeywords = append([]string(nil), cfg.BlockedKeywords...)
 	clone.Thresholds = cloneFloatMap(cfg.Thresholds)
@@ -2192,10 +2302,14 @@ func (cfg *ContentModerationConfig) normalize() {
 	if cfg.Mode == "" {
 		cfg.Mode = ContentModerationModePreBlock
 	}
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = defaultContentModerationBaseURL
+	cfg.BaseURLs = collectModerationBaseURLs(append([]string{cfg.BaseURL}, cfg.BaseURLs...))
+	if len(cfg.BaseURLs) == 0 {
+		cfg.BaseURLs = []string{defaultContentModerationBaseURL}
 	}
-	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.BaseURL = cfg.BaseURLs[0]
+	if cfg.TypeSafe != nil {
+		cfg.TypeSafe.normalize(ContentModerationEngineTypeSafe)
+	}
 	if cfg.Model == "" {
 		cfg.Model = defaultContentModerationModel
 	}
@@ -2466,6 +2580,7 @@ func (s *ContentModerationService) configView(cfg *ContentModerationConfig) *Con
 		Enabled:                        cfg.Enabled,
 		Mode:                           cfg.Mode,
 		BaseURL:                        cfg.BaseURL,
+		BaseURLs:                       append([]string(nil), cfg.baseURLs()...),
 		Model:                          cfg.Model,
 		ProxyID:                        cloneInt64Ptr(cfg.ProxyID),
 		APIKeyConfigured:               len(keys) > 0,
@@ -2921,6 +3036,101 @@ func matchBlockedKeyword(text string, keywords []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func (cfg *ContentModerationConfig) baseURLs() []string {
+	if cfg == nil {
+		return nil
+	}
+	if len(cfg.BaseURLs) > 0 {
+		return cfg.BaseURLs
+	}
+	if strings.TrimSpace(cfg.BaseURL) != "" {
+		return []string{strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")}
+	}
+	return nil
+}
+
+func collectModerationBaseURLs(raw []string) []string {
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		for _, part := range splitModerationBaseURLField(item) {
+			part = strings.TrimRight(strings.TrimSpace(part), "/")
+			if part == "" {
+				continue
+			}
+			if _, ok := seen[part]; ok {
+				continue
+			}
+			seen[part] = struct{}{}
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func splitModerationBaseURLField(raw string) []string {
+	raw = strings.NewReplacer("\r\n", "\n", "\r", "\n", "，", "\n", "；", "\n", ";", "\n").Replace(raw)
+	var out []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if pieces, ok := splitIfAllRequestURIs(line, ","); ok {
+			out = append(out, pieces...)
+			continue
+		}
+		if pieces, ok := splitIfAllRequestURIs(line, " "); ok {
+			out = append(out, pieces...)
+			continue
+		}
+		out = append(out, strings.Trim(line, ","))
+	}
+	return out
+}
+
+func splitIfAllRequestURIs(line, sep string) ([]string, bool) {
+	if !strings.Contains(line, sep) {
+		return nil, false
+	}
+	parts := strings.Split(line, sep)
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, ","))
+		if part == "" {
+			continue
+		}
+		if _, err := url.ParseRequestURI(part); err != nil {
+			return nil, false
+		}
+		cleaned = append(cleaned, part)
+	}
+	return cleaned, len(cleaned) > 1
+}
+
+func validateModerationEndpointPairs(urls, keys []string) error {
+	if len(urls) > 1 && len(keys) > 0 && len(keys) != len(urls) {
+		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "多个 Base URL 必须与 API Key 按行一一对应")
+	}
+	return nil
+}
+
+func validateModerationBaseURLs(urls []string) error {
+	if len(urls) == 0 {
+		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "审计 Base URL 无效")
+	}
+	if len(urls) > maxContentModerationBaseURLs {
+		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", fmt.Sprintf("审计 Base URL 最多 %d 个", maxContentModerationBaseURLs))
+	}
+	for _, raw := range urls {
+		parsed, err := url.ParseRequestURI(raw)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "审计 Base URL 无效")
+		}
+	}
+	return nil
 }
 
 func normalizeModerationAPIKeys(keys []string) []string {
