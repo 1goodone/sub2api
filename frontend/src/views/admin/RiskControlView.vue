@@ -435,7 +435,7 @@
                   </button>
                 </div>
                 <div v-for="(row, index) in configForm.endpoint_rows" :key="index" class="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <input v-model="row.url" data-test="audit-base-url" type="text" class="input font-mono text-sm" :class="row.paused ? 'opacity-60' : ''" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" :aria-label="t('admin.riskControl.endpointUrl')" />
+                  <input :ref="index === 0 ? setBaseUrlInput : undefined" v-model="row.url" data-test="audit-base-url" type="text" class="input font-mono text-sm" :class="row.paused ? 'opacity-60' : ''" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" :aria-label="t('admin.riskControl.endpointUrl')" />
                   <input v-model="row.key" data-test="audit-endpoint-key" type="password" autocomplete="new-password" class="input font-mono text-sm" :class="row.paused ? 'opacity-60' : ''" :placeholder="row.mask || t('admin.riskControl.endpointKey')" :aria-label="t('admin.riskControl.endpointKey')" />
                   <div class="flex gap-2">
                     <button type="button" class="btn btn-secondary" data-test="audit-endpoint-pause" @click="toggleEndpointPause(index)">{{ row.paused ? t('admin.riskControl.resumeApiKey') : t('admin.riskControl.pauseApiKey') }}</button>
@@ -445,6 +445,7 @@
                   <p v-else-if="row.mask && !row.key" class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-3">{{ t('admin.riskControl.savedEndpointKey', { mask: row.mask }) }}</p>
                 </div>
                 <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.baseUrlHint') }}</p>
+                <p v-if="configForm.engine === 'typesafe'" data-test="audit-base-url-hint" class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.typeSafeBaseUrlHint') }}</p>
               </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.model') }}</label>
@@ -601,6 +602,15 @@
                     <div class="min-w-0">
                       <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.riskControl.apiKeyHealth') }}</p>
                       <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.apiKeyFreezeRule') }}</p>
+                      <button
+                        v-if="configForm.engine === 'typesafe'"
+                        data-test="audit-edit-base-url"
+                        type="button"
+                        class="mt-2 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                        @click="baseUrlInput?.focus()"
+                      >
+                        {{ t('admin.riskControl.editBaseUrl') }}
+                      </button>
                     </div>
                     <span class="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[11px] font-medium leading-5 text-gray-600 shadow-sm dark:bg-dark-800 dark:text-gray-300">
                       {{ t('admin.riskControl.apiKeyRows', { count: apiKeyRows.length }) }}
@@ -1241,6 +1251,10 @@ const apiKeyTesting = ref(false)
 const hashActionLoading = ref(false)
 const unbanningUserID = ref<number | null>(null)
 const settingsOpen = ref(false)
+const baseUrlInput = ref<HTMLInputElement | null>(null)
+function setBaseUrlInput(el: unknown) {
+  baseUrlInput.value = el instanceof HTMLInputElement ? el : null
+}
 const activeSettingsTab = ref<SettingsTab>('basic')
 const groupSearch = ref('')
 const flaggedHashInput = ref('')

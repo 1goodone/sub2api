@@ -268,6 +268,8 @@ export default {
       endpointUrl: 'Base URL',
       endpointKey: 'API Key',
       savedEndpointKey: '已保存 {mask}，留空继续使用',
+      editBaseUrl: '编辑 Base URL',
+      typeSafeBaseUrlHint: '可编辑 TypeSafe 服务地址，留空使用 https://api.typesafe.ai。支持根地址、/v1 或 /v1/systemone，会保留代理路径前缀且不重复拼接。保存 URL 不会解除 Key 冻结；401 表示鉴权被拒绝，需核对凭据与上游配置。',
       model: '模型名',
       apiKey: 'API Key',
       apiKeys: 'API Keys',

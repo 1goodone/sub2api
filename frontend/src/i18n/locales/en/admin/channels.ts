@@ -268,6 +268,8 @@ export default {
       endpointUrl: 'Base URL',
       endpointKey: 'API Key',
       savedEndpointKey: 'Saved {mask}; leave blank to keep it',
+      editBaseUrl: 'Edit Base URL',
+      typeSafeBaseUrlHint: 'Edit the TypeSafe server URL, or leave blank for https://api.typesafe.ai. A server root, /v1 or /v1/systemone is accepted; proxy path prefixes are preserved without duplicating the API path. Saving a URL does not unfreeze keys. A 401 means authentication was rejected; check credentials and upstream configuration.',
       model: 'Model',
       apiKey: 'API Key',
       apiKeys: 'API Keys',
