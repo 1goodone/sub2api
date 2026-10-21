@@ -1789,6 +1789,26 @@
                 </p>
               </div>
 
+              <!-- Registration IP quota is independent of login protection. -->
+              <div
+                class="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+              >
+                <div>
+                  <label id="registration-ip-limit-label" class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.security.registrationIPLimit") }}
+                  </label>
+                  <p id="registration-ip-limit-hint" class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.security.registrationIPLimitHint") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.registration_ip_limit_enabled"
+                  aria-labelledby="registration-ip-limit-label"
+                  aria-describedby="registration-ip-limit-hint"
+                  data-testid="registration-ip-limit-toggle"
+                />
+              </div>
+
               <!-- Login rate limits -->
               <div
                 class="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700"
