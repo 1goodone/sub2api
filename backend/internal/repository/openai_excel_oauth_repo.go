@@ -243,3 +243,62 @@ func (r *openAIOAuthReauthRepository) PrepareMissingExcelRoutes(ctx context.Cont
 	}
 	return tx.Commit()
 }
+
+func (r *openAIOAuthReauthRepository) ListExcelLoginStatuses(ctx context.Context, ids []int64) ([]service.ExcelLoginSnapshot, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT a.id, t.id, t.status, COALESCE(t.error_message, '')
+		FROM accounts a
+		LEFT JOIN LATERAL (
+			SELECT id, status, error_message
+			FROM openai_oauth_reauth_tasks
+			WHERE account_id = a.id AND oauth_profile = 'excel'
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1
+		) t ON true
+		WHERE a.id = ANY($1)
+		  AND a.deleted_at IS NULL
+		  AND a.platform = 'openai'
+		  AND a.type = 'oauth'
+		  AND a.parent_account_id IS NULL
+	`, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []service.ExcelLoginSnapshot
+	for rows.Next() {
+		var item service.ExcelLoginSnapshot
+		var taskID sql.NullInt64
+		var status sql.NullString
+		var taskError string
+		if err := rows.Scan(&item.AccountID, &taskID, &status, &taskError); err != nil {
+			return nil, err
+		}
+		if taskID.Valid {
+			item.Task = &service.OpenAIOAuthReauthTaskRecord{
+				OAuthProfile: "excel",
+				ID:           taskID.Int64,
+				AccountID:    item.AccountID,
+				Status:       status.String,
+				Error:        taskError,
+			}
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *openAIOAuthReauthRepository) RecordExcelLoginFailure(ctx context.Context, id int64, state service.ExcelBPSCredentialState) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := writeExcelGrantDiagnosis(ctx, tx, id, []service.ExcelBPSCredentialState{state}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

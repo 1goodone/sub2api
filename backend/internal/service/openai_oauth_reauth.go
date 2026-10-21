@@ -703,6 +703,10 @@ func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, acc
 }
 
 func (s *OpenAIOAuthReauthService) createProfileTask(ctx context.Context, accountID int64, profile, proxyCiphertext string) (*OpenAIOAuthReauthTask, error) {
+	return s.createProfileTaskWithPool(ctx, accountID, profile, proxyCiphertext, "", 1)
+}
+
+func (s *OpenAIOAuthReauthService) createProfileTaskWithPool(ctx context.Context, accountID int64, profile, proxyCiphertext, poolCiphertext string, attempt int) (*OpenAIOAuthReauthTask, error) {
 	if profile != "codex" && profile != "excel" && profile != "siwc" {
 		return nil, infraerrors.BadRequest("OPENAI_REAUTH_PROFILE_INVALID", "Invalid OAuth profile")
 	}
@@ -757,11 +761,19 @@ func (s *OpenAIOAuthReauthService) createProfileTask(ctx context.Context, accoun
 			return nil, infraerrors.ServiceUnavailable("OPENAI_REAUTH_EXCEL_UNAVAILABLE", "Excel authorization queue is unavailable")
 		}
 		if proxyCiphertext != "" {
-			creator, creatorOK := excelRepo.(excelTaskProxyCreator)
-			if !creatorOK {
-				return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_PROXY_UNAVAILABLE", "BPS login proxy storage is unavailable")
+			if poolCiphertext != "" || attempt > 1 {
+				poolCreator, poolOK := excelRepo.(excelTaskProxyPoolCreator)
+				if !poolOK {
+					return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_PROXY_UNAVAILABLE", "BPS login proxy storage is unavailable")
+				}
+				record, err = poolCreator.CreateExcelTaskWithProxyPool(ctx, accountID, expectedCredentialsHash, proxyCiphertext, poolCiphertext, attempt)
+			} else {
+				creator, creatorOK := excelRepo.(excelTaskProxyCreator)
+				if !creatorOK {
+					return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_PROXY_UNAVAILABLE", "BPS login proxy storage is unavailable")
+				}
+				record, err = creator.CreateExcelTaskWithProxy(ctx, accountID, expectedCredentialsHash, proxyCiphertext)
 			}
-			record, err = creator.CreateExcelTaskWithProxy(ctx, accountID, expectedCredentialsHash, proxyCiphertext)
 		} else {
 			record, err = excelRepo.CreateExcelTask(ctx, accountID, expectedCredentialsHash)
 		}
@@ -1296,6 +1308,13 @@ func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, w
 	record, _ := s.repo.GetTask(ctx, taskID)
 	if err := s.repo.MarkFailed(ctx, taskID, strings.TrimSpace(workerID), reason); err != nil {
 		return infraerrors.New(http.StatusConflict, "OPENAI_REAUTH_TASK_NOT_ACTIVE", "re-login task is no longer active")
+	}
+	if record != nil && record.OAuthProfile == "excel" && !s.rotateBPSLoginProxy(ctx, record, reason) {
+		if recorder, ok := s.repo.(excelLoginFailureRecorder); ok {
+			if err := recorder.RecordExcelLoginFailure(ctx, record.AccountID, ExcelBPSGrantFailure(excelLoginFailureCode(reason))); err != nil {
+				slog.Warn("excel_bps_login_failure_state", "account_id", record.AccountID, "task_id", taskID)
+			}
+		}
 	}
 	if record != nil && isRetiredAccountReason(reason) && s.markRetired != nil {
 		if err := s.markRetired(ctx, record.AccountID, retiredAccountDetail); err != nil {

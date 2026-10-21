@@ -604,6 +604,96 @@ func TestOpenAIOAuthReauthReleasesMihomoProxyWhenWorkerFails(t *testing.T) {
 	require.True(t, released)
 }
 
+type excelLoginListRepo struct {
+	*reauthTestRepo
+	rows       []ExcelLoginSnapshot
+	recorded   ExcelBPSCredentialState
+	recordedID int64
+}
+
+func (r *excelLoginListRepo) ListExcelLoginStatuses(context.Context, []int64) ([]ExcelLoginSnapshot, error) {
+	return r.rows, nil
+}
+func (r *excelLoginListRepo) RecordExcelLoginFailure(_ context.Context, id int64, state ExcelBPSCredentialState) error {
+	r.recordedID = id
+	r.recorded = state
+	return nil
+}
+
+type excelProxyRotateRepo struct {
+	*excelLoginListRepo
+	pool    string
+	attempt int
+	next    string
+	rest    string
+	tries   int
+}
+
+func (r *excelProxyRotateRepo) GetTaskProxyRotation(context.Context, int64) (string, int, error) {
+	return r.pool, r.attempt, nil
+}
+
+func (r *excelProxyRotateRepo) CreateExcelTaskWithProxyPool(_ context.Context, _ int64, _, proxyCiphertext, poolCiphertext string, attempt int) (*OpenAIOAuthReauthTaskRecord, error) {
+	r.next = proxyCiphertext
+	r.rest = poolCiphertext
+	r.tries = attempt
+	return &OpenAIOAuthReauthTaskRecord{ID: 99}, nil
+}
+
+func TestExcelLoginFailureRotatesProxyPool(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	rotator := &excelProxyRotateRepo{
+		excelLoginListRepo: &excelLoginListRepo{reauthTestRepo: repo},
+		pool:               "encrypted:" + `["http://alice:b@10.0.0.2:8080","http://alice:c@10.0.0.3:8080"]`,
+		attempt:            1,
+	}
+	svc.repo = rotator
+	repo.task = &OpenAIOAuthReauthTaskRecord{ID: 9, AccountID: 42, WorkerID: "worker-a", OAuthProfile: "excel", Status: OpenAIOAuthReauthStatusRunning, ExpectedCredentialsHash: "hash"}
+	require.NoError(t, svc.FailTask(context.Background(), 9, "worker-a", "Excel password/TOTP login failed (stage=web_login, reason=warmup_failed, exit=1)"))
+	require.Zero(t, rotator.recordedID)
+	require.Equal(t, 2, rotator.tries)
+	require.Equal(t, "encrypted:http://alice:b@10.0.0.2:8080", rotator.next)
+	require.Contains(t, rotator.rest, "10.0.0.3")
+
+	rotator.attempt = 3
+	rotator.tries = 0
+	repo.task = &OpenAIOAuthReauthTaskRecord{ID: 11, AccountID: 42, WorkerID: "worker-a", OAuthProfile: "excel", Status: OpenAIOAuthReauthStatusRunning}
+	require.NoError(t, svc.FailTask(context.Background(), 11, "worker-a", "reason=security_check"))
+	require.Equal(t, int64(42), rotator.recordedID)
+	require.Zero(t, rotator.tries)
+}
+
+func TestExcelLoginFailureSyncsBoundedState(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	recorder := &excelLoginListRepo{reauthTestRepo: repo}
+	svc.repo = recorder
+	repo.task = &OpenAIOAuthReauthTaskRecord{ID: 9, AccountID: 42, WorkerID: "worker-a", OAuthProfile: "excel", Status: OpenAIOAuthReauthStatusRunning}
+	require.NoError(t, svc.FailTask(context.Background(), 9, "worker-a", "Excel password/TOTP login failed (stage=web_login, reason=warmup_failed, exit=1)"))
+	require.Equal(t, int64(42), recorder.recordedID)
+	require.Equal(t, "auth_failed", recorder.recorded.Status)
+	require.Equal(t, "warmup_failed", recorder.recorded.ErrorCode)
+
+	repo.task = &OpenAIOAuthReauthTaskRecord{ID: 10, AccountID: 42, WorkerID: "worker-a", OAuthProfile: "codex", Status: OpenAIOAuthReauthStatusRunning}
+	recorder.recordedID = 0
+	require.NoError(t, svc.FailTask(context.Background(), 10, "worker-a", "worker timeout"))
+	require.Zero(t, recorder.recordedID)
+}
+
+func TestListExcelLoginStatusesUsesBoundedFailureCode(t *testing.T) {
+	repo := &excelLoginListRepo{reauthTestRepo: &reauthTestRepo{}, rows: []ExcelLoginSnapshot{{
+		AccountID: 42,
+		Task:      &OpenAIOAuthReauthTaskRecord{OAuthProfile: "excel", Status: "failed", Error: "reason=security_check"},
+	}}}
+	svc := &OpenAIOAuthReauthService{repo: repo}
+	items, err := svc.ListExcelLoginStatuses(context.Background(), []int64{42, 42, 0})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "failed", items[0].Task.Status)
+	require.Equal(t, "security_check", items[0].Task.ErrorCode)
+	_, err = svc.ListExcelLoginStatuses(context.Background(), make([]int64, 201))
+	require.Error(t, err)
+}
+
 func TestOpenAIOAuthReauthRejectsInvalidProxySourceCombinations(t *testing.T) {
 	proxyID := int64(9)
 	for _, tt := range []struct {

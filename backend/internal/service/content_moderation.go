@@ -2326,7 +2326,10 @@ func (cfg *ContentModerationConfig) normalize() {
 	if cfg.Mode == "" {
 		cfg.Mode = ContentModerationModePreBlock
 	}
-	cfg.BaseURLs = collectModerationBaseURLs(append([]string{cfg.BaseURL}, cfg.BaseURLs...))
+	cfg.BaseURLs = collectModerationBaseURLs(cfg.BaseURLs)
+	if len(cfg.BaseURLs) == 0 {
+		cfg.BaseURLs = collectModerationBaseURLs([]string{cfg.BaseURL})
+	}
 	if len(cfg.BaseURLs) == 0 {
 		cfg.BaseURLs = []string{defaultContentModerationBaseURL}
 	}
@@ -3139,7 +3142,6 @@ func (cfg *ContentModerationConfig) baseURLs() []string {
 }
 
 func collectModerationBaseURLs(raw []string) []string {
-	seen := make(map[string]struct{}, len(raw))
 	out := make([]string, 0, len(raw))
 	for _, item := range raw {
 		for _, part := range splitModerationBaseURLField(item) {
@@ -3147,10 +3149,6 @@ func collectModerationBaseURLs(raw []string) []string {
 			if part == "" {
 				continue
 			}
-			if _, ok := seen[part]; ok {
-				continue
-			}
-			seen[part] = struct{}{}
 			out = append(out, part)
 		}
 	}

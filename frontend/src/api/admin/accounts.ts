@@ -516,12 +516,22 @@ export interface BPSLoginAccountResult {
   error?: string
 }
 
-export async function startBPSLogin(accountIds: number[], proxy: string): Promise<{ results: BPSLoginAccountResult[] }> {
+export async function startBPSLogin(accountIds: number[], proxies: string[]): Promise<{ results: BPSLoginAccountResult[] }> {
   const { data } = await apiClient.post<{ results: BPSLoginAccountResult[] }>('/admin/accounts/bps-login', {
     account_ids: accountIds,
-    proxy,
+    proxies,
   })
   return data
+}
+
+export interface BPSLoginStatus {
+  account_id: number
+  task?: { status: string; error_code?: string }
+}
+
+export async function listBPSLoginStatuses(ids: number[]): Promise<BPSLoginStatus[]> {
+  const { data } = await apiClient.post<{ accounts?: BPSLoginStatus[] }>('/admin/accounts/bps-login-status', { ids })
+  return data.accounts ?? []
 }
 
 /**
@@ -1641,6 +1651,7 @@ export const accountsAPI = {
   startOpenAIOAuthReauth,
   startExcelOAuthReauth,
   startBPSLogin,
+  listBPSLoginStatuses,
   getStats,
   getOfficialUsage,
   clearError,

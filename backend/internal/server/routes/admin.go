@@ -411,6 +411,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		if h.Admin.OpenAIOAuthReauth != nil {
 			accounts.GET("/:id/openai-reauth", h.Admin.OpenAIOAuthReauth.GetStatus)
 			accounts.POST("/siwc-status", h.Admin.OpenAIOAuthReauth.ListSIWCStatus)
+			accounts.POST("/bps-login-status", h.Admin.OpenAIOAuthReauth.ListBPSLoginStatus)
 			accounts.GET("/:id/siwc", h.Admin.OpenAIOAuthReauth.SIWCStatus)
 			accounts.PUT("/:id/siwc/enabled", h.Admin.OpenAIOAuthReauth.SetSIWCEnabled)
 			accounts.POST("/:id/siwc/authorize", h.Admin.OpenAIOAuthReauth.BeginSIWC)

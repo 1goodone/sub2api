@@ -520,3 +520,77 @@ func (s *adminServiceImpl) validateExcelBPSActivation(ctx context.Context, accou
 	}
 	return infraerrors.ServiceUnavailable("OPENAI_EXCEL_AUTH_UNAVAILABLE", "Excel authorization is unavailable; review Credential Operations before enabling BPS")
 }
+
+// ExcelLoginSnapshot is the latest Excel login task for one account. It carries
+// no ciphertext, proxy, or worker output.
+type ExcelLoginSnapshot struct {
+	AccountID int64
+	Task      *OpenAIOAuthReauthTaskRecord
+}
+
+type ExcelLoginTask struct {
+	Status    string `json:"status"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+type ExcelLoginListItem struct {
+	AccountID int64           `json:"account_id"`
+	Task      *ExcelLoginTask `json:"task,omitempty"`
+}
+
+type excelLoginStatusLister interface {
+	ListExcelLoginStatuses(context.Context, []int64) ([]ExcelLoginSnapshot, error)
+}
+
+type excelLoginFailureRecorder interface {
+	RecordExcelLoginFailure(context.Context, int64, ExcelBPSCredentialState) error
+}
+
+func excelLoginFailureCode(reason string) string {
+	text := strings.ToLower(reason)
+	switch {
+	case strings.Contains(text, "warmup_failed"), strings.Contains(text, "protocol_warmup_failed"):
+		return "warmup_failed"
+	case strings.Contains(text, "security_check"), strings.Contains(text, "security-check"), strings.Contains(text, "proxy_risk_control"):
+		return "security_check"
+	case strings.Contains(text, "token_invalidated"):
+		return "token_invalidated"
+	case strings.Contains(text, "token_revoked"):
+		return "token_revoked"
+	default:
+		return "authentication_failed"
+	}
+}
+
+func (s *OpenAIOAuthReauthService) ListExcelLoginStatuses(ctx context.Context, ids []int64) ([]ExcelLoginListItem, error) {
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_LOGIN_STATUS_UNAVAILABLE", "BPS login status is unavailable")
+	}
+	lister, ok := s.repo.(excelLoginStatusLister)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_LOGIN_STATUS_UNAVAILABLE", "BPS login status is unavailable")
+	}
+	clean, err := normalizeSIWCStatusIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	if len(clean) == 0 {
+		return []ExcelLoginListItem{}, nil
+	}
+	rows, err := lister.ListExcelLoginStatuses(ctx, clean)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ExcelLoginListItem, 0, len(rows))
+	for _, row := range rows {
+		if row.Task == nil || row.Task.OAuthProfile != "excel" || row.Task.Status == "" {
+			continue
+		}
+		task := &ExcelLoginTask{Status: row.Task.Status}
+		if row.Task.Status == OpenAIOAuthReauthStatusFailed {
+			task.ErrorCode = excelLoginFailureCode(row.Task.Error)
+		}
+		items = append(items, ExcelLoginListItem{AccountID: row.AccountID, Task: task})
+	}
+	return items, nil
+}

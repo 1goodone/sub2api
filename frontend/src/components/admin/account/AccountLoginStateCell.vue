@@ -6,19 +6,20 @@
       {{ busy ? t('admin.accounts.loginColumns.working') : t(mode === 'add' ? 'admin.accounts.loginColumns.add' : 'admin.accounts.loginColumns.relogin') }}
     </button>
     <span v-else :class="mode === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500'">{{ label }}</span>
-    <p v-if="error" class="mt-1 max-w-[8rem] text-red-600 dark:text-red-400">{{ error }}</p>
+    <p v-if="notice" class="mt-1 max-w-[8rem] break-words text-red-600 dark:text-red-400">{{ notice }}</p>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { reloginTokenGuardV2Account, type TokenGuardV2Account } from '@/api/admin/accountTokenGuardV2'
+import type { BPSLoginStatus } from '@/api/admin/accounts'
 import { loginSIWCWithSavedCredentials, type SIWCStatus } from '@/api/admin/siwc'
 import type { AccountListItem } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { excelCredentialStatus } from '@/utils/excelBpsCredentialState'
 
-const props = defineProps<{ kind: 'credential' | 'bps' | 'siwc'; account: AccountListItem; guard?: TokenGuardV2Account | null; siwc?: SIWCStatus | null; siwcLoading?: boolean }>()
+const props = defineProps<{ kind: 'credential' | 'bps' | 'siwc'; account: AccountListItem; guard?: TokenGuardV2Account | null; bps?: BPSLoginStatus | null; siwc?: SIWCStatus | null; siwcLoading?: boolean }>()
 const emit = defineEmits<{ add: []; changed: [] }>()
 const { t } = useI18n()
 const busy = ref(false)
@@ -33,6 +34,7 @@ const mode = computed(() => {
   return siwcMode(props.siwc)
 })
 const label = computed(() => t(`admin.accounts.loginColumns.${mode.value === 'progress' ? progressKey() : 'ok'}`))
+const notice = computed(() => error.value || bpsError())
 
 const activeTask = (status?: string) => status === 'queued' || status === 'running' || status === 'callback_processing'
 function credentialMode(guard?: TokenGuardV2Account | null) {
@@ -43,6 +45,9 @@ function credentialMode(guard?: TokenGuardV2Account | null) {
   return 'ok'
 }
 function bpsMode() {
+  const task = props.bps?.task
+  if (activeTask(task?.status)) return 'progress'
+  if (task?.status === 'failed') return 'relogin'
   const state = props.account.excel_bps_credential_state
   if (!state) return 'add'
   const status = excelCredentialStatus(state, Date.now())
@@ -50,6 +55,12 @@ function bpsMode() {
   if (status === 'pending') return 'progress'
   if (status === 'expired' || status === 'revoked' || status === 'auth_failed') return 'relogin'
   return 'add'
+}
+function bpsError() {
+  if (props.kind !== 'bps' || mode.value !== 'relogin') return ''
+  const code = props.bps?.task?.error_code || props.account.excel_bps_credential_state?.error_code
+  if (!code || !['warmup_failed', 'security_check', 'authentication_failed', 'token_revoked', 'token_invalidated'].includes(code)) return ''
+  return t(`admin.accounts.loginColumns.bpsErrors.${code}`)
 }
 function siwcMode(status?: SIWCStatus | null) {
   if (!status?.bound) return 'add'

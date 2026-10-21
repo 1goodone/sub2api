@@ -24,6 +24,11 @@ func TestExcelBPSCredentialState(t *testing.T) {
 	require.Equal(t, "revoked", got.Status)
 	require.True(t, got.RequiresManualResume)
 	require.Equal(t, "authentication_failed", ExcelBPSGrantFailure("PRIVATE_UPSTREAM_TOKEN").ErrorCode)
+	account.Extra[ExcelBPSAuthorizationPendingKey] = true
+	account.Extra[ExcelBPSCredentialStateExtraKey] = ExcelBPSGrantFailure("warmup_failed")
+	failed := ExcelBPSCredentialStateFromAccount(account, now)
+	require.Equal(t, "auth_failed", failed.Status)
+	require.Equal(t, "warmup_failed", failed.ErrorCode)
 }
 
 func TestExcelBPSCredentialDiagnosisIsServerOwned(t *testing.T) {

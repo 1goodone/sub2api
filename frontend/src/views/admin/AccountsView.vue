@@ -225,6 +225,8 @@
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
+          :show-bps-login="authStore.isAdmin"
+          @bps-login="openBPSLogin"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -342,7 +344,7 @@
             <AccountLoginStateCell kind="credential" :account="row" :guard="loginGuards[row.id]" @add="credentialDraft = row" @changed="loadLoginGuards" />
           </template>
           <template #cell-bps_login="{ row }">
-            <AccountLoginStateCell kind="bps" :account="row" @add="openBPSLoginFor(row)" />
+            <AccountLoginStateCell kind="bps" :account="row" :bps="bpsStatuses[row.id]" @add="openBPSLoginFor(row)" />
           </template>
           <template #cell-siwc_login="{ row }">
             <AccountLoginStateCell kind="siwc" :account="row" :siwc="siwcStatuses[row.id]" :siwc-loading="siwcLoading" @add="siwcDraft = row" @changed="loadSIWCStatuses" />
@@ -524,7 +526,7 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <BPSLoginModal :show="showBPSLogin" :accounts="accounts" :selected-ids="bpsFocusIds ?? selIds" @close="showBPSLogin = false; bpsFocusIds = null" />
+    <BPSLoginModal :show="showBPSLogin" :accounts="accounts" :selected-ids="bpsFocusIds ?? selIds" @close="showBPSLogin = false; bpsFocusIds = null; loadBPSLoginStatuses()" />
     <CredentialAddDialog :account="credentialDraft" @close="credentialDraft = null" @saved="loadLoginGuards" />
     <SIWCLoginDialog :account="siwcDraft" @close="siwcDraft = null; loadSIWCStatuses()" />
     <CredentialOpsDrawer :account="credentialOpsAccount" @close="credentialOpsAccount = null" />
@@ -632,7 +634,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountTypePreference, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
-import type { OpenAIAccountSummary } from '@/api/admin/accounts'
+import { listBPSLoginStatuses, type BPSLoginStatus, type OpenAIAccountSummary } from '@/api/admin/accounts'
 
 type OpenAIAccountSummaryFilter = {
   type: 'oauth' | 'apikey'
@@ -718,6 +720,7 @@ const credentialDraft = ref<AccountListItem | null>(null)
 const siwcDraft = ref<AccountListItem | null>(null)
 const loginGuards = ref<Record<number, TokenGuardV2Account>>({})
 const siwcStatuses = ref<Record<number, SIWCStatus>>({})
+const bpsStatuses = ref<Record<number, BPSLoginStatus>>({})
 const siwcLoading = ref(false)
 const credentialOpsAccount = ref<Account | null>(null)
 const showTest = ref(false)
@@ -1566,6 +1569,7 @@ watch(loading, (isLoading, wasLoading) => {
 watch(accounts, (rows) => {
   void loadLoginGuards()
   void loadSIWCStatuses()
+  void loadBPSLoginStatuses()
   const visibleIDs = new Set(rows.map((row) => String(row.id)))
   usageBatchByAccountId.value = Object.fromEntries(
     Object.entries(usageBatchByAccountId.value).filter(([key]) => visibleIDs.has(key))
@@ -1812,6 +1816,30 @@ const loadSIWCStatuses = async () => {
   }
   siwcStatuses.value = next
   siwcLoading.value = false
+}
+let bpsGeneration = 0
+const loadBPSLoginStatuses = async () => {
+  const generation = ++bpsGeneration
+  const ids = accounts.value
+    .filter(row => row.platform === 'openai' && row.type === 'oauth' && row.parent_account_id == null)
+    .map(row => row.id)
+  if (ids.length === 0) {
+    bpsStatuses.value = {}
+    return
+  }
+  const next: Record<number, BPSLoginStatus> = {}
+  try {
+    for (let index = 0; index < ids.length; index += 200) {
+      const rows = await listBPSLoginStatuses(ids.slice(index, index + 200))
+      if (generation !== bpsGeneration) return
+      for (const row of rows) next[row.account_id] = row
+    }
+  } catch (error) {
+    if (generation !== bpsGeneration) return
+    console.error('Failed to load BPS login status:', error)
+    return
+  }
+  bpsStatuses.value = next
 }
 
 const openTLSFingerprintProfiles = () => {

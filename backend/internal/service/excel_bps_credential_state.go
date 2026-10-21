@@ -30,8 +30,11 @@ func ExcelBPSGrantState(expiresAt int64) ExcelBPSCredentialState {
 func ExcelBPSGrantFailure(code string) ExcelBPSCredentialState {
 	now := time.Now().UTC()
 	state := ExcelBPSCredentialState{Status: "auth_failed", ErrorCode: "authentication_failed", ObservedAt: &now}
-	if code == "token_revoked" || code == "token_invalidated" {
+	switch code {
+	case "token_revoked", "token_invalidated":
 		state.Status = "revoked"
+		state.ErrorCode = code
+	case "warmup_failed", "security_check":
 		state.ErrorCode = code
 	}
 	return state
@@ -60,7 +63,7 @@ func ExcelBPSCredentialStateFromAccount(account *Account, now time.Time) *ExcelB
 		state.Status = "unknown"
 	}
 	switch state.ErrorCode {
-	case "token_revoked", "token_invalidated", "authentication_failed":
+	case "token_revoked", "token_invalidated", "authentication_failed", "warmup_failed", "security_check":
 	default:
 		state.ErrorCode = ""
 	}

@@ -307,7 +307,7 @@ func TestContentModerationBaseURLsNormalizeRotateAndPersist(t *testing.T) {
 	cfg.BaseURL = "https://a.example/,\nhttps://b.example/;https://a.example"
 	cfg.normalize()
 	require.Equal(t, "https://a.example", cfg.BaseURL)
-	require.Equal(t, []string{"https://a.example", "https://b.example"}, cfg.BaseURLs)
+	require.Equal(t, []string{"https://a.example", "https://b.example", "https://a.example"}, cfg.BaseURLs)
 
 	cfg.BaseURL = "not a url"
 	cfg.BaseURLs = nil
@@ -370,4 +370,17 @@ func TestContentModerationBaseURLsNormalizeRotateAndPersist(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(repo.values[SettingKeyContentModerationConfig]), &stored))
 	require.Equal(t, "https://openai.example", stored.BaseURL)
 	require.Equal(t, []string{"https://typesafe-a.example", "https://typesafe-b.example"}, stored.TypeSafe.BaseURLs)
+}
+
+func TestDuplicateBaseURLKeepsSeparateKeyPairs(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.Engine = ContentModerationEngineTypeSafe
+	cfg.TypeSafe = &ContentModerationEngineConfig{
+		BaseURL: "https://api.typesafe.ai\nhttps://api.experientiallabs.ai\nhttps://api.typesafe.ai",
+		APIKeys: []string{"sk-1", "sk-2", "sk-3"},
+		Model:   "jev-latest",
+	}
+	require.NoError(t, (&ContentModerationService{}).validateConfig(context.Background(), cfg))
+	require.Equal(t, []string{"https://api.typesafe.ai", "https://api.experientiallabs.ai", "https://api.typesafe.ai"}, cfg.TypeSafe.BaseURLs)
+	require.Equal(t, []string{"sk-1", "sk-2", "sk-3"}, cfg.TypeSafe.APIKeys)
 }

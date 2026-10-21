@@ -23,13 +23,13 @@
         </div>
         <label class="block text-sm text-gray-700 dark:text-gray-200">
           {{ t('admin.accounts.bpsLogin.proxy') }}
-          <input
-            v-model="proxy"
-            type="text"
+          <textarea
+            v-model="proxiesText"
+            rows="4"
             autocomplete="off"
             spellcheck="false"
             class="input mt-1 w-full font-mono"
-            placeholder="username:password@hostname:port"
+            :placeholder="t('admin.accounts.bpsLogin.proxyPlaceholder')"
             data-testid="bps-login-proxy"
           />
         </label>
@@ -42,7 +42,7 @@
       </div>
       <div class="flex justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-dark-700">
         <button type="button" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button>
-        <button type="button" class="btn btn-primary" :disabled="submitting || picked.size === 0 || !proxy.trim()" data-testid="bps-login-submit" @click="submit">
+        <button type="button" class="btn btn-primary" :disabled="submitting || picked.size === 0 || proxyLines.length === 0" data-testid="bps-login-submit" @click="submit">
           {{ submitting ? t('admin.accounts.bpsLogin.submitting') : t('admin.accounts.bpsLogin.submit', { count: picked.size }) }}
         </button>
       </div>
@@ -61,7 +61,7 @@ const props = defineProps<{ show: boolean; accounts: AccountListItem[]; selected
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 const query = ref('')
-const proxy = ref('')
+const proxiesText = ref('')
 const picked = ref(new Set<number>())
 const submitting = ref(false)
 const results = ref<BPSLoginAccountResult[]>([])
@@ -77,6 +77,7 @@ function bpsEligible(account: AccountListItem) {
   const auth = credential('auth_mode')
   return auth !== 'agentidentity' && !personal(auth) && !personal(credential('openai_auth_mode'))
 }
+const proxyLines = computed(() => proxiesText.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean))
 const candidates = computed(() => props.accounts.filter(bpsEligible))
 const filtered = computed(() => {
   const text = query.value.trim().toLowerCase()
@@ -87,7 +88,7 @@ const filtered = computed(() => {
 watch(() => props.show, (open) => {
   if (!open) return
   query.value = ''
-  proxy.value = ''
+  proxiesText.value = ''
   results.value = []
   const visible = new Set(candidates.value.map(account => account.id))
   picked.value = new Set(props.selectedIds.filter(id => visible.has(id)))
@@ -103,13 +104,13 @@ function close() {
   if (!submitting.value) emit('close')
 }
 async function submit() {
-  if (submitting.value || picked.value.size === 0 || !proxy.value.trim()) return
+  if (submitting.value || picked.value.size === 0 || proxyLines.value.length === 0) return
   submitting.value = true
   results.value = []
   try {
-    const data = await adminAPI.accounts.startBPSLogin([...picked.value], proxy.value.trim())
+    const data = await adminAPI.accounts.startBPSLogin([...picked.value], proxyLines.value)
     results.value = data.results || []
-    proxy.value = ''
+    proxiesText.value = ''
   } catch (error) {
     results.value = [{ account_id: 0, error: extractApiErrorMessage(error, t('admin.accounts.bpsLogin.failed')) }]
   } finally {

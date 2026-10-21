@@ -152,7 +152,10 @@ func (p *ContentModerationEngineConfig) normalize(engine string) {
 		return
 	}
 	defaults := moderationEngineDefaults(engine)
-	p.BaseURLs = collectModerationBaseURLs(append([]string{p.BaseURL}, p.BaseURLs...))
+	p.BaseURLs = collectModerationBaseURLs(p.BaseURLs)
+	if len(p.BaseURLs) == 0 {
+		p.BaseURLs = collectModerationBaseURLs([]string{p.BaseURL})
+	}
 	if len(p.BaseURLs) == 0 {
 		p.BaseURLs = []string{defaults.BaseURL}
 	}

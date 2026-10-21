@@ -44,6 +44,7 @@
     </div>
     <div class="flex flex-wrap justify-end gap-2">
       <template v-if="selectedIds.length > 0">
+        <button v-if="showBpsLogin" type="button" data-testid="bps-login-batch" @click="$emit('bps-login')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bpsLogin.batch') }}</button>
         <button @click="$emit('test-connections')" class="btn btn-secondary btn-sm inline-flex items-center gap-1.5">
           <Icon name="play" size="sm" :stroke-width="2" />
           {{ t('admin.accounts.bulkActions.testConnections') }}
@@ -72,6 +73,7 @@ defineProps<{
   totalResults: number
   selectingAll: boolean
   allResultsSelected: boolean
+  showBpsLogin?: boolean
 }>()
 
 defineEmits([
@@ -85,7 +87,8 @@ defineEmits([
   'reset-status',
   'refresh-token',
   'probe-upstream-billing',
-  'test-connections'
+  'test-connections',
+  'bps-login'
 ])
 
 const { t } = useI18n()

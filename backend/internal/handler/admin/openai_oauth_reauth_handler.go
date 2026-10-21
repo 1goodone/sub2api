@@ -104,14 +104,19 @@ func (h *OpenAIOAuthReauthHandler) CreateTask(c *gin.Context) {
 
 func (h *OpenAIOAuthReauthHandler) StartBPSLogin(c *gin.Context) {
 	var req struct {
-		AccountIDs []int64 `json:"account_ids"`
-		Proxy      string  `json:"proxy"`
+		AccountIDs []int64  `json:"account_ids"`
+		Proxy      string   `json:"proxy"`
+		Proxies    []string `json:"proxies"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid BPS login request")
 		return
 	}
-	result, err := h.service.StartBPSLogins(c.Request.Context(), req.AccountIDs, req.Proxy)
+	proxies := req.Proxies
+	if len(proxies) == 0 && req.Proxy != "" {
+		proxies = []string{req.Proxy}
+	}
+	result, err := h.service.StartBPSLogins(c.Request.Context(), req.AccountIDs, proxies)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
