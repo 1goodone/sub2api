@@ -141,6 +141,7 @@
               <button type="button" class="btn btn-secondary" :aria-label="t('qualityOps.removeModelNumber', { n: index + 2 })" @click="form.pelican_config.model_ids.splice(index, 1)"><Icon name="x" size="sm" /></button>
             </div></template>
             <button v-if="!isProbe" type="button" class="btn btn-secondary btn-sm" data-testid="quality-add-model" :disabled="form.pelican_config.model_ids.length >= 49" @click="form.pelican_config.model_ids.push('')"><Icon name="plus" size="xs" />{{ t('qualityOps.addModel') }}</button>
+            <QualityModelShortcuts :selected-models="selectedTestModels" :user-id="auth.user?.id" :disabled="!isProbe && !canAddTestModel" @select="addTestModel" />
             <p class="text-sm text-gray-500">{{ t(isProbe ? 'qualityOps.probeSingleModel' : 'qualityOps.modelsHint') }}</p>
           </div>
           <template v-if="editsField('schedule')">
@@ -271,6 +272,7 @@ import { CANDY_PROMPT, STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeV
 import { buildQualityRulePatch, qualityActionPayload, qualityUsesGroups, qualityUsesModelResults, defaultQualityBPS, qualityBPSError, qualityBPSForm, qualityRuleFields, type QualityRuleField } from '@/utils/qualityRulePatch'
 import { DEFAULT_STATE_PROBE_CRON } from '@/utils/intelligenceTest'
 import QualityProbeSchedule from '@/components/admin/operations/QualityProbeSchedule.vue'
+import QualityModelShortcuts from '@/components/admin/operations/QualityModelShortcuts.vue'
 import { qualityAccountStatusOptions, qualityAccountTypeOptions } from '@/utils/qualityAccountFilter'
 import type { AccountListItem, QualityBPSPolicy, QualityPolicy, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
@@ -498,6 +500,16 @@ function defaults() {
 }
 const form = ref(defaults())
 const isProbe = computed(() => form.value.pelican_config.question_kind === STATE_PROBE_QUESTION)
+const selectedTestModels = computed(() => [form.value.model_id, ...(isProbe.value ? [] : form.value.pelican_config.model_ids)].map(model => model.trim()).filter(Boolean))
+const canAddTestModel = computed(() => !form.value.model_id.trim() || form.value.pelican_config.model_ids.some(model => !model.trim()) || form.value.pelican_config.model_ids.length < 49)
+function addTestModel(model: string) {
+  if (selectedTestModels.value.includes(model)) return
+  if (isProbe.value || !form.value.model_id.trim()) { form.value.model_id = model; return }
+  const models = form.value.pelican_config.model_ids
+  const empty = models.findIndex(value => !value.trim())
+  if (empty >= 0) models[empty] = model
+  else if (models.length < 49) models.push(model)
+}
 const isRandom = computed(() => form.value.pelican_config.question_kind === 'random_reasoning')
 const bps = computed(() => form.value.pelican_config.quality.bps)
 // BPS 设置可见时，「满血后自动关闭 BPS」放在设置里，底部的通用恢复开关不再重复出现。
