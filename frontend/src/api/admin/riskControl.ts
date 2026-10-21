@@ -112,6 +112,7 @@ export interface UpdateContentModerationConfig {
   proxy_id?: number
   api_key?: string
   api_keys?: string[]
+  api_key_slots?: ContentModerationAPIKeySlot[]
   api_keys_mode?: 'append' | 'replace'
   delete_api_key_hashes?: string[]
   clear_api_key?: boolean
@@ -218,8 +219,13 @@ export interface ContentModerationLog {
   created_at: string
 }
 
+export interface ContentModerationAPIKeySlot {
+  key?: string
+  keep_hash?: string
+}
+
 export type UpdateModerationEngineConfig = Pick<UpdateContentModerationConfig,
-  'base_url' | 'model' | 'proxy_id' | 'api_keys' | 'api_keys_mode' | 'delete_api_key_hashes' |
+  'base_url' | 'model' | 'proxy_id' | 'api_keys' | 'api_key_slots' | 'api_keys_mode' | 'delete_api_key_hashes' |
   'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds'>
 
 export interface ListContentModerationLogsParams {

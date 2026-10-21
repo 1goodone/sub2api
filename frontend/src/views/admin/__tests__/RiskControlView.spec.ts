@@ -276,7 +276,6 @@ describe('admin RiskControlView', () => {
     await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
     wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
     await flushPromises()
-    await findButtonByText(wrapper, 'admin.riskControl.apiKeysModeReplace').trigger('click')
     wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'openai')
     await flushPromises()
     await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
@@ -285,7 +284,7 @@ describe('admin RiskControlView', () => {
     expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       engine: 'openai',
       engine_configs: expect.objectContaining({
-        typesafe: expect.objectContaining({ api_keys_mode: 'append', api_keys: undefined, clear_api_key: false }),
+        typesafe: expect.objectContaining({ clear_api_key: false, api_key_slots: [{ key: '', keep_hash: '' }] }),
       }),
     }))
     wrapper.unmount()
@@ -328,7 +327,7 @@ describe('admin RiskControlView', () => {
     await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
     wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
     await flushPromises()
-    await wrapper.get('textarea[autocomplete="new-password"]').setValue('test-only-key')
+    await wrapper.get('[data-test="audit-endpoint-key"]').setValue('test-only-key')
     await findButtonByText(wrapper, 'admin.riskControl.testInputApiKeys').trigger('click')
     await flushPromises()
     expect(testAPIKeys).toHaveBeenCalledWith(expect.objectContaining({ engine: 'typesafe', api_keys: ['test-only-key'], model: 'jev-latest', thresholds: expect.objectContaining({ sexual: 0.65 }) }))

@@ -217,6 +217,23 @@ func TestContentModerationEngineRuntimeSwitchKeepsInFlightSnapshot(t *testing.T)
 	require.Equal(t, scopedModerationKeyHash("typesafe-key", "typesafe"), status.APIKeyStatuses[0].KeyHash)
 }
 
+func TestApplyModerationAPIKeySlotsKeepsPairOrder(t *testing.T) {
+	existing := []string{"sk-old-a", "sk-old-b"}
+	got, err := applyModerationAPIKeySlots(existing, []ContentModerationAPIKeySlot{
+		{KeepHash: scopedModerationKeyHash("sk-old-a", ContentModerationEngineOpenAI)},
+		{Key: "sk-new-b"},
+	}, ContentModerationEngineOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, []string{"sk-old-a", "sk-new-b"}, got)
+
+	empty, err := applyModerationAPIKeySlots(existing, []ContentModerationAPIKeySlot{{}, {}}, ContentModerationEngineOpenAI)
+	require.NoError(t, err)
+	require.Empty(t, empty)
+
+	_, err = applyModerationAPIKeySlots(existing, []ContentModerationAPIKeySlot{{Key: "sk-a"}, {}}, ContentModerationEngineOpenAI)
+	require.Error(t, err)
+}
+
 func TestContentModerationBaseURLsNormalizeRotateAndPersist(t *testing.T) {
 	cfg := defaultContentModerationConfig()
 	cfg.BaseURL = "https://a.example/,\nhttps://b.example/;https://a.example"

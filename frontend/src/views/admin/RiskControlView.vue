@@ -415,10 +415,21 @@
               <div v-if="configForm.engine === 'typesafe'" class="lg:col-span-2 text-sm text-amber-700 dark:text-amber-300" role="status">
                 {{ t('admin.riskControl.typeSafeNotice') }}
               </div>
-              <div class="lg:col-span-2">
-                <label class="input-label">{{ t('admin.riskControl.baseUrl') }}</label>
-                <textarea v-model="configForm.base_url" data-test="audit-base-url" rows="3" class="input font-mono text-sm" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" />
-                <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.baseUrlHint') }}</p>
+              <div class="lg:col-span-2 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <label class="input-label mb-0">{{ t('admin.riskControl.baseUrl') }}</label>
+                  <button type="button" class="btn btn-secondary inline-flex items-center gap-1" @click="addEndpointRow">
+                    <Icon name="plus" size="sm" />
+                    {{ t('admin.riskControl.addEndpointPair') }}
+                  </button>
+                </div>
+                <div v-for="(row, index) in configForm.endpoint_rows" :key="index" class="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <input v-model="row.url" data-test="audit-base-url" type="text" class="input font-mono text-sm" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" :aria-label="t('admin.riskControl.endpointUrl')" />
+                  <input v-model="row.key" data-test="audit-endpoint-key" type="password" autocomplete="new-password" class="input font-mono text-sm" :placeholder="row.mask || t('admin.riskControl.endpointKey')" :aria-label="t('admin.riskControl.endpointKey')" />
+                  <button type="button" class="btn btn-secondary" :disabled="configForm.endpoint_rows.length === 1" @click="removeEndpointRow(index)">{{ t('admin.riskControl.removeEndpointPair') }}</button>
+                  <p v-if="row.mask && !row.key" class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-3">{{ t('admin.riskControl.savedEndpointKey', { mask: row.mask }) }}</p>
+                </div>
+                <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.baseUrlHint') }}</p>
               </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.model') }}</label>
@@ -490,41 +501,8 @@
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
+              <div class="grid grid-cols-1 gap-4 p-4">
                 <div class="space-y-3">
-                  <div class="flex flex-col gap-2 rounded-lg border border-gray-100 bg-gray-50 p-2 dark:border-dark-700 dark:bg-dark-900/30 sm:flex-row sm:items-center sm:justify-between">
-                    <div class="text-xs leading-5 text-gray-500 dark:text-gray-400">
-                      <span class="font-medium text-gray-700 dark:text-gray-200">{{ t('admin.riskControl.apiKeysWriteMode') }}</span>
-                      <span class="ml-2">{{ apiKeysModeHint }}</span>
-                    </div>
-                    <div class="inline-flex rounded-lg bg-white p-1 shadow-sm dark:bg-dark-800">
-                      <button
-                        type="button"
-                        class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-                        :class="configForm.api_keys_mode === 'append' ? 'bg-primary-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'"
-                        :disabled="configForm.clear_api_key"
-                        @click="setAPIKeysMode('append')"
-                      >
-                        {{ t('admin.riskControl.apiKeysModeAppend') }}
-                      </button>
-                      <button
-                        type="button"
-                        class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-                        :class="configForm.api_keys_mode === 'replace' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'"
-                        :disabled="configForm.clear_api_key"
-                        @click="setAPIKeysMode('replace')"
-                      >
-                        {{ t('admin.riskControl.apiKeysModeReplace') }}
-                      </button>
-                    </div>
-                  </div>
-                  <textarea
-                    v-model="configForm.api_keys_text"
-                    class="input min-h-44 resize-y font-mono text-sm"
-                    :placeholder="apiKeysPlaceholder"
-                    autocomplete="new-password"
-                    :disabled="configForm.clear_api_key"
-                  ></textarea>
                   <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <span class="inline-flex rounded-md bg-gray-100 px-2 py-1 dark:bg-dark-700">
                       {{ t('admin.riskControl.inputApiKeyCount', { count: inputApiKeyCount }) }}
@@ -1171,6 +1149,7 @@ import type {
   KeywordBlockingMode,
   ModerationMode,
   ModerationEngine,
+  ContentModerationAPIKeySlot,
   UpdateModerationEngineConfig,
   UpdateContentModerationConfig,
 } from '@/api/admin/riskControl'
@@ -1182,6 +1161,7 @@ import { formatDateTime as formatDateTimeValue } from '@/utils/format'
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
 type APIKeysWriteMode = 'append' | 'replace'
+type EndpointRow = { url: string; key: string; keepHash: string; mask: string }
 type OverviewIcon = 'shield' | 'key' | 'users' | 'document'
 type OverviewItem = {
   key: string
@@ -1262,6 +1242,7 @@ const configForm = reactive({
   enabled: false,
   mode: 'pre_block' as ModerationMode,
   base_url: 'https://api.openai.com',
+  endpoint_rows: [{ url: 'https://api.openai.com', key: '', keepHash: '', mask: '' }] as EndpointRow[],
   model: 'omni-moderation-latest',
   proxy_id: null as number | null,
   api_keys_text: '',
@@ -1297,11 +1278,12 @@ const configForm = reactive({
   model_filter_models: [] as string[],
 })
 
-const engineFields = ['base_url', 'model', 'proxy_id', 'api_keys_text', 'api_key_configured', 'api_key_masked', 'api_key_count', 'api_key_masks', 'api_key_statuses', 'api_keys_mode', 'clear_api_key', 'timeout_ms', 'retry_count', 'thresholds'] as const
+const engineFields = ['base_url', 'endpoint_rows', 'model', 'proxy_id', 'api_keys_text', 'api_key_configured', 'api_key_masked', 'api_key_count', 'api_key_masks', 'api_key_statuses', 'api_keys_mode', 'clear_api_key', 'timeout_ms', 'retry_count', 'thresholds'] as const
 type EngineDraft = Pick<typeof configForm, typeof engineFields[number]> & { pendingDeletes: string[] }
 const engineDrafts = ref<Partial<Record<ModerationEngine, EngineDraft>>>({})
 
 function captureEngineDraft(): EngineDraft {
+  syncEndpointFields()
   return structuredClone({ ...Object.fromEntries(engineFields.map(key => [key, toRaw(configForm)[key]])), pendingDeletes: [...pendingDeleteApiKeyHashes.value] }) as EngineDraft
 }
 
@@ -1325,9 +1307,43 @@ function moderationBaseURLText(config: Pick<ContentModerationConfig, 'base_url' 
   return config?.base_url || fallback
 }
 
+function endpointRowsFromConfig(config: Pick<ContentModerationConfig, 'base_url' | 'base_urls' | 'api_key_statuses'> | undefined, fallback: string): EndpointRow[] {
+  const urls = config?.base_urls?.map(url => url.trim()).filter(Boolean)
+  const list = urls?.length ? urls : [config?.base_url?.trim() || fallback]
+  const statuses = config?.api_key_statuses ?? []
+  const count = Math.max(list.length, statuses.length, 1)
+  return Array.from({ length: count }, (_, index) => ({
+    url: list[index] || '',
+    key: '',
+    keepHash: statuses[index]?.key_hash || '',
+    mask: statuses[index]?.masked || '',
+  }))
+}
+
+function syncEndpointFields() {
+  configForm.base_url = configForm.endpoint_rows.map(row => row.url.trim()).filter(Boolean).join('\n')
+}
+
+function endpointSlots(rows: EndpointRow[]): ContentModerationAPIKeySlot[] {
+  return rows
+    .filter(row => row.url.trim() || row.key.trim() || row.keepHash)
+    .map(row => ({ key: row.key.trim(), keep_hash: row.key.trim() ? '' : row.keepHash }))
+}
+
+function addEndpointRow() {
+  configForm.endpoint_rows.push({ url: '', key: '', keepHash: '', mask: '' })
+}
+
+function removeEndpointRow(index: number) {
+  if (configForm.endpoint_rows.length === 1) return
+  configForm.endpoint_rows.splice(index, 1)
+  syncEndpointFields()
+}
+
 function engineDraftFromConfig(config: ContentModerationConfig | undefined, engine: ModerationEngine): EngineDraft {
   return {
     base_url: moderationBaseURLText(config, engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'),
+    endpoint_rows: endpointRowsFromConfig(config, engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'),
     model: config?.model || (engine === 'typesafe' ? 'jev-latest' : 'omni-moderation-latest'),
     proxy_id: config?.proxy_id ?? null, api_keys_text: '', api_key_configured: config?.api_key_configured ?? false,
     api_key_masked: config?.api_key_masked ?? '', api_key_count: config?.api_key_count ?? 0,
@@ -1338,21 +1354,14 @@ function engineDraftFromConfig(config: ContentModerationConfig | undefined, engi
   }
 }
 
-function engineDraftNeedsReplacementKeys(draft: EngineDraft): boolean {
-  return !draft.clear_api_key && draft.api_keys_mode === 'replace' && parseApiKeys(draft.api_keys_text).length === 0
-}
-
 function engineDraftPayload(draft: EngineDraft): UpdateModerationEngineConfig {
-  const keys = parseApiKeys(draft.api_keys_text)
-  const replaceWithoutKeys = engineDraftNeedsReplacementKeys(draft)
+  const baseURL = draft.endpoint_rows.map(row => row.url.trim()).filter(Boolean).join('\n')
   return {
-    base_url: draft.base_url, model: draft.model, proxy_id: draft.proxy_id ?? 0,
+    base_url: baseURL, model: draft.model, proxy_id: draft.proxy_id ?? 0,
     timeout_ms: draft.timeout_ms, retry_count: draft.retry_count,
     thresholds: Object.fromEntries(riskThresholdCategories.map(k => [k, clampPercent(draft.thresholds[k]) / 100])),
-    clear_api_key: replaceWithoutKeys ? false : draft.clear_api_key,
-    api_keys: keys.length ? keys : undefined,
-    api_keys_mode: replaceWithoutKeys ? 'append' : draft.api_keys_mode,
-    delete_api_key_hashes: replaceWithoutKeys ? [] : draft.pendingDeletes,
+    clear_api_key: draft.clear_api_key,
+    api_key_slots: draft.clear_api_key ? undefined : endpointSlots(draft.endpoint_rows),
   }
 }
 
@@ -1530,7 +1539,7 @@ const filteredGroups = computed(() => {
   })
 })
 
-const inputApiKeyCount = computed(() => parseApiKeys(configForm.api_keys_text).length)
+const inputApiKeyCount = computed(() => configForm.endpoint_rows.filter(row => row.key.trim()).length)
 
 const blockedKeywordList = computed(() => parseBlockedKeywords(configForm.blocked_keywords_text))
 
@@ -1539,18 +1548,6 @@ const blockedKeywordCount = computed(() => blockedKeywordList.value.length)
 const pendingDeletedApiKeyCount = computed(() => pendingDeleteApiKeyHashes.value.length)
 
 const effectiveStoredApiKeyCount = computed(() => Math.max(0, configForm.api_key_count - pendingDeletedApiKeyCount.value))
-
-const apiKeysPlaceholder = computed(() => (
-  configForm.api_keys_mode === 'replace'
-    ? t('admin.riskControl.apiKeysPlaceholderReplace')
-    : t('admin.riskControl.apiKeysPlaceholder')
-))
-
-const apiKeysModeHint = computed(() => (
-  configForm.api_keys_mode === 'replace'
-    ? t('admin.riskControl.apiKeysModeReplaceHint')
-    : t('admin.riskControl.apiKeysModeAppendHint')
-))
 
 const hasModerationAuditInput = computed(() => {
   return moderationTestPrompt.value.trim() !== '' || moderationTestImages.value.length > 0
@@ -1798,6 +1795,7 @@ function applyConfig(config: ContentModerationConfig) {
   configForm.enabled = config.enabled
   configForm.mode = config.mode
   configForm.base_url = moderationBaseURLText(config, 'https://api.openai.com')
+  configForm.endpoint_rows = endpointRowsFromConfig(config, 'https://api.openai.com')
   configForm.model = config.model || 'omni-moderation-latest'
   configForm.proxy_id = config.proxy_id || null
   configForm.api_keys_text = ''
@@ -1928,18 +1926,9 @@ async function saveConfig() {
       keyword_blocking_mode: configForm.keyword_blocking_mode,
       model_filter: modelFilterPayload,
     }
-    const keys = parseApiKeys(configForm.api_keys_text)
-    if (!payload.clear_api_key && configForm.api_keys_mode === 'replace' && keys.length === 0) {
-      appStore.showError(t('admin.riskControl.apiKeysReplaceNoInput'))
-      return
-    }
-    if (keys.length > 0) {
-      payload.api_keys = keys
-      payload.api_keys_mode = configForm.api_keys_mode
-      payload.clear_api_key = false
-    }
-    if (!payload.clear_api_key && configForm.api_keys_mode !== 'replace' && pendingDeleteApiKeyHashes.value.length > 0) {
-      payload.delete_api_key_hashes = [...pendingDeleteApiKeyHashes.value]
+    syncEndpointFields()
+    if (!payload.clear_api_key) {
+      payload.api_key_slots = endpointSlots(configForm.endpoint_rows)
     }
 
     engineDrafts.value[configForm.engine] = captureEngineDraft()
@@ -2077,13 +2066,6 @@ function toggleClearApiKey() {
   }
 }
 
-function setAPIKeysMode(mode: APIKeysWriteMode) {
-  configForm.api_keys_mode = mode
-  if (mode === 'replace') {
-    pendingDeleteApiKeyHashes.value = []
-  }
-}
-
 function setModelFilterType(type: ContentModerationModelFilterType) {
   configForm.model_filter_type = type
   if (type === 'all') {
@@ -2092,7 +2074,8 @@ function setModelFilterType(type: ContentModerationModelFilterType) {
 }
 
 async function testApiKeys(useInputKeys: boolean) {
-  const keys = useInputKeys ? parseApiKeys(configForm.api_keys_text) : []
+  syncEndpointFields()
+  const keys = useInputKeys ? configForm.endpoint_rows.map(row => row.key.trim()).filter(Boolean) : []
   if (useInputKeys && keys.length === 0) {
     appStore.showError(t('admin.riskControl.apiKeyTestNoInput'))
     return
@@ -2340,13 +2323,6 @@ function apiKeyStatusMeta(row: ContentModerationAPIKeyStatus): string {
     parts.push(t('admin.riskControl.apiKeyNotTested'))
   }
   return parts.join(' / ')
-}
-
-function parseApiKeys(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter((item, index, arr) => item && arr.indexOf(item) === index)
 }
 
 function normalizeKeywordBlockingMode(value: unknown): KeywordBlockingMode {

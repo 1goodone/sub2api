@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -24,17 +25,61 @@ type ContentModerationEngineConfig struct {
 }
 
 type UpdateContentModerationEngineInput struct {
-	BaseURL            *string             `json:"base_url"`
-	Model              *string             `json:"model"`
-	ProxyID            *int64              `json:"proxy_id"`
-	APIKey             *string             `json:"api_key"`
-	APIKeys            *[]string           `json:"api_keys"`
-	APIKeysMode        string              `json:"api_keys_mode"`
-	DeleteAPIKeyHashes *[]string           `json:"delete_api_key_hashes"`
-	ClearAPIKey        bool                `json:"clear_api_key"`
-	TimeoutMS          *int                `json:"timeout_ms"`
-	RetryCount         *int                `json:"retry_count"`
-	Thresholds         *map[string]float64 `json:"thresholds"`
+	BaseURL            *string                        `json:"base_url"`
+	Model              *string                        `json:"model"`
+	ProxyID            *int64                         `json:"proxy_id"`
+	APIKey             *string                        `json:"api_key"`
+	APIKeys            *[]string                      `json:"api_keys"`
+	APIKeySlots        *[]ContentModerationAPIKeySlot `json:"api_key_slots"`
+	APIKeysMode        string                         `json:"api_keys_mode"`
+	DeleteAPIKeyHashes *[]string                      `json:"delete_api_key_hashes"`
+	ClearAPIKey        bool                           `json:"clear_api_key"`
+	TimeoutMS          *int                           `json:"timeout_ms"`
+	RetryCount         *int                           `json:"retry_count"`
+	Thresholds         *map[string]float64            `json:"thresholds"`
+}
+
+type ContentModerationAPIKeySlot struct {
+	Key      string `json:"key"`
+	KeepHash string `json:"keep_hash"`
+}
+
+func applyModerationAPIKeySlots(existing []string, slots []ContentModerationAPIKeySlot, engine string) ([]string, error) {
+	byHash := make(map[string]string, len(existing))
+	for _, key := range existing {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		byHash[scopedModerationKeyHash(key, engine)] = key
+	}
+	filled := 0
+	for _, slot := range slots {
+		if strings.TrimSpace(slot.Key) != "" || strings.TrimSpace(slot.KeepHash) != "" {
+			filled++
+		}
+	}
+	if filled == 0 {
+		return []string{}, nil
+	}
+	out := make([]string, 0, len(slots))
+	for i, slot := range slots {
+		key := strings.TrimSpace(slot.Key)
+		if key != "" {
+			out = append(out, key)
+			continue
+		}
+		hash := strings.TrimSpace(slot.KeepHash)
+		if hash == "" {
+			return nil, infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", fmt.Sprintf("第 %d 行缺少 API Key", i+1))
+		}
+		kept, ok := byHash[hash]
+		if !ok {
+			return nil, infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", fmt.Sprintf("第 %d 行保存的 API Key 已变化，请重新填写", i+1))
+		}
+		out = append(out, kept)
+	}
+	return normalizeModerationAPIKeys(out), nil
 }
 
 type ContentModerationEngineMeta struct {
@@ -173,6 +218,12 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	}
 	if input.ClearAPIKey {
 		p.APIKeys = []string{}
+	} else if input.APIKeySlots != nil {
+		keys, err := applyModerationAPIKeySlots(p.APIKeys, *input.APIKeySlots, engine)
+		if err != nil {
+			return err
+		}
+		p.APIKeys = keys
 	} else {
 		mode := normalizeContentModerationAPIKeysMode(input.APIKeysMode)
 		if input.DeleteAPIKeyHashes != nil && mode != contentModerationAPIKeysModeReplace {
