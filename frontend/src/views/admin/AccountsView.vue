@@ -352,6 +352,7 @@
             <AccountLoginStateCell kind="siwc" :account="row" :siwc="siwcStatuses[row.id]" :siwc-loading="siwcLoading" @add="siwcDraft = row" @changed="loadSIWCStatuses" />
           </template>
           <template #cell-schedulable="{ row }">
+            <SchedulableTimerControl v-if="authStore.isAdmin" :account-id="row.id" :refresh-key="timerRefreshKey" @executed="handleTimerExecuted" />
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
@@ -620,6 +621,7 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
+import SchedulableTimerControl from '@/components/account/SchedulableTimerControl.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import ExcelBPS403Badge from '@/components/account/ExcelBPS403Badge.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -2326,10 +2328,21 @@ const normalizeBulkSchedulableResult = (
     hasCounts: hasExplicitCounts
   }
 }
+const timerRefreshKey = ref(0)
+let timerListRefresh: ReturnType<typeof setTimeout> | undefined
+const handleTimerExecuted = () => {
+  if (timerListRefresh !== undefined) return
+  timerListRefresh = setTimeout(() => {
+    timerListRefresh = undefined
+    void load({ refreshTodayStats: false })
+  }, 150)
+}
 const handleBulkToggleSchedulable = async (schedulable: boolean) => {
+  if (!window.confirm(t('admin.accounts.timer.manualWarning'))) return
   const accountIds = [...selIds.value]
   try {
     const result = await adminAPI.accounts.bulkUpdate(accountIds, { schedulable })
+    timerRefreshKey.value++
     const { successIds, failedIds, successCount, failedCount, hasIds, hasCounts } = normalizeBulkSchedulableResult(result, accountIds)
     if (!hasIds && !hasCounts) {
       appStore.showError(t('admin.accounts.bulkSchedulableResultUnknown'))
@@ -2904,10 +2917,12 @@ const confirmCreateSparkShadow = async () => {
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
 const confirmDelete = async () => { if(!deletingAcc.value) return; try { await adminAPI.accounts.delete(deletingAcc.value.id); showDeleteDialog.value = false; deletingAcc.value = null; reload() } catch (error) { console.error('Failed to delete account:', error) } }
 const handleToggleSchedulable = async (a: Account) => {
+  if (!window.confirm(t('admin.accounts.timer.manualWarning'))) return
   const nextSchedulable = !a.schedulable
   togglingSchedulable.value = a.id
   try {
     const updated = await adminAPI.accounts.setSchedulable(a.id, nextSchedulable)
+    timerRefreshKey.value++
     updateSchedulableInList([a.id], updated?.schedulable ?? nextSchedulable)
     enterAutoRefreshSilentWindow()
   } catch (error) {
@@ -3034,6 +3049,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearTimeout(timerListRefresh)
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

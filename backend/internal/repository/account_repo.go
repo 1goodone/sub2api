@@ -27,6 +27,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/internal/accounttimer"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -584,6 +585,7 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
+	account.Schedulable = updated.Schedulable
 	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	if contextTx == nil {
@@ -605,6 +607,10 @@ func (r *accountRepository) updateLockedAccount(
 		return nil, err
 	}
 	account.Extra = extra
+	// lockAndMergeAccountProbeExtra holds the account row lock in this transaction.
+	if err := accounttimer.CancelPending(ctx, client, account.ID, time.Now().UTC()); err != nil {
+		return nil, err
+	}
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -622,8 +628,10 @@ func (r *accountRepository) updateLockedAccount(
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
-		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
+	if !accounttimer.PreserveSchedulable(ctx) || account.Status == service.StatusError {
+		builder.SetSchedulable(schedulable)
+	}
 
 	if explicitRateMultiplier != nil {
 		builder.SetRateMultiplier(*explicitRateMultiplier)
@@ -3120,6 +3128,17 @@ func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64
 }
 
 func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
+	if actor := accounttimer.ManualActor(ctx); actor > 0 {
+		store, ok := r.SchedulableTimers().(*accounttimer.Store)
+		if !ok {
+			return errors.New("account timer transaction unavailable")
+		}
+		err := store.Manual(ctx, id, actor, schedulable)
+		if accounttimer.ErrorCode(err) == "account_deleted" {
+			return service.ErrAccountNotFound
+		}
+		return err
+	}
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSchedulable(schedulable).
@@ -3729,6 +3748,34 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 
+	if updates.Schedulable != nil && accounttimer.ManualActor(ctx) > 0 {
+		if contextTx == nil && tx == nil {
+			return 0, errors.New("manual bulk scheduling requires a transaction")
+		}
+		locked, err := exec.QueryContext(ctx, "SELECT id FROM accounts WHERE id=ANY($1) AND deleted_at IS NULL ORDER BY id FOR UPDATE", pq.Array(ids))
+		if err != nil {
+			return 0, err
+		}
+		lockedIDs := []int64{}
+		for locked.Next() {
+			var id int64
+			if err = locked.Scan(&id); err != nil {
+				_ = locked.Close()
+				return 0, err
+			}
+			lockedIDs = append(lockedIDs, id)
+		}
+		err = locked.Err()
+		_ = locked.Close()
+		if err != nil {
+			return 0, err
+		}
+		for _, id := range lockedIDs {
+			if err = accounttimer.CancelPending(ctx, exec, id, time.Now().UTC()); err != nil {
+				return 0, err
+			}
+		}
+	}
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

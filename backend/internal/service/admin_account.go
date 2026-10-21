@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/accounttimer"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -676,6 +677,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err := ValidateSlotReservationExtra(input.Extra); err != nil {
 		return nil, err
 	}
+	// This DTO edits account settings, not the scheduling permission. Dedicated
+	// single/bulk switch APIs carry manual intent; an ordinary edit must neither
+	// overwrite a concurrently executed timer nor cancel plans via inherited intent.
+	ctx = accounttimer.WithPreservedSchedulable(accounttimer.WithoutManualIntent(ctx))
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
 		return nil, err
 	}
@@ -1435,6 +1440,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
+
+	ctx = accounttimer.WithoutManualIntent(ctx)
 
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
 	if repoUpdates.ProxyID != nil {
