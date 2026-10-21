@@ -1,6 +1,8 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/views/admin/__tests__/AutoConfigView.spec.ts \
+	src/utils/__tests__/openaiTwoFAAdmission.spec.ts \
 	src/components/admin/account/__tests__/BulkExport2FADialog.spec.ts \
 	src/components/admin/account/__tests__/AccountBulkActionsBar.spec.ts \
 	src/features/security-penalties/__tests__/SecurityRecords.spec.ts \

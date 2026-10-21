@@ -1,3 +1,4 @@
+import type { OpenAITwoFAAdmissionConfig } from '@/utils/openaiTwoFAAdmission'
 import type { ScheduledTestPlan } from '@/types'
 import { apiClient } from '../client'
 import type { ModelBillingConfig } from '@/utils/modelBilling'
@@ -41,6 +42,7 @@ export interface OAuthCompactModelMapping {
   to: string
 }
 export interface AutoConfig {
+ openai_two_fa_admission?: OpenAITwoFAAdmissionConfig
  quality_rule?: OAuthInitialQualityRule | null
  model_mappings?: OAuthModelMappingRule[] | null
  model_billing?: ModelBillingConfig

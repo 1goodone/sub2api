@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -97,12 +98,14 @@ func stripCodexFingerprintSeedFromExtraUpdate(extra map[string]any) map[string]a
 	if extra == nil {
 		return nil
 	}
-	if _, exists := extra["codex_fingerprint_seed"]; !exists {
+	_, seedExists := extra["codex_fingerprint_seed"]
+	_, admissionExists := extra[service.OpenAITwoFAAdmissionExtraKey]
+	if !seedExists && !admissionExists {
 		return extra
 	}
 	stripped := make(map[string]any, len(extra)-1)
 	for key, value := range extra {
-		if key == "codex_fingerprint_seed" {
+		if key == "codex_fingerprint_seed" || key == service.OpenAITwoFAAdmissionExtraKey {
 			continue
 		}
 		stripped[key] = value
@@ -131,7 +134,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	client := r.client
 	var tx *dbent.Tx
-	if account != nil && account.InitialQualityPlan != nil {
+	if account != nil && (account.InitialQualityPlan != nil || account.InitialAdmissionPlan != nil) {
 		var err error
 		tx, err = r.client.Tx(ctx)
 		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -221,9 +224,48 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
 
-	if p := account.InitialQualityPlan; p != nil {
+	for _, p := range []*service.ScheduledTestPlan{account.InitialQualityPlan, account.InitialAdmissionPlan} {
+		if p == nil {
+			continue
+		}
 		_, err := client.ExecContext(ctx, `INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, next_run_at, pelican_config, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,false,$6,$7,NOW(),NOW())`, created.ID, p.ModelID, p.CronExpression, p.Enabled, p.MaxResults, p.NextRunAt, marshalPelicanConfig(p.PelicanConfig))
 		if err != nil {
+			return err
+		}
+	}
+	if account.InitialAdmissionPlan != nil {
+		rows, err := client.QueryContext(ctx, `SELECT id FROM scheduled_test_plans WHERE account_id=$1 AND pelican_config->'quality'->>'action'=$2`, created.ID, service.QualityActionOpenAITwoFAAdmission)
+		if err != nil {
+			return err
+		}
+		var planID int64
+		if !rows.Next() {
+			_ = rows.Close()
+			return fmt.Errorf("initial admission plan missing")
+		}
+		err = rows.Scan(&planID)
+		_ = rows.Close()
+		if err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(account.Extra[service.OpenAITwoFAAdmissionExtraKey])
+		if err != nil {
+			return err
+		}
+		var state service.OpenAITwoFAAdmissionState
+		if err := json.Unmarshal(encoded, &state); err != nil {
+			return err
+		}
+		if state.Phase != "pending" || !state.Policy.Enabled || state.Policy.Validate() != nil {
+			return fmt.Errorf("initial admission snapshot missing or invalid")
+		}
+		state.PlanID = planID
+		account.Extra[service.OpenAITwoFAAdmissionExtraKey] = state
+		encoded, err = json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if _, err := client.ExecContext(ctx, `UPDATE accounts SET extra=jsonb_set(extra,'{openai_two_fa_admission}',$2::jsonb) WHERE id=$1`, created.ID, string(encoded)); err != nil {
 			return err
 		}
 	}
@@ -811,6 +853,13 @@ func lockAndMergeAccountProbeExtra(
 			}
 		}
 	}
+	delete(extra, service.OpenAITwoFAAdmissionExtraKey)
+	if state, ok := currentExtra[service.OpenAITwoFAAdmissionExtraKey]; ok {
+		if extra == nil {
+			extra = make(map[string]any)
+		}
+		extra[service.OpenAITwoFAAdmissionExtraKey] = state
+	}
 	delete(extra, service.AutoConfigConcurrencyExtraKey)
 	if state, ok := currentExtra[service.AutoConfigConcurrencyExtraKey]; ok {
 		extra[service.AutoConfigConcurrencyExtraKey] = state
@@ -1061,6 +1110,8 @@ func (r *accountRepository) ApplyOpenAIOAuthReauth(
 	if err != nil {
 		return false, err
 	}
+	extra = copyJSONMap(extra)
+	delete(extra, service.OpenAITwoFAAdmissionExtraKey)
 	extraJSON, err := json.Marshal(normalizeJSONMap(extra))
 	if err != nil {
 		return false, err
@@ -1090,7 +1141,7 @@ func (r *accountRepository) ApplyOpenAIOAuthReauth(
 			expires_at = COALESCE($14::timestamptz, a.expires_at),
 			status = $5,
 			error_message = '',
-			schedulable = TRUE,
+			schedulable = CASE WHEN a.extra ? 'openai_two_fa_admission' THEN a.schedulable ELSE TRUE END,
 			rate_limited_at = NULL,
 			rate_limit_reset_at = NULL,
 			overload_until = NULL,

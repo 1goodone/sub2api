@@ -27,6 +27,7 @@
             <p class="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ t('autoConfig.modelBilling.example') }}</p>
           </section>
         </fieldset>
+        <fieldset :disabled="saving" class="min-w-0"><OpenAITwoFAAdmissionCard v-model="draft.openai_two_fa_admission" :groups="groups" /></fieldset>
         <fieldset :disabled="saving" class="grid min-w-0 gap-5 xl:grid-cols-2">
           <section class="card initial-card">
             <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.initial') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.enabled" data-testid="initial-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
@@ -87,6 +88,8 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
 import BPSDefaultsCard from '@/components/admin/operations/BPSDefaultsCard.vue'
+import OpenAITwoFAAdmissionCard from '@/components/admin/operations/OpenAITwoFAAdmissionCard.vue'
+import { defaultOpenAITwoFAAdmissionConfig, openaiTwoFAAdmissionError, type OpenAITwoFAAdmissionConfig } from '@/utils/openaiTwoFAAdmission'
 import { defaultOAuthModelMappings, oauthModelMappingsError, oauthModelMappingsPayload, type OAuthModelMappingRule } from '@/utils/oauthModelMappings'
 import { defaultExcelBPSDefaults, excelBPSDefaultsError, excelBPSDefaultsPayload, type ExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import AutoConfigHistory from '@/components/admin/operations/AutoConfigHistory.vue'
@@ -100,10 +103,10 @@ import type { ScheduledTestPlan } from '@/types'
 import type { Group } from '@/types'
 import { defaultModelBillingConfig, modelBillingConfigError, modelBillingPayload, type ModelBillingConfig } from '@/utils/modelBilling'
 const { t } = useI18n(), auth = useAuthStore()
-const draft = ref<(AutoConfig & { excel_bps: ExcelBPSDefaults; model_mappings: OAuthModelMappingRule[]; model_billing: ModelBillingConfig }) | null>(null), groups = ref<Group[]>([])
+const draft = ref<(AutoConfig & { openai_two_fa_admission: OpenAITwoFAAdmissionConfig; excel_bps: ExcelBPSDefaults; model_mappings: OAuthModelMappingRule[]; model_billing: ModelBillingConfig }) | null>(null), groups = ref<Group[]>([])
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref('')
 const qualityPlans = ref<ScheduledTestPlan[]>([]), selectedQualityRule = ref(''), qualityLoadFailed = ref(false)
-const availableQualityPlans = computed(() => qualityPlans.value.filter(p => p.pelican_config?.quality && (draft.value?.platform === 'openai' || p.pelican_config.question_kind !== 'state_probe')))
+const availableQualityPlans = computed(() => qualityPlans.value.filter(p => p.pelican_config?.quality && p.pelican_config.quality.action !== 'openai_two_fa_admission' && (draft.value?.platform === 'openai' || p.pelican_config.question_kind !== 'state_probe')))
 function qualityActionLabel(plan: ScheduledTestPlan) {
  const keys: Record<string, string> = { isolate_models: 'isolateModels', observe_only: 'observeOnly', remove_groups: 'removeGroups', remove_models: 'removeModels', disable_scheduling: 'disableScheduling', enable_bps: 'enableBPSShort' }
  return t('qualityOps.' + keys[plan.pelican_config?.quality?.action ?? 'observe_only'])
@@ -129,13 +132,15 @@ const upgradeFields = [{ key: 'successes_per_step', max: 100000 }, { key: 'upgra
 const initialGroups = computed(() => groups.value.filter(g => g.platform === draft.value?.platform))
 async function load() {
  const v = generation; loading.value = true; error.value = ''
- try { const [config, available] = await Promise.all([getAutoConfig(), getAll()]); if (validGeneration(v)) { draft.value = { ...config, model_billing: config.model_billing ?? defaultModelBillingConfig(), excel_bps: config.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: config.model_mappings ?? defaultOAuthModelMappings(config.platform) }; selectedQualityRule.value = config.quality_rule ? 'saved' : ''; groups.value = available.filter(g => g.status === 'active') } }
+ try { const [config, available] = await Promise.all([getAutoConfig(), getAll()]); if (validGeneration(v)) { draft.value = { ...config, openai_two_fa_admission: config.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: config.model_billing ?? defaultModelBillingConfig(), excel_bps: config.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: config.model_mappings ?? defaultOAuthModelMappings(config.platform) }; selectedQualityRule.value = config.quality_rule ? 'saved' : ''; groups.value = available.filter(g => g.status === 'active') } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.loadFailed') }
  finally { if (validGeneration(v)) loading.value = false }
 }
 async function save() {
  if (!draft.value || saving.value) return
  const c = draft.value
+ const admissionError = openaiTwoFAAdmissionError(c.openai_two_fa_admission)
+ if (admissionError || c.openai_two_fa_admission.enabled && !groups.value.some(g => g.id === c.openai_two_fa_admission.isolation_group_id && g.platform === 'openai' && g.status === 'active')) { error.value = t(admissionError ?? 'autoConfig.admission.invalid'); return }
  const modelError = modelBillingConfigError(c.model_billing)
  if (modelError) { error.value = t(modelError); return }
  const bpsError = excelBPSDefaultsError(c.excel_bps)
@@ -144,7 +149,7 @@ async function save() {
  if (mappingError) { error.value = t(mappingError); return }
  if (c.upgrade_enabled && !c.upgrade_group_ids.length || accountSettingsInvalid(c.account_settings) || [...initialFields, ...upgradeFields].some(f => !Number.isInteger(c[f.key]) || c[f.key] < ('min' in f ? f.min : 1) || c[f.key] > ('max' in f ? f.max : 10000))) { error.value = t('autoConfig.invalid'); return }
  const v = generation; saving.value = true; error.value = ''; notice.value = ''
- try { const { runtime_blocked: _blocked, account_settings, ...payload } = c; const body = account_settings && Object.keys(account_settings).length ? { ...payload, account_settings } : payload; const result = await saveAutoConfig({ ...body, model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, model_billing: result.model_billing ?? defaultModelBillingConfig(), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
+ try { const { runtime_blocked: _blocked, account_settings, ...payload } = c; const body = account_settings && Object.keys(account_settings).length ? { ...payload, account_settings } : payload; const result = await saveAutoConfig({ ...body, model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, openai_two_fa_admission: result.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: result.model_billing ?? defaultModelBillingConfig(), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.saveFailed') }
  finally { if (validGeneration(v)) saving.value = false }
 }
