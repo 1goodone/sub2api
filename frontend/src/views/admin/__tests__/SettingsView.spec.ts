@@ -396,6 +396,7 @@ const ImageUploadStub = defineComponent({
 const baseSettingsResponse = {
   registration_enabled: true,
   login_rate_limit_enabled: true,
+  registration_ip_limit_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
   promo_code_enabled: true,
@@ -1391,6 +1392,25 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ login_rate_limit_enabled: false }),
+    );
+  });
+
+  it("loads and saves the registration IP limit switch", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      registration_ip_limit_enabled: false,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const toggle = wrapper.get('[data-testid="registration-ip-limit-toggle"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ registration_ip_limit_enabled: true }),
     );
   });
 

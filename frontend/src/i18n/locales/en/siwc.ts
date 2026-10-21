@@ -11,8 +11,8 @@ export default {
   "loginHint": "Automatic authorization reuses the password and TOTP saved in Credential Guard. Use browser authorization for initial consent or additional verification. Tokens refresh automatically afterward.",
   "running": "SIWC authorization in progress…",
   "continue": "Continue with ChatGPT",
-  "callbackHint": "After authorization, copy the full loopback callback URL from the browser address bar, even if the local page cannot be reached. Paste it below.",
-  "callback": "Full callback URL",
+  "callbackHint": "After authorization, paste the whole browser page or address bar, even if the local page cannot be reached. Pasting only the callback URL also works; the needed part is extracted automatically.",
+  "callback": "Callback URL",
   "complete": "Complete binding",
   "failed": "SIWC operation failed. Refresh and try again."
 }

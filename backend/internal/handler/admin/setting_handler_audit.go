@@ -70,6 +70,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.LoginRateLimitEnabled != after.LoginRateLimitEnabled {
 		changed = append(changed, "login_rate_limit_enabled")
 	}
+	if before.RegistrationIPLimitEnabled != after.RegistrationIPLimitEnabled {
+		changed = append(changed, "registration_ip_limit_enabled")
+	}
 	if before.TotpEnabled != after.TotpEnabled {
 		changed = append(changed, "totp_enabled")
 	}

@@ -265,6 +265,8 @@ export default {
       security: {
         loginRateLimit: 'Login rate limiting',
         loginRateLimitHint: 'Enabled by default. Limits sign-in requests and bans an IP for 1 hour after 10 failed verifications within 15 minutes. Disabling bypasses request limits and IP bans for password, two-factor, Passkey, and OAuth account-binding sign-ins. Saving takes effect immediately for admins and users. Existing bans retain their original expiry when re-enabled.',
+        registrationIPLimit: 'Registration IP limit',
+        registrationIPLimitHint: 'Enabled by default. One public IP can register at most two accounts for its lifetime; IPv6 is counted by /64. Disabling stops new public signups from counting. Existing quotas remain and apply again when the switch is turned back on. Administrator-created accounts are not counted, and deleting an account does not refund the quota. Saving takes effect immediately.',
         passkey: 'Passkey Sign-in',
         passkeyHint: 'Allow passwordless sign-in and user-managed passkeys when the relying party configuration is valid.',
         passkeyConfigured: 'WebAuthn relying party configuration is valid.',

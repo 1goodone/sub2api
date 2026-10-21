@@ -42,6 +42,28 @@ func newAbuseTestRouter(t *testing.T, client *redis.Client, status *int) *gin.En
 	return router
 }
 
+func TestRegistrationIPLimitSwitchSkipsAccounting(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
+	t.Cleanup(func() { _ = client.Close() })
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.Use(AuthAbuseGuardWithOptions(client, AuthAbuseGuardOptions{
+		RegistrationIPLimitEnabled: func(*gin.Context) bool { return false },
+	}))
+	router.POST("/auth/register", func(c *gin.Context) {
+		_, enabled := authguard.RegistrationIP(c.Request.Context())
+		require.False(t, enabled)
+		c.Status(http.StatusCreated)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", nil)
+	req.RemoteAddr = "192.0.2.10:1234"
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+}
+
 func abuseRequest(router *gin.Engine, address, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, nil)
 	req.RemoteAddr = address

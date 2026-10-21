@@ -25,6 +25,16 @@ func (s *SettingService) IsLoginRateLimitEnabled(ctx context.Context) bool {
 	return err != nil || value != "false"
 }
 
+// IsRegistrationIPLimitEnabled defaults to enabled unless explicitly disabled.
+// A database miss or lookup error keeps the two-account public signup quota.
+func (s *SettingService) IsRegistrationIPLimitEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return true
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationIPLimitEnabled)
+	return err != nil || value != "false"
+}
+
 // IsRegistrationEnabled 检查是否开放注册
 func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)

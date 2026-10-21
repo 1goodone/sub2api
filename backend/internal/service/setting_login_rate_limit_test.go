@@ -39,3 +39,19 @@ func TestLoginRateLimitDefaultsAndLiveChanges(t *testing.T) {
 	var absent *SettingService
 	require.True(t, absent.IsLoginRateLimitEnabled(ctx))
 }
+
+func TestRegistrationIPLimitDefaultsAndLiveChanges(t *testing.T) {
+	repo := &loginRateLimitSettingRepo{err: ErrSettingNotFound}
+	s := NewSettingService(repo, &config.Config{})
+	ctx := context.Background()
+	require.True(t, s.IsRegistrationIPLimitEnabled(ctx), "upgrades keep the two-account quota")
+	repo.err = nil
+	for _, value := range []string{"", "true", "invalid", "0"} {
+		repo.value = value
+		require.True(t, s.IsRegistrationIPLimitEnabled(ctx))
+	}
+	repo.value = "false"
+	require.False(t, s.IsRegistrationIPLimitEnabled(ctx))
+	repo.err = errors.New("database unavailable")
+	require.True(t, s.IsRegistrationIPLimitEnabled(ctx), "lookup errors must not disable the quota")
+}

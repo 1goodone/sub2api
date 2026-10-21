@@ -16,8 +16,10 @@ Open an OpenAI OAuth parent account and use the **OpenAI request protocol** pane
 2. Initial consent, an account selector that requires interaction, or another
    verification challenge may require **Browser authorization**. Follow
    **Continue with ChatGPT**, authorize the intended subscriber/workspace, then
-   paste the complete `http://127.0.0.1:1455/auth/callback?...` URL from the browser
-   address bar. The loopback page need not load. The server validates the URL,
+   paste the browser page or the `http://127.0.0.1:1455/auth/callback?...` URL.
+   A full copy and the callback segment alone are both accepted; the server
+   extracts that loopback URL and rejects any other host. The loopback page
+   need not load. The server validates the URL,
    state, issued client ID, PKCE, signed ID token, nonce and account identity.
 3. Once bound, select **SIWC API** and save the account. Selecting **Codex** and
    saving restores the existing Codex/BPS/Prism routing configuration.

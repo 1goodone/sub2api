@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,17 +50,32 @@ func (r *siwcTestRepo) SaveSIWCCredentials(_ context.Context, _ int64, _ map[str
 
 type siwcTestClient struct {
 	*reauthTestOAuthClient
-	calls  int
-	issued string
-	nonce  string
+	calls       int
+	issued      string
+	nonce       string
+	accessToken string
+	idToken     string
+	email       string
 }
 
 func (c *siwcTestClient) SIWCToken(_ context.Context, form url.Values, _, nonce string) (*openai.TokenResponse, *openai.SIWCIdentity, error) {
 	c.calls++
 	c.issued = form.Get("client_id")
 	c.nonce = nonce
-	token := &openai.TokenResponse{AccessToken: reauthTestJWT(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct-1", "chatgpt_user_id": "user-1"}}), RefreshToken: "siwc-refresh", IDToken: "verified-identity", Scope: openai.SIWCDirectScope, ExpiresIn: 3600}
-	identity := &openai.SIWCIdentity{Email: "user@example.com"}
+	access := c.accessToken
+	if access == "" {
+		access = reauthTestJWT(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct-1", "chatgpt_user_id": "user-1"}})
+	}
+	idToken := c.idToken
+	if idToken == "" {
+		idToken = "verified-identity"
+	}
+	email := c.email
+	if email == "" {
+		email = "user@example.com"
+	}
+	token := &openai.TokenResponse{AccessToken: access, RefreshToken: "siwc-refresh", IDToken: idToken, Scope: openai.SIWCDirectScope, ExpiresIn: 3600}
+	identity := &openai.SIWCIdentity{Email: email}
 	identity.Subject = "subscriber"
 	return token, identity, nil
 }
@@ -79,7 +95,8 @@ func TestSIWCBindingPreservesCodexAndReusesIssuedRegistration(t *testing.T) {
 	require.Error(t, svc.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, wrong, nil))
 	require.Zero(t, client.calls)
 	callback := "http://127.0.0.1:1455/auth/callback?code=code&state=" + url.QueryEscape(u.Query().Get("state")) + "&client_id=issued"
-	require.NoError(t, svc.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, callback, nil))
+	pasted := "无法访问此网站\n" + strings.Replace(callback, "127.0.0.1", "localhost", 1) + "\nERR_CONNECTION_REFUSED"
+	require.NoError(t, svc.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, pasted, nil))
 	require.Equal(t, "issued", client.issued)
 	require.Equal(t, u.Query().Get("nonce"), client.nonce)
 	require.Equal(t, before, reader.account.Credentials)
@@ -94,6 +111,37 @@ func TestSIWCBindingPreservesCodexAndReusesIssuedRegistration(t *testing.T) {
 	require.Equal(t, u.Query().Get("ext_agent_host_id"), next.Query().Get("ext_agent_host_id"))
 	require.Empty(t, next.Query().Get("agent_name_hint"))
 }
+func TestSIWCOpaqueTokenUsesMatchingAccountWorkspace(t *testing.T) {
+	svc, reader, repo, _, oldClient, _ := newReauthTestService("acct-1")
+	defer svc.oauth.Stop()
+	store := &siwcTestRepo{reauthTestRepo: repo}
+	svc.repo = store
+	client := &siwcTestClient{reauthTestOAuthClient: oldClient, accessToken: "opaque-siwc-access", idToken: "opaque-id-token"}
+	svc.oauth.oauthClient = client
+	auth, err := svc.BeginSIWCAuthorization(context.Background(), 42)
+	require.NoError(t, err)
+	state := reauthStateFromURL(t, auth.AuthURL)
+	callback := "http://127.0.0.1:1455/auth/callback?code=code&state=" + url.QueryEscape(state) + "&client_id=issued"
+	require.NoError(t, svc.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, callback, nil))
+	plain, err := svc.encryptor.Decrypt(store.ciphertext)
+	require.NoError(t, err)
+	require.Equal(t, "acct-1", gjson.Get(plain, "workspace").String())
+	require.Equal(t, "opaque-siwc-access", gjson.Get(plain, "access_token").String())
+	require.Equal(t, reader.account.Credentials["email"], gjson.Get(plain, "email").String())
+
+	mismatch, _, repo2, _, oldClient2, _ := newReauthTestService("acct-1")
+	defer mismatch.oauth.Stop()
+	store2 := &siwcTestRepo{reauthTestRepo: repo2}
+	mismatch.repo = store2
+	mismatch.oauth.oauthClient = &siwcTestClient{reauthTestOAuthClient: oldClient2, accessToken: "opaque-siwc-access", email: "other@example.com"}
+	auth, err = mismatch.BeginSIWCAuthorization(context.Background(), 42)
+	require.NoError(t, err)
+	state = reauthStateFromURL(t, auth.AuthURL)
+	callback = "http://127.0.0.1:1455/auth/callback?code=code&state=" + url.QueryEscape(state) + "&client_id=issued"
+	require.Error(t, mismatch.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, callback, nil))
+	require.Zero(t, store2.writes)
+}
+
 func TestSIWCBoundSessionCannotUseGenericExchange(t *testing.T) {
 	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
 	defer svc.oauth.Stop()

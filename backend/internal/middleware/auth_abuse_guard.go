@@ -55,6 +55,9 @@ type AuthAbuseGuardOptions struct {
 	// LoginRateLimitEnabled controls login bans and failure recording only.
 	// Registration accounting and protection of other auth endpoints remain active.
 	LoginRateLimitEnabled func(*gin.Context) bool
+	// RegistrationIPLimitEnabled controls the lifetime two-account public signup quota.
+	// Nil keeps it enabled. It does not affect login bans, and existing quota rows stay.
+	RegistrationIPLimitEnabled func(*gin.Context) bool
 }
 
 func AuthAbuseGuardWithOptions(client *redis.Client, opts AuthAbuseGuardOptions) gin.HandlerFunc {
@@ -65,7 +68,9 @@ func AuthAbuseGuardWithOptions(client *redis.Client, opts AuthAbuseGuardOptions)
 		}
 		address := ippkg.GetTrustedClientIP(c)
 		key := authguard.IPKey(address)
-		c.Request = c.Request.WithContext(authguard.WithRegistrationIP(c.Request.Context(), address))
+		if opts.RegistrationIPLimitEnabled == nil || opts.RegistrationIPLimitEnabled(c) {
+			c.Request = c.Request.WithContext(authguard.WithRegistrationIP(c.Request.Context(), address))
+		}
 		// The configurable guard owns bans and whitelist decisions in enforce
 		// mode (and for whitelisted clients); retain registration accounting and
 		// the existing per-route limits.

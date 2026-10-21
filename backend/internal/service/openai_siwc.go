@@ -179,6 +179,11 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 	if len(callback) > maxOpenAIOAuthReauthURL {
 		return infraerrors.BadRequest("OPENAI_SIWC_CALLBACK_INVALID", "Invalid SIWC callback")
 	}
+	extracted, ok := openai.ExtractSIWCCallback(callback)
+	if !ok {
+		return infraerrors.BadRequest("OPENAI_SIWC_CALLBACK_INVALID", "Invalid SIWC callback")
+	}
+	callback = extracted
 	u, err := url.Parse(callback)
 	if err != nil || u.Scheme != "http" || u.Host != "127.0.0.1:1455" || u.Path != "/auth/callback" || u.RawPath != "" || u.User != nil || u.Fragment != "" {
 		return infraerrors.BadRequest("OPENAI_SIWC_CALLBACK_INVALID", "Invalid SIWC callback")
@@ -231,7 +236,7 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 	if err != nil {
 		return err
 	}
-	info, err := siwcTokenIdentity(token.AccessToken, identity.Email)
+	info, err := siwcBoundIdentity(token, identity.Email, account)
 	if err != nil {
 		return err
 	}
@@ -266,13 +271,38 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 	return nil
 }
 
-func siwcTokenIdentity(access, email string) (*OpenAITokenInfo, error) {
-	claims, err := openai.DecodeIDToken(access)
+// A Codex-shaped access or ID token still supplies the workspace. SIWC resource
+// tokens are often opaque and carry no chatgpt_account_id; the signed ID token
+// has already proved the email, so the existing account workspace is used only
+// when that email matches.
+func siwcBoundIdentity(token *openai.TokenResponse, email string, account *Account) (*OpenAITokenInfo, error) {
+	if token != nil {
+		if info, ok := siwcJWTIdentity(token.AccessToken, email); ok {
+			return info, nil
+		}
+		if info, ok := siwcJWTIdentity(token.IDToken, email); ok {
+			return info, nil
+		}
+	}
+	storedEmail, workspace, userID := "", "", ""
+	if account != nil {
+		storedEmail = strings.TrimSpace(account.GetCredential("email"))
+		workspace = strings.TrimSpace(account.GetCredential("chatgpt_account_id"))
+		userID = strings.TrimSpace(account.GetCredential("chatgpt_user_id"))
+	}
+	if workspace != "" && storedEmail != "" && strings.EqualFold(storedEmail, strings.TrimSpace(email)) {
+		return &OpenAITokenInfo{Email: email, ChatGPTAccountID: workspace, ChatGPTUserID: userID}, nil
+	}
+	return nil, errors.New("SIWC token identity or expiry is missing")
+}
+
+func siwcJWTIdentity(raw, email string) (*OpenAITokenInfo, bool) {
+	claims, err := openai.DecodeIDToken(raw)
 	if err != nil || claims.Exp <= time.Now().Unix() || claims.OpenAIAuth == nil || claims.OpenAIAuth.ChatGPTAccountID == "" {
-		return nil, errors.New("SIWC token identity or expiry is missing")
+		return nil, false
 	}
 	user := claims.GetUserInfo()
-	return &OpenAITokenInfo{Email: email, ChatGPTAccountID: user.ChatGPTAccountID, ChatGPTUserID: user.ChatGPTUserID}, nil
+	return &OpenAITokenInfo{Email: email, ChatGPTAccountID: user.ChatGPTAccountID, ChatGPTUserID: user.ChatGPTUserID}, true
 }
 
 var siwcRefreshLocks sync.Map
@@ -353,7 +383,11 @@ func (s *OpenAIOAuthReauthService) SIWCAccessToken(ctx context.Context, account 
 	if identity != nil && identity.Subject != grant.Subject {
 		return "", errors.New("SIWC refresh subscriber mismatch")
 	}
-	info, err := siwcTokenIdentity(token.AccessToken, grant.Email)
+	email := grant.Email
+	if identity != nil && identity.Email != "" {
+		email = identity.Email
+	}
+	info, err := siwcBoundIdentity(token, email, fresh)
 	if err != nil {
 		return "", err
 	}

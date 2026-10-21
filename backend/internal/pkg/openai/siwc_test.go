@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,4 +60,30 @@ func TestSIWCReturningAuthorizationReusesRegistration(t *testing.T) {
 	require.Empty(t, next.Query().Get("agent_name_hint"))
 	require.Equal(t, "saved-id-token", next.Query().Get("id_token_hint"))
 	require.Equal(t, SIWCRedirectURI, next.Query().Get("redirect_uri"))
+}
+
+func TestExtractSIWCCallbackAcceptsFullPasteOrTheURL(t *testing.T) {
+	want := "http://127.0.0.1:1455/auth/callback?code=code&state=state&client_id=issued"
+	for _, raw := range []string{
+		want,
+		"  " + want + "  ",
+		"无法访问此网站\n" + strings.Replace(want, "127.0.0.1", "localhost", 1) + "\nERR_CONNECTION_REFUSED",
+		"\"" + want + "\"",
+		"?code=code&state=state&client_id=issued",
+		"code=code&state=state&client_id=issued",
+		want + "|",
+	} {
+		got, ok := ExtractSIWCCallback(raw)
+		require.True(t, ok, raw)
+		require.Equal(t, want, got)
+	}
+	for _, raw := range []string{
+		"https://127.0.0.1:1455/auth/callback?code=code&state=state&client_id=issued",
+		"http://evil.example/auth/callback?code=code&state=state&client_id=issued",
+		"http://127.0.0.1:1455/other?code=code&state=state&client_id=issued",
+		"code-only",
+	} {
+		_, ok := ExtractSIWCCallback(raw)
+		require.False(t, ok, raw)
+	}
 }

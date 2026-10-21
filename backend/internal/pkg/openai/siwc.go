@@ -37,6 +37,96 @@ func BuildSIWCAuthorizationURL(state, challenge, nonce, hostID, clientID, hint, 
 	return "https://auth.openai.com/api/accounts/authorize?" + q.Encode()
 }
 
+// ExtractSIWCCallback finds the loopback callback inside a full paste, or accepts
+// that URL or its query string alone. localhost is normalized to 127.0.0.1.
+// Other hosts and schemes are rejected.
+func ExtractSIWCCallback(raw string) (string, bool) {
+	text := strings.Trim(strings.TrimSpace(raw), "\"'`")
+	markers := []string{"http://127.0.0.1:1455/auth/callback", "http://localhost:1455/auth/callback"}
+	fallback := ""
+	for _, marker := range markers {
+		from := 0
+		for {
+			at := indexASCIIFold(text[from:], marker)
+			if at < 0 {
+				break
+			}
+			at += from
+			end := at + len(marker)
+			for end < len(text) && text[end] > ' ' && !strings.ContainsRune("\"'<>`", rune(text[end])) {
+				end++
+			}
+			candidate := strings.TrimRight(text[at:end], ".,;，。；)）]|")
+			if normalized, ok := normalizeSIWCCallback(candidate); ok {
+				if strings.Contains(normalized, "code=") && strings.Contains(normalized, "client_id=") {
+					return normalized, true
+				}
+				if fallback == "" {
+					fallback = normalized
+				}
+			}
+			from = at + len(marker)
+			if from >= len(text) {
+				break
+			}
+		}
+	}
+	if fallback != "" {
+		return fallback, true
+	}
+	query := strings.TrimPrefix(text, "?")
+	if strings.Contains(query, "code=") && strings.Contains(query, "state=") && !strings.ContainsAny(query, " \t\r\n/\\") && !strings.Contains(strings.ToLower(text), "http") {
+		return normalizeSIWCCallback(SIWCRedirectURI + "?" + query)
+	}
+	return "", false
+}
+
+func indexASCIIFold(text, marker string) int {
+	if marker == "" || len(text) < len(marker) {
+		return -1
+	}
+	for i := 0; i+len(marker) <= len(text); i++ {
+		if asciiEqualFold(text[i:i+len(marker)], marker) {
+			return i
+		}
+	}
+	return -1
+}
+
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeSIWCCallback(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.User != nil || u.Path != "/auth/callback" || u.RawPath != "" {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	if (host != "127.0.0.1" && host != "localhost") || u.Port() != "1455" {
+		return "", false
+	}
+	if u.RawQuery == "" {
+		return SIWCRedirectURI, true
+	}
+	return SIWCRedirectURI + "?" + u.RawQuery, true
+}
+
 type SIWCIdentity struct {
 	jwt.RegisteredClaims
 	Nonce string `json:"nonce"`

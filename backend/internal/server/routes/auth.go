@@ -38,6 +38,17 @@ func RegisterAuthRoutes(
 		c.Set(contextKey, enabled)
 		return enabled
 	}
+	registrationIPLimitEnabled := func(c *gin.Context) bool {
+		const contextKey = "auth.registration_ip_limit_enabled"
+		if cached, exists := c.Get(contextKey); exists {
+			if enabled, ok := cached.(bool); ok {
+				return enabled
+			}
+		}
+		enabled := settingService.IsRegistrationIPLimitEnabled(c.Request.Context())
+		c.Set(contextKey, enabled)
+		return enabled
+	}
 
 	// 公开接口
 	auth := v1.Group("/auth")
@@ -45,7 +56,8 @@ func RegisterAuthRoutes(
 	// 认证事件（登录/注册/2FA/token 刷新失败）入审计
 	auth.Use(gin.HandlerFunc(auditLog))
 	auth.Use(middleware.AuthAbuseGuardWithOptions(redisClient, middleware.AuthAbuseGuardOptions{
-		LoginRateLimitEnabled: loginRateLimitEnabled,
+		LoginRateLimitEnabled:      loginRateLimitEnabled,
+		RegistrationIPLimitEnabled: registrationIPLimitEnabled,
 	}))
 	{
 		// 注册/登录/2FA/验证码发送均属于高风险入口，增加服务端兜底限流（Redis 故障时 fail-close）

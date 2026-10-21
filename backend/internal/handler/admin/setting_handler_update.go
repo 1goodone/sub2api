@@ -27,7 +27,8 @@ type UpdateSettingsRequest struct {
 	ExcelBPSEnabled *bool `json:"excel_bps_enabled"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
-	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"` // 省略=保持现值
+	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"`      // 省略=保持现值
+	RegistrationIPLimitEnabled          *bool                        `json:"registration_ip_limit_enabled"` // 省略=保持现值
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
@@ -655,6 +656,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	loginRateLimitEnabled := previousSettings.LoginRateLimitEnabled
 	if req.LoginRateLimitEnabled != nil {
 		loginRateLimitEnabled = *req.LoginRateLimitEnabled
+	}
+	registrationIPLimitEnabled := previousSettings.RegistrationIPLimitEnabled
+	if req.RegistrationIPLimitEnabled != nil {
+		registrationIPLimitEnabled = *req.RegistrationIPLimitEnabled
 	}
 	passkeyEnabled := previousSettings.PasskeyEnabled
 	if req.PasskeyEnabled != nil {
@@ -1651,6 +1656,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		RegistrationEnabled:                 req.RegistrationEnabled,
 		LoginRateLimitEnabled:               loginRateLimitEnabled,
+		RegistrationIPLimitEnabled:          registrationIPLimitEnabled,
 		PrismBrowserEnabled:                 req.PrismBrowserEnabled,
 		PrismBrowserBaseURL:                 req.PrismBrowserBaseURL,
 		PrismBrowserAPIKey:                  req.PrismBrowserAPIKey,
@@ -2581,6 +2587,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                                    updatedSettings.RegistrationEnabled,
 		LoginRateLimitEnabled:                                  updatedSettings.LoginRateLimitEnabled,
+		RegistrationIPLimitEnabled:                             updatedSettings.RegistrationIPLimitEnabled,
 		PrismBrowserEnabled:                                    updatedSettings.PrismBrowserEnabled,
 		PrismBrowserBaseURL:                                    updatedSettings.PrismBrowserBaseURL,
 		PrismBrowserAPIKeyConfigured:                           updatedSettings.PrismBrowserAPIKeyConfigured,

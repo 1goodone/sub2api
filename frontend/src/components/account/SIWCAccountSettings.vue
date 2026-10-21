@@ -21,8 +21,8 @@
       <a class="link-btn" :href="authorization.auth_url" target="_blank" rel="noopener noreferrer">{{ t('siwc.continue') }}</a>
       <p class="input-hint">{{ t('siwc.callbackHint') }}</p>
       <label :for="`siwc-callback-${accountId}`" class="input-label">{{ t('siwc.callback') }}</label>
-      <input :id="`siwc-callback-${accountId}`" v-model="callback" class="input" autocomplete="off" spellcheck="false" />
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !callback.trim()" @click="complete">{{ t('siwc.complete') }}</button>
+      <textarea :id="`siwc-callback-${accountId}`" v-model="callback" rows="3" class="input w-full resize-y font-mono text-sm" autocomplete="off" spellcheck="false"></textarea>
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !callback.trim()" data-testid="siwc-complete" @click="complete">{{ t('siwc.complete') }}</button>
     </div>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
   </section>
@@ -32,6 +32,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { authorizeSIWC, completeSIWC, getSIWCStatus, loginSIWCWithSavedCredentials, type SIWCAuthorization, type SIWCStatus } from '@/api/admin/siwc'
+import { extractSIWCCallback } from '@/utils/siwcCallback'
 
 const props = defineProps<{ accountId: number; enabled: boolean; active: boolean }>()
 const emit = defineEmits<{ 'update:enabled': [boolean] }>()
@@ -47,8 +48,8 @@ let timer: ReturnType<typeof setTimeout> | undefined
 let generation = 0
 function clearTimer() { if (timer) clearTimeout(timer); timer = undefined }
 function message(cause: unknown): string {
-  const failure = cause as { response?: { data?: { message?: string } } }
-  return failure?.response?.data?.message || t('siwc.failed')
+  const failure = cause as { message?: string; response?: { data?: { message?: string } } }
+  return failure?.response?.data?.message || failure?.message || t('siwc.failed')
 }
 async function refresh() {
   clearTimer()
@@ -86,7 +87,7 @@ function browser() {
 function complete() {
   if (!authorization.value) return
   const session = authorization.value.session_id
-  const callbackURL = callback.value.trim()
+  const callbackURL = extractSIWCCallback(callback.value) ?? callback.value.trim()
   return run(async (id, current) => {
     await completeSIWC(id, session, callbackURL)
     if (current !== generation) return
