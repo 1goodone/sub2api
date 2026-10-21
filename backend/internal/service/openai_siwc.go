@@ -249,9 +249,12 @@ func (s *OpenAIOAuthReauthService) beginSIWCAuthorization(ctx context.Context, a
 	if err != nil {
 		return nil, err
 	}
-	s.oauth.sessionStore.Set(sessionID, &openai.OAuthSession{State: state, CodeVerifier: verifier, ClientID: clientID, ProxyURL: proxy,
+	err = s.setSIWCSession(ctx, sessionID, &openai.OAuthSession{State: state, CodeVerifier: verifier, ClientID: clientID, ProxyURL: proxy,
 		RedirectURI: openai.SIWCRedirectURI, CreatedAt: time.Now(), SIWCAccountID: account.ID, SIWCNonce: nonce, SIWCHostID: host,
 		SIWCPreviousGrant: previous, SIWCExpectedCredentials: account.Credentials})
+	if err != nil {
+		return nil, err
+	}
 	return &OpenAIAuthURLResult{SessionID: sessionID, AuthURL: openai.BuildSIWCAuthorizationURL(state, openai.GenerateCodeChallenge(verifier), nonce, host, clientID, hint, account.GetCredential("email"))}, nil
 }
 
@@ -260,7 +263,7 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 	if err != nil {
 		return err
 	}
-	session, ok := s.oauth.sessionStore.Get(sessionID)
+	session, ok := s.readSIWCSession(ctx, sessionID, false)
 	if !ok || session.SIWCAccountID != id {
 		return infraerrors.BadRequest("OPENAI_SIWC_SESSION_INVALID", "SIWC session expired or belongs to another account")
 	}
@@ -289,7 +292,7 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 		return infraerrors.BadRequest("OPENAI_SIWC_STATE_INVALID", "Invalid SIWC state")
 	}
 	if q.Get("error") != "" {
-		s.oauth.sessionStore.Delete(sessionID)
+		s.deleteSIWCSession(ctx, sessionID)
 		return infraerrors.BadRequest("OPENAI_SIWC_CONSENT_REQUIRED", "SIWC authorization was declined or requires user interaction")
 	}
 	clientID := q.Get("client_id")
@@ -303,8 +306,8 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 		return infraerrors.BadRequest("OPENAI_SIWC_REGISTRATION_INCOMPLETE", "SIWC callback requires code and issued client ID")
 	}
 	// Consume before exchanging; failed exchanges need a fresh authorization.
-	consumed, valid := s.oauth.sessionStore.Take(sessionID)
-	if !valid || consumed != session {
+	consumed, valid := s.readSIWCSession(ctx, sessionID, true)
+	if !valid || consumed.State != session.State || consumed.SIWCAccountID != id {
 		return infraerrors.Conflict("OPENAI_SIWC_SESSION_CONSUMED", "SIWC session was already used")
 	}
 	client, ok := s.oauth.oauthClient.(openAISIWCTokenClient)
@@ -520,10 +523,10 @@ func validateSIWCGrant(account *Account, grant *siwcGrant) error {
 		return errors.New("SIWC plan usage authorization is missing")
 	}
 	// Expired access tokens are expected here; identity is the validated saved grant.
-	if account.GetCredential("chatgpt_account_id") != "" && account.GetCredential("chatgpt_account_id") != grant.Workspace {
+	if account.GetCredential("chatgpt_account_id") != grant.Workspace {
 		return errors.New("SIWC workspace no longer matches the account")
 	}
-	if email := account.GetCredential("email"); email != "" && !strings.EqualFold(email, grant.Email) {
+	if email := strings.TrimSpace(account.GetCredential("email")); email == "" || !strings.EqualFold(email, strings.TrimSpace(grant.Email)) {
 		return errors.New("SIWC email no longer matches the account")
 	}
 	return nil
