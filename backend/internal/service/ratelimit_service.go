@@ -1959,7 +1959,9 @@ func parseOpenAIRateLimitPlanType(body []byte) string {
 }
 
 func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, account *Account, body []byte) {
-	if repo == nil || account == nil || account.Platform != PlatformOpenAI {
+	// API keys may proxy a different account's quota errors. Its plan_type must
+	// never classify our API key; only ChatGPT credentials have a local plan.
+	if repo == nil || account == nil || !account.IsOpenAIOAuthLike() {
 		return
 	}
 	// spark 影子账号恒不持凭据:即便收到带 plan_type 的 429,也不能把 plan_type 写进影子 credentials
