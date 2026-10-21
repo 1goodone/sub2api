@@ -50,12 +50,14 @@ func (r *siwcTestRepo) SaveSIWCCredentials(_ context.Context, _ int64, _ map[str
 
 type siwcTestClient struct {
 	*reauthTestOAuthClient
-	calls       int
-	issued      string
-	nonce       string
-	accessToken string
-	idToken     string
-	email       string
+	calls               int
+	issued              string
+	nonce               string
+	accessToken         string
+	idToken             string
+	email               string
+	subject             string
+	omitRefreshIdentity bool
 }
 
 func (c *siwcTestClient) SIWCToken(_ context.Context, form url.Values, _, nonce string) (*openai.TokenResponse, *openai.SIWCIdentity, error) {
@@ -70,6 +72,9 @@ func (c *siwcTestClient) SIWCToken(_ context.Context, form url.Values, _, nonce 
 	if idToken == "" {
 		idToken = "verified-identity"
 	}
+	if form.Get("grant_type") == "refresh_token" && c.omitRefreshIdentity {
+		return &openai.TokenResponse{AccessToken: access, RefreshToken: "siwc-refresh", Scope: openai.SIWCDirectScope, ExpiresIn: 3600}, nil, nil
+	}
 	email := c.email
 	if email == "" {
 		email = "user@example.com"
@@ -77,6 +82,12 @@ func (c *siwcTestClient) SIWCToken(_ context.Context, form url.Values, _, nonce 
 	token := &openai.TokenResponse{AccessToken: access, RefreshToken: "siwc-refresh", IDToken: idToken, Scope: openai.SIWCDirectScope, ExpiresIn: 3600}
 	identity := &openai.SIWCIdentity{Email: email}
 	identity.Subject = "subscriber"
+	if c.email != "" {
+		identity.Email = c.email
+	}
+	if c.subject != "" {
+		identity.Subject = c.subject
+	}
 	return token, identity, nil
 }
 func TestSIWCBindingPreservesCodexAndReusesIssuedRegistration(t *testing.T) {
@@ -140,6 +151,34 @@ func TestSIWCOpaqueTokenUsesMatchingAccountWorkspace(t *testing.T) {
 	callback = "http://127.0.0.1:1455/auth/callback?code=code&state=" + url.QueryEscape(state) + "&client_id=issued"
 	require.Error(t, mismatch.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, callback, nil))
 	require.Zero(t, store2.writes)
+}
+
+func TestSIWCBindingRejectsDifferentEmailAndReturningSubscriber(t *testing.T) {
+	for _, returning := range []bool{false, true} {
+		t.Run(map[bool]string{false: "different_email", true: "different_returning_subscriber"}[returning], func(t *testing.T) {
+			svc, _, repo, _, oldClient, _ := newReauthTestService("acct-1")
+			defer svc.oauth.Stop()
+			store := &siwcTestRepo{reauthTestRepo: repo}
+			svc.repo = store
+			client := &siwcTestClient{reauthTestOAuthClient: oldClient, email: "other@example.com"}
+			if returning {
+				client.email = "user@example.com"
+				previous, err := json.Marshal(siwcGrant{ClientID: "issued", Subject: "original-subscriber"})
+				require.NoError(t, err)
+				store.ciphertext = "encrypted:" + string(previous)
+			}
+			svc.oauth.oauthClient = client
+			before := store.ciphertext
+			auth, err := svc.BeginSIWCAuthorization(context.Background(), 42)
+			require.NoError(t, err)
+			u, err := url.Parse(auth.AuthURL)
+			require.NoError(t, err)
+			callback := "http://127.0.0.1:1455/auth/callback?code=code&state=" + url.QueryEscape(u.Query().Get("state")) + "&client_id=issued"
+			require.Error(t, svc.CompleteSIWCAuthorization(context.Background(), 42, auth.SessionID, callback, nil))
+			require.Zero(t, store.writes)
+			require.Equal(t, before, store.ciphertext)
+		})
+	}
 }
 
 func TestSIWCBoundSessionCannotUseGenericExchange(t *testing.T) {
@@ -220,6 +259,45 @@ func TestSIWCRefreshAnd401MarkerLeaveCodexGrantUnchanged(t *testing.T) {
 	require.Zero(t, saved.ExpiresAt)
 	require.Equal(t, "siwc-refresh", saved.RefreshToken)
 	require.Equal(t, original, reader.account.Credentials)
+}
+
+func TestSIWCRefreshOpaqueMetadataAndOptionalIdentity(t *testing.T) {
+	for _, scenario := range []string{"no_id_token", "changed_subscriber", "changed_email"} {
+		t.Run(scenario, func(t *testing.T) {
+			svc, reader, repo, _, oldClient, _ := newReauthTestService("acct-1")
+			defer svc.oauth.Stop()
+			store := &siwcTestRepo{reauthTestRepo: repo}
+			svc.repo = store
+			client := &siwcTestClient{reauthTestOAuthClient: oldClient, omitRefreshIdentity: scenario == "no_id_token"}
+			if scenario == "changed_subscriber" {
+				client.subject = "other-subscriber"
+			}
+			if scenario == "changed_email" {
+				client.email = "other@example.com"
+			}
+			svc.oauth.oauthClient = client
+			raw, err := json.Marshal(siwcGrant{AccessToken: "expired", RefreshToken: "old-refresh", IDToken: "retained-id", ClientID: "issued", Subject: "subscriber", Email: "user@example.com", Workspace: "acct-1", Scope: openai.SIWCDirectScope})
+			require.NoError(t, err)
+			store.ciphertext = "encrypted:" + string(raw)
+			before := store.ciphertext
+			token, err := svc.SIWCAccessToken(context.Background(), reader.account, nil)
+			if scenario != "no_id_token" {
+				require.Error(t, err)
+				require.Empty(t, token)
+				require.Equal(t, before, store.ciphertext)
+				require.Zero(t, store.writes)
+				return
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, token)
+			_, saved, err := svc.readSIWCGrant(context.Background(), 42)
+			require.NoError(t, err)
+			require.Equal(t, "siwc-refresh", saved.RefreshToken)
+			require.Equal(t, "retained-id", saved.IDToken)
+			require.Equal(t, "subscriber", saved.Subject)
+			require.Positive(t, saved.ExpiresAt)
+		})
+	}
 }
 
 func TestSIWCAllHTTPEntryPointsReachDirectRouteWithIndependentToken(t *testing.T) {

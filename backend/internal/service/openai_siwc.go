@@ -338,7 +338,9 @@ func (s *OpenAIOAuthReauthService) CompleteSIWCAuthorization(ctx context.Context
 			return errors.New("SIWC subscriber changed")
 		}
 	}
-	grant := &siwcGrant{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, ClientID: clientID, HostID: session.SIWCHostID, Subject: identity.Subject, Email: identity.Email, Workspace: info.ChatGPTAccountID, Scope: token.Scope, ExpiresAt: time.Now().Unix() + token.ExpiresIn}
+	// The issued client pins the authorized workspace upstream. Workspace below
+	// is a local account snapshot, not a claim decoded from SIWC auth metadata.
+	grant := &siwcGrant{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, ClientID: clientID, HostID: session.SIWCHostID, Subject: identity.Subject, Email: identity.Email, Workspace: account.GetCredential("chatgpt_account_id"), Scope: token.Scope, ExpiresAt: time.Now().Unix() + token.ExpiresIn}
 	raw, err := json.Marshal(grant)
 	if err != nil {
 		return err
