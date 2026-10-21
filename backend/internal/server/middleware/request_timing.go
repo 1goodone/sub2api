@@ -94,10 +94,12 @@ func (w *timingWriter) WriteString(s string) (int, error) {
 	w.collector.Written(start, n, err, false)
 	return n, err
 }
-func (w *timingWriter) Flush() {
+func (w *timingWriter) Flush() { _ = w.FlushError() }
+func (w *timingWriter) FlushError() error {
 	start := time.Now()
-	w.ResponseWriter.Flush()
-	w.collector.Written(start, 0, nil, true)
+	err := service.FlushGatewayResponse(w.ResponseWriter)
+	w.collector.Written(start, 0, err, err == nil)
+	return err
 }
 func (w *timingWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 

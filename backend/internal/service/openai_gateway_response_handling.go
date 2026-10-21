@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,7 @@ import (
 
 // openaiStreamingResult streaming response result
 type openaiStreamingResult struct {
+	clientDisconnect bool
 	usage            *OpenAIUsage
 	firstTokenMs     *int
 	responseID       string
@@ -110,7 +112,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 
 	w := c.Writer
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
 	}
@@ -164,7 +166,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return err
 			}
 		}
-		flusher.Flush()
+		if err := FlushGatewayResponse(w); err != nil {
+			return err
+		}
+		requesttiming.OutputFlushed(ctx)
 		return nil
 	}
 
@@ -254,7 +259,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// 注意：OpenAI `/v1/responses` streaming 事件必须符合 OpenAI Responses schema；
 	// 否则下游 SDK（例如 OpenCode）会因为类型校验失败而报错。
 	errorEventSent := false
-	clientDisconnected := false // 客户端断开后继续 drain 上游以收集 usage
+	clientDisconnected := OpenAIHeaderWaitDisconnected(c) // Preserve heartbeat transport failure while draining usage.
 	sawTerminalEvent := false
 	sawFailedEvent := false
 	sawBareError := false
@@ -364,6 +369,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
 			usage:            usage,
+			clientDisconnect: clientDisconnected,
 			firstTokenMs:     reportedFirstTokenMs(),
 			responseID:       responseID,
 			imageCount:       imageCounter.Count(),
@@ -424,8 +430,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
 		logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, terminalEventType, clientDisconnected)
-		if terminalSuccessful && !clientDisconnected && account != nil {
-			MarkOpsStreamCompleted(c, account.ID)
+		if terminalSuccessful && !clientDisconnected {
+			requesttiming.TerminalFlushed(ctx, terminalEventType)
+			if account != nil {
+				MarkOpsStreamCompleted(c, account.ID)
+			}
 		}
 		return resultWithUsage(), nil
 	}
@@ -596,8 +605,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
 						bareErrorAccountSideEffectsPending = false
 					}
-					if eventType == "response.failed" {
-						// Once semantic output is committed, failover replay is unsafe. Keep
+					if eventType == "response.failed" || (eventType == "error" && !codexFailureTerminal) {
+						// API-key bare errors are terminal too. Once output is committed, failover replay is unsafe. Keep
 						// the terminal event on the existing stream, but retain the upstream
 						// request ID and payload for operations diagnostics.
 						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
@@ -1018,7 +1027,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 					continue
 				}
-				flusher.Flush()
+				if err := FlushGatewayResponse(w); err != nil {
+					clientDisconnected = true
+					continue
+				}
 				lastDownstreamWriteAt = time.Now()
 				continue
 			}
@@ -1899,6 +1911,9 @@ func buildOpenAIResponseFailedSSE(responseID, model string, createdAt int64, sou
 		message = "Upstream response failed"
 	}
 	errorBody := gin.H{"code": code, "message": message}
+	if param := gjson.GetBytes(source, "error.param"); param.Exists() && param.Type != gjson.Null {
+		errorBody["param"] = param.Value()
+	}
 	if errorType != "" {
 		errorBody["type"] = errorType
 	}

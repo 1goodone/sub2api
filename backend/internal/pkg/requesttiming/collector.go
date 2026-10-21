@@ -57,6 +57,7 @@ type Snapshot struct {
 	DownstreamError   bool               `json:"downstream_error"`
 	TTFTMode          string             `json:"ttft_mode,omitempty"`
 	Terminal          string             `json:"terminal,omitempty"`
+	TerminalFlushed   string             `json:"terminal_flushed,omitempty"`
 	Events            map[string]float64 `json:"events"`
 	Spans             []Span             `json:"spans"`
 	Attempts          []Attempt          `json:"attempts"`
