@@ -1705,6 +1705,25 @@
                 </p>
               </div>
 
+              <!-- Email Alias Registration -->
+              <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
+                <div>
+                  <label for="registration-email-alias-block" class="font-medium text-gray-900 dark:text-white">{{
+                    t("admin.settings.registration.emailAliasBlock")
+                  }}</label>
+                  <p id="registration-email-alias-block-hint" class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.registration.emailAliasBlockHint") }}
+                  </p>
+                </div>
+                <Toggle
+                  id="registration-email-alias-block"
+                  v-model="form.registration_email_alias_block_enabled"
+                  :aria-label="t('admin.settings.registration.emailAliasBlock')"
+                  aria-describedby="registration-email-alias-block-hint"
+                  data-testid="registration-email-alias-block-toggle"
+                />
+              </div>
+
               <!-- Email Domain Quota -->
               <div
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
@@ -10482,6 +10501,7 @@ const form = reactive<SettingsForm>({
   registration_ip_limit_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
+  registration_email_alias_block_enabled: true,
   registration_email_domain_quota_enabled: false,
   promo_code_enabled: true,
   invitation_code_enabled: false,
@@ -12281,6 +12301,7 @@ async function saveSettings() {
         registrationEmailSuffixWhitelistTags.value.map((suffix) =>
           suffix.startsWith("*.") ? suffix : `@${suffix}`,
         ),
+      registration_email_alias_block_enabled: form.registration_email_alias_block_enabled,
       registration_email_domain_quota_enabled:
         form.registration_email_domain_quota_enabled,
       promo_code_enabled: form.promo_code_enabled,

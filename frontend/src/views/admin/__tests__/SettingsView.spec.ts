@@ -1394,6 +1394,31 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it.each([undefined, false, true])("loads and saves the email alias block switch from %s", async (enabled) => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      registration_email_alias_block_enabled: enabled,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+    const toggle = wrapper.get<HTMLInputElement>('[data-testid="registration-email-alias-block-toggle"]');
+    const initial = enabled ?? true;
+    expect(toggle.element.checked).toBe(initial);
+    await toggle.setValue(!initial);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ registration_email_alias_block_enabled: !initial }),
+    );
+    await toggle.setValue(initial);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ registration_email_alias_block_enabled: initial }),
+    );
+  });
+
   it("loads and saves the login rate limit switch in security settings", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

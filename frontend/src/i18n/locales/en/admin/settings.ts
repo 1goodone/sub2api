@@ -245,6 +245,8 @@ export default {
           "Only email addresses from the specified domains can register; leave empty for no restriction (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
+        emailAliasBlock: 'Block Email Alias Registration',
+        emailAliasBlockHint: 'Enabled by default: reject Gmail/Googlemail usernames containing dots, +tag addresses, and trailing domain dots, including new OAuth accounts. Dots in usernames on other domains are allowed; existing accounts can still sign in. Disabling this switch keeps duplicate-inbox checks active.',
         emailDomainQuota: 'Non-allowlist Domain Quota',
         emailDomainQuotaHint:
           'When enabled and the allowlist is not empty, every other registrable domain can register one account. When disabled, non-allowlist domains are rejected. Has no effect while the allowlist is empty',
