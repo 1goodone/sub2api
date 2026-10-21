@@ -45,11 +45,14 @@ server:
   # Trusted proxies used by auth IP abuse guards, and by other IP consumers when
   # security.trust_forwarded_ip_for_api_key_acl is false.
   # List only the exact proxy addresses that connect directly to Sub2API.
+  # When omitted, only 127.0.0.1/32 and ::1/128 are trusted (local Nginx/1Panel).
+  # Local processes can supply forwarding headers within this trust boundary.
   # Set [] explicitly to disable forwarded-IP trust in high-security mode.
   # 网页注册额度/登录封禁始终使用本可信代理链；其他 IP 使用方在
   # security.trust_forwarded_ip_for_api_key_acl=false 时使用。
   # 只填写直接连接 Sub2API 的精确代理地址；显式设置 [] 可在高安全模式下
   # 禁用转发 IP 信任。
+  # 未配置时仅信任 127.0.0.1/32 和 ::1/128；Docker 桥接/远程代理需显式配置。
   trusted_proxies:
     - 127.0.0.1/32
     - ::1/128
