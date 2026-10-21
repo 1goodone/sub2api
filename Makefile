@@ -115,4 +115,4 @@ test-frontend:
 	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
-	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST) src/components/admin/usage/__tests__/UsageConnections.spec.ts

@@ -1,3 +1,4 @@
+import connections from './connections'
 import securityRecords from './securityRecords'
 import siwc from './siwc'
 import priorityScheduling from './priorityScheduling'
@@ -23,6 +24,7 @@ import misc from './misc'
 import autoConfig from './autoConfig'
 
 export default {
+  connections,
   securityRecords,
   siwc,
   autoConfig,
