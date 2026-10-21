@@ -306,6 +306,9 @@ const (
 // CheckErrorPolicy 检查自定义错误码和临时不可调度规则。
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
+	if account.IsOpenAICompatible() && isOpenAIUpstreamSessionBlocked(responseBody) {
+		return ErrorPolicySkipped
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
@@ -348,6 +351,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	ctx = s.observeAccountOps(ctx, account, statusCode, headers, responseBody)
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	// A frozen upstream conversation must not reach custom cooldown rules,
+	// linked-account handling, or the escalating account-wide 403 counter.
+	if account.IsOpenAICompatible() && isOpenAIUpstreamSessionBlocked(responseBody) {
+		return false
+	}
 	// An upstream group's image permission says nothing about text credentials.
 	// Keep it out of the generic 403 streak and whole-account policies.
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIImagePermissionError(statusCode, responseBody) {
