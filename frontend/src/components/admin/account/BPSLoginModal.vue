@@ -1,6 +1,7 @@
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="close">
-    <div class="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl dark:bg-dark-800" role="dialog" aria-modal="true" data-testid="bps-login-modal">
+  <Teleport to="body">
+  <div v-if="show" class="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4" data-testid="bps-login-overlay" @click.self="closeFromOverlay">
+    <div class="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl dark:bg-dark-800" role="dialog" aria-modal="true" data-testid="bps-login-modal" @click.stop>
       <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-dark-700">
         <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.accounts.bpsLogin.title') }}</h2>
         <button type="button" class="text-gray-400 hover:text-gray-600" @click="close">×</button>
@@ -48,9 +49,10 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { BPSLoginAccountResult } from '@/api/admin/accounts'
@@ -82,26 +84,37 @@ const candidates = computed(() => props.accounts.filter(bpsEligible))
 const filtered = computed(() => {
   const text = query.value.trim().toLowerCase()
   if (!text) return candidates.value
-  return candidates.value.filter(account => account.name.toLowerCase().includes(text) || String(account.id).includes(text))
+  return candidates.value.filter(account => (account.name || '').toLowerCase().includes(text) || String(account.id).includes(text))
 })
 
-watch(() => props.show, (open) => {
+const overlayReady = ref(false)
+watch(() => props.show, async (open) => {
+  overlayReady.value = false
   if (!open) return
   query.value = ''
   proxiesText.value = ''
   results.value = []
   const visible = new Set(candidates.value.map(account => account.id))
-  picked.value = new Set(props.selectedIds.filter(id => visible.has(id)))
-})
+  const selected = Array.isArray(props.selectedIds) ? props.selectedIds : []
+  picked.value = new Set(selected.filter(id => visible.has(id)))
+  await nextTick()
+  overlayReady.value = open
+}, { immediate: true })
+
+function close() {
+  if (submitting.value) return
+  emit('close')
+}
+function closeFromOverlay() {
+  if (!overlayReady.value) return
+  close()
+}
 
 function toggle(id: number) {
   const next = new Set(picked.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   picked.value = next
-}
-function close() {
-  if (!submitting.value) emit('close')
 }
 async function submit() {
   if (submitting.value || picked.value.size === 0 || proxyLines.value.length === 0) return

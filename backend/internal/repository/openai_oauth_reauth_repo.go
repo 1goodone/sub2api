@@ -108,17 +108,29 @@ func (r *openAIOAuthReauthRepository) CreateTask(ctx context.Context, accountID 
 }
 
 func (r *openAIOAuthReauthRepository) GetLatestTask(ctx context.Context, accountID int64) (*service.OpenAIOAuthReauthTaskRecord, error) {
-	row := r.db.QueryRowContext(ctx, `
+	return r.latestTask(ctx, accountID, "")
+}
+
+func (r *openAIOAuthReauthRepository) GetLatestTaskForProfile(ctx context.Context, accountID int64, profile string) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	return r.latestTask(ctx, accountID, profile)
+}
+
+func (r *openAIOAuthReauthRepository) latestTask(ctx context.Context, accountID int64, profile string) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	query := `
 		SELECT id, account_id, status, stage, COALESCE(worker_id, ''),
 			COALESCE(auth_session_id, ''), expected_credentials_hash,
 			COALESCE(error_message, ''), attempt,
 			created_at, updated_at, finished_at, oauth_profile
 		FROM openai_oauth_reauth_tasks
 		WHERE account_id = $1
-        AND NOT EXISTS (SELECT 1 FROM openai_totp_rotations rotation WHERE rotation.task_id=openai_oauth_reauth_tasks.id)
-		ORDER BY created_at DESC, id DESC
-		LIMIT 1
-	`, accountID)
+        AND NOT EXISTS (SELECT 1 FROM openai_totp_rotations rotation WHERE rotation.task_id=openai_oauth_reauth_tasks.id)`
+	args := []any{accountID}
+	if profile != "" {
+		query += ` AND oauth_profile = $2`
+		args = append(args, profile)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT 1`
+	row := r.db.QueryRowContext(ctx, query, args...)
 	record, err := scanOpenAIOAuthReauthTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

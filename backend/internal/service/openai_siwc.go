@@ -101,7 +101,7 @@ func (s *OpenAIOAuthReauthService) SIWCStatus(ctx context.Context, id int64) (*O
 		status.Bound = grant.AccessToken != "" && grant.RefreshToken != "" && openai.HasSIWCPermission(grant.Scope)
 		status.ExpiresAt = grant.ExpiresAt
 	}
-	record, err := s.repo.GetLatestTask(ctx, id)
+	record, err := s.latestTaskForProfile(ctx, id, "siwc")
 	if err != nil {
 		return nil, err
 	}

@@ -425,6 +425,46 @@ describe('admin RiskControlView', () => {
     expect(showError).not.toHaveBeenCalled()
   })
 
+  it('sends a repeated base URL on the same row count as its key', async () => {
+    getConfig.mockResolvedValue({
+      ...baseConfig(),
+      engine: 'typesafe',
+      base_url: 'https://api.typesafe.ai',
+      base_urls: ['https://api.typesafe.ai', 'https://api.experientiallabs.ai'],
+      model: 'jev-latest',
+      api_key_configured: true,
+      api_key_count: 2,
+      api_key_statuses: [
+        { index: 1, key_hash: 'hash-1', masked: '****0578', status: 'ok', failure_count: 0, success_count: 1, last_error: '', last_latency_ms: 10, last_http_status: 200, last_tested: false, configured: true },
+        { index: 2, key_hash: 'hash-2', masked: '****9a91', status: 'ok', failure_count: 0, success_count: 1, last_error: '', last_latency_ms: 10, last_http_status: 200, last_tested: false, configured: true, paused: true },
+      ],
+    })
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.addEndpointPair').trigger('click')
+    const urls = wrapper.findAll('[data-test="audit-base-url"]')
+    const keys = wrapper.findAll('[data-test="audit-endpoint-key"]')
+    await urls[2].setValue('https://api.typesafe.ai')
+    await keys[2].setValue('sk-third')
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+
+    const expectedURL = 'https://api.typesafe.ai\nhttps://api.experientiallabs.ai\nhttps://api.typesafe.ai'
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      base_url: expectedURL,
+      api_key_slots: [
+        { key: '', keep_hash: 'hash-1' },
+        { key: '', keep_hash: 'hash-2', paused: true },
+        { key: 'sk-third', keep_hash: '' },
+      ],
+      engine_configs: expect.objectContaining({
+        typesafe: expect.objectContaining({ base_url: expectedURL }),
+      }),
+    }))
+    wrapper.unmount()
+  })
+
   it('describes worker runtime as async audit and pre-block record processing', async () => {
     getStatus.mockResolvedValue({
       ...runtimeStatus(),

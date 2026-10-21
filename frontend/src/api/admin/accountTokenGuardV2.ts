@@ -21,6 +21,7 @@ export interface TokenGuardV2LoginConfig {
 export interface TokenGuardV2Task {
   id: number
   account_id: number
+  oauth_profile?: string
   status: string
   stage: string
   error?: string

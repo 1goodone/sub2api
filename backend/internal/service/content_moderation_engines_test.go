@@ -383,4 +383,16 @@ func TestDuplicateBaseURLKeepsSeparateKeyPairs(t *testing.T) {
 	require.NoError(t, (&ContentModerationService{}).validateConfig(context.Background(), cfg))
 	require.Equal(t, []string{"https://api.typesafe.ai", "https://api.experientiallabs.ai", "https://api.typesafe.ai"}, cfg.TypeSafe.BaseURLs)
 	require.Equal(t, []string{"sk-1", "sk-2", "sk-3"}, cfg.TypeSafe.APIKeys)
+
+	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{"enabled":true,"mode":"pre_block","engine":"typesafe","base_url":"https://api.typesafe.ai","model":"jev-latest"}`}}
+	store := &ContentModerationService{settingRepo: repo}
+	engine := ContentModerationEngineTypeSafe
+	base := "https://api.typesafe.ai\nhttps://api.experientiallabs.ai\nhttps://api.typesafe.ai"
+	slots := []ContentModerationAPIKeySlot{{Key: "sk-1"}, {Key: "sk-2"}, {Key: "sk-1"}}
+	_, err := store.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Engine: &engine, BaseURL: &base, APIKeySlots: &slots})
+	require.NoError(t, err)
+	var stored ContentModerationConfig
+	require.NoError(t, json.Unmarshal([]byte(repo.values[SettingKeyContentModerationConfig]), &stored))
+	require.Equal(t, []string{"https://api.typesafe.ai", "https://api.experientiallabs.ai", "https://api.typesafe.ai"}, stored.TypeSafe.BaseURLs)
+	require.Equal(t, []string{"sk-1", "sk-2", "sk-1"}, stored.TypeSafe.APIKeys)
 }

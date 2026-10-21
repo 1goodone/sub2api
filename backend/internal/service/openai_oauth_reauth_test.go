@@ -679,6 +679,28 @@ func TestExcelLoginFailureSyncsBoundedState(t *testing.T) {
 	require.Zero(t, recorder.recordedID)
 }
 
+type profileTaskRepo struct {
+	*reauthTestRepo
+	byProfile map[string]*OpenAIOAuthReauthTaskRecord
+}
+
+func (r *profileTaskRepo) GetLatestTaskForProfile(_ context.Context, _ int64, profile string) (*OpenAIOAuthReauthTaskRecord, error) {
+	return r.byProfile[profile], nil
+}
+
+func TestCredentialStatusKeepsCodexTaskWhenExcelFailedLater(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	svc.repo = &profileTaskRepo{reauthTestRepo: repo, byProfile: map[string]*OpenAIOAuthReauthTaskRecord{
+		"codex": {ID: 3, AccountID: 42, OAuthProfile: "codex", Status: OpenAIOAuthReauthStatusSucceeded},
+		"excel": {ID: 9, AccountID: 42, OAuthProfile: "excel", Status: OpenAIOAuthReauthStatusFailed},
+	}}
+	status, err := svc.GetStatus(context.Background(), 42)
+	require.NoError(t, err)
+	require.NotNil(t, status.Task)
+	require.Equal(t, int64(3), status.Task.ID)
+	require.Equal(t, "codex", status.Task.OAuthProfile)
+}
+
 func TestListExcelLoginStatusesUsesBoundedFailureCode(t *testing.T) {
 	repo := &excelLoginListRepo{reauthTestRepo: &reauthTestRepo{}, rows: []ExcelLoginSnapshot{{
 		AccountID: 42,

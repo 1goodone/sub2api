@@ -2,7 +2,7 @@
   <div class="text-xs" :data-testid="'login-column-' + kind">
     <span v-if="!applicable" class="text-gray-300 dark:text-dark-500">—</span>
     <span v-else-if="mode === 'loading'" class="text-gray-400">…</span>
-    <button v-else-if="mode === 'add' || mode === 'relogin'" type="button" class="rounded border px-1.5 py-0.5 font-medium leading-4 disabled:opacity-50" :class="mode === 'add' ? 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-500 dark:text-gray-300' : 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300'" :disabled="busy" @click="act">
+    <button v-else-if="mode === 'add' || mode === 'relogin'" type="button" class="rounded border px-1.5 py-0.5 font-medium leading-4 disabled:opacity-50" :class="mode === 'add' ? 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-500 dark:text-gray-300' : 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300'" :disabled="busy" @click.stop="act">
       {{ busy ? t('admin.accounts.loginColumns.working') : t(mode === 'add' ? 'admin.accounts.loginColumns.add' : 'admin.accounts.loginColumns.relogin') }}
     </button>
     <span v-else :class="mode === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500'">{{ label }}</span>
@@ -37,9 +37,14 @@ const label = computed(() => t(`admin.accounts.loginColumns.${mode.value === 'pr
 const notice = computed(() => error.value || bpsError())
 
 const activeTask = (status?: string) => status === 'queued' || status === 'running' || status === 'callback_processing'
+function credentialTask(guard?: TokenGuardV2Account | null) {
+  const task = guard?.latest_task
+  if (!task || task.oauth_profile === 'excel' || task.oauth_profile === 'siwc') return undefined
+  return task
+}
 function credentialMode(guard?: TokenGuardV2Account | null) {
   if (!guard?.login_config?.configured) return 'add'
-  const task = guard.latest_task?.status
+  const task = credentialTask(guard)?.status
   if (activeTask(task)) return 'progress'
   if (guard.blocked_reason || guard.probe_state === 'auth' || guard.probe_state === 'transient' || task === 'failed') return 'relogin'
   return 'ok'

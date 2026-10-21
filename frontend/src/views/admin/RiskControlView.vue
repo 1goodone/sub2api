@@ -1929,6 +1929,7 @@ async function loadStatus(silent = true) {
 async function saveConfig() {
   saving.value = true
   try {
+    syncEndpointFields()
     const modelFilterPayload = buildModelFilterPayload()
     if (modelFilterPayload.type !== 'all' && modelFilterPayload.models.length === 0) {
       appStore.showError(t('admin.riskControl.modelFilterModelsRequired'))
@@ -1966,7 +1967,6 @@ async function saveConfig() {
       keyword_blocking_mode: configForm.keyword_blocking_mode,
       model_filter: modelFilterPayload,
     }
-    syncEndpointFields()
     if (!payload.clear_api_key) {
       payload.api_key_slots = endpointSlots(configForm.endpoint_rows)
     }

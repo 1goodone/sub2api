@@ -2318,10 +2318,10 @@ func cloneContentModerationConfig(cfg *ContentModerationConfig) *ContentModerati
 func (cfg *ContentModerationConfig) normalize() {
 	cfg.Engine = moderationEngine(cfg.Engine)
 	if cfg.APIKey != "" {
-		cfg.APIKeys = normalizeModerationAPIKeys(append(cfg.APIKeys, cfg.APIKey))
+		cfg.APIKeys = trimModerationAPIKeys(append(cfg.APIKeys, cfg.APIKey))
 		cfg.APIKey = ""
 	} else {
-		cfg.APIKeys = normalizeModerationAPIKeys(cfg.APIKeys)
+		cfg.APIKeys = trimModerationAPIKeys(cfg.APIKeys)
 	}
 	if cfg.Mode == "" {
 		cfg.Mode = ContentModerationModePreBlock
@@ -2461,7 +2461,7 @@ func (cfg *ContentModerationConfig) apiKeys() []string {
 	if cfg == nil {
 		return nil
 	}
-	return normalizeModerationAPIKeys(cfg.APIKeys)
+	return trimModerationAPIKeys(cfg.APIKeys)
 }
 
 func (s *ContentModerationService) nextUsableAPIKey(cfg *ContentModerationConfig) (string, bool) {
@@ -3218,17 +3218,29 @@ func validateModerationBaseURLs(urls []string) error {
 	return nil
 }
 
-func normalizeModerationAPIKeys(keys []string) []string {
+func trimModerationAPIKeys(keys []string) []string {
 	if len(keys) == 0 {
 		return []string{}
 	}
-	seen := make(map[string]struct{}, len(keys))
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
 		key = strings.TrimSpace(key)
 		if key == "" {
 			continue
 		}
+		out = append(out, key)
+	}
+	return out
+}
+
+func normalizeModerationAPIKeys(keys []string) []string {
+	keys = trimModerationAPIKeys(keys)
+	if len(keys) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
 		if _, ok := seen[key]; ok {
 			continue
 		}

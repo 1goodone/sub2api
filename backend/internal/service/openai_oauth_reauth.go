@@ -686,12 +686,25 @@ func (s *OpenAIOAuthReauthService) GetStatus(ctx context.Context, accountID int6
 			return nil, err
 		}
 	}
-	record, err := s.repo.GetLatestTask(ctx, accountID)
+	record, err := s.latestTaskForProfile(ctx, accountID, "codex")
 	if err != nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_REAUTH_TASK_READ_FAILED", "failed to read re-login task")
 	}
 	status.Task = safeReauthTask(record)
 	return status, nil
+}
+
+func (s *OpenAIOAuthReauthService) latestTaskForProfile(ctx context.Context, accountID int64, profile string) (*OpenAIOAuthReauthTaskRecord, error) {
+	if reader, ok := s.repo.(interface {
+		GetLatestTaskForProfile(context.Context, int64, string) (*OpenAIOAuthReauthTaskRecord, error)
+	}); ok {
+		return reader.GetLatestTaskForProfile(ctx, accountID, profile)
+	}
+	record, err := s.repo.GetLatestTask(ctx, accountID)
+	if err != nil || record == nil || reauthTaskProfile(record) != profile {
+		return nil, err
+	}
+	return record, nil
 }
 
 func (s *OpenAIOAuthReauthService) CreateTask(ctx context.Context, accountID int64) (*OpenAIOAuthReauthTask, error) {

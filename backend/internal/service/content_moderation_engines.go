@@ -81,7 +81,7 @@ func applyModerationAPIKeySlots(existing []string, slots []ContentModerationAPIK
 		}
 		out = append(out, kept)
 	}
-	return normalizeModerationAPIKeys(out), nil
+	return trimModerationAPIKeys(out), nil
 }
 
 func pausedHashesForSlots(keys []string, slots []ContentModerationAPIKeySlot, engine string) []string {
