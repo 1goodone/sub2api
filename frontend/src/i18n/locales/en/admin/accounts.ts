@@ -733,6 +733,7 @@ export default {
         selectAllFailed: 'Failed to load all accounts. The previous selection was kept.',
         clear: 'Clear selection',
         edit: 'Bulk Edit',
+        editFiltered: 'Edit all filtered results ({count})',
         delete: 'Bulk Delete',
         confirmDelete: 'Delete the selected {count} account(s)? This action cannot be undone.',
         deleteSuccess: 'Deleted {count} account(s)',

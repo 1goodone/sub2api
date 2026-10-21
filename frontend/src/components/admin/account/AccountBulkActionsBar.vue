@@ -58,8 +58,8 @@
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
         <button v-if="canExport2fa" @click="$emit('export-2fa')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkExport2fa.title') }}</button>
       </template>
-      <button @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
-        {{ t('admin.accounts.bulkEdit.submit') }}
+      <button v-if="selectedIds.length === 0" @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
+        {{ t('admin.accounts.bulkActions.editFiltered', { count: totalResults }) }}
       </button>
     </div>
   </div>

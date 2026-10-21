@@ -1148,6 +1148,14 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, CodexQuotaOverdraftProbeExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
+		// Sorting and empty UI fields do not define a mutation scope. In particular,
+		// never turn a lost OAuth selection into an update of the entire inventory.
+		filters := input.Filters
+		if strings.TrimSpace(filters.Platform) == "" && strings.TrimSpace(filters.Type) == "" &&
+			strings.TrimSpace(filters.Status) == "" && strings.TrimSpace(filters.Group) == "" &&
+			strings.TrimSpace(filters.Search) == "" && strings.TrimSpace(filters.PrivacyMode) == "" {
+			return nil, infraerrors.BadRequest("BULK_UPDATE_SCOPE_REQUIRED", "Select account IDs or provide a non-empty account filter")
+		}
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
 		if err != nil {
 			return nil, err

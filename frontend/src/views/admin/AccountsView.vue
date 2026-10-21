@@ -2425,35 +2425,65 @@ const openBulkEditSelected = () => {
 }
 
 const openBulkEditFiltered = async () => {
+  // A checked selection always wins, including queued clicks from the old toolbar.
+  if (selIds.value.length > 0) {
+    openBulkEditSelected()
+    return
+  }
   const filters = buildBulkEditFilterSnapshot()
-  if (filters.quota_window) {
-    const accountIds = await fetchAllAccountIds(
-      (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
-      filters
-    )
-    if (accountIds.length === 0) {
-      appStore.showInfo(t('admin.accounts.noAccountsYet'))
+  const requestVersion = selectionRequestVersion.value
+  try {
+    if (filters.quota_window) {
+      const accountIds = await fetchAllAccountIds(
+        (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
+        filters
+      )
+      if (requestVersion !== selectionRequestVersion.value) return
+      if (selIds.value.length > 0) {
+        openBulkEditSelected()
+        return
+      }
+      if (accountIds.length === 0) {
+        appStore.showInfo(t('admin.accounts.noAccountsYet'))
+        return
+      }
+      bulkEditTarget.value = {
+        mode: 'selected',
+        accountIds,
+        selectedPlatforms: ['openai'],
+        selectedTypes: ['oauth']
+      }
+      showBulkEdit.value = true
       return
     }
+    // Freeze the complete preview as explicit IDs. Saving must never re-resolve
+    // a broader filter or silently include accounts created while editing.
+    const rows: Account[] = []
+    const accountIds = await fetchAllAccountIds(async (page, pageSize, requestFilters) => {
+      const result = await adminAPI.accounts.list(page, pageSize, requestFilters)
+      rows.push(...result.items)
+      return result
+    }, filters)
+    if (requestVersion !== selectionRequestVersion.value) return
+    if (selIds.value.length > 0) {
+      openBulkEditSelected()
+      return
+    }
+    if (accountIds.length === 0) {
+      appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
+      return
+    }
+    const { selectedPlatforms, selectedTypes } = collectSelectionMetadata(rows)
     bulkEditTarget.value = {
       mode: 'selected',
       accountIds,
-      selectedPlatforms: ['openai'],
-      selectedTypes: ['oauth']
+      selectedPlatforms,
+      selectedTypes
     }
     showBulkEdit.value = true
-    return
+  } catch {
+    appStore.showError(t('admin.accounts.bulkActions.selectAllFailed'))
   }
-  const preview = await adminAPI.accounts.list(1, 100, filters)
-  const { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
-  bulkEditTarget.value = {
-    mode: 'filtered',
-    filters,
-    previewCount: preview.total,
-    selectedPlatforms,
-    selectedTypes
-  }
-  showBulkEdit.value = true
 }
 
 const handleBulkUpdated = () => {
