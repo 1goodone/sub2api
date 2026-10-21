@@ -298,6 +298,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import CredentialEncryptionSetup from '@/components/account/CredentialEncryptionSetup.vue'
@@ -360,7 +361,8 @@ const loading = ref(false), saving = ref(false), busyId = ref(0), editorOpen = r
 const editing = ref<TokenGuardV2Account | null>(null)
 const activeSection = ref<'accounts' | 'rules' | 'worker'>('accounts')
 const accountFilter = ref<'all' | 'healthy' | 'attention' | 'paused'>('all')
-const searchQuery = ref('')
+const route = useRoute()
+const searchQuery = ref(typeof route.query.account === 'string' ? route.query.account : '')
 const accountPage = ref(1)
 const accountPageSize = ref(20)
 const runtimeDraft = reactive<TokenGuardV2RuntimeSettings>({ engine: '', worker_concurrency: 3 })

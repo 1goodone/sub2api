@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {warmChatGPTProtocol} from './openai_protocol_warmup.mjs';
 
 export async function loginExcelPassword(client, options, helpers) {
   const {authBase, email, password, totpSecret, rl, clientId, redirectUri} = options;
@@ -9,14 +10,14 @@ export async function loginExcelPassword(client, options, helpers) {
     response_type:'code', scope:'openid offline_access email profile organization.read',
     audience:'https://api.openai.com/v1', platform:'PC', state,
     code_challenge_method:'S256', code_challenge:crypto.createHash('sha256').update(verifier).digest('base64url')});
+  const deviceId = await warmChatGPTProtocol(client);
   console.log('[excel] Start official Excel PKCE authorization.');
   let page = await client.follow(`${authBase}/api/accounts/authorize?${query}`);
-  const deviceId = client.jar.value('oai-did', authBase) || crypto.randomUUID();
   if (!helpers.isPasswordLoginPage(page.finalUrl)) {
     if (!helpers.isAuthLoginPage(page.finalUrl)) throw new Error('EXCEL_UNEXPECTED_INITIAL_PAGE');
     const headers = await helpers.createSentinelHeaders(client, {authBase, deviceId, flow:'authorize_continue'});
     const {data} = await helpers.authJsonStep(client, authBase, 'POST', '/api/accounts/authorize/continue',
-      {username:{kind:'email',value:email}}, {referer:page.finalUrl, headers});
+      {username:{kind:'email',value:email}, screen_hint:'login'}, {referer:page.finalUrl, headers});
     const next = helpers.getContinueUrl(data);
     if (!next || !helpers.isPasswordLoginPage(next)) throw new Error('EXCEL_ADDITIONAL_VERIFICATION_REQUIRED');
     page = await client.follow(next, {referer:page.finalUrl});

@@ -154,6 +154,12 @@
                           {{ t('admin.accounts.toolActions') }}
                         </div>
                       </div>
+                      <button v-if="authStore.isAdmin" class="account-tools-menu-item" data-testid="bps-login-open" @click="openBPSLogin">
+                        <span class="account-tools-menu-icon bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-300">
+                          <Icon name="key" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.bpsLogin.action') }}</span>
+                      </button>
                       <button v-if="authStore.isAdmin" class="account-tools-menu-item" @click="openErrorPassthrough">
                         <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
                           <Icon name="shield" size="sm" />
@@ -332,6 +338,15 @@
               <AccountStatusIndicator :account="row" :global-bps-enabled="appStore.cachedPublicSettings?.excel_bps_enabled !== false" @show-temp-unsched="handleShowTempUnsched" />
             </div>
           </template>
+          <template #cell-login_credential="{ row }">
+            <AccountLoginStateCell kind="credential" :account="row" :guard="loginGuards[row.id]" @add="credentialDraft = row" @changed="loadLoginGuards" />
+          </template>
+          <template #cell-bps_login="{ row }">
+            <AccountLoginStateCell kind="bps" :account="row" @add="openBPSLoginFor(row)" />
+          </template>
+          <template #cell-siwc_login="{ row }">
+            <AccountLoginStateCell kind="siwc" :account="row" :siwc="siwcStatuses[row.id]" :siwc-loading="siwcLoading" @add="siwcDraft = row" @changed="loadSIWCStatuses" />
+          </template>
           <template #cell-schedulable="{ row }">
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
@@ -509,6 +524,10 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <BPSLoginModal :show="showBPSLogin" :accounts="accounts" :selected-ids="bpsFocusIds ?? selIds" @close="showBPSLogin = false; bpsFocusIds = null" />
+    <CredentialAddDialog :account="credentialDraft" @close="credentialDraft = null" @saved="loadLoginGuards" />
+    <SIWCLoginDialog :account="siwcDraft" @close="siwcDraft = null; loadSIWCStatuses()" />
+    <CredentialOpsDrawer :account="credentialOpsAccount" @close="credentialOpsAccount = null" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="reload" />
     <AccountBatchTestModal
       :show="showBatchTest"
@@ -520,7 +539,7 @@
 
     <IQTestModal :show="showIQTest" :account="iqTestingAcc" :accounts="accounts" @close="closeIQTestModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" @credential-ops="credentialOpsAccount = $event" />
     <OpenAISessionExportDialog :account="sessionExportAccount" :auto-export="sessionAutoExport" @close="sessionExportAccount = null" />
     <SyncFromCrsModal v-if="authStore.isAdmin" :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
@@ -558,6 +577,8 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { listTokenGuardV2Accounts, type TokenGuardV2Account } from '@/api/admin/accountTokenGuardV2'
+import { listSIWCStatuses, type SIWCStatus } from '@/api/admin/siwc'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -578,6 +599,11 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import OpenAISessionExportDialog from '@/components/admin/account/OpenAISessionExportDialog.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
+import BPSLoginModal from '@/components/admin/account/BPSLoginModal.vue'
+import AccountLoginStateCell from '@/components/admin/account/AccountLoginStateCell.vue'
+import CredentialAddDialog from '@/components/admin/account/CredentialAddDialog.vue'
+import SIWCLoginDialog from '@/components/admin/account/SIWCLoginDialog.vue'
+import CredentialOpsDrawer from '@/components/admin/account/CredentialOpsDrawer.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountBatchTestModal from '@/components/admin/account/AccountBatchTestModal.vue'
 import AccountStatsModal from '@/components/account/AccountStatsModal.vue'
@@ -686,6 +712,14 @@ const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
+const showBPSLogin = ref(false)
+const bpsFocusIds = ref<number[] | null>(null)
+const credentialDraft = ref<AccountListItem | null>(null)
+const siwcDraft = ref<AccountListItem | null>(null)
+const loginGuards = ref<Record<number, TokenGuardV2Account>>({})
+const siwcStatuses = ref<Record<number, SIWCStatus>>({})
+const siwcLoading = ref(false)
+const credentialOpsAccount = ref<Account | null>(null)
 const showTest = ref(false)
 const showBatchTest = ref(false)
 const showStats = ref(false)
@@ -1530,6 +1564,8 @@ watch(loading, (isLoading, wasLoading) => {
 })
 
 watch(accounts, (rows) => {
+  void loadLoginGuards()
+  void loadSIWCStatuses()
   const visibleIDs = new Set(rows.map((row) => String(row.id)))
   usageBatchByAccountId.value = Object.fromEntries(
     Object.entries(usageBatchByAccountId.value).filter(([key]) => visibleIDs.has(key))
@@ -1730,6 +1766,52 @@ const openExportDataDialogFromMenu = () => {
 const openErrorPassthrough = () => {
   closeAccountToolsDropdown()
   showErrorPassthrough.value = true
+}
+
+const openBPSLogin = () => {
+  closeAccountToolsDropdown()
+  bpsFocusIds.value = null
+  showBPSLogin.value = true
+}
+const openBPSLoginFor = (row: AccountListItem) => {
+  bpsFocusIds.value = [row.id]
+  showBPSLogin.value = true
+}
+const loadLoginGuards = async () => {
+  try {
+    const status = await listTokenGuardV2Accounts()
+    loginGuards.value = Object.fromEntries(status.accounts.map(item => [item.account_id, item]))
+  } catch (error) {
+    console.error('Failed to load login credentials:', error)
+  }
+}
+let siwcGeneration = 0
+const loadSIWCStatuses = async () => {
+  const generation = ++siwcGeneration
+  const ids = accounts.value
+    .filter(row => row.platform === 'openai' && row.type === 'oauth' && row.parent_account_id == null)
+    .map(row => row.id)
+  if (ids.length === 0) {
+    siwcStatuses.value = {}
+    siwcLoading.value = false
+    return
+  }
+  siwcLoading.value = true
+  const next: Record<number, SIWCStatus> = {}
+  try {
+    for (let index = 0; index < ids.length; index += 200) {
+      const rows = await listSIWCStatuses(ids.slice(index, index + 200))
+      if (generation !== siwcGeneration) return
+      for (const row of rows) next[row.account_id] = row
+    }
+  } catch (error) {
+    if (generation !== siwcGeneration) return
+    console.error('Failed to load SIWC status:', error)
+    siwcLoading.value = false
+    return
+  }
+  siwcStatuses.value = next
+  siwcLoading.value = false
 }
 
 const openTLSFingerprintProfiles = () => {
@@ -1984,6 +2066,9 @@ const allColumns = computed(() => {
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
+    { key: 'login_credential', label: t('admin.accounts.columns.loginCredential'), sortable: false },
+    { key: 'bps_login', label: t('admin.accounts.columns.bpsLogin'), sortable: false },
+    { key: 'siwc_login', label: t('admin.accounts.columns.siwcLogin'), sortable: false },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]

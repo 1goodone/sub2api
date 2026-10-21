@@ -102,6 +102,23 @@ func (h *OpenAIOAuthReauthHandler) CreateTask(c *gin.Context) {
 	response.Accepted(c, task)
 }
 
+func (h *OpenAIOAuthReauthHandler) StartBPSLogin(c *gin.Context) {
+	var req struct {
+		AccountIDs []int64 `json:"account_ids"`
+		Proxy      string  `json:"proxy"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid BPS login request")
+		return
+	}
+	result, err := h.service.StartBPSLogins(c.Request.Context(), req.AccountIDs, req.Proxy)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 type reauthWorkerRequest struct {
 	WorkerID string   `json:"worker_id"`
 	Engines  []string `json:"engines"`

@@ -111,6 +111,94 @@ func (s *OpenAIOAuthReauthService) SIWCStatus(ctx context.Context, id int64) (*O
 	return status, nil
 }
 
+// SIWCAccountSnapshot is the non-secret list row. Bound means a grant ciphertext
+// exists. The list does not decrypt it, so access-token expiry is not available.
+type SIWCAccountSnapshot struct {
+	AccountID int64
+	Bound     bool
+	Enabled   bool
+	Task      *OpenAIOAuthReauthTaskRecord
+}
+
+type siwcStatusLister interface {
+	ListSIWCStatuses(context.Context, []int64) ([]SIWCAccountSnapshot, error)
+}
+
+type accountExtraWriter interface {
+	UpdateAccountExtra(context.Context, int64, map[string]any) error
+}
+
+type OpenAISIWCListItem struct {
+	AccountID   int64                  `json:"account_id"`
+	Bound       bool                   `json:"bound"`
+	Refreshable bool                   `json:"refreshable"`
+	Enabled     bool                   `json:"enabled"`
+	Task        *OpenAIOAuthReauthTask `json:"task,omitempty"`
+}
+
+func normalizeSIWCStatusIDs(ids []int64) ([]int64, error) {
+	if len(ids) > 200 {
+		return nil, infraerrors.BadRequest("OPENAI_SIWC_STATUS_TOO_MANY", "at most 200 accounts can be queried")
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// ListSIWCStatuses reports binding and the latest SIWC task without decrypting grants.
+// A stored ciphertext is treated as refreshable. Access-token expiry is not a failure.
+func (s *OpenAIOAuthReauthService) ListSIWCStatuses(ctx context.Context, ids []int64) ([]OpenAISIWCListItem, error) {
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.ServiceUnavailable("OPENAI_SIWC_UNAVAILABLE", "SIWC status listing is unavailable")
+	}
+	lister, ok := s.repo.(siwcStatusLister)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("OPENAI_SIWC_UNAVAILABLE", "SIWC status listing is unavailable")
+	}
+	clean, err := normalizeSIWCStatusIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	if len(clean) == 0 {
+		return []OpenAISIWCListItem{}, nil
+	}
+	rows, err := lister.ListSIWCStatuses(ctx, clean)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]OpenAISIWCListItem, 0, len(rows))
+	for _, row := range rows {
+		item := OpenAISIWCListItem{AccountID: row.AccountID, Bound: row.Bound, Refreshable: row.Bound, Enabled: row.Enabled}
+		if row.Task != nil && row.Task.OAuthProfile == "siwc" {
+			item.Task = safeReauthTask(row.Task)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *OpenAIOAuthReauthService) SetSIWCEnabled(ctx context.Context, id int64, enabled bool) error {
+	account, err := s.accountFor(ctx, id)
+	if err != nil {
+		return err
+	}
+	writer, ok := s.accounts.(accountExtraWriter)
+	if !ok {
+		return infraerrors.ServiceUnavailable("OPENAI_SIWC_UNAVAILABLE", "SIWC protocol setting is unavailable")
+	}
+	return writer.UpdateAccountExtra(ctx, account.ID, map[string]any{OpenAISIWCEnabledKey: enabled})
+}
+
 // Each attempt binds the exact account snapshot, grant, nonce, PKCE and egress.
 // Reuse the host and issued client ID without copying any Codex bearer token.
 func (s *OpenAIOAuthReauthService) BeginSIWCAuthorization(ctx context.Context, id int64) (*OpenAIAuthURLResult, error) {

@@ -9,7 +9,7 @@ function fixture(override={}) {
     email:'fixture@example.invalid',password:'synthetic-password',totpSecret:'synthetic-totp'};
   const calls=[];let auth;
   const client={jar:{value:()=> 'device'},follow:async url=>{
-    calls.push('follow');
+    calls.push(url);
     if(url.includes('/api/accounts/authorize?')) {auth=new URL(url);return {finalUrl:'https://auth.openai.com/log-in'};}
     return {finalUrl:url};
   }};
@@ -18,7 +18,7 @@ function fixture(override={}) {
     isAuthLoginPage:url=>new URL(url).pathname==='/log-in',
     getContinueUrl:data=>data?.continue_url,
     createSentinelHeaders:async()=>({'fixture':'sentinel'}),
-    authJsonStep:async(c,base,method,path,body)=>{assert.equal(body.username.value,options.email);return {data:{continue_url:base+'/log-in/password'}};},
+    authJsonStep:async(c,base,method,path,body)=>{assert.equal(body.username.value,options.email);assert.equal(body.screen_hint,'login');return {data:{continue_url:base+'/log-in/password'}};},
     verifyPassword:async(c,args)=>{assert.equal(args.password,options.password);calls.push('password');return {mfa:true};},
     isMfaChallengePayload:p=>Boolean(p.mfa),
     completeTotpMfaIfNeeded:async(c,args)=>{assert.equal(args.totpSecret,options.totpSecret);calls.push('totp');return {};},
@@ -31,7 +31,10 @@ function fixture(override={}) {
 test('password and TOTP stay within the Excel PKCE authorization',async()=>{
   const f=fixture();const result=await loginExcelPassword(f.client,f.options,f.helpers);
   assert.equal(result.mfaVerified,true);
-  assert.deepEqual(f.calls,['follow','follow','password','totp','workspace']);
+  assert.equal(f.calls[0],'https://chatgpt.com/api/auth/csrf');
+  assert.match(f.calls[1],/\/api\/accounts\/authorize\?/);
+  assert.equal(f.calls[2],'https://auth.openai.com/log-in/password');
+  assert.deepEqual(f.calls.slice(3),['password','totp','workspace']);
   const q=f.getAuth().searchParams;
   assert.equal(q.get('client_id'),'excel-client');assert.match(q.get('state'),/^bps\..+\.PC$/);
   assert.equal(q.get('scope'),'openid offline_access email profile organization.read');

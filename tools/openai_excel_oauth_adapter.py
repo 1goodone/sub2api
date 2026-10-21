@@ -99,6 +99,7 @@ def prepare_excel_runtime(root: Path, temporary: Path) -> Path:
     script = staged / "src/protocol-login.mjs"
     script.write_text(patched)
     shutil.copy2(Path(__file__).with_name("openai_excel_password_flow.mjs"), script.parent / "openai_excel_password_flow.mjs")
+    shutil.copy2(Path(__file__).with_name("openai_protocol_warmup.mjs"), script.parent / "openai_protocol_warmup.mjs")
     return script
 
 

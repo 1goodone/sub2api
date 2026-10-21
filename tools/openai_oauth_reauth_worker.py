@@ -1200,7 +1200,10 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             api.private_protocol_diagnostics(result.stdout, result.stderr)
         if result.returncode != 0:
             if oauth_profile == "siwc":
-                if "SIWC_INTERACTION_REQUIRED" in result.stdout + result.stderr:
+                combined = result.stdout + result.stderr
+                if "PROTOCOL_WARMUP_FAILED" in combined:
+                    raise WorkerError("SIWC protocol warmup failed before password submission; credentials retained")
+                if "SIWC_INTERACTION_REQUIRED" in combined:
                     raise WorkerError("SIWC requires browser consent or additional verification; use browser authorization in account edit")
                 raise WorkerError("SIWC password/TOTP authorization failed; credentials retained")
             # The external runner may echo unlabeled secrets that regexes cannot redact.
@@ -1217,7 +1220,7 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                                       ("Convert OAuth callback", "excel_token_exchange")):
                     if marker in private_output:
                         stage = label
-                reasons = [label for marker, label in (("security-check", "security_check"), ("PROXY_RISK_CONTROL", "security_check"),
+                reasons = [label for marker, label in (("PROTOCOL_WARMUP_FAILED", "warmup_failed"), ("security-check", "security_check"), ("PROXY_RISK_CONTROL", "security_check"),
                            ("EXCEL_ADDITIONAL_VERIFICATION_REQUIRED", "additional_verification"),
                            ("EXCEL_CALLBACK_STATE_MISMATCH", "callback_state_mismatch"),
                            ("EXCEL_EXPECTED_WORKSPACE_NOT_LISTED", "workspace_not_listed"),

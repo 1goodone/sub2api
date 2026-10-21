@@ -510,6 +510,20 @@ export async function startExcelOAuthReauth(id: number): Promise<OpenAIOAuthReau
   return data
 }
 
+export interface BPSLoginAccountResult {
+  account_id: number
+  task_id?: number
+  error?: string
+}
+
+export async function startBPSLogin(accountIds: number[], proxy: string): Promise<{ results: BPSLoginAccountResult[] }> {
+  const { data } = await apiClient.post<{ results: BPSLoginAccountResult[] }>('/admin/accounts/bps-login', {
+    account_ids: accountIds,
+    proxy,
+  })
+  return data
+}
+
 /**
  * Get account usage statistics
  * @param id - Account ID
@@ -1626,6 +1640,7 @@ export const accountsAPI = {
   saveOpenAIOAuthReauthConfig,
   startOpenAIOAuthReauth,
   startExcelOAuthReauth,
+  startBPSLogin,
   getStats,
   getOfficialUsage,
   clearError,

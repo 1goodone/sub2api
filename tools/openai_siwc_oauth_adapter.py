@@ -54,4 +54,5 @@ def prepare_siwc_runtime(root: Path, temporary: Path) -> Path:
     script = staged / 'src/protocol-login.mjs'
     script.write_text(patched)
     shutil.copy2(Path(__file__).with_name('openai_siwc_password_flow.mjs'), script.parent)
+    shutil.copy2(Path(__file__).with_name('openai_protocol_warmup.mjs'), script.parent)
     return script

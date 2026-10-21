@@ -1,6 +1,6 @@
 // SIWC runs the existing password/TOTP helpers against a server-bound OAuth URL.
 // New consent or additional verification is handed back to the administrator.
-import crypto from 'node:crypto';
+import {warmChatGPTProtocol} from './openai_protocol_warmup.mjs';
 
 export async function loginSIWCPassword(client, options, helpers) {
   const {authBase, email, password, totpSecret, rl} = options;
@@ -22,14 +22,14 @@ export async function loginSIWCPassword(client, options, helpers) {
     client.siwcOAuth = {callbackUrl: callback.toString(), state, codeVerifier: 'server-owned'};
     return true;
   }
+  const deviceId = await warmChatGPTProtocol(client);
   let page = await client.follow(auth.toString());
-  if (completed(page.finalUrl)) return {emailVerified: true};
-  const deviceId = client.jar.value('oai-did', authBase) || crypto.randomUUID();
+  if (completed(page.finalUrl)) return {emailVerified: true, deviceId};
   if (!helpers.isPasswordLoginPage(page.finalUrl)) {
     if (!helpers.isAuthLoginPage(page.finalUrl)) throw new Error('SIWC_INTERACTION_REQUIRED');
     const headers = await helpers.createSentinelHeaders(client, {authBase, deviceId, flow: 'authorize_continue'});
     const {data} = await helpers.authJsonStep(client, authBase, 'POST', '/api/accounts/authorize/continue',
-      {username: {kind: 'email', value: email}}, {referer: page.finalUrl, headers});
+      {username: {kind: 'email', value: email}, screen_hint: 'login'}, {referer: page.finalUrl, headers});
     const next = helpers.getContinueUrl(data);
     if (!next || !helpers.isPasswordLoginPage(next)) throw new Error('SIWC_INTERACTION_REQUIRED');
     page = await client.follow(next, {referer: page.finalUrl});

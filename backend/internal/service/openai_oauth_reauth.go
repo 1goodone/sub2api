@@ -699,6 +699,10 @@ func (s *OpenAIOAuthReauthService) CreateTask(ctx context.Context, accountID int
 }
 
 func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, accountID int64, profile string) (*OpenAIOAuthReauthTask, error) {
+	return s.createProfileTask(ctx, accountID, profile, "")
+}
+
+func (s *OpenAIOAuthReauthService) createProfileTask(ctx context.Context, accountID int64, profile, proxyCiphertext string) (*OpenAIOAuthReauthTask, error) {
 	if profile != "codex" && profile != "excel" && profile != "siwc" {
 		return nil, infraerrors.BadRequest("OPENAI_REAUTH_PROFILE_INVALID", "Invalid OAuth profile")
 	}
@@ -752,7 +756,15 @@ func (s *OpenAIOAuthReauthService) CreateTaskForProfile(ctx context.Context, acc
 		if !ok {
 			return nil, infraerrors.ServiceUnavailable("OPENAI_REAUTH_EXCEL_UNAVAILABLE", "Excel authorization queue is unavailable")
 		}
-		record, err = excelRepo.CreateExcelTask(ctx, accountID, expectedCredentialsHash)
+		if proxyCiphertext != "" {
+			creator, creatorOK := excelRepo.(excelTaskProxyCreator)
+			if !creatorOK {
+				return nil, infraerrors.ServiceUnavailable("OPENAI_BPS_PROXY_UNAVAILABLE", "BPS login proxy storage is unavailable")
+			}
+			record, err = creator.CreateExcelTaskWithProxy(ctx, accountID, expectedCredentialsHash, proxyCiphertext)
+		} else {
+			record, err = excelRepo.CreateExcelTask(ctx, accountID, expectedCredentialsHash)
+		}
 	default:
 		record, err = s.repo.CreateTask(ctx, accountID, expectedCredentialsHash)
 	}
@@ -891,11 +903,18 @@ func (s *OpenAIOAuthReauthService) ClaimTaskWithEngines(ctx context.Context, wor
 		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "configured re-login proxy source is invalid")
 		return nil, nil
 	}
+	oneShotProxy, oneShotErr := s.oneShotReauthProxy(ctx, record)
+	if oneShotErr != nil {
+		_ = s.repo.MarkFailed(ctx, record.ID, workerID, "one-shot login proxy cannot be decrypted")
+		return nil, nil
+	}
 	proxyID := stored.ProxyID
 	proxyError := "configured re-login proxy is unavailable"
 	var proxyURL string
 	var release func()
-	if engine == OpenAIOAuthReauthEngineLocal {
+	if oneShotProxy != "" {
+		proxyURL = oneShotProxy
+	} else if engine == OpenAIOAuthReauthEngineLocal {
 		switch proxySource {
 		case OpenAIOAuthReauthProxySourceAccount:
 			proxyID = account.ProxyID

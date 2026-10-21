@@ -266,3 +266,55 @@ func TestSIWCAllHTTPEntryPointsReachDirectRouteWithIndependentToken(t *testing.T
 		})
 	}
 }
+
+type siwcListRepo struct {
+	*siwcTestRepo
+	rows []SIWCAccountSnapshot
+	ids  []int64
+}
+
+func (r *siwcListRepo) ListSIWCStatuses(_ context.Context, ids []int64) ([]SIWCAccountSnapshot, error) {
+	r.ids = append([]int64(nil), ids...)
+	return r.rows, nil
+}
+
+type siwcExtraWriter struct {
+	*reauthTestAccountReader
+	updates map[string]any
+}
+
+func (w *siwcExtraWriter) UpdateAccountExtra(_ context.Context, id int64, updates map[string]any) error {
+	if w.account == nil || id != w.account.ID {
+		return errors.New("wrong account")
+	}
+	w.updates = updates
+	return nil
+}
+
+func TestListSIWCStatusesKeepsStoredGrantRefreshable(t *testing.T) {
+	svc, _, repo, _, _, _ := newReauthTestService("acct-1")
+	defer svc.oauth.Stop()
+	store := &siwcListRepo{siwcTestRepo: &siwcTestRepo{reauthTestRepo: repo}, rows: []SIWCAccountSnapshot{{
+		AccountID: 42, Bound: true, Enabled: true,
+		Task: &OpenAIOAuthReauthTaskRecord{OAuthProfile: "siwc", ID: 7, AccountID: 42, Status: "succeeded", Stage: "succeeded"},
+	}}}
+	svc.repo = store
+	items, err := svc.ListSIWCStatuses(context.Background(), []int64{42, 42, 0, -1})
+	require.NoError(t, err)
+	require.Equal(t, []int64{42}, store.ids)
+	require.Len(t, items, 1)
+	require.True(t, items[0].Bound)
+	require.True(t, items[0].Refreshable)
+	require.Equal(t, "succeeded", items[0].Task.Status)
+	_, err = svc.ListSIWCStatuses(context.Background(), make([]int64, 201))
+	require.Error(t, err)
+}
+
+func TestSetSIWCEnabledMergesExtraKey(t *testing.T) {
+	svc, reader, _, _, _, _ := newReauthTestService("acct-1")
+	defer svc.oauth.Stop()
+	writer := &siwcExtraWriter{reauthTestAccountReader: reader}
+	svc.accounts = writer
+	require.NoError(t, svc.SetSIWCEnabled(context.Background(), 42, true))
+	require.Equal(t, map[string]any{OpenAISIWCEnabledKey: true}, writer.updates)
+}

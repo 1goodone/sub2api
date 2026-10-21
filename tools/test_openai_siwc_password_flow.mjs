@@ -7,7 +7,7 @@ function fixture(continued = 'success') {
   for (const [key, value] of Object.entries({state:'attempt',nonce:'nonce',redirect_uri:'http://127.0.0.1:1455/auth/callback',scope:'openid chatgpt.tokens.use.direct'})) auth.searchParams.set(key,value);
   process.env.OPENAI_SIWC_AUTH_URL = auth.toString();
   const calls = [];
-  const client = {jar:{value:()=> 'device'},follow:async url=>({finalUrl:url.includes('/authorize?')?'https://auth.openai.com/log-in':url})};
+  const client = {jar:{value:(name)=>name==='oai-did'?'device':''},follow:async url=>{calls.push(url);return {finalUrl:url.includes('/authorize?')?'https://auth.openai.com/log-in':url};}};
   const options = {authBase:'https://auth.openai.com',email:'test@example.test',password:'synthetic-password',totpSecret:'synthetic-totp'};
   const helpers = {
     isPasswordLoginPage:url=>url.endsWith('/log-in/password'),isAuthLoginPage:url=>url.endsWith('/log-in'),
@@ -24,7 +24,7 @@ function fixture(continued = 'success') {
 
 test('saved password and TOTP produce only a server-bound callback',async()=>{
   const f=fixture();const result=await loginSIWCPassword(f.client,f.options,f.helpers);
-  assert.equal(result.mfaVerified,true);assert.deepEqual(f.calls,['password','totp']);
+  assert.equal(result.mfaVerified,true);assert.equal(f.calls[0],'https://chatgpt.com/api/auth/csrf');assert.deepEqual(f.calls.slice(-2),['password','totp']);
   assert.equal(new URL(f.client.siwcOAuth.callbackUrl).searchParams.get('client_id'),'issued');
   assert.equal(f.client.siwcOAuth.codeVerifier,'server-owned');
   assert.equal(f.client.siwcOAuth.access_token,undefined);

@@ -11,6 +11,62 @@ import (
 	"github.com/lib/pq"
 )
 
+func (r *openAIOAuthReauthRepository) ListSIWCStatuses(ctx context.Context, ids []int64) ([]service.SIWCAccountSnapshot, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT a.id,
+		       COALESCE(c.credentials_ciphertext, '') <> '',
+		       COALESCE(a.extra->>'openai_siwc', '') = 'true',
+		       t.id, t.status, t.stage, COALESCE(t.error_message, '')
+		FROM accounts a
+		LEFT JOIN openai_siwc_credentials c ON c.account_id = a.id
+		LEFT JOIN LATERAL (
+			SELECT id, status, stage, error_message
+			FROM openai_oauth_reauth_tasks
+			WHERE account_id = a.id AND oauth_profile = 'siwc'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM openai_totp_rotations rotation
+			    WHERE rotation.task_id = openai_oauth_reauth_tasks.id
+			  )
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1
+		) t ON true
+		WHERE a.id = ANY($1)
+		  AND a.deleted_at IS NULL
+		  AND a.platform = 'openai'
+		  AND a.type = 'oauth'
+		  AND a.parent_account_id IS NULL
+	`, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []service.SIWCAccountSnapshot
+	for rows.Next() {
+		var item service.SIWCAccountSnapshot
+		var taskID sql.NullInt64
+		var status, stage sql.NullString
+		var taskError string
+		if err := rows.Scan(&item.AccountID, &item.Bound, &item.Enabled, &taskID, &status, &stage, &taskError); err != nil {
+			return nil, err
+		}
+		if taskID.Valid {
+			item.Task = &service.OpenAIOAuthReauthTaskRecord{
+				OAuthProfile: "siwc",
+				ID:           taskID.Int64,
+				AccountID:    item.AccountID,
+				Status:       status.String,
+				Stage:        stage.String,
+				Error:        taskError,
+			}
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *openAIOAuthReauthRepository) SIWCRegistration(ctx context.Context, id int64, host string) (string, string, error) {
 	var saved, ciphertext string
 	err := r.db.QueryRowContext(ctx, `INSERT INTO openai_siwc_credentials(account_id,host_id) VALUES($1,$2)
