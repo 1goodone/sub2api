@@ -569,6 +569,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					})
 				}
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
+				if stageFirstOutput && !outputStarted && !responsesSemanticOutputSeen && !eventStartsClientOutput &&
+					!clientDisconnected && !cyberHit && ctx.Err() == nil && isOpenAIInvalidEncryptedContentSSE(dataBytes, eventType) {
+					if policy, ok := ctx.Value(openAIEncryptedContentRecoveryContextKey{}).(openAIEncryptedContentRecoveryPolicy); ok &&
+						openAICanRecoverEncryptedReasoningSSE(policy.body) {
+						// Discard staged metadata; Forward owns the shared retry budget.
+						streamEarlyErr = &openAIEncryptedContentRecoverySignal{
+							payload: append([]byte(nil), dataBytes...), eventType: eventType,
+						}
+						return
+					}
+				}
 				if !outputStarted && !cyberHit {
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						sawFailedEvent = true

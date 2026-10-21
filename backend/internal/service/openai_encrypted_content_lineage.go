@@ -26,8 +26,8 @@ const openAIWSIngressSessionHashContextKey = "openai_ws_ingress_session_hash"
 
 // openAIStreamInvalidEncryptedContentContextKey 标记本次上游流内出现过
 // invalid_encrypted_content 拒绝（error / response.failed 事件）。流内拒绝发生时
-// 响应已开始，本请求无法再剥离重试；Forward 读取该标记补记 lineage，让下一轮
-// 进场预剥离同一失效密文，避免会话每轮都被同一密文拒绝。
+// 尚未提交输出且输入可安全恢复时，由 Forward 在同账号重试一次；其他情况
+// 读取该标记补记 lineage，让下一轮进场预剥离可明确归属的同一失效密文。
 const openAIStreamInvalidEncryptedContentContextKey = "openai_stream_invalid_encrypted_content"
 
 // isOpenAIInvalidEncryptedContentEvent 判断流内 error / response.failed 事件是否
