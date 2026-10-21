@@ -226,6 +226,7 @@
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
           :show-bps-login="authStore.isAdmin"
+          :can-export2fa="authStore.isAdmin"
           @bps-login="openBPSLogin"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
@@ -234,6 +235,7 @@
           @test-connections="showBatchTest = true"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
+          @export-2fa="export2faIds = [...selIds]"
           @clear="clearSelection"
           @select-page="selectPage"
           @select-all-results="handleSelectAllResults"
@@ -568,6 +570,7 @@
     <ErrorPassthroughRulesModal v-if="authStore.isAdmin" :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal v-if="authStore.isAdmin" :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
+    <BulkExport2FADialog v-if="authStore.isAdmin && export2faIds.length" :account-ids="export2faIds" @close="export2faIds = []" />
   </AppLayout>
 </template>
 
@@ -597,6 +600,7 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import OpenAIAccountSummaryCards from '@/components/admin/account/OpenAIAccountSummaryCards.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import BulkExport2FADialog from '@/components/admin/account/BulkExport2FADialog.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import OpenAISessionExportDialog from '@/components/admin/account/OpenAISessionExportDialog.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
@@ -706,6 +710,7 @@ const showCreate = ref(false)
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
+const export2faIds = ref<number[]>([])
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
@@ -1594,6 +1599,7 @@ const isAnyModalOpen = computed(() => {
     showImportData.value ||
     showExportDataDialog.value ||
     sessionExportAccount.value !== null ||
+    export2faIds.value.length > 0 ||
     showBulkEdit.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||

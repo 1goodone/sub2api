@@ -10,6 +10,19 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('AccountBulkActionsBar', () => {
+  it('only offers 2FA export with permission and a selection', async () => {
+    const wrapper = mount(AccountBulkActionsBar, {
+      props: { selectedIds: [1], totalResults: 45, selectingAll: false, allResultsSelected: false }
+    })
+    const exportButton = () => wrapper.findAll('button').find(item => item.text() === 'admin.accounts.bulkExport2fa.title')
+    expect(exportButton()).toBeUndefined()
+    await wrapper.setProps({ canExport2fa: true })
+    await exportButton()!.trigger('click')
+    expect(wrapper.emitted('export-2fa')).toHaveLength(1)
+    await wrapper.setProps({ selectedIds: [] })
+    expect(exportButton()).toBeUndefined()
+  })
+
   it('allows selecting all results before any row is selected', async () => {
     const wrapper = mount(AccountBulkActionsBar, {
       props: {

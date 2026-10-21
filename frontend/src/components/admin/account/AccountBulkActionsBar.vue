@@ -56,6 +56,7 @@
         <button @click="$emit('toggle-schedulable', true)" class="btn btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</button>
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
+        <button v-if="canExport2fa" @click="$emit('export-2fa')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkExport2fa.title') }}</button>
       </template>
       <button @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
         {{ t('admin.accounts.bulkEdit.submit') }}
@@ -74,6 +75,7 @@ defineProps<{
   selectingAll: boolean
   allResultsSelected: boolean
   showBpsLogin?: boolean
+  canExport2fa?: boolean
 }>()
 
 defineEmits([
@@ -88,7 +90,8 @@ defineEmits([
   'refresh-token',
   'probe-upstream-billing',
   'test-connections',
-  'bps-login'
+  'bps-login',
+  'export-2fa'
 ])
 
 const { t } = useI18n()
