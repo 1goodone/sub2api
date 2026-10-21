@@ -606,9 +606,9 @@ func TestAccountTestService_OpenAIAPIKey429DoesNotSyncUpstreamPlanType(t *testin
 				}
 				require.Equal(t, AccountTypeAPIKey, account.Type)
 				require.Equal(t, "test-key", account.GetCredential("api_key"))
-				require.Equal(t, account.ID, repo.rateLimitedID)
-				require.NotNil(t, account.RateLimitResetAt)
-				require.Equal(t, int64(4102444800), account.RateLimitResetAt.Unix())
+				require.Zero(t, repo.rateLimitedID)
+				require.Nil(t, account.RateLimitedAt)
+				require.Nil(t, account.RateLimitResetAt)
 			})
 		}
 	}

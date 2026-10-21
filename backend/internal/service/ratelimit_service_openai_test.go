@@ -242,7 +242,9 @@ func TestHandle429_OpenAIAPIKeyDoesNotSyncUpstreamPlanType(t *testing.T) {
 				account := &Account{ID: 125, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: credentials}
 				body := []byte(`{"error":{"type":"` + errorType + `","plan_type":"pro","resets_at":4102444800}}`)
 
+				before := time.Now()
 				svc.handle429(context.Background(), account, http.Header{}, body)
+				after := time.Now()
 
 				require.Empty(t, repo.bulkUpdatedIDs, "upstream plans must not be persisted for API keys")
 				require.Nil(t, repo.bulkUpdatedPayload.Credentials)
@@ -253,7 +255,9 @@ func TestHandle429_OpenAIAPIKeyDoesNotSyncUpstreamPlanType(t *testing.T) {
 				require.Equal(t, AccountTypeAPIKey, account.Type)
 				require.Equal(t, "test-key", account.GetCredential("api_key"))
 				require.Equal(t, account.ID, repo.rateLimitedID, "429 cooldown must still be persisted")
-				require.Equal(t, int64(4102444800), repo.rateLimitResetAt.Unix())
+				cooldown := time.Duration(defaultRateLimit429CooldownSeconds) * time.Second
+				require.False(t, repo.rateLimitResetAt.Before(before.Add(cooldown)))
+				require.False(t, repo.rateLimitResetAt.After(after.Add(cooldown)))
 			})
 		}
 	}

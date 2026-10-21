@@ -1254,6 +1254,15 @@ func (s *RateLimitService) handle429Cooldown(ctx context.Context, account *Accou
 	}
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
+		// An API key may relay a different ChatGPT account's quota error. Its
+		// reset time and Codex snapshot do not describe this key's capacity.
+		// Keep real 429 backoff without blocking the entire key for that window.
+		// Provider-specific quota handling above and explicit account policies
+		// remain authoritative.
+		if account.Type == AccountTypeAPIKey {
+			s.apply429FallbackRateLimit(ctx, account, "openai_apikey_upstream_429")
+			return
+		}
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		notifyOpenAIAutoReset(account.ID)
