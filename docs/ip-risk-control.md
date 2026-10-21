@@ -60,3 +60,7 @@
 - mock 与本地验证不能证明生产环境的稳定性。真实 GeoJS 网络、CDN 转发头、多实例同步和业务回调需在隔离部署环境继续联调。
 
 参考：[OWASP 登录限速与认证防护](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)、[GeoJS 国家解析字段](https://www.geojs.io/docs/v1/endpoints/geo/)。
+
+## 匿名 API 鉴权失败防护
+
+新增独立、默认关闭的匿名 API 防护配置与临时封禁管理入口，详见 [匿名 API 防护](anonymous-api-guard.md)。此类 ban 仅在凭据明确失败后生效，不拒绝同 IP 的合法 key，且不与登录封禁/永久黑名单共用解除操作。

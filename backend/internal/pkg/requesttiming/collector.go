@@ -38,6 +38,8 @@ type Attempt struct {
 	Events          map[string]float64  `json:"events"`
 }
 type Snapshot struct {
+	IdentitySource    string             `json:"identity_source,omitempty"`
+	AuthRejection     string             `json:"auth_rejection,omitempty"`
 	Routes            []RouteObservation `json:"routes,omitempty"`
 	Outcome           string             `json:"outcome,omitempty"`
 	ClientDisconnect  bool               `json:"client_disconnect"`

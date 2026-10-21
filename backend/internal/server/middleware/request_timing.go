@@ -57,16 +57,48 @@ func RequestTiming(recorders ...ConnectionTraceRecorder) gin.HandlerFunc {
 						}
 					}
 				}
-				if key, ok := GetAPIKeyFromContext(c); ok && key != nil {
+				// Diagnostic attribution is independent of authentication. The
+				// fallback is populated only by a successful trusted key lookup.
+				key, authenticated := GetAPIKeyFromContext(c)
+				identitySource := ""
+				if authenticated {
+					identitySource = "authenticated"
+				} else {
+					key, _ = GetOpsFallbackAPIKey(c)
+					if key != nil {
+						identitySource = "recognized_credential"
+					}
+				}
+				if key != nil {
 					record.UserID = key.UserID
+					if record.UserID == 0 && key.User != nil {
+						record.UserID = key.User.ID
+					}
 					record.APIKeyID = key.ID
 					if key.GroupID != nil {
 						record.GroupID = *key.GroupID
 					}
 				}
+				rejection := ""
+				if reason, ok := GetIngressRejectReason(c); ok {
+					switch reason {
+					case IngressRejectUserInactive:
+						rejection = "USER_INACTIVE"
+					case IngressRejectAPIKeyDisabled:
+						rejection = "API_KEY_DISABLED"
+					case IngressRejectAPIKeyRequired:
+						rejection = "API_KEY_REQUIRED"
+					case IngressRejectInvalidAPIKey:
+						rejection = "INVALID_API_KEY"
+					case IngressRejectInvalidAuthRateLimited:
+						rejection = "INVALID_AUTH_RATE_LIMITED"
+					}
+				}
 				collector.WhenFinished(func(detail requesttiming.Snapshot) {
 					record.TraceID = detail.TraceID
 					record.StartedAt = detail.StartedAt
+					detail.IdentitySource = identitySource
+					detail.AuthRejection = rejection
 					record.Detail = detail
 					recorders[0].RecordConnectionTrace(record)
 				})

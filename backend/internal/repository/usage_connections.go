@@ -123,7 +123,7 @@ func connectionTraceQuery(f service.ConnectionTraceFilter) (string, []any) {
  ORDER BY e.request_id,e.created_at DESC)
  ), classified AS (SELECT *, ` + connectionStateSQL + ` AS state FROM source)
  SELECT c.trace_id,c.started_at,c.request_id,c.client_request_id,c.user_id,c.api_key_id,c.account_id,c.group_id,c.model,c.path,c.client_ip,c.user_agent,c.stream,c.detail,c.legacy,c.state,c.source,c.host,c.scheme,c.method,c.http_version,c.tls_version,c.upstream_status,c.network_error,
- COALESCE(u.email,''),COALESCE(k.name,''),COALESCE(a.name,''),COALESCE(g.name,'')
+ COALESCE(u.email,''),COALESCE(k.name,''),COALESCE(a.name,''),COALESCE(g.name,''),COALESCE(u.username,'')
  FROM classified c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN api_keys k ON k.id=c.api_key_id
  LEFT JOIN accounts a ON a.id=c.account_id LEFT JOIN groups g ON g.id=c.group_id WHERE 1=1`
 	add := func(expr string, v any) { args = append(args, v); source += fmt.Sprintf(expr, len(args)) }
@@ -175,7 +175,7 @@ func (r *usageLogRepository) ListConnectionTraces(ctx context.Context, f service
 	for rows.Next() {
 		var v service.ConnectionTrace
 		var raw []byte
-		if err := rows.Scan(&v.TraceID, &v.StartedAt, &v.RequestID, &v.ClientRequestID, &v.UserID, &v.APIKeyID, &v.AccountID, &v.GroupID, &v.Model, &v.Path, &v.ClientIP, &v.UserAgent, &v.Stream, &raw, &v.Legacy, &v.State, &v.Source, &v.Host, &v.Scheme, &v.Method, &v.HTTPVersion, &v.TLSVersion, &v.UpstreamStatus, &v.NetworkError, &v.UserEmail, &v.APIKeyName, &v.AccountName, &v.GroupName); err != nil {
+		if err := rows.Scan(&v.TraceID, &v.StartedAt, &v.RequestID, &v.ClientRequestID, &v.UserID, &v.APIKeyID, &v.AccountID, &v.GroupID, &v.Model, &v.Path, &v.ClientIP, &v.UserAgent, &v.Stream, &raw, &v.Legacy, &v.State, &v.Source, &v.Host, &v.Scheme, &v.Method, &v.HTTPVersion, &v.TLSVersion, &v.UpstreamStatus, &v.NetworkError, &v.UserEmail, &v.APIKeyName, &v.AccountName, &v.GroupName, &v.UserName); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(raw, &v.Detail); err != nil {
@@ -232,6 +232,12 @@ func (r *usageLogRepository) ListConnectionTraces(ctx context.Context, f service
 			if err := errors.Err(); err != nil {
 				return nil, err
 			}
+		}
+	}
+	for i := range out.Items {
+		if out.Items[i].Detail.AuthRejection != "" {
+			out.Items[i].ErrorType = out.Items[i].Detail.AuthRejection
+			out.Items[i].ErrorStatus = out.Items[i].Detail.Status
 		}
 	}
 	return out, nil

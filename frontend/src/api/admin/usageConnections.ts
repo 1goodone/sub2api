@@ -7,7 +7,7 @@ export interface ConnectionTrace {
   source: 'application' | 'caddy' | 'nginx'; host: string; scheme: string; method: string; path: string; http_version: string; tls_version: string
   upstream_status: string; network_error: string
   user_id: number; api_key_id: number; account_id: number; group_id: number
-  user_email: string; api_key_name: string; account_name: string; group_name: string
+  user_name?: string; user_email: string; api_key_name: string; account_name: string; group_name: string
   model: string; client_ip: string; user_agent: string; stream: boolean; started_at: string
   state: ConnectionState; legacy: boolean; detail: RequestTiming
 }

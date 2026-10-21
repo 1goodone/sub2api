@@ -1,4 +1,5 @@
 export default {
+  recognizedCredential: "已识别 key；认证被拒绝",
   errorDetail: '查看结构化错误详情', logicalError: '记录的业务错误',
   title: '连接诊断',
   scope: '查询入口代理与应用记录。HTTP 200、写出或 Flush 成功不代表客户端已收到或解析完成；“重连”是客户端行为，不能仅凭服务端日志确认。DNS、TCP 或 TLS 阶段完全未到入口的失败可能没有记录，需结合客户端日志。',

@@ -36,6 +36,7 @@ type ConnectionTrace struct {
 	UserAgent       string                 `json:"user_agent"`
 	Stream          bool                   `json:"stream"`
 	StartedAt       time.Time              `json:"started_at"`
+	UserName        string                 `json:"user_name"`
 	UserEmail       string                 `json:"user_email"`
 	APIKeyName      string                 `json:"api_key_name"`
 	AccountName     string                 `json:"account_name"`

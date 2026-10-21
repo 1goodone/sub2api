@@ -13,6 +13,15 @@ function render(filters = {}, locale: 'en' | 'zh' = 'en') {
 const edge = { trace_id: 'edge-id', source: 'nginx', state: 'edge_failed', user_id: 0, api_key_id: 0, host: 'relay.example.com', path: '/v1/responses', detail: { status: 502, version: 1, events: {}, attempts: [] } } as unknown as ConnectionTrace
 beforeEach(() => list.mockReset().mockResolvedValue({ items: [edge], has_more: false }))
 describe('connection diagnostics', () => {
+  it.each(['en', 'zh'] as const)('shows recognized inactive users and fixed rejection in %s without implying authentication', async (locale) => {
+    list.mockResolvedValue({ items: [{ ...edge, source: 'application', user_id: 9, api_key_id: 7, user_name: 'disabled-example', error_type: '', detail: { ...edge.detail, status: 401, identity_source: 'recognized_credential', auth_rejection: 'USER_INACTIVE' } }], has_more: false })
+    const wrapper = render({}, locale); await flushPromises()
+    expect(wrapper.text()).toContain('disabled-example')
+    expect(wrapper.text()).toContain('USER_INACTIVE')
+    expect(wrapper.text()).toContain(locale === 'en' ? 'Recognized key; authentication rejected' : '已识别 key；认证被拒绝')
+    wrapper.unmount()
+  })
+
   it('queries by shared user filters and retains unidentified edge entries', async () => {
     const wrapper = render({ user_id: 7, model: 'example-model' })
     await flushPromises()
