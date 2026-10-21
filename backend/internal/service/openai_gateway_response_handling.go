@@ -556,11 +556,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					sawResponseFailed = true
 				}
 				failedMessage = extractOpenAISSEErrorMessage(dataBytes)
+				if isOpenAIInvalidEncryptedContentSSE(dataBytes, eventType) {
+					failedMessage = openAIEncryptedErrorRedacted
+				}
 				if failedMessage == "" {
 					failedMessage = "Upstream response failed"
 				}
 				if isOpenAIInvalidEncryptedContentEvent(dataBytes) {
-					markOpenAIStreamInvalidEncryptedContent(c)
+					markOpenAIStreamInvalidEncryptedContent(c, dataBytes)
 				}
 				// response.failed 自带上游已消耗的 usage（input token 通常已扣）；必须先解析
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
@@ -581,7 +584,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				if stageFirstOutput && !outputStarted && !responsesSemanticOutputSeen && !eventStartsClientOutput &&
 					!clientDisconnected && !cyberHit && ctx.Err() == nil && isOpenAIInvalidEncryptedContentSSE(dataBytes, eventType) {
 					if policy, ok := ctx.Value(openAIEncryptedContentRecoveryContextKey{}).(openAIEncryptedContentRecoveryPolicy); ok &&
-						openAICanRecoverEncryptedReasoningSSE(policy.body) {
+						len(openAIRejectedEncryptedDigests(policy.body, dataBytes)) == 1 {
 						// Discard staged metadata; Forward owns the shared retry budget.
 						streamEarlyErr = &openAIEncryptedContentRecoverySignal{
 							payload: append([]byte(nil), dataBytes...), eventType: eventType,

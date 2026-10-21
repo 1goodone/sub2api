@@ -47,7 +47,7 @@ func TestForwardEncryptedContentSSERetry(t *testing.T) {
 	}{
 		{name: "staged metadata then failure", first: preamble + failure, calls: 2, success: true},
 		{name: "bare error", first: encryptedSSERetryEvent(`{"type":"error","error":{"code":"invalid_encrypted_content","message":"rejected"}}`), calls: 2, success: true},
-		{name: "thinking signature alias", first: encryptedSSERetryEvent(`{"type":"response.failed","response":{"error":{"code":"thinking_signature_invalid","message":"The encrypted content synthetic could not be verified. Reason: Encrypted content could not be decrypted or parsed."}}}`), calls: 2, success: true},
+		{name: "thinking signature alias", first: encryptedSSERetryEvent(`{"type":"response.failed","response":{"error":{"code":"thinking_signature_invalid","message":"The encrypted content synt...pher could not be verified. Reason: Encrypted content could not be decrypted or parsed."}}}`), calls: 2, success: true},
 		{name: "text already delivered", first: streamLineageDeltaEvent + failure, calls: 1},
 		{name: "tool already delivered", first: encryptedSSERetryEvent(`{"type":"response.output_item.added","item":{"type":"function_call","name":"execute","call_id":"call_live","arguments":"{}"}}`) + failure, calls: 1},
 		{name: "reasoning already delivered", first: encryptedSSERetryEvent(`{"type":"response.reasoning_summary_text.delta","delta":"reasoning already visible"}`) + failure, calls: 1},

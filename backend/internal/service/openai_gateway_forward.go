@@ -905,7 +905,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	lineageEntryBody := body
 	lineageSessionHash := ""
 	if stateStore := s.getOpenAIWSStateStore(); stateStore != nil && stateStore.HasAnySessionInvalidEncryptedContent() {
-		lineageSessionHash = s.GenerateSessionHash(c, body)
+		lineageSessionHash = openAIEncryptedLineageKey(c, account.ID, s.openAIWSLineageSessionHashFromContext(c, body))
 		if invalidDigests := stateStore.GetSessionInvalidEncryptedContentDigests(lineageGroupID, lineageSessionHash); len(invalidDigests) > 0 {
 			strippedBody, strippedCount := s.stripSessionInvalidEncryptedContentLogged(
 				body, invalidDigests, "invalid_encrypted_lineage_strip", account.ID, 0,
@@ -919,16 +919,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	// 上游通过 WS/SSE 拒绝密文时，安全的一次恢复及无法恢复的出口都记录
 	// 可明确归属的进场密文摘要，供后续 turn 使用同一 lineage 会话键。
-	markInvalidEncryptedContentLineage := func(transport string) {
+	markInvalidEncryptedContentLineage := func(transport string, rejectedBody, rejection []byte) {
 		if isControlledExperiment(ctx) {
 			return
 		}
-		invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
+		invalidDigests := openAIRejectedEncryptedDigests(rejectedBody, rejection)
 		if len(invalidDigests) == 0 {
 			return
 		}
 		if lineageSessionHash == "" {
-			lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
+			lineageSessionHash = openAIEncryptedLineageKey(c, account.ID, s.openAIWSLineageSessionHashFromContext(c, lineageEntryBody))
 		}
 		s.markOpenAIWSInvalidEncryptedContentLineage(lineageGroupID, lineageSessionHash, invalidDigests)
 		logOpenAIWSModeInfo(
@@ -1025,15 +1025,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			)
 			return true
 		}
-		recoverInvalidEncryptedContent := func(attempt int) bool {
-			if wsInvalidEncryptedContentRecoveryTried {
+		recoverInvalidEncryptedContent := func(attempt int, rejection []byte) bool {
+			rejectedBody := openAIEncryptedAttemptBody(wsReqBody)
+			if wsInvalidEncryptedContentRecoveryTried || isControlledExperiment(ctx) || ctx.Err() != nil {
 				return false
 			}
-			// 写入 lineage 后，同一失效密文在后续 turn 进场时被预剥离，不再重复
-			// 触发上游拒绝与重连。摘要取自进场形态的 body（密文项只可能来自
-			// 客户端进场请求，重复摘要幂等）。
-			invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
-			removedReasoningItems := trimOpenAIEncryptedReasoningItemsForRecovery(wsReqBody)
+			// Attribute only the rejected item from this attempt; later failures
+			// cannot poison unrelated ciphertexts from the original input.
+			invalidDigests := openAIRejectedEncryptedDigests(rejectedBody, rejection)
+			removedReasoningItems := stripOpenAIInvalidEncryptedContentItems(wsReqBody, openAIEncryptedDigestSet(invalidDigests)) > 0
 			if !removedReasoningItems {
 				logOpenAIWSModeInfo(
 					"reconnect_invalid_encrypted_content_recovery_skip account_id=%d attempt=%d reason=missing_encrypted_reasoning_items",
@@ -1044,7 +1044,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			if len(invalidDigests) > 0 {
 				if lineageSessionHash == "" {
-					lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
+					lineageSessionHash = openAIEncryptedLineageKey(c, account.ID, s.openAIWSLineageSessionHashFromContext(c, lineageEntryBody))
 				}
 				s.markOpenAIWSInvalidEncryptedContentLineage(lineageGroupID, lineageSessionHash, invalidDigests)
 			}
@@ -1071,6 +1071,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	wsRetryLoop:
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			wsAttempts = attempt
+			c.Set(openAIStreamEncryptedRejectionContextKey, []byte(nil))
 			_ = takeOpenAIStreamInvalidEncryptedContent(c)
 			wsResult, wsErr = s.forwardOpenAIWSV2(
 				ctx,
@@ -1105,7 +1106,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if written || accelerateHTTPSSE {
 				// 下方的剥离重试在这里不可达，只补记 lineage 供下一轮进场预剥离。
 				if streamRejectedEncryptedContent && codexWSAnchorFromContext(ctx) == nil {
-					markInvalidEncryptedContentLineage("ws")
+					markInvalidEncryptedContentLineage("ws", openAIEncryptedAttemptBody(wsReqBody), openAIStreamEncryptedRejection(c))
 				}
 				break
 			}
@@ -1123,7 +1124,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if codexWSAnchorFromContext(ctx) == nil && reason == "previous_response_not_found" && recoverPrevResponseNotFound(attempt) {
 				continue
 			}
-			if codexWSAnchorFromContext(ctx) == nil && reason == "invalid_encrypted_content" && recoverInvalidEncryptedContent(attempt) {
+			if codexWSAnchorFromContext(ctx) == nil && reason == "invalid_encrypted_content" && recoverInvalidEncryptedContent(attempt, openAIStreamEncryptedRejection(c)) {
 				continue
 			}
 			if codexWSAnchorFromContext(ctx) != nil {
@@ -1268,15 +1269,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	agentTaskRecoveryTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	// HTTP 400 and pre-output SSE rejection share one same-account retry.
-	recoverInvalidEncryptedContentHTTP := func(resp *http.Response) (bool, error) {
-		if isControlledExperiment(ctx) || httpInvalidEncryptedContentRetryTried || ctx.Err() != nil {
+	recoverInvalidEncryptedContentHTTP := func(resp *http.Response, rejection []byte) (bool, error) {
+		if isControlledExperiment(ctx) || httpInvalidEncryptedContentRetryTried || ctx.Err() != nil ||
+			(c != nil && c.Request != nil && c.Request.Context().Err() != nil) || openAIStreamClientOutputStarted(c, false) {
 			return false, nil
 		}
 		decoded, decodeErr := ensureReqBody()
 		if decodeErr != nil {
 			return false, decodeErr
 		}
-		if !trimOpenAIEncryptedReasoningItemsForRecovery(decoded) {
+		if stripOpenAIInvalidEncryptedContentItems(decoded, openAIEncryptedDigestSet(openAIRejectedEncryptedDigests(body, rejection))) == 0 {
 			return false, nil
 		}
 		retryBody, marshalErr := marshalOpenAIUpstreamJSON(decoded)
@@ -1286,7 +1288,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		body = retryBody
 		requestView = newOpenAIRequestView(body)
 		reqBody = nil
-		markInvalidEncryptedContentLineage("http")
 		httpInvalidEncryptedContentRetryTried = true
 		rejectedFieldRetryState.remember(body)
 		if resp.Body != nil {
@@ -1397,12 +1398,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			if resp.StatusCode == http.StatusBadRequest && isOpenAIInvalidEncryptedContentError(upstreamCode, upstreamMsg) {
-				if retry, retryErr := recoverInvalidEncryptedContentHTTP(resp); retryErr != nil {
+			if resp.StatusCode == http.StatusBadRequest && isOpenAIInvalidEncryptedContentError(upstreamCode, extractUpstreamErrorMessage(respBody)) {
+				markInvalidEncryptedContentLineage("http", body, respBody)
+				if retry, retryErr := recoverInvalidEncryptedContentHTTP(resp, respBody); retryErr != nil {
 					return nil, retryErr
 				} else if retry {
 					continue
 				}
+				// The explicit error code takes precedence over arbitrary message
+				// text. Do not borrow field/compact/failover retry budgets here.
+				return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
 			}
 			if retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, body, respBody); retryErr != nil {
 				return nil, fmt.Errorf("normalize rejected Responses field retry body: %w", retryErr)
@@ -1489,6 +1494,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		searchCount := 0
 		var imageOutputSizes []string
 		if reqStream {
+			c.Set(openAIStreamEncryptedRejectionContextKey, []byte(nil))
 			_ = takeOpenAIStreamInvalidEncryptedContent(c)
 			streamCtx := ctx
 			if account.Platform == PlatformOpenAI && !isControlledExperiment(ctx) && !httpInvalidEncryptedContentRetryTried {
@@ -1502,7 +1508,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if err != nil {
 				var encryptedSignal *openAIEncryptedContentRecoverySignal
 				if errors.As(err, &encryptedSignal) {
-					if retry, retryErr := recoverInvalidEncryptedContentHTTP(resp); retryErr != nil {
+					markInvalidEncryptedContentLineage("http", body, encryptedSignal.payload)
+					if retry, retryErr := recoverInvalidEncryptedContentHTTP(resp, encryptedSignal.payload); retryErr != nil {
 						return nil, retryErr
 					} else if retry {
 						continue
@@ -1512,7 +1519,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						_ = resp.Body.Close()
 					}
 					if ctx.Err() != nil {
-						markInvalidEncryptedContentLineage("http")
+						markInvalidEncryptedContentLineage("http", body, openAIStreamEncryptedRejection(c))
 						return nil, ctx.Err()
 					}
 					// Preserve the actual upstream terminal if recovery is revoked.
@@ -1523,7 +1530,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					}
 				}
 				if takeOpenAIStreamInvalidEncryptedContent(c) {
-					markInvalidEncryptedContentLineage("http")
+					markInvalidEncryptedContentLineage("http", body, openAIStreamEncryptedRejection(c))
 				}
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(

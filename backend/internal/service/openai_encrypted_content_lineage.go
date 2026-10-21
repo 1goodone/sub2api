@@ -45,9 +45,13 @@ func isOpenAIInvalidEncryptedContentEvent(payload []byte) bool {
 	return isExcelBPSInvalidEncryptedContent([]byte(`{"error":` + nested.Raw + `}`))
 }
 
-func markOpenAIStreamInvalidEncryptedContent(c *gin.Context) {
+func markOpenAIStreamInvalidEncryptedContent(c *gin.Context, rejection []byte) {
 	if c != nil {
+		if len(rejection) > 65536 {
+			rejection = nil
+		}
 		c.Set(openAIStreamInvalidEncryptedContentContextKey, true)
+		c.Set(openAIStreamEncryptedRejectionContextKey, append([]byte(nil), rejection...))
 	}
 }
 
@@ -119,7 +123,7 @@ func trimOpenAIEncryptedReasoningItemsForRecovery(body map[string]any) bool {
 func sanitizeOpenAIRecoveryInputItem(item any) (any, bool, bool) {
 	if value, ok := item.(map[string]any); ok {
 		kind, _ := value["type"].(string)
-		if kind == "compaction" || kind == "compaction_summary" {
+		if strings.TrimSpace(kind) == "compaction" || strings.TrimSpace(kind) == "compaction_summary" {
 			return item, false, true
 		}
 	}
@@ -169,6 +173,7 @@ func stripOpenAIInvalidEncryptedContentItems(reqBody map[string]any, invalid map
 	if !has {
 		return 0
 	}
+	counts := openAIEncryptedInputCounts(inputValue)
 	stripped := 0
 	stripItem := func(item any) (next any, changed bool, keep bool) {
 		inputItem, ok := item.(map[string]any)
@@ -177,6 +182,9 @@ func stripOpenAIInvalidEncryptedContentItems(reqBody map[string]any, invalid map
 		}
 		encrypted, ok := inputItem["encrypted_content"].(string)
 		if !ok || encrypted == "" {
+			return item, false, true
+		}
+		if counts[encrypted] != 1 {
 			return item, false, true
 		}
 		if _, hit := invalid[openAIEncryptedContentDigest(encrypted)]; !hit {
@@ -283,6 +291,10 @@ func stripOpenAIInvalidEncryptedContentFromReplayItems(items []json.RawMessage, 
 	if !hit {
 		return items, 0
 	}
+	counts := map[string]int{}
+	for _, item := range items {
+		counts[gjson.GetBytes(item, "encrypted_content").String()]++
+	}
 	stripped := 0
 	next := make([]json.RawMessage, 0, len(items))
 	for _, item := range items {
@@ -293,6 +305,10 @@ func stripOpenAIInvalidEncryptedContentFromReplayItems(items []json.RawMessage, 
 		}
 		encrypted, ok := decoded["encrypted_content"].(string)
 		if !ok || encrypted == "" {
+			next = append(next, item)
+			continue
+		}
+		if counts[encrypted] != 1 {
 			next = append(next, item)
 			continue
 		}
@@ -389,14 +405,15 @@ func (s *OpenAIGatewayService) markOpenAIWSInvalidEncryptedContentLineageFromPay
 	logKey string,
 	accountID int64,
 	turn int,
+	rejection []byte,
 ) {
-	digests := collectOpenAIEncryptedContentDigestsRaw(payload)
+	digests := openAIRejectedEncryptedDigests(payload, rejection)
 	if len(digests) == 0 {
 		return
 	}
 	s.markOpenAIWSInvalidEncryptedContentLineage(
 		getOpenAIGroupIDFromContext(c),
-		s.openAIWSLineageSessionHashFromContext(c, payload),
+		openAIEncryptedLineageKey(c, accountID, s.openAIWSLineageSessionHashFromContext(c, payload)),
 		digests,
 	)
 	logOpenAIWSModeInfo("%s account_id=%d turn=%d digests=%d", logKey, accountID, turn, len(digests))
