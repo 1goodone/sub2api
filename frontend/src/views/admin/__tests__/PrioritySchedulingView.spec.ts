@@ -11,6 +11,7 @@ vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { tem
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/priorityScheduling', () => ({ getPriorityConfig: vi.fn(), getPrioritySnapshot: vi.fn(), savePriorityConfig: vi.fn(), defaultPriorityTeamsConfig: () => ({ enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'explicit' }) }))
 const config: PrioritySchedulingConfig = { teams: { enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'explicit' }, oauth_quota_priority: false, oauth_quota_threshold: 90, balance_protocols: true, enabled: false, mode: 'balanced', group_ids: [], models: [], window_minutes: 60, min_samples: 5, target_ttft_ms: 3000, max_load_percent: 80, min_quality_percent: 90, quality_max_age_hours: 24, quality_weight: 30, latency_weight: 25, load_weight: 25, cost_weight: 20 }
+const savedDefaults = { latency_percentile: 90 as const, latency_measurement: 'legacy_forward' as const, recovery_exploration_percent: 0, latency_penalty_minutes: 10 }
 beforeEach(() => { vi.resetAllMocks(); state.auth = reactive({ user: { id: 1, role: 'admin' } }); vi.mocked(getPriorityConfig).mockResolvedValue({ ...config, teams: { ...config.teams } }); vi.mocked(getPrioritySnapshot).mockResolvedValue(null); vi.mocked(savePriorityConfig).mockImplementation(async c => c) })
 describe('priority scheduling', () => {
   it('defaults an omitted latency penalty and saves an explicit duration or zero', async () => {
@@ -20,10 +21,10 @@ describe('priority scheduling', () => {
     expect((wrapper.get('[data-testid="latency_penalty_minutes"]').element as HTMLInputElement).value).toBe('10')
     await wrapper.get('[data-testid="latency_penalty_minutes"]').setValue(15)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, latency_penalty_minutes: 15 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, latency_penalty_minutes: 15 })
     await wrapper.get('[data-testid="latency_penalty_minutes"]').setValue(0)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, latency_penalty_minutes: 0 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, latency_penalty_minutes: 0 })
     wrapper.unmount()
   })
 
@@ -52,10 +53,10 @@ describe('priority scheduling', () => {
     expect((wrapper.get('[data-testid="oauth-quota-threshold"]').element as HTMLInputElement).value).toBe('90')
     await wrapper.get('[data-testid="oauth-quota-threshold"]').setValue(85)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, oauth_quota_priority: true, oauth_quota_threshold: 85 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, oauth_quota_priority: true, oauth_quota_threshold: 85 })
     await wrapper.get('[data-testid="oauth-quota-priority"]').setValue(false)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, oauth_quota_priority: false, oauth_quota_threshold: 85 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, oauth_quota_priority: false, oauth_quota_threshold: 85 })
     wrapper.unmount()
   })
 
@@ -63,7 +64,7 @@ describe('priority scheduling', () => {
     const wrapper = mount(PrioritySchedulingView); await flushPromises()
     await wrapper.get('[data-testid="balance-protocols"]').setValue(false)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, balance_protocols: false })
+    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, ...savedDefaults, balance_protocols: false })
     wrapper.unmount()
   })
   it('shows capacity weights, group bindings and exploration without treating scores as selections', async () => {
@@ -86,7 +87,7 @@ describe('priority scheduling', () => {
     await wrapper.get('[data-testid="teams-recovery"]').setValue(true)
     await wrapper.get('[data-testid="teams-window-source"]').setValue('first_usage')
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, teams: { enabled: true, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'first_usage' } })
+    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, ...savedDefaults, teams: { enabled: true, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'first_usage' } })
     wrapper.unmount()
   })
   it('saves enabled strategy and exact group/model scope', async () => {
@@ -96,7 +97,7 @@ describe('priority scheduling', () => {
     await wrapper.get('[data-testid="groups"]').setValue('5, 7, 5')
     await wrapper.get('textarea').setValue('gpt-test\ngpt-other\n')
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, enabled: true, mode: 'profit', group_ids: [5, 7], models: ['gpt-test', 'gpt-other'] })
+    expect(savePriorityConfig).toHaveBeenCalledWith({ ...config, ...savedDefaults, enabled: true, mode: 'profit', group_ids: [5, 7], models: ['gpt-test', 'gpt-other'] })
     expect(wrapper.text()).toContain('priorityScheduling.saved'); wrapper.unmount()
   })
   it('rejects invalid groups without sending a write', async () => {
