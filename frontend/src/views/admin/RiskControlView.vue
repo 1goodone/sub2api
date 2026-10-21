@@ -126,6 +126,17 @@
                       <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         {{ t('admin.riskControl.preBlockAPIKeyTotals', { total: formatNumber(item.total), success: formatNumber(item.success), errors: formatNumber(item.errors) }) }}
                       </p>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('admin.riskControl.preBlockAPIKeyTokens', {
+                          todayCalls: formatNumber(item.today_calls || 0),
+                          todayTokens: formatTokenAmount((item.today_input_tokens || 0) + (item.today_output_tokens || 0)),
+                          todayIn: formatTokenAmount(item.today_input_tokens || 0),
+                          todayOut: formatTokenAmount(item.today_output_tokens || 0),
+                          totalTokens: formatTokenAmount((item.total_input_tokens || 0) + (item.total_output_tokens || 0)),
+                          totalIn: formatTokenAmount(item.total_input_tokens || 0),
+                          totalOut: formatTokenAmount(item.total_output_tokens || 0),
+                        }) }}
+                      </p>
                     </div>
                     <div class="grid grid-cols-4 gap-2 text-right text-xs text-gray-500 dark:text-gray-400 sm:min-w-[280px]">
                       <div>
@@ -424,10 +435,14 @@
                   </button>
                 </div>
                 <div v-for="(row, index) in configForm.endpoint_rows" :key="index" class="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <input v-model="row.url" data-test="audit-base-url" type="text" class="input font-mono text-sm" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" :aria-label="t('admin.riskControl.endpointUrl')" />
-                  <input v-model="row.key" data-test="audit-endpoint-key" type="password" autocomplete="new-password" class="input font-mono text-sm" :placeholder="row.mask || t('admin.riskControl.endpointKey')" :aria-label="t('admin.riskControl.endpointKey')" />
-                  <button type="button" class="btn btn-secondary" :disabled="configForm.endpoint_rows.length === 1" @click="removeEndpointRow(index)">{{ t('admin.riskControl.removeEndpointPair') }}</button>
-                  <p v-if="row.mask && !row.key" class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-3">{{ t('admin.riskControl.savedEndpointKey', { mask: row.mask }) }}</p>
+                  <input v-model="row.url" data-test="audit-base-url" type="text" class="input font-mono text-sm" :class="row.paused ? 'opacity-60' : ''" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" :aria-label="t('admin.riskControl.endpointUrl')" />
+                  <input v-model="row.key" data-test="audit-endpoint-key" type="password" autocomplete="new-password" class="input font-mono text-sm" :class="row.paused ? 'opacity-60' : ''" :placeholder="row.mask || t('admin.riskControl.endpointKey')" :aria-label="t('admin.riskControl.endpointKey')" />
+                  <div class="flex gap-2">
+                    <button type="button" class="btn btn-secondary" data-test="audit-endpoint-pause" @click="toggleEndpointPause(index)">{{ row.paused ? t('admin.riskControl.resumeApiKey') : t('admin.riskControl.pauseApiKey') }}</button>
+                    <button type="button" class="btn btn-secondary" :disabled="configForm.endpoint_rows.length === 1" @click="removeEndpointRow(index)">{{ t('admin.riskControl.removeEndpointPair') }}</button>
+                  </div>
+                  <p v-if="row.paused" class="text-xs text-amber-700 dark:text-amber-300 lg:col-span-3">{{ t('admin.riskControl.apiKeyPaused') }}</p>
+                  <p v-else-if="row.mask && !row.key" class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-3">{{ t('admin.riskControl.savedEndpointKey', { mask: row.mask }) }}</p>
                 </div>
                 <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.baseUrlHint') }}</p>
               </div>
@@ -623,6 +638,14 @@
                               <span class="h-1.5 w-1.5 rounded-full" :class="apiKeyStatusDotClass(row.status)"></span>
                               {{ apiKeyStatusLabel(row.status) }}
                             </span>
+                            <button
+                              v-if="row.configured && !configForm.clear_api_key"
+                              type="button"
+                              class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-dark-700 dark:hover:text-gray-100"
+                              @click="toggleStoredApiKeyPause(row)"
+                            >
+                              {{ endpointPaused(row) ? t('admin.riskControl.resumeApiKey') : t('admin.riskControl.pauseApiKey') }}
+                            </button>
                             <button
                               v-if="row.configured && !configForm.clear_api_key"
                               type="button"
@@ -1161,7 +1184,7 @@ import { formatDateTime as formatDateTimeValue } from '@/utils/format'
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
 type APIKeysWriteMode = 'append' | 'replace'
-type EndpointRow = { url: string; key: string; keepHash: string; mask: string }
+type EndpointRow = { url: string; key: string; keepHash: string; mask: string; paused: boolean }
 type OverviewIcon = 'shield' | 'key' | 'users' | 'document'
 type OverviewItem = {
   key: string
@@ -1242,7 +1265,7 @@ const configForm = reactive({
   enabled: false,
   mode: 'pre_block' as ModerationMode,
   base_url: 'https://api.openai.com',
-  endpoint_rows: [{ url: 'https://api.openai.com', key: '', keepHash: '', mask: '' }] as EndpointRow[],
+  endpoint_rows: [{ url: 'https://api.openai.com', key: '', keepHash: '', mask: '', paused: false }] as EndpointRow[],
   model: 'omni-moderation-latest',
   proxy_id: null as number | null,
   api_keys_text: '',
@@ -1317,6 +1340,7 @@ function endpointRowsFromConfig(config: Pick<ContentModerationConfig, 'base_url'
     key: '',
     keepHash: statuses[index]?.key_hash || '',
     mask: statuses[index]?.masked || '',
+    paused: Boolean(statuses[index]?.paused),
   }))
 }
 
@@ -1327,11 +1351,27 @@ function syncEndpointFields() {
 function endpointSlots(rows: EndpointRow[]): ContentModerationAPIKeySlot[] {
   return rows
     .filter(row => row.url.trim() || row.key.trim() || row.keepHash)
-    .map(row => ({ key: row.key.trim(), keep_hash: row.key.trim() ? '' : row.keepHash }))
+    .map(row => ({
+      key: row.key.trim(),
+      keep_hash: row.key.trim() ? '' : row.keepHash,
+      ...(row.paused ? { paused: true } : {}),
+    }))
 }
 
 function addEndpointRow() {
-  configForm.endpoint_rows.push({ url: '', key: '', keepHash: '', mask: '' })
+  configForm.endpoint_rows.push({ url: '', key: '', keepHash: '', mask: '', paused: false })
+}
+
+function toggleEndpointPause(index: number) {
+  const row = configForm.endpoint_rows[index]
+  if (!row) return
+  row.paused = !row.paused
+}
+
+function toggleStoredApiKeyPause(statusRow: ContentModerationAPIKeyStatus) {
+  const row = configForm.endpoint_rows.find(item => item.keepHash && item.keepHash === statusRow.key_hash)
+  if (!row) return
+  row.paused = !row.paused
 }
 
 function removeEndpointRow(index: number) {
@@ -2306,8 +2346,14 @@ function apiKeyStatusDotClass(statusValue: ContentModerationAPIKeyStatus['status
   return classes[statusValue] ?? classes.unknown
 }
 
+function endpointPaused(row: ContentModerationAPIKeyStatus): boolean {
+  return configForm.endpoint_rows.some(item => item.keepHash === row.key_hash && item.paused)
+}
+
 function apiKeyStatusMeta(row: ContentModerationAPIKeyStatus): string {
   const parts: string[] = []
+  if (endpointPaused(row)) parts.push(t('admin.riskControl.apiKeyPaused'))
+  parts.push(t('admin.riskControl.apiKeySuccessCount', { count: row.success_count || 0 }))
   parts.push(t('admin.riskControl.apiKeyFailureCount', { count: row.failure_count || 0 }))
   if (row.last_latency_ms > 0) {
     parts.push(t('admin.riskControl.apiKeyLatency', { ms: row.last_latency_ms }))
@@ -2443,6 +2489,19 @@ function formatDateTime(value: string): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
+}
+
+function formatTokenAmount(value: number): string {
+  const amount = Math.max(0, value || 0)
+  if (amount >= 1000000) {
+    const scaled = amount / 1000000
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}M`
+  }
+  if (amount >= 1000) {
+    const scaled = amount / 1000
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}k`
+  }
+  return formatNumber(amount)
 }
 
 onMounted(() => {

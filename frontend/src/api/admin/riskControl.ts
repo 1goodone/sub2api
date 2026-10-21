@@ -70,6 +70,7 @@ export interface ContentModerationAPIKeyStatus {
   last_http_status: number
   last_tested: boolean
   configured: boolean
+  paused?: boolean
 }
 
 export interface TestContentModerationAPIKeysPayload {
@@ -183,6 +184,11 @@ export interface ContentModerationAPIKeyLoad {
   success: number
   errors: number
   avg_latency_ms: number
+  today_calls?: number
+  today_input_tokens?: number
+  today_output_tokens?: number
+  total_input_tokens?: number
+  total_output_tokens?: number
   last_latency_ms: number
   last_http_status: number
 }
@@ -222,6 +228,7 @@ export interface ContentModerationLog {
 export interface ContentModerationAPIKeySlot {
   key?: string
   keep_hash?: string
+  paused?: boolean
 }
 
 export type UpdateModerationEngineConfig = Pick<UpdateContentModerationConfig,

@@ -151,6 +151,7 @@ type ContentModerationConfig struct {
 	ProxyID              *int64                       `json:"proxy_id,omitempty"`
 	APIKey               string                       `json:"api_key,omitempty"`
 	APIKeys              []string                     `json:"api_keys,omitempty"`
+	PausedKeyHashes      []string                     `json:"paused_key_hashes,omitempty"`
 	TimeoutMS            int                          `json:"timeout_ms"`
 	SampleRate           int                          `json:"sample_rate"`
 	AllGroups            bool                         `json:"all_groups"`
@@ -230,20 +231,26 @@ type ContentModerationAPIKeyStatus struct {
 	LastHTTPStatus int        `json:"last_http_status"`
 	LastTested     bool       `json:"last_tested"`
 	Configured     bool       `json:"configured"`
+	Paused         bool       `json:"paused"`
 }
 
 type ContentModerationAPIKeyLoad struct {
-	Index          int    `json:"index"`
-	KeyHash        string `json:"key_hash"`
-	Masked         string `json:"masked"`
-	Status         string `json:"status"`
-	Active         int64  `json:"active"`
-	Total          int64  `json:"total"`
-	Success        int64  `json:"success"`
-	Errors         int64  `json:"errors"`
-	AvgLatencyMS   int64  `json:"avg_latency_ms"`
-	LastLatencyMS  int    `json:"last_latency_ms"`
-	LastHTTPStatus int    `json:"last_http_status"`
+	Index             int    `json:"index"`
+	KeyHash           string `json:"key_hash"`
+	Masked            string `json:"masked"`
+	Status            string `json:"status"`
+	Active            int64  `json:"active"`
+	Total             int64  `json:"total"`
+	Success           int64  `json:"success"`
+	Errors            int64  `json:"errors"`
+	AvgLatencyMS      int64  `json:"avg_latency_ms"`
+	TodayCalls        int64  `json:"today_calls"`
+	TodayInputTokens  int64  `json:"today_input_tokens"`
+	TodayOutputTokens int64  `json:"today_output_tokens"`
+	TotalInputTokens  int64  `json:"total_input_tokens"`
+	TotalOutputTokens int64  `json:"total_output_tokens"`
+	LastLatencyMS     int    `json:"last_latency_ms"`
+	LastHTTPStatus    int    `json:"last_http_status"`
 }
 
 type TestContentModerationAPIKeysInput struct {
@@ -547,6 +554,7 @@ type ContentModerationService struct {
 	runtimeRefreshRetryAt    atomic.Int64
 	keyHealthMu              sync.Mutex
 	keyHealth                map[string]*contentModerationKeyHealth
+	keyUsage                 ContentModerationKeyUsageStore
 }
 
 type contentModerationRuntimeSnapshot struct {
@@ -1467,6 +1475,13 @@ func (s *ContentModerationService) GetStatus(ctx context.Context) (*ContentModer
 		t := time.Unix(unix, 0)
 		lastCleanupAt = &t
 	}
+	preBlockKeyLoads := s.applyPersistedKeyUsage(ctx, cfg.Engine, s.preBlockAPIKeyLoads(cfg.apiKeys(), cfg.Engine))
+	var preBlockKeyActive int64
+	var preBlockKeyTotalCalls int64
+	for _, item := range preBlockKeyLoads {
+		preBlockKeyActive += item.Active
+		preBlockKeyTotalCalls += item.Total
+	}
 	return &ContentModerationRuntimeStatus{
 		Engine:                       cfg.Engine,
 		Enabled:                      cfg.Enabled,
@@ -1489,11 +1504,11 @@ func (s *ContentModerationService) GetStatus(ctx context.Context) (*ContentModer
 		PreBlockBlocked:              s.preBlockBlocked.Load(),
 		PreBlockErrors:               s.preBlockErrors.Load(),
 		PreBlockAvgLatencyMS:         preBlockAvgLatency,
-		PreBlockAPIKeyActive:         s.preBlockAPIKeyActive(cfg.apiKeys(), cfg.Engine),
-		PreBlockAPIKeyAvailableCount: s.preBlockAPIKeyAvailableCount(cfg.apiKeys(), cfg.Engine),
-		PreBlockAPIKeyTotalCalls:     s.preBlockAPIKeyTotalCalls(cfg.apiKeys(), cfg.Engine),
-		PreBlockAPIKeyLoads:          s.preBlockAPIKeyLoads(cfg.apiKeys(), cfg.Engine),
-		APIKeyStatuses:               s.apiKeyStatuses(cfg.apiKeys(), cfg.Engine),
+		PreBlockAPIKeyActive:         preBlockKeyActive,
+		PreBlockAPIKeyAvailableCount: s.preBlockAPIKeyAvailableCount(cfg),
+		PreBlockAPIKeyTotalCalls:     preBlockKeyTotalCalls,
+		PreBlockAPIKeyLoads:          preBlockKeyLoads,
+		APIKeyStatuses:               applyPausedAPIKeyFlags(s.apiKeyStatuses(cfg.apiKeys(), cfg.Engine), cfg.PausedKeyHashes),
 		FlaggedHashCount:             flaggedHashCount,
 		LastCleanupAt:                lastCleanupAt,
 		LastCleanupDeletedHit:        s.lastCleanupDeletedHit.Load(),
@@ -1783,12 +1798,14 @@ func (s *ContentModerationService) callModeration(ctx context.Context, cfg *Cont
 			if trackLoad {
 				s.finishModerationAPIKeyCall(key, latency, true, cfg.Engine)
 			}
+			s.recordModerationKeyUsage(ctx, cfg, key, latency, true, result)
 			s.markAPIKeySuccess(key, latency, httpStatus, cfg.Engine)
 			return result, nil
 		}
 		if trackLoad {
 			s.finishModerationAPIKeyCall(key, latency, false, cfg.Engine)
 		}
+		s.recordModerationKeyUsage(ctx, cfg, key, latency, false, nil)
 		s.markAPIKeyError(key, err.Error(), latency, httpStatus, cfg.Engine)
 		lastErr = err
 		if httpStatus == http.StatusBadRequest {
@@ -1828,7 +1845,7 @@ func (s *ContentModerationService) callModerationAcrossBaseURLs(ctx context.Cont
 	for attempt := 0; attempt < tries; attempt++ {
 		idx := (start + attempt) % len(urls)
 		key := keys[idx]
-		if s.isAPIKeyFrozen(key, time.Now(), cfg.Engine) {
+		if cfg.apiKeyPaused(key) || s.isAPIKeyFrozen(key, time.Now(), cfg.Engine) {
 			lastErr = errors.New("no moderation api key available")
 			skipped++
 			continue
@@ -1846,12 +1863,14 @@ func (s *ContentModerationService) callModerationAcrossBaseURLs(ctx context.Cont
 			if trackLoad {
 				s.finishModerationAPIKeyCall(key, latency, true, cfg.Engine)
 			}
+			s.recordModerationKeyUsage(ctx, cfg, key, latency, true, result)
 			s.markAPIKeySuccess(key, latency, httpStatus, cfg.Engine)
 			return result, nil
 		}
 		if trackLoad {
 			s.finishModerationAPIKeyCall(key, latency, false, cfg.Engine)
 		}
+		s.recordModerationKeyUsage(ctx, cfg, key, latency, false, nil)
 		s.markAPIKeyError(key, err.Error(), latency, httpStatus, cfg.Engine)
 		lastErr = err
 		if httpStatus == http.StatusBadRequest || attempt == tries-1 {
@@ -1942,7 +1961,10 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 	if len(out.Results) == 0 {
 		return nil, errors.New("moderation api returned empty results")
 	}
+	inTokens, outTokens := out.Usage.normalized()
 	out.Results[0].EngineMeta = &ContentModerationEngineMeta{Engine: ContentModerationEngineOpenAI, Model: out.Model}
+	out.Results[0].InputTokens = inTokens
+	out.Results[0].OutputTokens = outTokens
 	return &out.Results[0], nil
 }
 
@@ -2281,6 +2303,7 @@ func cloneContentModerationConfig(cfg *ContentModerationConfig) *ContentModerati
 	}
 	clone.ProxyID = cloneInt64Ptr(cfg.ProxyID)
 	clone.APIKeys = append([]string(nil), cfg.APIKeys...)
+	clone.PausedKeyHashes = append([]string(nil), cfg.PausedKeyHashes...)
 	clone.BaseURLs = append([]string(nil), cfg.BaseURLs...)
 	clone.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
 	clone.BlockedKeywords = append([]string(nil), cfg.BlockedKeywords...)
@@ -2447,7 +2470,7 @@ func (s *ContentModerationService) nextUsableAPIKey(cfg *ContentModerationConfig
 	for i := 0; i < len(keys); i++ {
 		idx := int(s.apiKeyCursor.Add(1)-1) % len(keys)
 		key := keys[idx]
-		if !s.isAPIKeyFrozen(key, now, cfg.Engine) {
+		if !cfg.apiKeyPaused(key) && !s.isAPIKeyFrozen(key, now, cfg.Engine) {
 			return key, true
 		}
 	}
@@ -2588,7 +2611,7 @@ func (s *ContentModerationService) configView(cfg *ContentModerationConfig) *Con
 		APIKeyMasked:                   apiKeyMasked,
 		APIKeyCount:                    len(keys),
 		APIKeyMasks:                    masks,
-		APIKeyStatuses:                 s.apiKeyStatuses(keys, cfg.Engine),
+		APIKeyStatuses:                 applyPausedAPIKeyFlags(s.apiKeyStatuses(keys, cfg.Engine), cfg.PausedKeyHashes),
 		TimeoutMS:                      cfg.TimeoutMS,
 		SampleRate:                     cfg.SampleRate,
 		AllGroups:                      cfg.AllGroups,
@@ -2638,15 +2661,47 @@ func (s *ContentModerationService) preBlockAPIKeyActive(keys []string, engine ..
 	return total
 }
 
-func (s *ContentModerationService) preBlockAPIKeyAvailableCount(keys []string, engine ...string) int64 {
+func (s *ContentModerationService) preBlockAPIKeyAvailableCount(cfg *ContentModerationConfig) int64 {
+	if cfg == nil {
+		return 0
+	}
 	now := time.Now()
 	var count int64
-	for _, key := range keys {
-		if !s.isAPIKeyFrozen(key, now, engine...) {
+	for _, key := range cfg.apiKeys() {
+		if !cfg.apiKeyPaused(key) && !s.isAPIKeyFrozen(key, now, cfg.Engine) {
 			count++
 		}
 	}
 	return count
+}
+
+func (cfg *ContentModerationConfig) apiKeyPaused(key string) bool {
+	if cfg == nil || key == "" || len(cfg.PausedKeyHashes) == 0 {
+		return false
+	}
+	hash := scopedModerationKeyHash(key, cfg.Engine)
+	for _, item := range cfg.PausedKeyHashes {
+		if item == hash {
+			return true
+		}
+	}
+	return false
+}
+
+func applyPausedAPIKeyFlags(statuses []ContentModerationAPIKeyStatus, paused []string) []ContentModerationAPIKeyStatus {
+	if len(statuses) == 0 || len(paused) == 0 {
+		return statuses
+	}
+	set := make(map[string]struct{}, len(paused))
+	for _, hash := range paused {
+		set[hash] = struct{}{}
+	}
+	for i := range statuses {
+		if _, ok := set[statuses[i].KeyHash]; ok {
+			statuses[i].Paused = true
+		}
+	}
+	return statuses
 }
 
 func (s *ContentModerationService) preBlockAPIKeyTotalCalls(keys []string, engine ...string) int64 {
@@ -2848,12 +2903,43 @@ type moderationAPIImageURLRef struct {
 type moderationAPIResponse struct {
 	Model   string                `json:"model"`
 	Results []moderationAPIResult `json:"results"`
+	Usage   moderationTokenUsage  `json:"usage"`
 }
 
 type moderationAPIResult struct {
 	EngineMeta     *ContentModerationEngineMeta `json:"-"`
 	Flagged        bool                         `json:"flagged"`
 	CategoryScores map[string]float64           `json:"category_scores"`
+	InputTokens    int                          `json:"-"`
+	OutputTokens   int                          `json:"-"`
+}
+
+type moderationTokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+}
+
+func (u moderationTokenUsage) normalized() (int, int) {
+	in, out := u.InputTokens, u.OutputTokens
+	if in == 0 && u.PromptTokens > 0 {
+		in = u.PromptTokens
+	}
+	if out == 0 && u.CompletionTokens > 0 {
+		out = u.CompletionTokens
+	}
+	if in == 0 && out == 0 && u.TotalTokens > 0 {
+		in = u.TotalTokens
+	}
+	if in < 0 {
+		in = 0
+	}
+	if out < 0 {
+		out = 0
+	}
+	return in, out
 }
 
 func evaluateModerationScores(scores map[string]float64, thresholds map[string]float64) (bool, string, float64) {

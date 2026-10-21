@@ -13,6 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestContentModerationRepositoryKeyUsageUpsert(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	day := time.Date(2026, 10, 21, 0, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	mock.ExpectExec("INSERT INTO content_moderation_key_usage").WithArgs(
+		"typesafe", "hash-a", day, int64(1), int64(1), int64(0), int64(40), int64(100000), int64(20),
+	).WillReturnResult(sqlmock.NewResult(0, 2))
+	err = NewContentModerationRepository(db).(service.ContentModerationKeyUsageStore).AddKeyUsage(context.Background(), service.ContentModerationKeyUsageDelta{
+		Engine: "typesafe", KeyHash: "hash-a", Day: day, Calls: 1, Success: 1, LatencyMS: 40, InputTokens: 100000, OutputTokens: 20,
+	})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestContentModerationRepositoryEngineMetaInsert(t *testing.T) {
 	for _, meta := range []*service.ContentModerationEngineMeta{nil, {Engine: "typesafe", Model: "jev-fixed", RulesVersion: "rules-v1", SkippedImages: 1}} {
 		db, mock, err := sqlmock.New()

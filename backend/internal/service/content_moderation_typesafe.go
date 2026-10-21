@@ -87,9 +87,14 @@ func (s *ContentModerationService) callTypeSafeModeration(ctx context.Context, c
 	if err != nil {
 		return nil, err
 	}
-	return &moderationAPIResult{CategoryScores: result.Scores, EngineMeta: &ContentModerationEngineMeta{
-		Engine: ContentModerationEngineTypeSafe, Model: result.Model, RulesVersion: TypeSafeModerationRulesVersion, SkippedImages: skipped,
-	}}, nil
+	return &moderationAPIResult{
+		CategoryScores: result.Scores,
+		InputTokens:    result.Usage.InputTokens,
+		OutputTokens:   result.Usage.OutputTokens,
+		EngineMeta: &ContentModerationEngineMeta{
+			Engine: ContentModerationEngineTypeSafe, Model: result.Model, RulesVersion: TypeSafeModerationRulesVersion, SkippedImages: skipped,
+		},
+	}, nil
 }
 
 func moderationAttemptMeta(cfg *ContentModerationConfig, input ContentModerationInput) *ContentModerationEngineMeta {

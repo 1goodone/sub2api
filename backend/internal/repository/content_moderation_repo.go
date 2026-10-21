@@ -254,6 +254,73 @@ WHERE flagged = FALSE AND created_at < $1
 	return result, nil
 }
 
+func (r *contentModerationRepository) AddKeyUsage(ctx context.Context, delta service.ContentModerationKeyUsageDelta) error {
+	if delta.KeyHash == "" || delta.Calls == 0 {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO content_moderation_key_usage (
+    engine, key_hash, bucket, usage_date, calls, success, errors, latency_ms_sum, input_tokens, output_tokens, updated_at
+) VALUES
+    ($1, $2, 'day', $3, $4, $5, $6, $7, $8, $9, NOW()),
+    ($1, $2, 'total', DATE '1970-01-01', $4, $5, $6, $7, $8, $9, NOW())
+ON CONFLICT (engine, key_hash, bucket, usage_date) DO UPDATE SET
+    calls = content_moderation_key_usage.calls + EXCLUDED.calls,
+    success = content_moderation_key_usage.success + EXCLUDED.success,
+    errors = content_moderation_key_usage.errors + EXCLUDED.errors,
+    latency_ms_sum = content_moderation_key_usage.latency_ms_sum + EXCLUDED.latency_ms_sum,
+    input_tokens = content_moderation_key_usage.input_tokens + EXCLUDED.input_tokens,
+    output_tokens = content_moderation_key_usage.output_tokens + EXCLUDED.output_tokens,
+    updated_at = NOW()`,
+		delta.Engine, delta.KeyHash, delta.Day, delta.Calls, delta.Success, delta.Errors, delta.LatencyMS, delta.InputTokens, delta.OutputTokens,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert content moderation key usage: %w", err)
+	}
+	return nil
+}
+
+func (r *contentModerationRepository) ListKeyUsage(ctx context.Context, engine string, day time.Time) (map[string]service.ContentModerationKeyUsageSnapshot, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT key_hash, bucket, calls, success, errors, latency_ms_sum, input_tokens, output_tokens
+FROM content_moderation_key_usage
+WHERE engine = $1 AND (bucket = 'total' OR (bucket = 'day' AND usage_date = $2))`, engine, day)
+	if err != nil {
+		return nil, fmt.Errorf("list content moderation key usage: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]service.ContentModerationKeyUsageSnapshot{}
+	for rows.Next() {
+		var hash, bucket string
+		var calls, success, errors, latency, inputTokens, outputTokens int64
+		if err := rows.Scan(&hash, &bucket, &calls, &success, &errors, &latency, &inputTokens, &outputTokens); err != nil {
+			return nil, fmt.Errorf("scan content moderation key usage: %w", err)
+		}
+		snap := out[hash]
+		switch bucket {
+		case "day":
+			snap.TodayCalls = calls
+			snap.TodaySuccess = success
+			snap.TodayErrors = errors
+			snap.TodayLatencyMS = latency
+			snap.TodayInputTokens = inputTokens
+			snap.TodayOutputTokens = outputTokens
+		case "total":
+			snap.TotalCalls = calls
+			snap.TotalSuccess = success
+			snap.TotalErrors = errors
+			snap.TotalLatencyMS = latency
+			snap.TotalInputTokens = inputTokens
+			snap.TotalOutputTokens = outputTokens
+		}
+		out[hash] = snap
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate content moderation key usage: %w", err)
+	}
+	return out, nil
+}
+
 func nullableIntPtr(value *int) any {
 	if value == nil {
 		return nil

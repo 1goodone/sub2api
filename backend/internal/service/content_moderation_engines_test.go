@@ -154,7 +154,7 @@ func TestContentModerationTypeSafeFailureOpenAndKeyIsolation(t *testing.T) {
 	require.False(t, s.isAPIKeyFrozen("shared-key", time.Now(), "openai"))
 	require.Equal(t, "frozen", s.apiKeyStatuses(cfg.APIKeys, "typesafe")[0].Status)
 	require.Equal(t, "unknown", s.apiKeyStatuses(cfg.APIKeys, "openai")[0].Status)
-	require.Zero(t, s.preBlockAPIKeyAvailableCount(cfg.APIKeys, "typesafe"))
+	require.Zero(t, s.preBlockAPIKeyAvailableCount(cfg))
 }
 
 func TestContentModerationTypeSafeTestDoesNotSwitchActiveEngine(t *testing.T) {
@@ -215,6 +215,74 @@ func TestContentModerationEngineRuntimeSwitchKeepsInFlightSnapshot(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, "typesafe", status.Engine)
 	require.Equal(t, scopedModerationKeyHash("typesafe-key", "typesafe"), status.APIKeyStatuses[0].KeyHash)
+}
+
+type memoryKeyUsageStore struct {
+	deltas []ContentModerationKeyUsageDelta
+	snaps  map[string]ContentModerationKeyUsageSnapshot
+}
+
+func (s *memoryKeyUsageStore) AddKeyUsage(_ context.Context, delta ContentModerationKeyUsageDelta) error {
+	s.deltas = append(s.deltas, delta)
+	return nil
+}
+
+func (s *memoryKeyUsageStore) ListKeyUsage(context.Context, string, time.Time) (map[string]ContentModerationKeyUsageSnapshot, error) {
+	return s.snaps, nil
+}
+
+func TestModerationKeyUsageRecordsProviderTokens(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{
+			Model:   "omni",
+			Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.1}}},
+			Usage:   moderationTokenUsage{InputTokens: 100000, OutputTokens: 20},
+		})
+	}))
+	defer up.Close()
+	store := &memoryKeyUsageStore{}
+	svc := &ContentModerationService{httpClient: up.Client(), keyUsage: store}
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURL = up.URL
+	cfg.APIKeys = []string{"sk-usage"}
+	_, err := svc.callModeration(context.Background(), cfg, "hello")
+	require.NoError(t, err)
+	require.Len(t, store.deltas, 1)
+	require.Equal(t, int64(100000), store.deltas[0].InputTokens)
+	require.Equal(t, int64(20), store.deltas[0].OutputTokens)
+	require.Equal(t, int64(1), store.deltas[0].Success)
+	require.Equal(t, contentModerationUsageDay(time.Now()), store.deltas[0].Day)
+
+	hash := scopedModerationKeyHash("sk-usage")
+	store.snaps = map[string]ContentModerationKeyUsageSnapshot{
+		hash: {TodayCalls: 3, TodayInputTokens: 100000, TodayOutputTokens: 20, TotalCalls: 9, TotalInputTokens: 5000000, TotalOutputTokens: 40, TotalLatencyMS: 90},
+	}
+	loads := svc.applyPersistedKeyUsage(context.Background(), cfg.Engine, svc.preBlockAPIKeyLoads(cfg.apiKeys(), cfg.Engine))
+	require.Equal(t, int64(3), loads[0].TodayCalls)
+	require.Equal(t, int64(100000), loads[0].TodayInputTokens)
+	require.Equal(t, int64(9), loads[0].Total)
+	require.Equal(t, int64(5000000), loads[0].TotalInputTokens)
+	require.Equal(t, int64(10), loads[0].AvgLatencyMS)
+}
+
+func TestPausedAPIKeyIsSkipped(t *testing.T) {
+	var calls atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		require.Equal(t, "Bearer sk-b", r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Model: "omni", Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.1}}}})
+	}))
+	defer up.Close()
+	s := &ContentModerationService{httpClient: up.Client(), keyHealth: map[string]*contentModerationKeyHealth{}}
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURLs = []string{"http://paused.invalid", up.URL}
+	cfg.BaseURL = cfg.BaseURLs[0]
+	cfg.APIKeys = []string{"sk-a", "sk-b"}
+	cfg.PausedKeyHashes = []string{scopedModerationKeyHash("sk-a", ContentModerationEngineOpenAI)}
+	_, err := s.callModerationAcrossBaseURLs(context.Background(), cfg, "hello", false)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, int64(1), s.preBlockAPIKeyAvailableCount(cfg))
 }
 
 func TestApplyModerationAPIKeySlotsKeepsPairOrder(t *testing.T) {

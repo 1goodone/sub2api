@@ -14,14 +14,15 @@ const (
 )
 
 type ContentModerationEngineConfig struct {
-	BaseURL    string             `json:"base_url"`
-	BaseURLs   []string           `json:"base_urls,omitempty"`
-	Model      string             `json:"model"`
-	ProxyID    *int64             `json:"proxy_id,omitempty"`
-	APIKeys    []string           `json:"api_keys,omitempty"`
-	TimeoutMS  int                `json:"timeout_ms"`
-	RetryCount int                `json:"retry_count"`
-	Thresholds map[string]float64 `json:"thresholds"`
+	BaseURL         string             `json:"base_url"`
+	BaseURLs        []string           `json:"base_urls,omitempty"`
+	Model           string             `json:"model"`
+	ProxyID         *int64             `json:"proxy_id,omitempty"`
+	APIKeys         []string           `json:"api_keys,omitempty"`
+	PausedKeyHashes []string           `json:"paused_key_hashes,omitempty"`
+	TimeoutMS       int                `json:"timeout_ms"`
+	RetryCount      int                `json:"retry_count"`
+	Thresholds      map[string]float64 `json:"thresholds"`
 }
 
 type UpdateContentModerationEngineInput struct {
@@ -42,6 +43,7 @@ type UpdateContentModerationEngineInput struct {
 type ContentModerationAPIKeySlot struct {
 	Key      string `json:"key"`
 	KeepHash string `json:"keep_hash"`
+	Paused   bool   `json:"paused"`
 }
 
 func applyModerationAPIKeySlots(existing []string, slots []ContentModerationAPIKeySlot, engine string) ([]string, error) {
@@ -82,6 +84,24 @@ func applyModerationAPIKeySlots(existing []string, slots []ContentModerationAPIK
 	return normalizeModerationAPIKeys(out), nil
 }
 
+func pausedHashesForSlots(keys []string, slots []ContentModerationAPIKeySlot, engine string) []string {
+	out := make([]string, 0)
+	index := 0
+	for _, slot := range slots {
+		if strings.TrimSpace(slot.Key) == "" && strings.TrimSpace(slot.KeepHash) == "" {
+			continue
+		}
+		if index >= len(keys) {
+			break
+		}
+		if slot.Paused {
+			out = append(out, scopedModerationKeyHash(keys[index], engine))
+		}
+		index++
+	}
+	return out
+}
+
 type ContentModerationEngineMeta struct {
 	Engine        string `json:"engine"`
 	Model         string `json:"model"`
@@ -116,10 +136,11 @@ func (cfg *ContentModerationConfig) engineProfile(engine string) *ContentModerat
 		}
 		p = *cfg.TypeSafe
 	} else {
-		p = ContentModerationEngineConfig{BaseURL: cfg.BaseURL, BaseURLs: append([]string(nil), cfg.BaseURLs...), Model: cfg.Model, ProxyID: cfg.ProxyID, APIKeys: cfg.apiKeys(), TimeoutMS: cfg.TimeoutMS, RetryCount: cfg.RetryCount, Thresholds: cfg.Thresholds}
+		p = ContentModerationEngineConfig{BaseURL: cfg.BaseURL, BaseURLs: append([]string(nil), cfg.BaseURLs...), Model: cfg.Model, ProxyID: cfg.ProxyID, APIKeys: cfg.apiKeys(), PausedKeyHashes: append([]string(nil), cfg.PausedKeyHashes...), TimeoutMS: cfg.TimeoutMS, RetryCount: cfg.RetryCount, Thresholds: cfg.Thresholds}
 	}
 	p.ProxyID = cloneInt64Ptr(p.ProxyID)
 	p.APIKeys = append([]string(nil), p.APIKeys...)
+	p.PausedKeyHashes = append([]string(nil), p.PausedKeyHashes...)
 	p.BaseURLs = append([]string(nil), p.BaseURLs...)
 	p.Thresholds = cloneFloatMap(p.Thresholds)
 	p.normalize(engine)
@@ -170,6 +191,7 @@ func (p *ContentModerationEngineConfig) baseURLs() []string {
 func (cfg *ContentModerationConfig) applyEngineProfile(p *ContentModerationEngineConfig) {
 	cfg.BaseURL, cfg.BaseURLs, cfg.Model, cfg.ProxyID = p.BaseURL, append([]string(nil), p.BaseURLs...), p.Model, cloneInt64Ptr(p.ProxyID)
 	cfg.APIKey, cfg.APIKeys = "", append([]string(nil), p.APIKeys...)
+	cfg.PausedKeyHashes = append([]string(nil), p.PausedKeyHashes...)
 	cfg.TimeoutMS, cfg.RetryCount = p.TimeoutMS, p.RetryCount
 	cfg.Thresholds = cloneFloatMap(p.Thresholds)
 }
@@ -218,12 +240,14 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	}
 	if input.ClearAPIKey {
 		p.APIKeys = []string{}
+		p.PausedKeyHashes = nil
 	} else if input.APIKeySlots != nil {
 		keys, err := applyModerationAPIKeySlots(p.APIKeys, *input.APIKeySlots, engine)
 		if err != nil {
 			return err
 		}
 		p.APIKeys = keys
+		p.PausedKeyHashes = pausedHashesForSlots(keys, *input.APIKeySlots, engine)
 	} else {
 		mode := normalizeContentModerationAPIKeysMode(input.APIKeysMode)
 		if input.DeleteAPIKeyHashes != nil && mode != contentModerationAPIKeysModeReplace {
@@ -246,7 +270,7 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	if err := s.validateConfig(ctx, check); err != nil {
 		return err
 	}
-	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, BaseURLs: append([]string(nil), check.BaseURLs...), Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
+	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, BaseURLs: append([]string(nil), check.BaseURLs...), Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, PausedKeyHashes: append([]string(nil), p.PausedKeyHashes...), TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
 	if engine == ContentModerationEngineTypeSafe {
 		cfg.TypeSafe = p
 	} else {
