@@ -1,63 +1,63 @@
 <template>
-  <Teleport to="body">
-  <div v-if="show" class="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4" data-testid="bps-login-overlay" @click.self="closeFromOverlay">
-    <div class="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl dark:bg-dark-800" role="dialog" aria-modal="true" data-testid="bps-login-modal" @click.stop>
-      <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-dark-700">
-        <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.accounts.bpsLogin.title') }}</h2>
-        <button type="button" class="text-gray-400 hover:text-gray-600" @click="close">×</button>
-      </div>
-      <div class="space-y-3 overflow-y-auto px-4 py-3">
-        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bpsLogin.hint') }}</p>
-        <input
-          v-model="query"
-          type="search"
-          class="input w-full"
-          :placeholder="t('admin.accounts.bpsLogin.search')"
-        />
-        <div class="max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-600">
-          <label v-for="account in filtered" :key="account.id" class="flex items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm last:border-b-0 dark:border-dark-700">
-            <input type="checkbox" class="rounded border-gray-300 text-primary-600" :checked="picked.has(account.id)" @change="toggle(account.id)" />
-            <span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-100">{{ account.name || ('#' + account.id) }}</span>
-            <span class="text-xs text-gray-400">#{{ account.id }}</span>
-          </label>
-          <p v-if="filtered.length === 0" class="px-3 py-6 text-center text-sm text-gray-400">{{ t('admin.accounts.bpsLogin.empty') }}</p>
-        </div>
-        <label class="block text-sm text-gray-700 dark:text-gray-200">
-          {{ t('admin.accounts.bpsLogin.proxy') }}
-          <textarea
-            v-model="proxiesText"
-            rows="4"
-            autocomplete="off"
-            spellcheck="false"
-            class="input mt-1 w-full font-mono"
-            :placeholder="t('admin.accounts.bpsLogin.proxyPlaceholder')"
-            data-testid="bps-login-proxy"
-          />
+  <BaseDialog
+    :show="show"
+    :title="t('admin.accounts.bpsLogin.title')"
+    width="normal"
+    :z-index="100000030"
+    :close-on-click-outside="false"
+    @close="close"
+  >
+    <div data-testid="bps-login-modal">
+      <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bpsLogin.hint') }}</p>
+      <input
+        v-model="query"
+        type="search"
+        class="input mt-3 w-full"
+        :placeholder="t('admin.accounts.bpsLogin.search')"
+      />
+      <div class="mt-3 max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-600">
+        <label v-for="account in filtered" :key="account.id" class="flex items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm last:border-b-0 dark:border-dark-700">
+          <input type="checkbox" class="rounded border-gray-300 text-primary-600" :checked="picked.has(account.id)" @change="toggle(account.id)" />
+          <span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-100">{{ account.name || ('#' + account.id) }}</span>
+          <span class="text-xs text-gray-400">#{{ account.id }}</span>
         </label>
-        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bpsLogin.proxyHint') }}</p>
-        <ul v-if="results.length" class="space-y-1 text-xs">
-          <li v-for="item in results" :key="item.account_id" :class="item.error ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'">
-            #{{ item.account_id }} {{ item.error || t('admin.accounts.bpsLogin.started', { id: item.task_id }) }}
-          </li>
-        </ul>
+        <p v-if="filtered.length === 0" class="px-3 py-6 text-center text-sm text-gray-400">{{ t('admin.accounts.bpsLogin.empty') }}</p>
       </div>
-      <div class="flex justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-dark-700">
-        <button type="button" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button>
-        <button type="button" class="btn btn-primary" :disabled="submitting || picked.size === 0 || proxyLines.length === 0" data-testid="bps-login-submit" @click="submit">
-          {{ submitting ? t('admin.accounts.bpsLogin.submitting') : t('admin.accounts.bpsLogin.submit', { count: picked.size }) }}
-        </button>
-      </div>
+      <label class="mt-3 block text-sm text-gray-700 dark:text-gray-200">
+        {{ t('admin.accounts.bpsLogin.proxy') }}
+        <textarea
+          v-model="proxiesText"
+          rows="4"
+          autocomplete="off"
+          spellcheck="false"
+          class="input mt-1 w-full font-mono"
+          :placeholder="t('admin.accounts.bpsLogin.proxyPlaceholder')"
+          data-testid="bps-login-proxy"
+        />
+      </label>
+      <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bpsLogin.proxyHint') }}</p>
+      <ul v-if="results.length" class="mt-3 space-y-1 text-xs">
+        <li v-for="item in results" :key="item.account_id" :class="item.error ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'">
+          #{{ item.account_id }} {{ item.error || t('admin.accounts.bpsLogin.started', { id: item.task_id }) }}
+        </li>
+      </ul>
     </div>
-  </div>
-  </Teleport>
+    <template #footer>
+      <button type="button" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button>
+      <button type="button" class="btn btn-primary" :disabled="submitting || picked.size === 0 || proxyLines.length === 0" data-testid="bps-login-submit" @click="submit">
+        {{ submitting ? t('admin.accounts.bpsLogin.submitting') : t('admin.accounts.bpsLogin.submit', { count: picked.size }) }}
+      </button>
+    </template>
+  </BaseDialog>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { BPSLoginAccountResult } from '@/api/admin/accounts'
 import type { AccountListItem } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 
 const props = defineProps<{ show: boolean; accounts: AccountListItem[]; selectedIds: number[] }>()
 const emit = defineEmits<{ close: [] }>()
@@ -80,16 +80,14 @@ function bpsEligible(account: AccountListItem) {
   return auth !== 'agentidentity' && !personal(auth) && !personal(credential('openai_auth_mode'))
 }
 const proxyLines = computed(() => proxiesText.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean))
-const candidates = computed(() => props.accounts.filter(bpsEligible))
+const candidates = computed(() => (Array.isArray(props.accounts) ? props.accounts : []).filter(bpsEligible))
 const filtered = computed(() => {
   const text = query.value.trim().toLowerCase()
   if (!text) return candidates.value
   return candidates.value.filter(account => (account.name || '').toLowerCase().includes(text) || String(account.id).includes(text))
 })
 
-const overlayReady = ref(false)
-watch(() => props.show, async (open) => {
-  overlayReady.value = false
+watch(() => props.show, (open) => {
   if (!open) return
   query.value = ''
   proxiesText.value = ''
@@ -97,17 +95,11 @@ watch(() => props.show, async (open) => {
   const visible = new Set(candidates.value.map(account => account.id))
   const selected = Array.isArray(props.selectedIds) ? props.selectedIds : []
   picked.value = new Set(selected.filter(id => visible.has(id)))
-  await nextTick()
-  overlayReady.value = open
 }, { immediate: true })
 
 function close() {
   if (submitting.value) return
   emit('close')
-}
-function closeFromOverlay() {
-  if (!overlayReady.value) return
-  close()
 }
 
 function toggle(id: number) {

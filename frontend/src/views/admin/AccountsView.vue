@@ -154,7 +154,7 @@
                           {{ t('admin.accounts.toolActions') }}
                         </div>
                       </div>
-                      <button v-if="authStore.isAdmin" class="account-tools-menu-item" data-testid="bps-login-open" @click="openBPSLogin">
+                      <button v-if="authStore.isAdmin" class="account-tools-menu-item" data-testid="bps-login-open" @click.stop="openBPSLogin">
                         <span class="account-tools-menu-icon bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-300">
                           <Icon name="key" size="sm" />
                         </span>
@@ -1603,7 +1603,10 @@ const isAnyModalOpen = computed(() => {
     showIQTest.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value
+    showTLSFingerprintProfiles.value ||
+    showBPSLogin.value ||
+    credentialDraft.value !== null ||
+    siwcDraft.value !== null
   )
 })
 
