@@ -11,6 +11,9 @@ const {
   getAllGroups,
   setSchedulable,
   bulkUpdate,
+  batchDelete,
+  showError,
+  showSuccess,
   getProbeSettings,
   getCapabilities
 } = vi.hoisted(() => ({
@@ -21,6 +24,9 @@ const {
   getAllGroups: vi.fn(),
   setSchedulable: vi.fn(),
   bulkUpdate: vi.fn(),
+  batchDelete: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
   getProbeSettings: vi.fn(),
   getCapabilities: vi.fn()
 }))
@@ -37,7 +43,8 @@ vi.mock('@/api/admin', () => ({
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
       setSchedulable,
-      bulkUpdate
+      bulkUpdate,
+      batchDelete
     },
     proxies: {
       getAll: getAllProxies
@@ -50,8 +57,8 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError,
+    showSuccess,
     showInfo: vi.fn()
   })
 }))
@@ -72,12 +79,13 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-// Render the scheduler-score cell slot for every row so the fallback logic is observable.
+// Render selection and scheduling controls so tests exercise the actual click handlers.
 const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
       <div v-for="row in data" :key="row.id" :data-test="'scheduling-' + row.id">
+        <slot name="cell-select" :row="row" />
         <slot name="cell-schedulable" :row="row" />
       </div>
     </div>
@@ -98,7 +106,6 @@ function mountView() {
         ConfirmDialog: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
-        AccountBulkActionsBar: true,
         AccountActionMenu: true,
         ImportDataModal: true,
         ReAuthAccountModal: true,
@@ -156,31 +163,149 @@ beforeEach(() => {
   bulkUpdate.mockResolvedValue({ success: 1, failed: 0, success_ids: [7], failed_ids: [] })
 })
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
-describe('account manual scheduling warnings', () => {
-  it('leaves the immediate switch untouched when cancellation is declined', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    wrapper = mountView()
-    await flushPromises()
-    await wrapper.get('[data-test="scheduling-7"] button').trigger('click')
-    expect(confirm).toHaveBeenCalledWith('admin.accounts.timer.manualWarning')
-    expect(setSchedulable).not.toHaveBeenCalled()
+function bulkButton(key: string) {
+  return wrapper.findComponent({ name: 'AccountBulkActionsBar' }).findAll('button')
+    .find(button => button.text() === `admin.accounts.bulkActions.${key}`)!
+}
+
+async function mountWithSelection() {
+  listAccounts.mockResolvedValue({
+    items: [
+      { ...baseAccount, id: 7, name: 'selected-on' },
+      { ...baseAccount, id: 9, name: 'unselected' },
+      { ...baseAccount, id: 11, name: 'selected-off', schedulable: false }
+    ],
+    total: 3, page: 1, page_size: 20, pages: 1
   })
-  it('confirms the immediate switch and refreshes plans after its atomic backend update', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  wrapper = mountView()
+  await flushPromises()
+  await wrapper.get('[data-test="scheduling-7"] input[type="checkbox"]').setValue(true)
+  await wrapper.get('[data-test="scheduling-11"] input[type="checkbox"]').setValue(true)
+}
+
+function schedulingButton(id: number) {
+  return wrapper.get(`[data-test="scheduling-${id}"] button`)
+}
+
+function selectedIds() {
+  return wrapper.findComponent({ name: 'AccountBulkActionsBar' }).props('selectedIds')
+}
+
+describe('account immediate scheduling without confirmation', () => {
+  it.each([true, false])('directly switches schedulable=%s through the original API and refreshes plans', async (schedulable) => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    listAccounts.mockResolvedValue({ items: [{ ...baseAccount, id: 7, name: 'timer-fixture', schedulable }], total: 1, page: 1, page_size: 20, pages: 1 })
+    setSchedulable.mockResolvedValue({ ...baseAccount, id: 7, schedulable: !schedulable })
     wrapper = mountView()
     await flushPromises()
-    await wrapper.get('[data-test="scheduling-7"] button').trigger('click')
+    await schedulingButton(7).trigger('click')
     await flushPromises()
-    expect(setSchedulable).toHaveBeenCalledWith(7, false)
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(setSchedulable).toHaveBeenCalledTimes(1)
+    expect(setSchedulable).toHaveBeenCalledWith(7, !schedulable)
+    expect(schedulingButton(7).attributes('title')).toBe(`admin.accounts.schedulable${schedulable ? 'Disabled' : 'Enabled'}`)
     expect(wrapper.findComponent({ name: 'SchedulableTimerControl' }).props('refreshKey')).toBe(1)
+    expect(showError).not.toHaveBeenCalled()
   })
-  it('also warns before batch immediate switching', async () => {
+
+  it('keeps the loading guard and restores the switch with error feedback when the single API rejects', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let rejectRequest!: (reason: Error) => void
+    setSchedulable.mockImplementationOnce(() => new Promise((_, reject) => { rejectRequest = reject }))
     wrapper = mountView()
     await flushPromises()
-    wrapper.findComponent({ name: 'AccountBulkActionsBar' }).vm.$emit('toggle-schedulable', false)
+    await schedulingButton(7).trigger('click')
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(setSchedulable).toHaveBeenCalledTimes(1)
+    expect(setSchedulable).toHaveBeenCalledWith(7, false)
+    expect(schedulingButton(7).attributes('disabled')).toBeDefined()
+    await schedulingButton(7).trigger('click')
+    expect(setSchedulable).toHaveBeenCalledTimes(1)
+    const error = new Error('offline fixture failure')
+    rejectRequest(error)
     await flushPromises()
-    expect(confirm).toHaveBeenCalledWith('admin.accounts.timer.manualWarning')
-    expect(bulkUpdate).not.toHaveBeenCalled()
+
+    expect(schedulingButton(7).attributes('disabled')).toBeUndefined()
+    expect(schedulingButton(7).attributes('title')).toBe('admin.accounts.schedulableEnabled')
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('admin.accounts.failedToToggleSchedulable')
+    expect(errorLog).toHaveBeenCalledWith('Failed to toggle schedulable:', error)
+    expect(wrapper.findComponent({ name: 'SchedulableTimerControl' }).props('refreshKey')).toBe(0)
+  })
+
+  it.each([true, false])('directly applies batch schedulable=%s to every selected account, including unchanged values', async (schedulable) => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    bulkUpdate.mockResolvedValue({ success: 2, failed: 0, success_ids: [7, 11], failed_ids: [] })
+    await mountWithSelection()
+    await bulkButton(schedulable ? 'enableScheduling' : 'disableScheduling').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(bulkUpdate).toHaveBeenCalledWith([7, 11], { schedulable })
+    expect(setSchedulable).not.toHaveBeenCalled()
+    for (const id of [7, 11]) {
+      expect(schedulingButton(id).attributes('title')).toBe(`admin.accounts.schedulable${schedulable ? 'Enabled' : 'Disabled'}`)
+    }
+    expect(schedulingButton(9).attributes('title')).toBe('admin.accounts.schedulableEnabled')
+    expect(selectedIds()).toEqual([])
+    expect(showSuccess).toHaveBeenCalledTimes(1)
+    expect(showSuccess).toHaveBeenCalledWith(`admin.accounts.bulkSchedulable${schedulable ? 'Enabled' : 'Disabled'}`)
+    expect(showError).not.toHaveBeenCalled()
+    expect(wrapper.findAllComponents({ name: 'SchedulableTimerControl' }).map(control => control.props('refreshKey'))).toEqual([1, 1, 1])
+  })
+
+  it('keeps failed batch targets selected and only updates successful targets on partial failure', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    bulkUpdate.mockResolvedValue({ success: 1, failed: 1, success_ids: [7], failed_ids: [11] })
+    await mountWithSelection()
+    await bulkButton('enableScheduling').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(bulkUpdate).toHaveBeenCalledWith([7, 11], { schedulable: true })
+    expect(schedulingButton(7).attributes('title')).toBe('admin.accounts.schedulableEnabled')
+    expect(schedulingButton(11).attributes('title')).toBe('admin.accounts.schedulableDisabled')
+    expect(schedulingButton(9).attributes('title')).toBe('admin.accounts.schedulableEnabled')
+    expect(selectedIds()).toEqual([11])
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('admin.accounts.bulkSchedulablePartial')
+    expect(showSuccess).not.toHaveBeenCalled()
+  })
+
+  it('retains batch error feedback, selection and account state when the API rejects', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('offline fixture failure')
+    bulkUpdate.mockRejectedValueOnce(error)
+    await mountWithSelection()
+    await bulkButton('disableScheduling').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(bulkUpdate).toHaveBeenCalledWith([7, 11], { schedulable: false })
+    expect(selectedIds()).toEqual([7, 11])
+    expect(schedulingButton(7).attributes('title')).toBe('admin.accounts.schedulableEnabled')
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('common.error')
+    expect(errorLog).toHaveBeenCalledWith('Failed to bulk toggle schedulable:', error)
+    expect(wrapper.findComponent({ name: 'SchedulableTimerControl' }).props('refreshKey')).toBe(0)
+  })
+
+  it('still requires confirmation for deleting accounts', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await mountWithSelection()
+    await bulkButton('delete').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm).toHaveBeenCalledWith('admin.accounts.bulkActions.confirmDelete')
+    expect(batchDelete).not.toHaveBeenCalled()
+    expect(selectedIds()).toEqual([7, 11])
   })
 })

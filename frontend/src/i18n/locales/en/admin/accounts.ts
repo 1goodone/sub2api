@@ -62,7 +62,6 @@ export default {
         "remaining": "in {hours}h {minutes}m",
         "saved": "Timer saved",
         "cancelled": "Timer cancelled",
-        "manualWarning": "Switch scheduling permission immediately? This also cancels ALL pending timed-on and timed-off actions for the affected account(s), even if the permission already has this value.",
         "results": {
                 "scheduled": "Scheduled",
                 "replaced": "Replaced",

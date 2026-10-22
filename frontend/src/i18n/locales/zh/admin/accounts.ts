@@ -62,7 +62,6 @@ export default {
         "remaining": "剩余 {hours} 小时 {minutes} 分钟",
         "saved": "定时计划已保存",
         "cancelled": "定时计划已取消",
-        "manualWarning": "立即切换允许调度？此操作会同时取消所影响账号的全部待执行“定时打开”和“定时关闭”计划，即使当前开关已经是此值。",
         "results": {
                 "scheduled": "已安排",
                 "replaced": "已替换",
