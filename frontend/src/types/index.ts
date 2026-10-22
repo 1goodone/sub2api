@@ -1461,6 +1461,10 @@ export interface Account {
     upstream_billing_probe_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
     codex_quota_overdraft_enabled?: boolean
+    openai_image_gen_remaining?: number
+    openai_image_gen_total?: number | null
+    openai_image_gen_reset_after?: string
+    openai_image_gen_updated_at?: string
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
     codex_reset_credit_snapshot?: {
       available_count?: number
@@ -1708,6 +1712,9 @@ export interface AccountUsageInfo {
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
   codex_quota_overdraft?: CodexQuotaOverdraftProbeState | null
+  image_gen_remaining?: number | null
+  image_gen_total?: number | null
+  image_gen_reset_after?: string
   seven_day_sonnet: UsageProgress | null
   seven_day_fable?: UsageProgress | null
   thirty_day?: UsageProgress | null

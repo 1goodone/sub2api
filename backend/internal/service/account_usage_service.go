@@ -134,6 +134,7 @@ type UsageCache struct {
 	antigravityFlight   singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	officialUsageFlight singleflight.Group // 防止同一账号官方结算查询击穿缓存
 	openAIProbeCache    sync.Map           // accountID -> time.Time
+	openAIImageGenCache sync.Map           // accountID -> time.Time
 	grokProbeCache      sync.Map           // accountID -> last billing probe attempt
 }
 
@@ -208,12 +209,18 @@ type UsageInfo struct {
 	SevenDaySonnet      *UsageProgress                 `json:"seven_day_sonnet,omitempty"` // 7天Sonnet窗口
 	SevenDayFable       *UsageProgress                 `json:"seven_day_fable,omitempty"`  // 7天Fable窗口（响应头 7d_oi）
 	CodexQuotaOverdraft *CodexQuotaOverdraftProbeState `json:"codex_quota_overdraft,omitempty"`
-	GeminiSharedDaily   *UsageProgress                 `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
-	GeminiProDaily      *UsageProgress                 `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
-	GeminiFlashDaily    *UsageProgress                 `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
-	GeminiSharedMinute  *UsageProgress                 `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
-	GeminiProMinute     *UsageProgress                 `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
-	GeminiFlashMinute   *UsageProgress                 `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
+	// ImageGenRemaining / ImageGenTotal come from chatgpt.com conversation/init
+	// limits_progress[feature_name=image_gen]. Total stays nil when that item has
+	// no limit, max, or total sibling.
+	ImageGenRemaining  *int           `json:"image_gen_remaining,omitempty"`
+	ImageGenTotal      *int           `json:"image_gen_total"`
+	ImageGenResetAfter string         `json:"image_gen_reset_after,omitempty"`
+	GeminiSharedDaily  *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
+	GeminiProDaily     *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
+	GeminiFlashDaily   *UsageProgress `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
+	GeminiSharedMinute *UsageProgress `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
+	GeminiProMinute    *UsageProgress `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
+	GeminiFlashMinute  *UsageProgress `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
 
 	// Antigravity 多模型配额
 	AntigravityQuota map[string]*AntigravityModelQuota `json:"antigravity_quota,omitempty"`
@@ -821,6 +828,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		}
 	}
 
+	s.refreshOpenAIImageGenQuota(ctx, account, usage, now, force)
 	if s.codexQuotaOverdraft != nil && CodexQuotaOverdraftEnabledForAccount(account) {
 		s.codexQuotaOverdraft.ObserveAccount(account, "")
 	}
@@ -1060,6 +1068,7 @@ func applyExtraToUsage(usage *UsageInfo, extra map[string]any, now time.Time) {
 	if progress := buildCodexUsageProgressFromExtra(extra, "7d", now); progress != nil {
 		usage.SevenDay = progress
 	}
+	applyImageGenQuotaToUsage(usage, extra)
 }
 
 func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Account) (*UsageInfo, error) {

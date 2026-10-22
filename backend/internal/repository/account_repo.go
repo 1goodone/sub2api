@@ -69,6 +69,8 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"upstream_billing_probe",
 	"upstream_billing_rate_sync",
 	"ollama_cloud_usage",
+	// chatgpt.com conversation/init image_gen counts are display-only.
+	"openai_image_gen_",
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
