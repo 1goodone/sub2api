@@ -23,6 +23,7 @@
           </div>
         </div>
 
+        <ModerationUsersSummary />
         <p class="text-sm text-gray-600 dark:text-gray-300" data-test="active-audit-engine">
           {{ t('admin.riskControl.activeEngine', { engine: engineLabel(status?.engine ?? savedEngine) }) }}
         </p>
@@ -353,7 +354,7 @@
                         @click="unbanUser(row)"
                       >
                         <Icon name="checkCircle" size="xs" :class="unbanningUserID === row.user_id ? 'animate-spin' : ''" />
-                        {{ unbanningUserID === row.user_id ? t('common.processing') : t('admin.riskControl.unbanUser') }}
+                        {{ t('admin.moderationUsers.title') }}
                       </button>
                     </td>
                     <td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700 dark:text-gray-300">
@@ -1154,6 +1155,9 @@
           </div>
         </template>
       </BaseDialog>
+      <BaseDialog :show="recoveryUserID !== null" :title="t('admin.moderationUsers.title')" @close="recoveryUserID = null">
+        <ModerationUserPanel v-if="recoveryUserID !== null" :key="recoveryUserID" :user-id="recoveryUserID" @changed="loadLogs()" />
+      </BaseDialog>
     </div>
   </AppLayout>
 </template>
@@ -1163,6 +1167,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ModerationUsersSummary from '@/components/admin/moderation/ModerationUsersSummary.vue'
+import ModerationUserPanel from '@/components/admin/moderation/ModerationUserPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
@@ -2026,7 +2032,7 @@ async function loadLogs() {
 }
 
 function canUnbanRow(row: ContentModerationLog): boolean {
-  return Boolean(row.auto_banned && row.user_id && row.user_status === 'disabled')
+  return Boolean(row.user_id)
 }
 
 function inputSummaryText(row: ContentModerationLog): string {
@@ -2041,22 +2047,8 @@ function closeInputDetail() {
   inputDetailRow.value = null
 }
 
-async function unbanUser(row: ContentModerationLog) {
-  if (!row.user_id || unbanningUserID.value !== null) return
-  unbanningUserID.value = row.user_id
-  try {
-    const result = await adminAPI.riskControl.unbanUser(row.user_id)
-    logs.value = logs.value.map((item) => {
-      if (item.user_id !== row.user_id) return item
-      return { ...item, user_status: result.status }
-    })
-    appStore.showSuccess(t('admin.riskControl.unbanSuccess'))
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('admin.riskControl.unbanFailed')))
-  } finally {
-    unbanningUserID.value = null
-  }
-}
+const recoveryUserID = ref<number | null>(null)
+function unbanUser(row: ContentModerationLog) { recoveryUserID.value = row.user_id ?? null }
 
 async function deleteFlaggedHash() {
   if (!isFlaggedHashInputValid.value || hashActionLoading.value) return

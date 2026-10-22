@@ -70,6 +70,9 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 	if c == nil || c.Request == nil {
 		return nil
 	}
+	if legacy != nil {
+		c.Set("content_moderation.user_version", legacy.CaptureModerationUserVersion(c.Request.Context(), subject.UserID))
+	}
 	cacheCompletion := cachesSecurityAuditCompletion(stage)
 	if cacheCompletion {
 		if completed, exists := c.Get(securityAuditCompletedContextKey); exists && completed == true {
