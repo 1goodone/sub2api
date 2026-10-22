@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   api.config.mockResolvedValue({ enabled: true, mode: 'balanced', group_ids: [], models: [], window_minutes: 180, min_samples: 5, target_ttft_ms: 15000, quality_weight:30,latency_weight:25,load_weight:25,cost_weight:20 })
   api.save.mockImplementation(async c => c)
-  api.snapshot.mockResolvedValue({ at:'2026-10-21T01:00:00Z', evaluated_at:'2026-10-21T01:02:00Z', history_observed_at:'2026-10-21T01:01:00Z', latency_percentile:70, latency_measurement:'attributed_v1', min_samples:5, model:'mock-model',group_id:11,mode:'balanced',history_ready:true,candidates:[{ account_id:1,account_name:'Mock account',score:50,tier:'insufficient',reasons:[],priority:1,samples:3,selected_ttft_ms:7000,p90_ttft_ms:20000,latency_percentile:70,latency_measurement:'attributed_v1',latency_unknown_samples:2,quality_samples:0,quality_passed:0,rate:null,load_percent:0,waiting:0,economics_source:'unknown',experience_samples:3,experience_p90_ms:50000 }] })
+  api.snapshot.mockResolvedValue({ at:'2026-10-21T01:00:00Z', evaluated_at:'2026-10-21T01:02:00Z', history_observed_at:'2026-10-21T01:01:00Z', latency_percentile:70, latency_measurement:'attributed_v1', min_samples:5, model:'mock-model',group_id:11,mode:'balanced',history_ready:true,candidates:[{ account_id:1,account_name:'Mock account',score:50,tier:'insufficient',reasons:[],priority:1,samples:3,selected_ttft_ms:7000,p90_ttft_ms:20000,latency_percentile:70,latency_measurement:'attributed_v1',latency_unknown_samples:2,error_rate:0.25,error_successes:3,error_failures:1,error_window_minutes:10,error_prior_samples:5,error_observed_at:'2026-10-21T01:02:00Z',error_endpoint:'/v1/responses',error_penalty:0.9,base_score:55,quality_samples:0,quality_passed:0,rate:null,load_percent:0,waiting:0,economics_source:'unknown',experience_samples:3,experience_p90_ms:50000 }] })
 })
 describe('quantiles and measurement boundaries', () => {
   it.each(['en','zh'])('renders actual %s translations and submits the percentile and measurement', async locale => {
@@ -32,6 +32,13 @@ describe('quantiles and measurement boundaries', () => {
     expect(api.save).toHaveBeenCalledWith(expect.objectContaining({latency_percentile:95,latency_measurement:'attributed_v1',recovery_exploration_percent:0}))
     expect(w.text()).toContain('P70')
     expect(w.text()).toContain('7000 ms')
+    expect(w.get('[data-testid="error-rate-1"]').text()).toContain('25.0%')
+    expect(w.get('[data-testid="error-rate-1"]').text()).toContain(locale==='en'?'Failures / valid attempts':'失败 / 有效尝试')
+    expect(w.get('[data-testid="error-rate-1"]').text()).toContain(locale==='en'?'Insufficient samples':'样本不足')
+    expect(w.get('[data-testid="error-rate-1"]').text()).toContain(locale==='en'?'Error evidence read':'错误统计读取')
+    expect(w.get('[data-testid="error-rate-1"]').text()).toContain(locale==='en'?'Error window':'错误窗口')
+    expect(w.get('[data-testid="error-rate-1"]').attributes('title')).toContain(locale==='en'?'excluded':'排除')
+    expect(w.text()).toContain(locale==='en'?'This instance · HTTP attempts':'当前实例 · HTTP 尝试')
     expect(w.text()).toContain(locale==='en'?'Low sample count':'低样本')
     expect(w.text()).toContain(locale==='en'?'not a global probability':'不是全局概率')
     expect(w.text()).toContain(locale==='en'?'client receipt':'客户端收到')

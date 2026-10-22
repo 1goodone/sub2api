@@ -367,6 +367,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// both list the same call_id — counting both would ~2× the surcharge).
 	streamSearchSeen := make(map[string]struct{})
 	resultWithUsage := func() *openaiStreamingResult {
+		if clientDisconnected {
+			markPriorityDownstreamDisconnect(ctx)
+		}
 		return &openaiStreamingResult{
 			usage:            usage,
 			clientDisconnect: clientDisconnected,

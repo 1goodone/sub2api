@@ -10,10 +10,52 @@ vi.mock('@/components/admin/operations/PriorityAccountBatch.vue', () => ({ defau
 vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { template: '<nav />' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/priorityScheduling', () => ({ getPriorityConfig: vi.fn(), getPrioritySnapshot: vi.fn(), savePriorityConfig: vi.fn(), defaultPriorityTeamsConfig: () => ({ enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'explicit' }) }))
-const config: PrioritySchedulingConfig = { teams: { enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'explicit' }, oauth_quota_priority: false, oauth_quota_threshold: 90, balance_protocols: true, enabled: false, mode: 'balanced', group_ids: [], models: [], window_minutes: 60, min_samples: 5, target_ttft_ms: 3000, max_load_percent: 80, min_quality_percent: 90, quality_max_age_hours: 24, quality_weight: 30, latency_weight: 25, load_weight: 25, cost_weight: 20 }
+const config: PrioritySchedulingConfig = { teams: { enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'explicit' }, error_rate_weight: 25, error_rate_window_minutes: 10, error_rate_prior_samples: 5, oauth_quota_priority: false, oauth_quota_threshold: 90, balance_protocols: true, enabled: false, mode: 'balanced', group_ids: [], models: [], window_minutes: 60, min_samples: 5, target_ttft_ms: 3000, max_load_percent: 80, min_quality_percent: 90, quality_max_age_hours: 24, quality_weight: 30, latency_weight: 25, load_weight: 25, cost_weight: 20 }
 const savedDefaults = { latency_percentile: 90 as const, latency_measurement: 'legacy_forward' as const, recovery_exploration_percent: 0, latency_penalty_minutes: 10 }
 beforeEach(() => { vi.resetAllMocks(); state.auth = reactive({ user: { id: 1, role: 'admin' } }); vi.mocked(getPriorityConfig).mockResolvedValue({ ...config, teams: { ...config.teams } }); vi.mocked(getPrioritySnapshot).mockResolvedValue(null); vi.mocked(savePriorityConfig).mockImplementation(async c => c) })
 describe('priority scheduling', () => {
+  it('shows scoped error evidence and unknown samples, and saves an explicit zero weight', async () => {
+    const candidate: PriorityCandidate = { teams_recovery: null, account_id: 1, account_name: 'Mock attempt evidence', score: 72, tier: 'eligible', reasons: [], priority: 1, concurrency: 10, load_factor: 10, load_percent: 0, waiting: 0, rate: 0.1, revenue: 0, theoretical_cost: 0, profit: null, margin: null, economics_source: 'rate', profit_samples: 0, samples: 0, p90_ttft_ms: 0, quality_passed: 1, quality_samples: 1, error_rate: 0.25, error_successes: 3, error_failures: 1, error_window_minutes: 10, error_prior_samples: 5, error_observed_at: '2026-10-22T01:02:03Z', error_endpoint: '/v1/responses', error_penalty: 0.9, base_score: 80 }
+    vi.mocked(getPrioritySnapshot).mockResolvedValue({ at: '2026-10-22T01:00:00Z', model: 'mock-model', group_id: 1, mode: 'balanced', history_ready: true, candidates: [candidate, { ...candidate, account_id: 2, error_rate: null, error_successes: 0, error_failures: 0 }, { ...candidate, account_id: 3, error_rate: 0.1, error_successes: 9, error_failures: 1 }] })
+    const wrapper = mount(PrioritySchedulingView); await flushPromises()
+    const first = wrapper.get('[data-testid="error-rate-1"]')
+    expect(first.text()).toContain('25.0%')
+    expect(first.text()).toContain('priorityScheduling.errorAttempts: 1 / 4')
+    expect(first.text()).toContain('priorityScheduling.errorInsufficientSamples')
+    expect(first.text()).toContain('priorityScheduling.errorObservedAt')
+    expect(first.text()).toContain(new Date('2026-10-22T01:02:03Z').toLocaleString())
+    expect(first.text()).toContain('/v1/responses')
+    expect(first.text()).toContain('0.900')
+    expect(first.attributes('title')).toBe('priorityScheduling.errorRateHint')
+    expect(wrapper.get('[data-testid="error-rate-2"]').text()).toContain('priorityScheduling.errorNoSamples')
+    expect(wrapper.get('[data-testid="error-rate-2"]').text()).not.toContain('priorityScheduling.errorAttempts')
+    expect(wrapper.get('[data-testid="error-rate-2"]').text()).not.toContain('priorityScheduling.errorInsufficientSamples')
+    const sufficient = wrapper.get('[data-testid="error-rate-3"]')
+    expect(sufficient.text()).toContain('10.0%')
+    expect(sufficient.text()).toContain('priorityScheduling.errorAttempts: 1 / 10')
+    expect(sufficient.text()).not.toContain('priorityScheduling.errorInsufficientSamples')
+    expect(wrapper.text()).toContain('priorityScheduling.errorLocalScope')
+    const scroll = wrapper.get('[data-testid="priority-candidate-scroll"]')
+    expect(scroll.classes()).toContain('overflow-x-auto')
+    expect(scroll.get('table').classes()).toContain('whitespace-nowrap')
+    await wrapper.get('[data-testid="error-rate-weight"]').setValue(0)
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, error_rate_weight: 0 })
+    wrapper.unmount()
+  })
+
+  it('defaults old error configuration to zero weight and keeps its window and prior editable', async () => {
+    const legacy = { ...config }; delete legacy.error_rate_weight; delete legacy.error_rate_window_minutes; delete legacy.error_rate_prior_samples
+    vi.mocked(getPriorityConfig).mockResolvedValue(legacy)
+    const wrapper = mount(PrioritySchedulingView); await flushPromises()
+    expect(wrapper.get('[data-testid="error-rate-weight"]').element).toHaveProperty('value', '0')
+    await wrapper.get('[data-testid="error_rate_window_minutes"]').setValue(20)
+    await wrapper.get('[data-testid="error_rate_prior_samples"]').setValue(10)
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, error_rate_weight: 0, error_rate_window_minutes: 20, error_rate_prior_samples: 10 })
+    wrapper.unmount()
+  })
+
   it('defaults an omitted latency penalty and saves an explicit duration or zero', async () => {
     const legacy = { ...config }; delete legacy.latency_penalty_minutes
     vi.mocked(getPriorityConfig).mockResolvedValue(legacy)

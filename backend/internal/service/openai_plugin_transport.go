@@ -40,7 +40,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		authorization := request.Header.Get("Authorization")
 		applySIWCRequestHeaders(request)
 		request.Host = ""
+		observeAttempt := s.observePriorityAttempt(request, account)
 		resp, err := s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+		observeAttempt(resp, err)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusUnauthorized && s.excelOAuthReauth != nil {
 			var cache OpenAITokenCache
 			if s.openAITokenProvider != nil {

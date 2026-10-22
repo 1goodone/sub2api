@@ -105,8 +105,12 @@ func TestPriorityOAuthQuotaEvidenceAndCapacity(t *testing.T) {
 		{"unknown_load", func(_ *PrioritySchedulingConfig, a *openAIAccountCandidateScore, _ *PrioritySchedulingSignal) {
 			a.loadKnown = false
 		}, 0},
-		{"errors", func(_ *PrioritySchedulingConfig, a *openAIAccountCandidateScore, _ *PrioritySchedulingSignal) {
+		{"errors", func(c *PrioritySchedulingConfig, a *openAIAccountCandidateScore, _ *PrioritySchedulingSignal) {
+			c.ErrorRateWeight = 0 // Existing account EWMA contract.
 			a.errorRate = .5
+		}, 0},
+		{"scoped_errors", func(_ *PrioritySchedulingConfig, a *openAIAccountCandidateScore, _ *PrioritySchedulingSignal) {
+			a.priorityErrors.SmoothedRate = .5
 		}, 0},
 		{"rpm", func(_ *PrioritySchedulingConfig, a *openAIAccountCandidateScore, _ *PrioritySchedulingSignal) {
 			a.rpmEnabled = true

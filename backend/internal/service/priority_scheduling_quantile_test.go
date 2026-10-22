@@ -90,7 +90,7 @@ func TestPriorityQuantileRecoveryIsOptInAndKeepsRiskGates(t *testing.T) {
 	cfg.RecoveryExplorationPercent = 5
 	applyPriorityCandidate(cfg, &item, signal, now)
 	require.True(t, item.priorityExploration)
-	for _, risk := range []string{"unknown_quality", "bad_quality", "latest_failed", "errors", "loss"} {
+	for _, risk := range []string{"unknown_quality", "bad_quality", "latest_failed", "errors", "scoped_errors", "loss"} {
 		t.Run(risk, func(t *testing.T) {
 			sample := signal
 			candidate := priorityCandidate(1, .1, 0)
@@ -104,12 +104,18 @@ func TestPriorityQuantileRecoveryIsOptInAndKeepsRiskGates(t *testing.T) {
 				sample.LatestQualityPassed = &failed
 			case "errors":
 				candidate.errorRate = .8
+			case "scoped_errors":
+				candidate.priorityErrors.SmoothedRate = .8
 			case "loss":
 				sample.ProfitSamples = 20
 				sample.Revenue = 1
 				sample.BaseCost = 100
 			}
-			applyPriorityCandidate(cfg, &candidate, sample, now)
+			localConfig := cfg
+			if risk == "errors" {
+				localConfig.ErrorRateWeight = 0
+			} // Existing account EWMA contract.
+			applyPriorityCandidate(localConfig, &candidate, sample, now)
 			require.False(t, candidate.priorityExploration)
 		})
 	}

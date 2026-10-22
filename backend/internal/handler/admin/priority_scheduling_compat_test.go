@@ -184,3 +184,53 @@ func TestPrioritySaveQuantileCompatibilityAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestPriorityErrorConfigLegacyAndSaveCompatibility(t *testing.T) {
+	repo := &priorityCompatSettings{value: `{"enabled":true}`}
+	settings := service.NewSettingService(repo, nil)
+	legacy, err := settings.GetPrioritySchedulingConfig(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, legacy.ErrorRateWeight)
+	require.Equal(t, 10, legacy.ErrorRateWindowMinutes)
+	require.Equal(t, 5, legacy.ErrorRatePriorSamples)
+	for _, explicit := range []bool{false, true} {
+		cfg := service.DefaultPrioritySchedulingConfig()
+		cfg.ErrorRateWeight = 70
+		cfg.ErrorRateWindowMinutes = 20
+		cfg.ErrorRatePriorSamples = 15
+		raw, err := json.Marshal(cfg)
+		require.NoError(t, err)
+		repo.value = string(raw)
+		var request map[string]any
+		require.NoError(t, json.Unmarshal(raw, &request))
+		delete(request, "error_rate_weight")
+		delete(request, "error_rate_window_minutes")
+		delete(request, "error_rate_prior_samples")
+		if explicit {
+			request["error_rate_weight"] = 0
+			request["error_rate_window_minutes"] = 1
+			request["error_rate_prior_samples"] = 1
+		}
+		raw, err = json.Marshal(request)
+		require.NoError(t, err)
+		h := &SettingHandler{settingService: settings}
+		router := gin.New()
+		router.PUT("/config", h.SavePriorityScheduling)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/config", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+		saved, err := settings.GetPrioritySchedulingConfig(context.Background())
+		require.NoError(t, err)
+		if explicit {
+			require.Zero(t, saved.ErrorRateWeight)
+			require.Equal(t, 1, saved.ErrorRateWindowMinutes)
+			require.Equal(t, 1, saved.ErrorRatePriorSamples)
+		} else {
+			require.Equal(t, 70.0, saved.ErrorRateWeight)
+			require.Equal(t, 20, saved.ErrorRateWindowMinutes)
+			require.Equal(t, 15, saved.ErrorRatePriorSamples)
+		}
+	}
+}

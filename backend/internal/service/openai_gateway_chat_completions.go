@@ -61,10 +61,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (slotResult *OpenAIForwardResult, slotErr error) {
+	ctx, errorScope := withPriorityAttemptScope(ctx, gjson.GetBytes(body, "model").String(), "/v1/chat/completions")
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil && slotResult.SucceededForScheduling()) }()
-
-	return s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
+	slotResult, slotErr = s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
+	errorScope.finish(slotResult)
+	return slotResult, slotErr
 }
 
 func (s *OpenAIGatewayService) forwardAsChatCompletions(

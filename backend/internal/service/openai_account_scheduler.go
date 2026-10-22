@@ -220,6 +220,7 @@ func (m *openAIAccountSchedulerMetrics) recordSwitch() {
 }
 
 type openAIAccountRuntimeStats struct {
+	attempts     priorityAttemptStats
 	accounts     sync.Map
 	accountCount atomic.Int64
 	// Set once at construction; tests can supply a deterministic clock before use.
@@ -753,6 +754,7 @@ type openAIAccountCandidateScore struct {
 	score                              float64
 	priority                           int
 	errorRate                          float64
+	priorityErrors                     PriorityErrorEvidence
 	ttft                               float64
 	hasTTFT                            bool
 	rpmCurrent                         int
@@ -2318,6 +2320,11 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context, pr
 	if !s.isOpenAIAdvancedSchedulerEnabled(ctx) && !priority {
 		return nil
 	}
+	s.initOpenAIAccountScheduler()
+	return s.openaiScheduler
+}
+
+func (s *OpenAIGatewayService) initOpenAIAccountScheduler() {
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
 			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
@@ -2326,7 +2333,6 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context, pr
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
 		}
 	})
-	return s.openaiScheduler
 }
 
 func resetOpenAIAdvancedSchedulerSettingCacheForTest() {

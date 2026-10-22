@@ -18,6 +18,9 @@ const prioritySchedulingSettingKey = "priority_scheduling_v1"
 // Account eligibility, continuity, profit gates and concurrency acquisition stay authoritative.
 type PrioritySchedulingConfig struct {
 	Teams                      PriorityTeamsConfig `json:"teams"`
+	ErrorRateWeight            float64             `json:"error_rate_weight"`
+	ErrorRateWindowMinutes     int                 `json:"error_rate_window_minutes"`
+	ErrorRatePriorSamples      int                 `json:"error_rate_prior_samples"`
 	OAuthQuotaPriority         bool                `json:"oauth_quota_priority"`
 	OAuthQuotaThreshold        int                 `json:"oauth_quota_threshold"`
 	BalanceProtocols           bool                `json:"balance_protocols"`
@@ -42,10 +45,13 @@ type PrioritySchedulingConfig struct {
 }
 
 func DefaultPrioritySchedulingConfig() PrioritySchedulingConfig {
-	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, OAuthQuotaThreshold: 90, BalanceProtocols: true, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, LatencyPercentile: 90, LatencyMeasurement: "legacy_forward", RecoveryExplorationPercent: 0, LatencyPenaltyMinutes: 10, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
+	return PrioritySchedulingConfig{Teams: PriorityTeamsConfig{Enabled: false, CostCNY: 50, WindowHours: 4, CNYPerBillingUnit: 1, WindowSource: "first_usage"}, ErrorRateWeight: 25, ErrorRateWindowMinutes: 10, ErrorRatePriorSamples: 5, OAuthQuotaThreshold: 90, BalanceProtocols: true, Mode: "balanced", GroupIDs: []int64{}, Models: []string{}, WindowMinutes: 60, MinSamples: 5, TargetTTFTMs: 3000, LatencyPercentile: 90, LatencyMeasurement: "legacy_forward", RecoveryExplorationPercent: 0, LatencyPenaltyMinutes: 10, MaxLoadPercent: 80, MinQualityPercent: 90, QualityMaxAgeHours: 24, QualityWeight: 30, LatencyWeight: 25, LoadWeight: 25, CostWeight: 20}
 }
 
 func ValidatePrioritySchedulingConfig(c PrioritySchedulingConfig) error {
+	if math.IsNaN(c.ErrorRateWeight) || math.IsInf(c.ErrorRateWeight, 0) || c.ErrorRateWeight < 0 || c.ErrorRateWeight > 100 || c.ErrorRateWindowMinutes < 1 || c.ErrorRateWindowMinutes > 60 || c.ErrorRatePriorSamples < 1 || c.ErrorRatePriorSamples > 1000 {
+		return errors.New("error rate parameters outside allowed range")
+	}
 	if !slices.Contains([]int{50, 70, 90, 95}, c.LatencyPercentile) {
 		return errors.New("latency percentile must be 50, 70, 90 or 95")
 	}
@@ -130,6 +136,8 @@ func (s *SettingService) GetPrioritySchedulingConfig(ctx context.Context) (Prior
 	if err != nil {
 		return c, err
 	}
+	// Existing stored configurations opt in explicitly; fresh installations use 25.
+	c.ErrorRateWeight = 0
 	if err = json.Unmarshal([]byte(raw), &c); err != nil {
 		return c, err
 	}
@@ -258,6 +266,9 @@ type prioritySchedulingState struct {
 }
 
 type PrioritySchedulingScore struct {
+	PriorityErrorEvidence
+	ErrorPenalty        float64                `json:"error_penalty"`
+	BaseScore           float64                `json:"base_score"`
 	TeamsRecovery       *PriorityTeamsRecovery `json:"teams_recovery"`
 	OAuthQuotaRole      string                 `json:"oauth_quota_role,omitempty"`
 	CapacityBand        int                    `json:"capacity_band"`
@@ -512,13 +523,19 @@ func scorePriorityCandidateWithOAuthRate(c PrioritySchedulingConfig, item openAI
 		out.Reasons = append(out.Reasons, "profit_insufficient")
 	}
 	// Realtime failures are an additional penalty, never inferred from zero-cost logs.
-	if item.errorRate > 0.2 {
+	if c.ErrorRateWeight == 0 && item.errorRate > 0.2 {
 		degraded = true
 		out.Reasons = append(out.Reasons, "recent_errors")
 	}
 	w := c.weights()
 	sum := w[0] + w[1] + w[2] + w[3]
-	out.Score = 100 * (w[0]*quality + w[1]*latency + w[2]*load + w[3]*cost) / sum * (1 - clamp01(item.errorRate))
+	out.BaseScore = 100 * (w[0]*quality + w[1]*latency + w[2]*load + w[3]*cost) / sum
+	out.PriorityErrorEvidence = item.priorityErrors
+	out.ErrorPenalty = 1 - clamp01(item.errorRate)
+	if c.ErrorRateWeight > 0 {
+		out.ErrorPenalty = priorityErrorPenalty(c, item.priorityErrors)
+	}
+	out.Score = out.BaseScore * out.ErrorPenalty
 	if degraded {
 		out.Tier = "degraded"
 	} else if unknown {
@@ -538,6 +555,7 @@ func (s *defaultOpenAIAccountScheduler) applyPriorityScheduling(req OpenAIAccoun
 	// accounts. Missing history stays unknown while live capacity still balances.
 	for i := range plan.candidates {
 		item := &plan.candidates[i]
+		item.priorityErrors = s.priorityErrorEvidence(req, c, item.account.ID, now)
 		applyPriorityCandidate(c, item, signals[item.account.ID], now)
 	}
 	plan.priorityScheduling = true
@@ -664,7 +682,7 @@ func applyPriorityCandidate(c PrioritySchedulingConfig, item *openAIAccountCandi
 	item.priorityRecoveryExplorationPercent = c.RecoveryExplorationPercent
 	item.priorityLatencyRecovery = score.LatencyRecovery
 	item.priorityExploration = (!score.LatencyRecovery || c.RecoveryExplorationPercent > 0) && (item.account.IsOpenAIOAuth() || item.account.IsOpenAIApiKey()) &&
-		score.Tier == "insufficient" && qualityReady &&
+		score.Tier == "insufficient" && qualityReady && (c.ErrorRateWeight == 0 || item.priorityErrors.SmoothedRate <= .2) &&
 		(!score.LatencyRecovery || (score.LatestQualityPassed != nil && *score.LatestQualityPassed)) &&
 		(score.ProfitSamples < c.MinSamples || score.Samples < c.MinSamples || score.LatencyRecovery) &&
 		item.loadKnown && score.LoadPercent != nil && *score.LoadPercent < c.MaxLoadPercent

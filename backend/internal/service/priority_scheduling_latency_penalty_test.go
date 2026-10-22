@@ -86,6 +86,7 @@ func TestPriorityLatencyRecoverySharesBoundedExploration(t *testing.T) {
 		}},
 		{"loss", func(s *PrioritySchedulingSignal, _ *openAIAccountCandidateScore) { s.Revenue = 0.01 }},
 		{"errors", func(_ *PrioritySchedulingSignal, a *openAIAccountCandidateScore) { a.errorRate = 0.8 }},
+		{"scoped_errors", func(_ *PrioritySchedulingSignal, a *openAIAccountCandidateScore) { a.priorityErrors.SmoothedRate = 0.8 }},
 		{"busy", func(_ *PrioritySchedulingSignal, a *openAIAccountCandidateScore) { a.loadInfo.CurrentConcurrency = 9 }},
 		{"unknown_load", func(_ *PrioritySchedulingSignal, a *openAIAccountCandidateScore) { a.loadKnown = false }},
 	} {
@@ -93,7 +94,11 @@ func TestPriorityLatencyRecoverySharesBoundedExploration(t *testing.T) {
 			sample := signal
 			account := priorityCandidate(2, 0.11, 0)
 			tc.change(&sample, &account)
-			applyPriorityCandidate(cfg, &account, sample, now)
+			localConfig := cfg
+			if tc.name == "errors" {
+				localConfig.ErrorRateWeight = 0
+			} // Existing account EWMA contract.
+			applyPriorityCandidate(localConfig, &account, sample, now)
 			require.False(t, account.priorityExploration)
 		})
 	}
