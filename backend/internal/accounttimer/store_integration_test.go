@@ -354,7 +354,7 @@ func TestIntegrationAdditiveRollbackFixture(t *testing.T) {
 	}
 }
 func TestMigrationIsAdditiveAndHasIndexedPendingLookup(t *testing.T) {
-	b, err := os.ReadFile("../../migrations/295_account_schedulable_timers.sql")
+	b, err := os.ReadFile("../../migrations/302_account_schedulable_timers.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

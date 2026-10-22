@@ -8,7 +8,7 @@ import (
 )
 
 func TestCyberPolicyEvidenceMigration(t *testing.T) {
-	raw, err := FS.ReadFile("297_cyber_policy_evidence.sql")
+	raw, err := FS.ReadFile("305_cyber_policy_evidence.sql")
 	require.NoError(t, err)
 	sql := strings.ToUpper(string(raw))
 	for _, want := range []string{

@@ -45,7 +45,7 @@
 
 ## 迁移与回退
 
-新增 `295_account_schedulable_timers.sql`，遵守不可变、forward-only 迁移规范，只增加两张表及索引，不修改现有账号 schema。没有 Ent schema 变更或 Wire 依赖生成要求。
+新增 `302_account_schedulable_timers.sql`，遵守不可变、forward-only 迁移规范，只增加两张表及索引，不修改现有账号 schema。没有 Ent schema 变更或 Wire 依赖生成要求。
 
 回退到旧二进制时，旧代码可以忽略附加表，但不会执行、展示或取消这些计划。因此不能直接回退后又无审查地重新升级：先由新版本管理员取消 pending 计划并停止新版本 worker，留存审计，再回退；旧二进制期间创建的手动意图无法自动记录到新计划表。若将来删除表，应单独编写后续迁移，保留所需审计，不向本文件追加 Down SQL。本轮只验证最小隔离 fixture 的增删表兼容性和静态迁移约束，未运行应用迁移入口或真实迁移文件。
 
