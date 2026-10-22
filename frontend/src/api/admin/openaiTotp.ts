@@ -28,8 +28,8 @@ export async function rotateTOTP(id: number): Promise<TOTPRotation> {
 export async function verifyTOTP(id: number, taskId: number, action: 'verify_new' | 'verify_old'): Promise<void> {
   await apiClient.post(`${base(id)}/totp-rotation/verify`, { task_id: taskId, action })
 }
-export async function exportTOTP(id: number, source: TOTPExportSource, includePassword: boolean): Promise<TOTPExport> {
-  return (await apiClient.post(`${base(id)}/totp-export`, { source, include_password: includePassword })).data
+export async function exportTOTP(id: number, source: TOTPExportSource, includePassword: boolean, signal?: AbortSignal): Promise<TOTPExport> {
+  return (await apiClient.post(`${base(id)}/totp-export`, { source, include_password: includePassword }, { signal })).data
 }
 export interface OpenAISessionExportTask {
   id: number

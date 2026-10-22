@@ -953,6 +953,9 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 }
 
 func truncateForLog(b []byte, maxBytes int) string {
+	if redacted := redactOpenAIEncryptedDiagnostic(string(b)); redacted != string(b) {
+		return redacted
+	}
 	if maxBytes <= 0 {
 		maxBytes = 2048
 	}

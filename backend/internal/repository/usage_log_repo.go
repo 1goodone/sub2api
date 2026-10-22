@@ -169,9 +169,11 @@ func appendUsageLogProviderWhereCondition(conditions []string, args []any, provi
 }
 
 type usageLogRepository struct {
-	client *dbent.Client
-	sql    sqlExecutor
-	db     *sql.DB
+	connectionOnce  sync.Once
+	connectionQueue chan service.ConnectionTrace
+	client          *dbent.Client
+	sql             sqlExecutor
+	db              *sql.DB
 
 	createBatchOnce     sync.Once
 	createBatchCh       chan usageLogCreateRequest

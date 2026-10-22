@@ -17,6 +17,7 @@ type SystemSettings struct {
 	RegistrationIPLimitEnabled          bool // 同一 IP 公开注册终身最多 2 个账号（默认开启）
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
+	RegistrationEmailAliasBlockEnabled  bool // 屏蔽 Gmail 点号、+标签及域名尾点注册（默认开启）
 	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
 	PromoCodeEnabled                    bool
 	PasswordResetEnabled                bool

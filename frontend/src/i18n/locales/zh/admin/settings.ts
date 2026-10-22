@@ -168,7 +168,7 @@ export default {
           enabled: '启用风控中心',
           enabledHint: '关闭后管理员侧边栏入口隐藏，网关内容审计不会执行。',
           cyberSessionBlock: 'cyber 会话自动屏蔽',
-          cyberSessionBlockHint: '开启后,被上游网络安全策略(cyber_policy)拦截的会话将在 TTL 内被本地屏蔽,不再发往上游。仅屏蔽该会话,不影响同 Key 其他会话。',
+          cyberSessionBlockHint: '开启后,被上游网络安全策略(cyber_policy)拦截的会话将在 TTL 内被本地屏蔽,不再发往上游。仅屏蔽该会话,不影响同 Key 其他会话。无会话 ID 时，相同可见内容的重试会被指纹拦住。',
           cyberSessionBlockTTL: '屏蔽时长(秒)',
           cyberSessionIdentityStrict: '严格要求明确会话身份',
           cyberSessionIdentityStrictHint: '高风险选项，默认关闭。开启后，缺少、非法或冲突的会话身份会在选择账号和请求上游前被拒绝。WebSocket 后续轮次可继承本连接首次确认的身份，但显式切换身份会关闭连接。请先确认所有客户端都稳定传递 thread_id 或 session_id。',
@@ -245,6 +245,8 @@ export default {
           "仅允许使用指定域名的邮箱注册账号；留空则不限制（例如 {'@'}qq.com, {'@'}gmail.com, *.edu.cn）",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: '留空则不限制。使用 *.edu.cn 可匹配 edu.cn 及其子域名。',
+        emailAliasBlock: '屏蔽邮箱别名注册',
+        emailAliasBlockHint: '默认开启：拒绝 Gmail/Googlemail 用户名中带点号、邮箱中带 +标签、域名末尾带点号的地址注册（含第三方新用户注册）。其他域名用户名中的正常点号不受影响；已有账号仍可登录。关闭后仍会对同一邮箱的别名进行注册去重。',
         emailDomainQuota: '非白名单域名限量注册',
         emailDomainQuotaHint:
           '开启后，白名单非空时，其他可注册主域名各限注册一个账户；关闭时非白名单域名直接拒绝注册。白名单为空时本开关无效果',
@@ -264,6 +266,8 @@ export default {
       },
       security: {
         loginRateLimit: '登录限流',
+        registrationIPLimit: '同 IP 注册数量限制',
+        registrationIPLimitHint: '默认开启，同一 IP 最多注册 2 个账号（含邮箱和第三方登录注册）。共享网络可能导致正常用户受限。关闭仅取消此数量限制，不影响验证码、邮箱验证、请求限流和登录防护；保存后立即生效。已有计数不会清空，关闭期间不累计，重新开启后继续使用保留的计数。',
         loginRateLimitHint: '默认开启。限制登录请求频率，15 分钟内验证失败 10 次后封禁 IP 1 小时。关闭后，密码、二次验证、Passkey 及第三方绑定登录将跳过频率限制和 IP 封禁；保存后立即生效，对管理员和普通用户均有效。已有封禁在重新开启后仍按原有效期生效。',
         registrationIPLimit: '注册 IP 限额',
         registrationIPLimitHint: '默认开启。同一 IP 公开注册终身最多 2 个账号，IPv6 按 /64 计算。关闭后不再按 IP 计数；已记下的名额保留，重新开启后继续生效。管理端创建的账号不计入，删除账号不退还名额。保存后立即生效。',

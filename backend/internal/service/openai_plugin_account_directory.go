@@ -116,6 +116,7 @@ func accountReadableSnapshotJSON(account *Account) []byte {
 	clone.Groups = nil
 	clone.AccountGroups = nil
 	clone.InitialQualityPlan = nil
+	clone.InitialAdmissionPlan = nil
 	clone.Extra = redactPluginAccountExtra(account.Extra)
 	if account.Proxy != nil {
 		proxy := *account.Proxy

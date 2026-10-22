@@ -1,6 +1,14 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/common/__tests__/PlatformTypeBadge.openaiPlans.spec.ts \
+	src/components/common/__tests__/PlatformTypeBadge.grok.spec.ts \
+	src/views/admin/__tests__/AutoConfigView.spec.ts \
+	src/utils/__tests__/openaiTwoFAAdmission.spec.ts \
+	src/components/admin/account/__tests__/BulkExport2FADialog.spec.ts \
+	src/components/admin/account/__tests__/AccountBulkActionsBar.spec.ts \
+	src/features/security-penalties/__tests__/SecurityRecords.spec.ts \
+	src/views/user/__tests__/ProfileView.spec.ts \
 	src/components/account/__tests__/SIWCAccountSettings.spec.ts \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \
@@ -111,4 +119,4 @@ test-frontend:
 	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
-	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST) src/components/admin/usage/__tests__/UsageConnections.spec.ts
