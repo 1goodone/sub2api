@@ -1,4 +1,20 @@
 export default {
+  "externalMembershipPresent": "Groups present; prior ownership needs reconciliation",
+  "externalMembershipHelp": "At the round's check, all memberships previously removed by this rule were present. External memberships were not claimed and prior ownership remains. This does not establish account, scheduling or model availability.",
+  "restoreDiagnosticTitle": "Automatic restore blocked by a safety check",
+  "restoreDiagnosticEvidence": "Evidence captured during this round",
+  "restoreDiagnosticNextStep": "Compare this round's evidence with current account settings. Distinguish restrictions needing restoration from prior ownership needing reconciliation; repeated probes cannot resolve ownership conflicts.",
+  "restoreReasonUnknown": "This restore reason is not recognized. Review the captured evidence.",
+  "isolationRestoreRolledBack": "This round's model and group restore transaction was not committed. A present group does not establish that model isolation was released.",
+  "restoreReasons": {
+    "membership_already_present": "An original membership already exists; an external setting cannot be claimed as this rule's restore.",
+    "group_missing": "An original group is deleted or missing; automatic restoration was refused.",
+    "account_not_active": "The account was not active at the check; automatic restoration was refused.",
+    "account_expired": "The account expiry condition prevented scheduling restoration.",
+    "model_entry_changed": "A model restriction differs from the entry written by this rule; current settings were preserved.",
+    "concurrency_changed": "Current concurrency differs from this rule's applied value; current concurrency was not overwritten.",
+    "bps_fields_changed": "Managed BPS fields differ from the quarantine snapshot; current settings were preserved."
+  },
   "isolateModels": "Isolate models; remove groups only when all degrade",
   "isolationHelp": "Isolate only models with confirmed wrong answers. Remove selected groups only if every tested model explicitly fails this round. Timeouts, unknown and skipped results cannot remove groups. Isolation lasts until a passing retest, preserves healthy models and account concurrency, and applies across all groups on this account.",
   "isolationRestoreHelp": "With automatic recovery enabled, each model recovers independently on a passing retest. Any passing model restores this rule’s original groups while other degraded models remain isolated. Restore owned changes before changing action/targets or deleting the rule. Pausing preserves isolation.",

@@ -1,4 +1,20 @@
 export default {
+  "externalMembershipPresent": "分组已在场，旧归属待对账",
+  "externalMembershipHelp": "当轮检查时，本规则曾移出的分组均已有成员关系。系统未认领外部成员关系，旧隔离归属仍保留；不代表账号、调度或模型已全部恢复。",
+  "restoreDiagnosticTitle": "自动恢复被保护条件拦截",
+  "restoreDiagnosticEvidence": "查看当轮检查证据",
+  "restoreDiagnosticNextStep": "请核对当轮证据与账号当前状态，区分仍需恢复的限制和待对账的旧归属；重复答题不会自动消除所有权冲突。",
+  "restoreReasonUnknown": "未识别此记录的具体恢复原因，请核对检查证据。",
+  "isolationRestoreRolledBack": "本轮模型与分组恢复事务未提交，分组已在场不能证明模型隔离已解除。",
+  "restoreReasons": {
+    "membership_already_present": "原分组的成员关系已存在，不能将外部设置认领为本规则恢复。",
+    "group_missing": "原分组已删除或不存在，自动恢复被拒绝。",
+    "account_not_active": "检查时账号不是 active 状态，自动恢复被拒绝。",
+    "account_expired": "账号有效期条件未满足，未能恢复调度。",
+    "model_entry_changed": "模型限制与本规则写入的条目不匹配，保留现有设置。",
+    "concurrency_changed": "当前并发与本规则写入的并发不匹配，未覆盖现有并发。",
+    "bps_fields_changed": "BPS 受管字段与隔离快照不匹配，未覆盖现有设置。"
+  },
   "isolateModels": "按模型隔离，全部降智才移出分组",
   "isolationHelp": "按检测模型分别处置：明确答错才隔离该模型；所有检测模型本轮均明确降智才移出所选分组。超时、未知或跳过不触发整组移除。隔离持续至复测通过，不影响正常模型及账号并发；模型隔离对该账号的所有分组生效。",
   "isolationRestoreHelp": "开启后，每个模型独立复测通过即可恢复；至少一个模型通过时恢复本规则移出的原分组，其余模型保持隔离。持有隔离时请先恢复再改动作、目标或删除规则；暂停不会解除隔离。",
