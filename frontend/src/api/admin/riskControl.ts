@@ -194,6 +194,7 @@ export interface ContentModerationAPIKeyLoad {
 }
 
 export interface ContentModerationLog {
+  evidence_status?: string
   engine_meta?: ModerationEngineMeta | null
   id: number
   request_id: string

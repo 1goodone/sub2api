@@ -111,6 +111,9 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
+	"GET /api/v1/admin/risk-control/logs/:id/evidence":                        "admin.cyber_evidence.read",
+	"GET /api/v1/admin/risk-control/logs/:id/evidence/export":                 "admin.cyber_evidence.export",
+	"GET /api/v1/admin/risk-control/evidence/config":                          "admin.cyber_evidence.config.read",
 	"GET /api/v1/admin/settings/ip-audit":                                     "admin.ip_audit.read",
 	"GET /api/v1/admin/request-captures/:task/requests/:record":               "admin.request_capture.read",
 	"GET /api/v1/admin/request-captures/:task/requests/:record/content/:part": "admin.request_capture.content",
@@ -134,6 +137,8 @@ var auditSensitiveReads = map[string]string{
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
 var auditActionOverrides = map[string]string{
+	"PUT /api/v1/admin/risk-control/evidence/config":          "admin.cyber_evidence.config.update",
+	"DELETE /api/v1/admin/risk-control/logs/:id/evidence":     "admin.cyber_evidence.delete",
 	"POST /api/v1/auth/login":                                 service.AuditActionLogin,
 	"POST /api/v1/auth/login/2fa":                             service.AuditActionLogin2FA,
 	"POST /api/v1/auth/passkey/login/finish":                  service.AuditActionLogin,
