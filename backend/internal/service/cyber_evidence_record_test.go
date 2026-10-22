@@ -89,7 +89,7 @@ func TestRecordCyberPolicyEventEnqueuesEvidenceOnlyAfterLogPersist(t *testing.T)
 	prepared := evidence.PrepareWithSession([]byte(`{"messages":[{"role":"user","content":"synthetic visible input"}]}`), "synthetic upstream reason", "sess_synthetic")
 	require.Equal(t, "pending", prepared.Status)
 	svc.RecordCyberPolicyEvent(ctx, CyberPolicyRecordInput{
-		LogOnly: true, Evidence: prepared, UserID: 42, UserEmail: "synthetic@example.test", Model: "gpt-5",
+		Evidence: prepared, UserID: 42, UserEmail: "synthetic@example.test", Model: "gpt-5",
 	})
 	require.Eventually(t, func() bool { return store.snapshotSaves() == 1 }, 2*time.Second, 10*time.Millisecond)
 	logs := repo.snapshotLogs()
@@ -104,7 +104,7 @@ func TestRecordCyberPolicyEventEnqueuesEvidenceOnlyAfterLogPersist(t *testing.T)
 	failedPrepared := failingEvidence.Prepare([]byte(`{"input":"synthetic visible input"}`), "synthetic upstream reason")
 	defer failedPrepared.Release()
 	failingSvc.RecordCyberPolicyEvent(ctx, CyberPolicyRecordInput{
-		LogOnly: true, Evidence: failedPrepared, UserID: 42, UserEmail: "synthetic@example.test", Model: "gpt-5",
+		Evidence: failedPrepared, UserID: 42, UserEmail: "synthetic@example.test", Model: "gpt-5",
 	})
 	require.Equal(t, 1, failingRepo.snapshotCreateCalls())
 	require.Zero(t, failingStore.snapshotSaves(), "failed parent log must not enqueue evidence")

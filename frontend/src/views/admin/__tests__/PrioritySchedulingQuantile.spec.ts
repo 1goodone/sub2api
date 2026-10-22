@@ -10,7 +10,7 @@ import PrioritySchedulingView from '../PrioritySchedulingView.vue'
 import en from '@/i18n/locales/en/priorityScheduling'
 import zh from '@/i18n/locales/zh/priorityScheduling'
 const api = vi.hoisted(() => ({ config: vi.fn(), snapshot: vi.fn(), save: vi.fn() }))
-vi.mock('@/api/admin/priorityScheduling', () => ({ getPriorityConfig: api.config, getPrioritySnapshot: api.snapshot, savePriorityConfig: api.save }))
+vi.mock('@/api/admin/priorityScheduling', () => ({ getPriorityConfig: api.config, getPrioritySnapshot: api.snapshot, savePriorityConfig: api.save, defaultPriorityTeamsConfig: () => ({ enabled: false, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'first_usage' }) }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 1, role: 'admin' } }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { template: '<nav />' } }))

@@ -52,8 +52,6 @@ func AuthAbuseGuard(client *redis.Client) gin.HandlerFunc {
 }
 
 type AuthAbuseGuardOptions struct {
-	// RegistrationIPLimitEnabled controls only the lifetime signup quota.
-	RegistrationIPLimitEnabled func(*gin.Context) bool
 	// LoginRateLimitEnabled controls login bans and failure recording only.
 	// Registration accounting and protection of other auth endpoints remain active.
 	LoginRateLimitEnabled func(*gin.Context) bool

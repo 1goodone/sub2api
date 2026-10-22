@@ -73,7 +73,7 @@ func qualityModelSyncService(t *testing.T, account *Account, status int, complet
 		httpUpstream: transport, cfg: upstreamModelSyncTestConfig(),
 		openaiGatewayService: newCodexModelsAPIKeyTestService(transport),
 	}
-	scheduled := ProvideScheduledTestService(nil, nil, nil, tests)
+	scheduled := ProvideScheduledTestService(nil, nil, nil, nil, tests)
 	return scheduled, tests
 }
 

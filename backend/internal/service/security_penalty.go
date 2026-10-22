@@ -118,7 +118,7 @@ func (s *SecurityPenaltyService) GetConfig(ctx context.Context) (SecurityPenalty
 	if time.Now().Before(s.expires) {
 		return s.cached, nil
 	}
-	values, err := s.settings.GetMultiple(ctx, []string{SettingKeySecurityPenalty, SettingKeyRiskControlEnabled, SettingKeyCyberPolicyUserAllowlist})
+	values, err := s.settings.GetMultiple(ctx, []string{SettingKeySecurityPenalty, SettingKeyRiskControlEnabled})
 	if err != nil {
 		return SecurityPenaltyConfig{}, err
 	}
@@ -132,14 +132,6 @@ func (s *SecurityPenaltyService) GetConfig(ctx context.Context) (SecurityPenalty
 		return SecurityPenaltyConfig{}, err
 	}
 	cfg.RiskControlEnabled = values[SettingKeyRiskControlEnabled] == "true"
-	globalExempt, err := ParseCyberPolicyUserAllowlist(values[SettingKeyCyberPolicyUserAllowlist])
-	if err != nil {
-		return SecurityPenaltyConfig{}, err
-	}
-	// Global trusted-user exemptions apply to both legacy and new penalties.
-	for id := range globalExempt {
-		cfg.trustedUserIDs = append(cfg.trustedUserIDs, id)
-	}
 	s.cached = cfg
 	s.expires = time.Now().Add(time.Second)
 	return cfg, nil

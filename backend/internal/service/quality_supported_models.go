@@ -81,6 +81,26 @@ func (s *ScheduledTestService) accountQualityModels(ctx context.Context, id int6
 		for _, model := range catalog {
 			models = append(models, model.ID)
 		}
+		// The admin picker keeps raw upstream IDs except for Excel BPS. Quality
+		// rules address the public alias, so include an exact mapping key when
+		// its target is already in this account's live catalog.
+		seen := make(map[string]struct{}, len(models))
+		for _, model := range models {
+			seen[model] = struct{}{}
+		}
+		for publicID := range account.GetModelMapping() {
+			if strings.Contains(publicID, "*") {
+				continue
+			}
+			if _, ok := seen[publicID]; ok {
+				continue
+			}
+			if _, ok := seen[account.GetMappedModel(publicID)]; !ok {
+				continue
+			}
+			models = append(models, publicID)
+			seen[publicID] = struct{}{}
+		}
 	} else if mapping := account.GetModelMapping(); len(mapping) > 0 {
 		for model := range mapping {
 			models = append(models, model)

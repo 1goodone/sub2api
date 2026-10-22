@@ -40,7 +40,7 @@ describe('priority scheduling', () => {
     expect(scroll.get('table').classes()).toContain('whitespace-nowrap')
     await wrapper.get('[data-testid="error-rate-weight"]').setValue(0)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, error_rate_weight: 0 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, error_rate_weight: 0 })
     wrapper.unmount()
   })
 
@@ -52,7 +52,7 @@ describe('priority scheduling', () => {
     await wrapper.get('[data-testid="error_rate_window_minutes"]').setValue(20)
     await wrapper.get('[data-testid="error_rate_prior_samples"]').setValue(10)
     await wrapper.get('form').trigger('submit'); await flushPromises()
-    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, error_rate_weight: 0, error_rate_window_minutes: 20, error_rate_prior_samples: 10 })
+    expect(savePriorityConfig).toHaveBeenLastCalledWith({ ...config, ...savedDefaults, error_rate_weight: 0, error_rate_window_minutes: 20, error_rate_prior_samples: 10 })
     wrapper.unmount()
   })
 

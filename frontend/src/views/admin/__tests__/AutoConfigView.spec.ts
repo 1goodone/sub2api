@@ -242,4 +242,3 @@ describe('new 2FA admission configuration', () => {
   w.unmount()
  })
 })
-})

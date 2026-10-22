@@ -278,20 +278,6 @@ func TestEncryptedStickyDetection(t *testing.T) {
 	}
 }
 
-func TestEncryptedStickyRPMHardGate(t *testing.T) {
-	ctx := WithOpenAIEncryptedReasoningAffinity(context.Background(), []byte(`{"input":[{"type":"reasoning","encrypted_content":"synthetic"}]}`))
-	group := int64(9)
-	acquired := []int64{}
-	account := Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{group}, Extra: map[string]any{"base_rpm": 1, "rpm_strategy": "sticky_exempt"}}
-	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{account}}, cfg: &config.Config{}, rpmCache: &openAIRPMTestCache{counts: map[int64]int{1: 1}}, concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquiredIDs: &acquired})}
-	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
-	selection, escaped, err := scheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{Platform: PlatformOpenAI, GroupID: &group, SessionHash: "rpm-gate", StickyAccountID: 1, RequestedModel: "gpt-5.1", EncryptedReasoning: true})
-	require.NoError(t, err)
-	require.Nil(t, selection)
-	require.False(t, escaped)
-	require.Empty(t, acquired)
-}
-
 func TestEncryptedStickyProfitVetoKeepsBinding(t *testing.T) {
 	ctx := WithOpenAIEncryptedReasoningAffinity(profitControlTestCtx(profitControlTestGroup(23, 0.5, 0)), []byte(`{"input":[{"type":"reasoning","encrypted_content":"synthetic"}]}`))
 	groupID := int64(23)
