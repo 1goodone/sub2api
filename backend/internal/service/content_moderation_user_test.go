@@ -56,7 +56,15 @@ func (r *moderationRecoveryRepo) ManageModerationUser(_ context.Context, _ int64
 		r.state.Generation++
 		r.state.CurrentCount = 0
 	case "exemption":
-		r.state.AutoBanExempt = *in.Exempt
+		if in.Exempt != nil {
+			r.state.AutoBanExempt = *in.Exempt
+		}
+		if in.KeywordExempt != nil {
+			r.state.KeywordExempt = *in.KeywordExempt
+		}
+		if in.APIAuditExempt != nil {
+			r.state.APIAuditExempt = *in.APIAuditExempt
+		}
 	}
 	return nil
 }

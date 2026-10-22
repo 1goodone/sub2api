@@ -5,7 +5,7 @@ import Summary from '../ModerationUsersSummary.vue'
 const { get, manage, list } = vi.hoisted(() => ({ get: vi.fn(), manage: vi.fn(), list: vi.fn() }))
 vi.mock('@/api/admin/riskControl', () => ({ getModerationUser: get, manageModerationUser: manage, listModerationUsers: list }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-const initial = { user_id: 306, version: 2, generation: 1, current_count: 10, auto_ban_exempt: false, owned_disable: true, status: 'disabled', reason: '', actor_id: null, updated_at: null }
+const initial = { user_id: 306, version: 2, generation: 1, current_count: 10, auto_ban_exempt: false, keyword_exempt: false, api_audit_exempt: false, owned_disable: true, status: 'disabled', reason: '', actor_id: null, updated_at: null }
 const options = { global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }
 beforeEach(() => { vi.resetAllMocks(); get.mockResolvedValue({ ...initial }); manage.mockResolvedValue({ ...initial, version: 3, current_count: 0, generation: 2 }); list.mockResolvedValue({ items: [], total: 0 }) })
 describe('moderation user controls', () => {
@@ -28,7 +28,7 @@ describe('moderation user controls', () => {
     await wrapper.get('[data-test="reason"]').setValue('trusted intermediary')
     await wrapper.get('[data-test="confirm"]').setValue(true)
     await wrapper.get('[data-test="save-exemption"]').trigger('click'); await flushPromises()
-    expect(manage).toHaveBeenCalledWith(306, { action: 'exemption', version: 2, reason: 'trusted intermediary', confirm: true, auto_ban_exempt: true })
+    expect(manage).toHaveBeenCalledWith(306, { action: 'exemption', version: 2, reason: 'trusted intermediary', confirm: true, auto_ban_exempt: true, keyword_exempt: false, api_audit_exempt: false })
   })
   it('shows a failure without reporting success or overwriting current state', async () => {
     manage.mockRejectedValue({ response: { data: { message: 'MODERATION_STATE_CONFLICT' } } })
@@ -57,4 +57,49 @@ describe('moderation user controls', () => {
     expect(list).toHaveBeenLastCalledWith({ page: 2, page_size: 20, state: 'all' })
     expect(wrapper.get('[data-test="next"]').attributes('disabled')).toBeDefined()
   })
+  it('edits three independent allowlists and displays server readback', async () => {
+    manage.mockResolvedValue({ ...initial, keyword_exempt: true, api_audit_exempt: false, version: 3 })
+    const wrapper = mount(Panel, { props: { userId: 306 } }); await flushPromises()
+    await wrapper.get('[data-test="keyword-exempt"]').setValue(true)
+    await wrapper.get('[data-test="api-audit-exempt"]').setValue(true)
+    await wrapper.get('[data-test="reason"]').setValue('reviewed')
+    await wrapper.get('[data-test="confirm"]').setValue(true)
+    await wrapper.get('[data-test="save-exemption"]').trigger('click'); await flushPromises()
+    expect(manage.mock.calls[0][1]).toMatchObject({ auto_ban_exempt: false, keyword_exempt: true, api_audit_exempt: true })
+    expect(wrapper.get('[data-test="keyword-exempt"]').element).toHaveProperty('checked', true)
+    expect(wrapper.get('[data-test="api-audit-exempt"]').element).toHaveProperty('checked', false)
+  })
+  it('lists concrete types and filters each independently', async () => {
+    list.mockResolvedValue({ items: [{ ...initial, keyword_exempt: true, api_audit_exempt: true }], total: 1 })
+    const wrapper = mount(Summary, options); await flushPromises()
+    expect(wrapper.get('tbody').text()).toContain('admin.moderationUsers.keywordExemption')
+    expect(wrapper.get('tbody').text()).toContain('admin.moderationUsers.apiAuditExemption')
+    for (const type of ['auto_ban_exempt', 'keyword_exempt', 'api_audit_exempt']) {
+      await wrapper.get(`[data-test="filter-${type}"]`).trigger('click'); await flushPromises()
+      expect(list).toHaveBeenLastCalledWith({ page: 1, page_size: 20, state: type })
+    }
+  })
+
+  it.each([
+    ['keyword_exempt', 'keyword-exempt'],
+    ['api_audit_exempt', 'api-audit-exempt'],
+  ])('revokes %s while preserving the other two switches', async (field, selector) => {
+    get.mockResolvedValue({ ...initial, auto_ban_exempt: true, keyword_exempt: true, api_audit_exempt: true })
+    const wrapper = mount(Panel, { props: { userId: 306 } }); await flushPromises()
+    await wrapper.get(`[data-test="${selector}"]`).setValue(false)
+    await wrapper.get('[data-test="reason"]').setValue('revoked')
+    await wrapper.get('[data-test="confirm"]').setValue(true)
+    await wrapper.get('[data-test="save-exemption"]').trigger('click'); await flushPromises()
+    expect(manage.mock.calls[0][1]).toMatchObject({ auto_ban_exempt: true, keyword_exempt: true, api_audit_exempt: true, [field]: false })
+  })
+  it('treats missing legacy review switches as false without offering an unchanged save', async () => {
+    get.mockResolvedValue({ ...initial, keyword_exempt: undefined, api_audit_exempt: undefined })
+    const wrapper = mount(Panel, { props: { userId: 306 } }); await flushPromises()
+    expect(wrapper.get('[data-test="keyword-exempt"]').element).toHaveProperty('checked', false)
+    expect(wrapper.get('[data-test="api-audit-exempt"]').element).toHaveProperty('checked', false)
+    await wrapper.get('[data-test="reason"]').setValue('reviewed')
+    await wrapper.get('[data-test="confirm"]').setValue(true)
+    expect(wrapper.get('[data-test="save-exemption"]').attributes('disabled')).toBeDefined()
+  })
+
 })
