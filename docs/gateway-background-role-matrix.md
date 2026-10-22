@@ -8,6 +8,8 @@
 | Deferred last-used | 每实例本地 | 保留 | 本机请求观测保存在内存，其他节点不能代为刷新。 |
 | Ops system log sink | 每实例本地 | 保留 | 必须排空本机 warning/error 与已启用的访问日志。 |
 | Audit writer | 每实例本地 | 保留 | 请求产生的审计记录必须落库。 |
+| AccountOps 配置/事件队列 | 每实例本地 | 保留 | 配置变更继续生效，本机请求事件继续落库；自动配置队列保留。 |
+| AccountOps 手工分组校准 | 全局维护 | 不启动 | full 根据完整账号集合维护共享分组，gateway 仅消费已保存的配置；不每15秒重新加载完整账号及关系。 |
 | Audit retention | 全局维护 | 不启动 | 多副本扫描同一共享表不增加请求能力。 |
 | Ops metrics collector | 共享协调的全局维护 | 不启动 | 既有 leader lease 避免同时聚合；gateway 仍无需反复读设置、竞争锁。full 的原有 lease 保留。 |
 | Gemini cached-content mutation recovery | 共享协调的全局维护 | 不启动 | 扫描共享过期修改意图；请求内修改/补偿仍可运行，full 继续按原租约恢复。 |
