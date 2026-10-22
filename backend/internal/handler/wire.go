@@ -335,7 +335,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,
-	admin.NewContentModerationHandler,
+	admin.NewContentModerationHandlerWithSafetyPrompt,
 	ProvideAdminPaymentHandler,
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,

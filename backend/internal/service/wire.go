@@ -1015,6 +1015,7 @@ func ProvideOpenAIGatewayService(
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	codexHarvest *CodexHarvestService,
 	proxyRepo ProxyRepository,
+	safetyPromptStore *SafetyPromptStore,
 ) *OpenAIGatewayService {
 	svc := NewOpenAIGatewayService(
 		accountRepo,
@@ -1041,6 +1042,7 @@ func ProvideOpenAIGatewayService(
 		userPlatformQuotaRepo,
 	)
 	svc.proxyRepo = proxyRepo
+	svc.safetyPromptStore = safetyPromptStore
 	svc.SetCodexHarvestService(codexHarvest)
 	svc.StartOpenAICodexTicketHarvester()
 	return svc
@@ -1102,6 +1104,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	ProvideOpenAIGatewayService,
+	NewSafetyPromptStore,
 	ProvideCodexHarvestService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,

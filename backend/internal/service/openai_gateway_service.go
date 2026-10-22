@@ -488,6 +488,7 @@ type OpenAIGatewayService struct {
 	userGroupRateResolver  *userGroupRateResolver
 	httpUpstream           HTTPUpstream
 	pluginManager          *PluginManager
+	safetyPromptStore      *SafetyPromptStore
 	deferredService        *DeferredService
 	openAITokenProvider    *OpenAITokenProvider
 	excelOAuthReauth       *OpenAIOAuthReauthService
