@@ -33,8 +33,9 @@ describe('AccountLoginStateCell', () => {
     const button = wrapper.get('button')
     expect(button.text()).toContain('admin.accounts.loginColumns.relogin')
     await button.trigger('pointerdown')
+    expect(wrapper.emitted('add')).toBeUndefined()
     await button.trigger('click')
-    expect(wrapper.emitted('add')?.length).toBeGreaterThan(0)
+    expect(wrapper.emitted('add')).toHaveLength(1)
     wrapper.unmount()
   })
 

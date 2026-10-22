@@ -1,13 +1,14 @@
 <template>
   <Teleport to="body">
-    <dialog
+    <div
       v-if="show"
-      ref="dialogRef"
       class="bps-login-dialog"
       data-testid="bps-login-dialog"
+      role="dialog"
       aria-modal="true"
       :aria-labelledby="titleId"
-      @cancel="onCancel"
+      style="display:flex;position:fixed;inset:0;z-index:2147483647;width:100vw;height:100vh;align-items:center;justify-content:center;"
+      @keydown.esc.prevent.stop="close"
     >
       <div class="modal-content w-full max-w-lg" data-testid="bps-login-modal" @click.stop>
         <div class="modal-header">
@@ -58,11 +59,11 @@
           </button>
         </div>
       </div>
-    </dialog>
+    </div>
   </Teleport>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { BPSLoginAccountResult } from '@/api/admin/accounts'
@@ -73,7 +74,6 @@ const props = defineProps<{ show: boolean; accounts: AccountListItem[]; selected
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 const titleId = `bps-login-title-${Math.random().toString(36).slice(2, 8)}`
-const dialogRef = ref<HTMLDialogElement | null>(null)
 const query = ref('')
 const proxiesText = ref('')
 const picked = ref(new Set<number>())
@@ -99,30 +99,8 @@ const filtered = computed(() => {
   return candidates.value.filter(account => (account.name || '').toLowerCase().includes(text) || String(account.id).includes(text))
 })
 
-function present() {
-  const dialog = dialogRef.value
-  if (!dialog) return
-  if (typeof dialog.showModal === 'function') {
-    try {
-      if (!dialog.open) dialog.showModal()
-      return
-    } catch {
-      // showModal is missing or the element is already open; the open attribute still shows the form.
-    }
-  }
-  dialog.setAttribute('open', '')
-}
-
-function dismiss() {
-  const dialog = dialogRef.value
-  if (dialog && dialog.open && typeof dialog.close === 'function') dialog.close()
-}
-
 watch(() => props.show, async (open) => {
-  if (!open) {
-    dismiss()
-    return
-  }
+  if (!open) return
   query.value = ''
   proxiesText.value = ''
   results.value = []
@@ -130,22 +108,13 @@ watch(() => props.show, async (open) => {
   const selected = Array.isArray(props.selectedIds) ? props.selectedIds : []
   picked.value = new Set(selected.filter(id => visible.has(id)))
   await nextTick()
-  present()
-  dialogRef.value?.querySelector<HTMLElement>('[data-testid="bps-login-proxy"]')?.focus()
-}, { immediate: true, flush: 'post' })
-
-onBeforeUnmount(() => {
-  dismiss()
-})
+  if (!props.show) return
+  document.body.querySelector<HTMLElement>('[data-testid="bps-login-proxy"]')?.focus()
+}, { immediate: true })
 
 function close() {
   if (submitting.value) return
   emit('close')
-}
-
-function onCancel(event: Event) {
-  event.preventDefault()
-  close()
 }
 
 function toggle(id: number) {
@@ -171,27 +140,10 @@ async function submit() {
 </script>
 <style>
 .bps-login-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483646;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
   margin: 0;
   padding: 16px;
   border: 0;
   background: rgba(2, 6, 23, 0.55);
   color: inherit;
-  opacity: 1;
-}
-.bps-login-dialog[open] {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 1;
-}
-.bps-login-dialog::backdrop {
-  background: rgba(2, 6, 23, 0.55);
 }
 </style>

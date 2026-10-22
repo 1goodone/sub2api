@@ -30,14 +30,17 @@ describe('BPSLoginModal', () => {
     })
 
     await wrapper.vm.$nextTick()
-    const shell = document.body.querySelector('[data-testid="bps-login-dialog"]') as HTMLDialogElement | null
+    const shell = document.body.querySelector('[data-testid="bps-login-dialog"]') as HTMLElement | null
     const dialog = document.body.querySelector('[data-testid="bps-login-modal"]')
     const proxy = document.body.querySelector('[data-testid="bps-login-proxy"]')
     expect(shell).not.toBeNull()
+    expect(shell?.tagName).toBe('DIV')
+    expect(shell?.style.display).toBe('flex')
+    expect(shell?.style.position).toBe('fixed')
+    expect('showModal' in (shell as HTMLElement)).toBe(false)
     expect(dialog).not.toBeNull()
     expect(proxy).not.toBeNull()
     expect(document.body.contains(dialog)).toBe(true)
-    expect(shell?.open || shell?.hasAttribute('open')).toBe(true)
 
     shell?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await wrapper.vm.$nextTick()
