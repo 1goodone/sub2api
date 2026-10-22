@@ -823,6 +823,19 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				normalizedExtra[key] = v
 			}
 		}
+		// Quality rejection observations belong to sync/runtime, not the edit
+		// form. A form opened before model sync must not restore a stale block
+		// (or erase a newer runtime rejection) when saving the model mapping.
+		for key := range normalizedExtra {
+			if strings.HasPrefix(key, "quality_unsupported_model_") {
+				delete(normalizedExtra, key)
+			}
+		}
+		for key, value := range account.Extra {
+			if strings.HasPrefix(key, "quality_unsupported_model_") {
+				normalizedExtra[key] = value
+			}
+		}
 		normalizedExtra = MergeOpenAICodexTicketExtra(normalizedExtra, account.Extra)
 		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
 		account.Extra = normalizedExtra
