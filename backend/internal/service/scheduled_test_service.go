@@ -203,11 +203,12 @@ func (s *ScheduledTestService) GetResult(ctx context.Context, planID, resultID i
 	return s.resultRepo.GetResult(ctx, planID, resultID)
 }
 
-func (s *ScheduledTestService) ListPelicanHistory(ctx context.Context, beforeID int64, limit int) (*PelicanHistoryPage, error) {
+// ListPelicanHistory pages retained Pelican outputs; accountID 0 lists every account.
+func (s *ScheduledTestService) ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) (*PelicanHistoryPage, error) {
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
-	items, total, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, limit+1)
+	items, total, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, limit+1, accountID)
 	if err != nil {
 		return nil, err
 	}

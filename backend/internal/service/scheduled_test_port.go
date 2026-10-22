@@ -101,7 +101,8 @@ type PelicanHistoryPage struct {
 // ScheduledTestResultRepository defines the data access interface for test results.
 type ScheduledTestResultRepository interface {
 	ListQualityHistory(context.Context, int64, int) ([]*QualityHistoryResult, error)
-	ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*PelicanHistoryResult, int64, error)
+	// accountID 0 lists every account. The total counts the same filter.
+	ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) ([]*PelicanHistoryResult, int64, error)
 	PruneExpiredPelican(ctx context.Context, before time.Time) error
 	Create(ctx context.Context, result *ScheduledTestResult) (*ScheduledTestResult, error)
 	GetResult(ctx context.Context, planID, resultID int64) (*ScheduledTestResult, error)

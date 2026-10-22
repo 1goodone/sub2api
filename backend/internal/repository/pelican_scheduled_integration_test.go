@@ -129,21 +129,37 @@ func TestPelicanHistoryReturnsEveryRetainedOutputAcrossAccounts(t *testing.T) {
 		_, err = results.Create(ctx, &service.ScheduledTestResult{PlanID: legacy.ID, Status: "success", StartedAt: now, FinishedAt: now})
 		require.NoError(t, err)
 	}
-	var found []*service.PelicanHistoryResult
-	cursor := int64(0)
-	for {
-		page, err := svc.ListPelicanHistory(ctx, cursor, 2)
-		require.NoError(t, err)
-		require.EqualValues(t, 7, page.Total)
-		found = append(found, page.Items...)
-		if page.NextCursor == 0 {
-			break
+	collect := func(accountID int64) []*service.PelicanHistoryResult {
+		var found []*service.PelicanHistoryResult
+		cursor := int64(0)
+		for {
+			page, err := svc.ListPelicanHistory(ctx, cursor, 2, accountID)
+			require.NoError(t, err)
+			if accountID == 0 {
+				require.EqualValues(t, 7, page.Total)
+			}
+			found = append(found, page.Items...)
+			if page.NextCursor == 0 {
+				break
+			}
+			if cursor > 0 {
+				require.Less(t, page.NextCursor, cursor)
+			}
+			cursor = page.NextCursor
 		}
-		if cursor > 0 {
-			require.Less(t, page.NextCursor, cursor)
-		}
-		cursor = page.NextCursor
+		return found
 	}
+	// The IQ test's records window pages one account with the same cursor.
+	for i, want := range [][]int64{ids[:6], ids[6:]} {
+		scoped := collect(accountIDs[i])
+		scopedIDs := make([]int64, 0, len(scoped))
+		for _, result := range scoped {
+			require.Equal(t, accountIDs[i], result.AccountID)
+			scopedIDs = append(scopedIDs, result.ID)
+		}
+		require.ElementsMatch(t, want, scopedIDs)
+	}
+	found := collect(0)
 	require.Len(t, found, 7)
 	actual := make([]int64, 0)
 	failed := 0
