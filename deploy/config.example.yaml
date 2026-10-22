@@ -58,6 +58,8 @@ server:
   # 只填写直接连接 Sub2API 的精确代理地址；显式设置 [] 可在高安全模式下
   # 禁用转发 IP 信任。
   # 未配置时仅信任 127.0.0.1/32 和 ::1/128；Docker 桥接/远程代理需显式配置。
+  # Docker + 宿主机 Nginx 排障与持久化步骤见 docs/docker-trusted-proxies.md。
+  # SERVER_TRUSTED_PROXIES 环境变量优先于此列表；显式空值会禁用信任。
   trusted_proxies:
     - 127.0.0.1/32
     - ::1/128

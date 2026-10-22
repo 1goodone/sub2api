@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Check Docker Compose trusted proxy environment
+        run: /bin/sh deploy/tests/docker-compose-trusted-proxies-env-test.sh
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
