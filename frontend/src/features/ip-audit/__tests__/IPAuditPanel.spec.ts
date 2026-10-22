@@ -26,7 +26,7 @@ describe('IP audit', () => {
   const wrapper = render(locale);await flushPromises()
   expect(wrapper.text()).toContain(locale === 'en' ? en.externalHint : zh.externalHint)
   expect(wrapper.text()).not.toContain('ipAudit.')
-  expect(wrapper.find('a[href="/admin/settings?tab=security#ip-risk-settings"]').exists()).toBe(true)
+  expect(wrapper.find('[data-testid="ip-open-settings"]').exists()).toBe(true)
   wrapper.unmount()
  })
  it('sends filters and bounded page cursors to the server, and clears selection on refresh', async () => {

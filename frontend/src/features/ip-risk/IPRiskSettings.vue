@@ -158,7 +158,8 @@ import { onMounted, onBeforeUnmount, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ipRiskAPI, type IPBan, type IPBlockRule, type IPRiskConfig, type IPRiskEvent, type IPRiskSnapshot } from './api'
 
-const initiallyOpen = typeof window !== 'undefined' && window.location.hash === '#ip-risk-settings'
+const props = defineProps<{ expanded?: boolean }>()
+const initiallyOpen = props.expanded || (typeof window !== 'undefined' && window.location.hash === '#ip-risk-settings')
 const { t, te } = useI18n()
 const tr = (key: string) => t(`admin.settings.ipRisk.${key}`)
 const label = (key: string) => key && te(`admin.settings.ipRisk.labels.${key}`) ? tr(`labels.${key}`) : key || '—'

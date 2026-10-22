@@ -1,4 +1,5 @@
 export default {
+  tabs: { sources: '来源状态与解封', config: '风控配置与访问记录' },
   stillRestricted: "解除后选中来源仍有状态，可能出现了新命中；请核对当前限制。",
   confirmUserScope: "此操作明确解除并重置该用户当前所有安全惩罚状态，包括本页以外的会话及策略；不启用账号，不改变 IP/ACL 规则。新的命中可再次限制该用户。",
   "title": "IP 审计",

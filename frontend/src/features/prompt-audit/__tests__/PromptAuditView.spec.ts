@@ -55,7 +55,7 @@ const FilterDeleteStub = defineComponent({
 
 function mountView(router?: Router) {
   return mount(PromptAuditView, {
-    global: { plugins: router ? [router] : [], stubs: { IPAuditPanel: { template: '<div data-testid="ip-audit-panel" />' }, AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, PenaltyPolicyPanel: true, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, FilterDeleteDialog: FilterDeleteStub, ConfirmDialog: ConfirmStub } },
+    global: { plugins: router ? [router] : [], stubs: { SecurityAuditNav: true, IPAuditPanel: { template: '<div data-testid="ip-audit-panel" />' }, AppLayout: AppLayoutStub, RuntimeOverview: RuntimeStub, EndpointPool: EndpointStub, PolicyPanel: PolicyStub, PenaltyPolicyPanel: true, EventWorkspace: EventsStub, EventDetailDialog: DetailStub, FilterDeleteDialog: FilterDeleteStub, ConfirmDialog: ConfirmStub } },
   })
 }
 
@@ -74,24 +74,22 @@ describe('PromptAuditView', () => {
     mocks.batchDeleteEvents.mockResolvedValue({ deleted_events: 2, deleted_jobs: 2 })
   })
 
-  it('opens the IP tab from a guarded page query and keeps it available after prompt config failure', async () => {
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/admin/prompt-audit', component: PromptAuditView }] })
-    await router.push('/admin/prompt-audit?tab=ip'); await router.isReady()
-    mocks.getConfig.mockRejectedValue(new Error('prompt configuration offline'))
-    const wrapper = mountView(router);await flushPromises()
-    expect(wrapper.get('[data-test="tab-ip"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.find('[data-testid="ip-audit-panel"]').exists()).toBe(true)
-    await wrapper.get('[data-test="tab-events"]').trigger('click');await flushPromises()
-    expect(router.currentRoute.value.query.tab).toBe('events')
+  it('keeps only prompt events/config in the page and delegates security navigation', async () => {
+    const wrapper = mountView(); await flushPromises()
+    expect(wrapper.find('[data-test="tab-ip"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="ip-audit-panel"]').exists()).toBe(false)
+    expect(wrapper.getComponent({ name: 'SecurityAuditNav' }).attributes('active')).toBe('/admin/prompt-audit')
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
     wrapper.unmount()
   })
 
-  it('opens IP audit from the existing secondary tabs without sharing prompt configuration', async () => {
-    const wrapper = mountView(); await flushPromises()
-    await wrapper.get('[data-test="tab-ip"]').trigger('click'); await flushPromises()
-    expect(wrapper.get('[data-test="tab-ip"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.find('[data-testid="ip-audit-panel"]').exists()).toBe(true)
-    expect(wrapper.find('[data-test="save-config"]').exists()).toBe(false)
+  it('keeps configuration deep links on the prompt page without loading IP audit', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/admin/prompt-audit', component: PromptAuditView }] })
+    await router.push('/admin/prompt-audit?tab=config'); await router.isReady()
+    const wrapper = mountView(router); await flushPromises()
+    expect(wrapper.get('[data-test="tab-config"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-testid="ip-audit-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="save-config"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

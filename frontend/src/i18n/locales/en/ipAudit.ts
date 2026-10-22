@@ -1,4 +1,5 @@
 export default {
+  tabs: { sources: 'Sources and recovery', config: 'Risk settings and access records' },
   stillRestricted: "The selected source still has state after recovery, possibly from a new finding. Review its current restrictions.",
   confirmUserScope: "This explicitly releases and resets ALL current security penalty states for this user, including sessions and policies outside this bounded page. It does not activate the account or change any IP/ACL policy. New findings may restrict the user again.",
   "title": "IP Audit",

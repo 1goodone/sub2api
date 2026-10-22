@@ -1,9 +1,8 @@
 <template>
   <section class="space-y-4 py-5" data-testid="ip-audit-panel">
-    <h2 class="text-xl font-semibold">{{ t('ipAudit.title') }}</h2>
     <p class="text-sm text-gray-500">{{ t('ipAudit.scopeHint') }}</p>
     <p class="rounded bg-amber-50 p-3 text-sm text-amber-900" data-testid="host-disconnected">{{ t('ipAudit.externalHint') }}</p>
-    <a href="/admin/settings?tab=security#ip-risk-settings" class="inline-block text-sm text-primary-600 underline">{{ t('ipAudit.settings') }}</a>
+    <button type="button" class="inline-block text-sm text-primary-600 underline" data-testid="ip-open-settings" @click="$emit('configure')">{{ t('ipAudit.settings') }}</button>
     <details class="rounded border p-3" data-testid="ip-source-inventory">
       <summary class="cursor-pointer">{{ t('ipAudit.inventory') }}</summary>
       <ul class="mt-3 space-y-2 text-sm"><li v-for="item in inventory" :key="item.id">
@@ -61,6 +60,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listIPAudit, releaseIPAudit, type AuditEntry, type AuditQuery, type AuditSource, type ReleaseResult } from './api'
+defineEmits<{ configure: [] }>()
 const { t, te } = useI18n()
 const sourceName = (id: string) => t(`ipAudit.sources.${id}`)
 const label = (value: string) => te(`ipAudit.labels.${value}`) ? t(`ipAudit.labels.${value}`) : value || t('ipAudit.unavailable')
