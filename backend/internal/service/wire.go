@@ -944,8 +944,11 @@ func ProvideBillingCacheService(
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	balanceNotifyService *BalanceNotifyService,
 ) *BillingCacheService {
-	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc := NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc.SetBalanceRejectionNotifier(balanceNotifyService)
+	return svc
 }
 
 // ProvideAPIKeyService wires APIKeyService and connects rate-limit cache invalidation.
@@ -964,6 +967,9 @@ func ProvideAPIKeyService(
 ) (*APIKeyService, error) {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
+	if billingCacheService != nil {
+		svc.SetBalanceRejectionNotifier(billingCacheService.balanceRejectionNotifier)
+	}
 	svc.SetConcurrencyService(concurrencyService)
 	svc.SetChannelRoutingHealthReader(channelMonitorService)
 	if cfg != nil && cfg.Runtime.RegionalAuthFile != "" {
