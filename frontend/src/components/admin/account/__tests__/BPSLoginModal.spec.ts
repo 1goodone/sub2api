@@ -30,15 +30,15 @@ describe('BPSLoginModal', () => {
     })
 
     await wrapper.vm.$nextTick()
-    const shell = document.body.querySelector('[data-testid="bps-login-dialog"]') as HTMLElement | null
+    const shell = document.body.querySelector('.modal-overlay') as HTMLElement | null
     const dialog = document.body.querySelector('[data-testid="bps-login-modal"]')
     const proxy = document.body.querySelector('[data-testid="bps-login-proxy"]')
     expect(shell).not.toBeNull()
     expect(shell?.tagName).toBe('DIV')
-    expect(shell?.style.display).toBe('flex')
-    expect(shell?.style.position).toBe('fixed')
-    expect('showModal' in (shell as HTMLElement)).toBe(false)
+    expect(shell?.classList.contains('modal-overlay')).toBe(true)
+    expect(document.body.querySelector('dialog')).toBeNull()
     expect(dialog).not.toBeNull()
+    expect(shell?.contains(dialog as Node)).toBe(true)
     expect(proxy).not.toBeNull()
     expect(document.body.contains(dialog)).toBe(true)
 
