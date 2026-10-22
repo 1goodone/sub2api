@@ -30,16 +30,16 @@ describe('BPSLoginModal', () => {
     })
 
     await wrapper.vm.$nextTick()
+    const shell = document.body.querySelector('[data-testid="bps-login-dialog"]') as HTMLDialogElement | null
     const dialog = document.body.querySelector('[data-testid="bps-login-modal"]')
     const proxy = document.body.querySelector('[data-testid="bps-login-proxy"]')
-    const overlay = document.body.querySelector('.modal-overlay')
+    expect(shell).not.toBeNull()
     expect(dialog).not.toBeNull()
     expect(proxy).not.toBeNull()
     expect(document.body.contains(dialog)).toBe(true)
-    expect(overlay).not.toBeNull()
-    expect((overlay as HTMLElement).style.zIndex).toBe('100000030')
+    expect(shell?.open || shell?.hasAttribute('open')).toBe(true)
 
-    overlay?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    shell?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('close')).toBeUndefined()
     wrapper.unmount()

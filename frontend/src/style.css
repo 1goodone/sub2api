@@ -498,6 +498,12 @@
     opacity: 0;
   }
 
+  /* 进入动画若没跑完，窗口会停在 opacity:0。进入态强制可见，离开动画仍可淡出。 */
+  .modal-overlay.modal-enter-from,
+  .modal-overlay.modal-enter-active {
+    opacity: 1;
+  }
+
   .modal-enter-active .modal-content {
     transition: transform 250ms ease-out, opacity 250ms ease-out;
   }
