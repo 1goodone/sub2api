@@ -11,6 +11,11 @@
 # 进程角色：full 保留全局后台任务（默认）；gateway 仅处理请求流量。
 runtime:
   role: "full"
+  # auto: full publishes scheduler snapshots; gateway only reads shared snapshots.
+  # reader rejects account-cache misses without database fallback or rebuilding.
+  # Keep exactly one full writer; gateway + writer is rejected.
+  # See docs/multi-host-scheduler-snapshots.md before upgrading request replicas.
+  scheduler_snapshot_mode: "auto"
 
 # =============================================================================
 # Server Configuration

@@ -10,6 +10,7 @@ const (
 // RuntimeConfig separates global background jobs from request replicas.
 type RuntimeConfig struct {
 	Role                    string `mapstructure:"role"`
+	SchedulerSnapshotMode   string `mapstructure:"scheduler_snapshot_mode"`
 	RegionalFundsFile       string `mapstructure:"regional_funds_file"`
 	RegionalConcurrencyFile string `mapstructure:"regional_concurrency_file"`
 	RegionalAuthFile        string `mapstructure:"regional_auth_file"`
@@ -21,6 +22,9 @@ func (c *Config) RunsBackgroundJobs() bool {
 }
 
 func (c *Config) validateRuntime() error {
+	if err := c.validateSchedulerSnapshotMode(); err != nil {
+		return err
+	}
 	switch c.Runtime.Role {
 	case "", RuntimeRoleFull, RuntimeRoleGateway:
 		return nil
