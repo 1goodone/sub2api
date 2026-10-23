@@ -292,6 +292,7 @@ export default {
         loginCredential: '凭证',
         bpsLogin: 'BPS',
         siwcLogin: 'SIWC',
+        imageCapacity: '图片容量',
         schedulable: '调度',
         todayStats: '整个统计',
         groups: '分组',

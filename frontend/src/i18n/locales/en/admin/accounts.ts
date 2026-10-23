@@ -449,6 +449,7 @@ export default {
         loginCredential: 'Credentials',
         bpsLogin: 'BPS',
         siwcLogin: 'SIWC',
+        imageCapacity: 'Images',
         schedulable: 'Schedulable',
         todayStats: 'Overall Stats',
         groups: 'Groups',

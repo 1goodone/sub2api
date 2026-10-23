@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,8 +75,11 @@ func TestFetchOpenAIImageGenQuotaRequest(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer token" {
 			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
 		}
-		if r.Header.Get("X-OpenAI-Target-Path") != chatGPTConversationInitPath || r.Header.Get("chatgpt-account-id") != "acc-1" {
+		if r.Header.Get("chatgpt-account-id") != "acc-1" || r.Header.Get("originator") != openaiQuotaCodexOriginator {
 			t.Errorf("headers = %#v", r.Header)
+		}
+		if strings.Contains(r.Header.Get("User-Agent"), "Go-http-client") {
+			t.Errorf("user-agent = %q", r.Header.Get("User-Agent"))
 		}
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
@@ -83,10 +87,6 @@ func TestFetchOpenAIImageGenQuotaRequest(t *testing.T) {
 		_, _ = w.Write([]byte(`{"limits_progress":[{"feature_name":"image_gen","remaining":9,"max":30,"reset_after":"later"}]}`))
 	}))
 	defer server.Close()
-
-	originalURL := chatGPTConversationInitURL
-	chatGPTConversationInitURL = server.URL + chatGPTConversationInitPath
-	t.Cleanup(func() { chatGPTConversationInitURL = originalURL })
 
 	account := &Account{
 		Platform: PlatformOpenAI,
@@ -96,7 +96,7 @@ func TestFetchOpenAIImageGenQuotaRequest(t *testing.T) {
 			"chatgpt_account_id": "acc-1",
 		},
 	}
-	quota, err := fetchOpenAIImageGenQuota(context.Background(), account)
+	quota, err := fetchOpenAIImageGenQuota(context.Background(), account, newQuotaRedirectingFactory(server))
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}

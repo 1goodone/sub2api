@@ -1,19 +1,14 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 )
 
 const (
@@ -50,7 +45,11 @@ func (s *AccountUsageService) refreshOpenAIImageGenQuota(ctx context.Context, ac
 	if !s.shouldFetchOpenAIImageGen(account.ID, now, force) {
 		return
 	}
-	quota, err := fetchOpenAIImageGenQuota(ctx, account)
+	var factory PrivacyClientFactory
+	if s.openAIQuotaService != nil {
+		factory = s.openAIQuotaService.privacyClientFactory
+	}
+	quota, err := fetchOpenAIImageGenQuota(ctx, account, factory)
 	if err != nil {
 		slog.Warn("openai_image_gen_quota_failed", "account_id", account.ID, "error", err)
 		return
@@ -144,35 +143,47 @@ func applyImageGenQuotaToUsage(usage *UsageInfo, extra map[string]any) {
 	}
 }
 
-var fetchOpenAIImageGenQuota = func(ctx context.Context, account *Account) (imageGenQuota, error) {
+var fetchOpenAIImageGenQuota = func(ctx context.Context, account *Account, factory PrivacyClientFactory) (imageGenQuota, error) {
+	if account == nil {
+		return imageGenQuota{}, fmt.Errorf("missing openai account")
+	}
+	token := strings.TrimSpace(account.GetOpenAIAccessToken())
+	if token == "" {
+		return imageGenQuota{}, fmt.Errorf("no access token available")
+	}
+	if factory == nil {
+		return imageGenQuota{}, fmt.Errorf("chatgpt conversation init client unavailable")
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	req, err := newChatGPTConversationInitRequest(reqCtx, account)
-	if err != nil {
-		return imageGenQuota{}, err
-	}
 	proxyURL := ""
-	if account != nil && account.ProxyID != nil && account.Proxy != nil {
+	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	client, err := httppool.GetClient(httppool.Options{
-		ProxyURL:              proxyURL,
-		Timeout:               15 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
-	})
+	client, err := factory(proxyURL)
 	if err != nil {
 		return imageGenQuota{}, fmt.Errorf("build chatgpt conversation init client: %w", err)
 	}
-	resp, err := client.Do(req)
+	headers := buildCodexCommonHeaders(token, account.GetChatGPTAccountID(), account.IsChatGPTAccountFedRAMP())
+	headers["content-type"] = "application/json"
+	headers["origin"] = "https://chatgpt.com"
+	headers["referer"] = "https://chatgpt.com/"
+	resp, err := client.R().
+		SetContext(reqCtx).
+		SetHeaders(headers).
+		SetBody([]byte(chatGPTConversationInitBody)).
+		Post(chatGPTConversationInitURL)
 	if err != nil {
 		return imageGenQuota{}, fmt.Errorf("chatgpt conversation init: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return imageGenQuota{}, fmt.Errorf("read chatgpt conversation init: %w", err)
+	body := resp.Bytes()
+	if len(body) > 1<<20 {
+		body = body[:1<<20]
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !resp.IsSuccessState() {
+		if mitigated := strings.TrimSpace(resp.Header.Get("cf-mitigated")); mitigated != "" {
+			return imageGenQuota{}, fmt.Errorf("chatgpt conversation init status %d cf-mitigated=%s", resp.StatusCode, mitigated)
+		}
 		return imageGenQuota{}, fmt.Errorf("chatgpt conversation init status %d", resp.StatusCode)
 	}
 	quota, ok := extractImageGenQuota(body)
@@ -180,30 +191,6 @@ var fetchOpenAIImageGenQuota = func(ctx context.Context, account *Account) (imag
 		return imageGenQuota{}, fmt.Errorf("chatgpt conversation init has no image_gen remaining")
 	}
 	return quota, nil
-}
-
-func newChatGPTConversationInitRequest(ctx context.Context, account *Account) (*http.Request, error) {
-	if account == nil {
-		return nil, fmt.Errorf("missing openai account")
-	}
-	token := strings.TrimSpace(account.GetOpenAIAccessToken())
-	if token == "" {
-		return nil, fmt.Errorf("no access token available")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatGPTConversationInitURL, bytes.NewReader([]byte(chatGPTConversationInitBody)))
-	if err != nil {
-		return nil, fmt.Errorf("create chatgpt conversation init request: %w", err)
-	}
-	req.Host = "chatgpt.com"
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Origin", "https://chatgpt.com")
-	req.Header.Set("Referer", "https://chatgpt.com/")
-	req.Header.Set("X-OpenAI-Target-Path", chatGPTConversationInitPath)
-	req.Header.Set("X-OpenAI-Target-Route", chatGPTConversationInitPath)
-	setOpenAIChatGPTAccountHeaders(req.Header, account)
-	return req, nil
 }
 
 func extractImageGenQuota(body []byte) (imageGenQuota, bool) {

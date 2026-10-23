@@ -345,11 +345,13 @@
           <template #cell-login_credential="{ row }">
             <AccountLoginStateCell kind="credential" :account="row" :guard="loginGuards[row.id]" @add="credentialDraft = row" @changed="loadLoginGuards" />
           </template>
-          <template #cell-bps_login="{ row }">
-            <AccountLoginStateCell kind="bps" :account="row" :bps="bpsStatuses[row.id]" @add="openBPSLoginFor(row)" />
-          </template>
-          <template #cell-siwc_login="{ row }">
-            <AccountLoginStateCell kind="siwc" :account="row" :siwc="siwcStatuses[row.id]" :siwc-loading="siwcLoading" @add="siwcDraft = row" @changed="loadSIWCStatuses" />
+          <template #cell-image_capacity="{ row }">
+            <span
+              v-if="imageCapacityLabel(row)"
+              class="whitespace-nowrap text-xs tabular-nums text-gray-700 dark:text-gray-200"
+              :title="imageCapacityTitle(row)"
+            >{{ imageCapacityLabel(row) }}</span>
+            <span v-else class="text-xs text-gray-400">—</span>
           </template>
           <template #cell-schedulable="{ row }">
             <SchedulableTimerControl v-if="authStore.isAdmin" :account-id="row.id" :refresh-key="timerRefreshKey" @executed="handleTimerExecuted" />
@@ -851,6 +853,50 @@ let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 
 const usageBatchByAccountId = ref<Record<string, AccountUsageInfo | null>>({})
+
+function finiteImageCount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.floor(value)
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed)
+  }
+  return null
+}
+
+function imageCapacityOf(row: AccountListItem) {
+  if (row.platform !== 'openai' || row.type !== 'oauth' || row.parent_account_id != null) return null
+  const usage = usageBatchByAccountId.value[String(row.id)]
+  if (usage?.image_gen_remaining != null) {
+    return {
+      remaining: usage.image_gen_remaining,
+      total: usage.image_gen_total == null ? null : finiteImageCount(usage.image_gen_total),
+      resetAfter: usage.image_gen_reset_after || ''
+    }
+  }
+  const remaining = finiteImageCount(row.extra?.openai_image_gen_remaining)
+  if (remaining == null) return null
+  return {
+    remaining,
+    total: finiteImageCount(row.extra?.openai_image_gen_total),
+    resetAfter: typeof row.extra?.openai_image_gen_reset_after === 'string' ? row.extra.openai_image_gen_reset_after : ''
+  }
+}
+
+function imageCapacityLabel(row: AccountListItem) {
+  const quota = imageCapacityOf(row)
+  if (!quota) return ''
+  return quota.total == null ? `${quota.remaining}/—` : `${quota.remaining}/${quota.total}`
+}
+
+function imageCapacityTitle(row: AccountListItem) {
+  const quota = imageCapacityOf(row)
+  if (!quota) return ''
+  const parts = [t('admin.accounts.openai.imageGenQuotaTitle')]
+  if (quota.total == null) parts.push(t('admin.accounts.openai.imageGenQuotaUnknownTotal'))
+  if (quota.resetAfter) parts.push(quota.resetAfter)
+  return parts.join(' · ')
+}
+
 const usageBatchErrorByAccountId = ref<Record<string, string | null>>({})
 const usageBatchLoadingByAccountId = ref<Record<string, boolean>>({})
 const usageBatchRequestTokenByAccountId = ref<Record<string, number>>({})
@@ -902,6 +948,7 @@ const setUsageBatchState = (accountID: number, usage: AccountUsageInfo | null, e
 const handleAccountUsageLoaded = (accountID: number, usage: AccountUsageInfo) => {
   if (usageBatchByAccountId.value[String(accountID)] === usage) return
   setUsageBatchState(accountID, usage, null)
+  rememberImageCapacity(accountID, usage)
 }
 
 const flushQueuedUsageBatch = async () => {
@@ -939,6 +986,7 @@ const flushQueuedUsageBatch = async () => {
       nextLoading[key] = false
       if (usage) {
         usageBatchCache.set(accountID, { data: usage, ts: now })
+        rememberImageCapacity(accountID, usage)
       } else {
         usageBatchCache.delete(accountID)
       }
@@ -1231,6 +1279,20 @@ const {
     sort_order: sortState.sort_order
   }
 })
+
+function rememberImageCapacity(accountID: number, usage: AccountUsageInfo | null) {
+  if (!usage || usage.image_gen_remaining == null) return
+  const index = accounts.value.findIndex(account => account.id === accountID)
+  if (index < 0) return
+  const current = accounts.value[index]
+  const extra = { ...(current.extra ?? {}) }
+  extra.openai_image_gen_remaining = usage.image_gen_remaining
+  extra.openai_image_gen_total = usage.image_gen_total ?? null
+  extra.openai_image_gen_reset_after = usage.image_gen_reset_after ?? ''
+  const next = [...accounts.value]
+  next[index] = { ...current, extra }
+  accounts.value = next
+}
 
 const selectedAccountGroup = computed(() => {
   const groupId = Number(params.group)
@@ -2106,8 +2168,7 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'login_credential', label: t('admin.accounts.columns.loginCredential'), sortable: false },
-    { key: 'bps_login', label: t('admin.accounts.columns.bpsLogin'), sortable: false },
-    { key: 'siwc_login', label: t('admin.accounts.columns.siwcLogin'), sortable: false },
+    { key: 'image_capacity', label: t('admin.accounts.columns.imageCapacity'), sortable: false },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
