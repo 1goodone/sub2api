@@ -46,7 +46,7 @@ func TestExcelBPSStructuredOutputForwardContract(t *testing.T) {
 					require.NoError(t, err)
 					wire := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"UNVALIDATED_TEXT\"}\n\n" + "event: response.completed\ndata: " + string(event) + "\n\n"
 					upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(wire))}}
-					svc := openAIClientToolsTestService(upstream)
+					svc := openAIExcelBPSRecoveryTestService(upstream)
 					rec := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(rec)
 					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -94,7 +94,7 @@ func TestExcelBPSStructuredOutputDoesNotOverrideModelAccess(t *testing.T) {
 	for _, model := range []string{"gpt-6-luna", "gpt-6-sol"} {
 		t.Run(model, func(t *testing.T) {
 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{\"error\":{\"code\":\"basispoints_model_access_changed\"}}"))}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)

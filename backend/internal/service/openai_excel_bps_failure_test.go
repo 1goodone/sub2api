@@ -39,7 +39,7 @@ func bpsFailureWire(t *testing.T, kind, code, errorType string, status int) stri
 func TestExcelBPSFailureAfterCompactKeepalive(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(http.StatusOK,
 		bpsFailureWire(t, "response.failed", "rate_limit_exceeded", "", 0))}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", nil)
@@ -93,7 +93,7 @@ func TestExcelBPSFailureClassification(t *testing.T) {
 					wire = "data: " + string(prefix) + "\n\n" + wire
 				}
 				upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(http.StatusOK, wire)}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				account := excelAccount()
 				account.Extra["openai_excel_bps_auto_disable_on_403"] = true
 				body, err := json.Marshal(map[string]any{"model": "gpt-6-astra", "stream": stream, "input": "hello"})

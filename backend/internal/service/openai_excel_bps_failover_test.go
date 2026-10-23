@@ -16,7 +16,7 @@ import (
 )
 
 func TestExcelBPSCredentialFailurePausesWholeAccount(t *testing.T) {
-	svc := openAIClientToolsTestService(nil)
+	svc := openAIExcelBPSRecoveryTestService(nil)
 	repo, _ := setupExcelBPSAuth(svc)
 	a := excelAccount()
 	svc.pauseExcelBPSCredentialError(context.Background(), a, errors.New("access_token not found in credentials"))
@@ -30,7 +30,7 @@ func TestExcelBPSCredentialFailurePausesWholeAccount(t *testing.T) {
 
 func TestExcelBPSCredentialInfrastructureFailuresDoNotDisableAccounts(t *testing.T) {
 	for _, err := range []error{context.Canceled, context.DeadlineExceeded, infraerrors.ServiceUnavailable("OPENAI_EXCEL_AUTH_PENDING", "pending"), infraerrors.ServiceUnavailable("OPENAI_EXCEL_AUTH_UNAVAILABLE", "unavailable"), errors.New("failed to read Excel credentials")} {
-		svc := openAIClientToolsTestService(nil)
+		svc := openAIExcelBPSRecoveryTestService(nil)
 		repo, _ := setupExcelBPSAuth(svc)
 		svc.pauseExcelBPSCredentialError(context.Background(), excelAccount(), err)
 		require.Zero(t, repo.errorCalls, err.Error())
@@ -54,7 +54,7 @@ func TestExcelBPSRetryClassifiesKnownFailuresOnly(t *testing.T) {
 
 func TestExcelBPSPreoutputFailureLeavesClientResponseOpen(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(200, bpsFailureWire(t, "response.failed", "rate_limit_exceeded", "", 0))}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -70,7 +70,7 @@ func TestExcelBPSPreoutputFailureLeavesClientResponseOpen(t *testing.T) {
 
 func TestExcelBPSCorrectionRetriesOnlyRejectedSubrequest(t *testing.T) {
 	u := &httpUpstreamRecorder{responses: []*http.Response{bpsCompletionResponse(429, "PRIVATE_ERROR"), bpsCompletionResponse(200, "OK")}}
-	svc := openAIClientToolsTestService(u)
+	svc := openAIExcelBPSRecoveryTestService(u)
 	req, err := newExcelBPSRequest(context.Background(), []byte(`{"input":"same correction"}`), "token", "account")
 	require.NoError(t, err)
 	r, err := svc.doExcelBPSRepairRequest(req, "", excelAccount())
@@ -92,7 +92,7 @@ func TestExcelBPSCorrectionHonorsLongRetryAfter(t *testing.T) {
 	limited := bpsCompletionResponse(429, "PRIVATE_ERROR")
 	limited.Header.Set("Retry-After", "60")
 	u := &httpUpstreamRecorder{resp: limited}
-	svc := openAIClientToolsTestService(u)
+	svc := openAIExcelBPSRecoveryTestService(u)
 	req, err := newExcelBPSRequest(context.Background(), []byte(`{"input":"correction"}`), "token", "account")
 	require.NoError(t, err)
 	r, err := svc.doExcelBPSRepairRequest(req, "", excelAccount())
@@ -113,7 +113,7 @@ func TestExcelBPSCorrectionCancellationDoesNotRetry(t *testing.T) {
 		cancel()
 		return bpsCompletionResponse(429, "PRIVATE_ERROR"), nil
 	}}
-	svc := openAIClientToolsTestService(nil)
+	svc := openAIExcelBPSRecoveryTestService(nil)
 	svc.httpUpstream = upstream
 	req, err := newExcelBPSRequest(ctx, []byte(`{"input":"correction"}`), "token", "account")
 	require.NoError(t, err)

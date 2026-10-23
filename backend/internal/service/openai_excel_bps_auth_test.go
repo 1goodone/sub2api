@@ -73,7 +73,7 @@ func TestExcelBPS401PersistsAfterCancellationAndBlocksOnWriteFailure(t *testing.
 					raw = `{"error":{"code":"token_revoked"}}`
 				}
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 401, Header: http.Header{}, Body: io.NopCloser(&excelBPSCancelReader{Reader: strings.NewReader(raw), cancel: cancel})}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				repo, _ := setupExcelBPSAuth(svc)
 				if writeFailure {
 					repo.writeErr = errors.New("database unavailable")
@@ -106,7 +106,7 @@ func TestExcelBPS401PausesAccountRegardlessOfPoolErrorPolicy(t *testing.T) {
 		{name: "custom includes 401", custom: true, codes: []any{float64(401)}, blocked: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			repo, invalidator := setupExcelBPSAuth(svc)
 			account := excelAccount()
 			account.Type = AccountTypeAPIKey
@@ -140,7 +140,7 @@ func TestExcelBPS401AppliesAuthenticationPolicy(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", route, stream, tc.name), func(t *testing.T) {
 					rejected := &excelBPSRepairBody{Reader: strings.NewReader(tc.raw)}
 					upstream := &httpUpstreamRecorder{}
-					svc := openAIClientToolsTestService(upstream)
+					svc := openAIExcelBPSRecoveryTestService(upstream)
 					repo, invalidator := setupExcelBPSAuth(svc)
 					account := excelAccount()
 					if !tc.noRefresh {
@@ -153,6 +153,7 @@ func TestExcelBPS401AppliesAuthenticationPolicy(t *testing.T) {
 					switch route {
 					case "attachment":
 						enableNativeAttachments(svc)
+						svc.settingService.settingRepo.(*excelBPSImageSettingsRepo).values[SettingKeyExcelBPSRecoveryEnabled] = "true"
 						body, _ = nativeGatewayBody(t)
 						var err error
 						body, err = sjson.SetBytes(body, "stream", stream)

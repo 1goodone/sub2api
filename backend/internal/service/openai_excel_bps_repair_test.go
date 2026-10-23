@@ -74,7 +74,7 @@ func TestExcelBPSToolCorrectionPreservesRouteAndUsage(t *testing.T) {
 					checked.bodies = append(checked.bodies, body)
 					upstream.responses = append(upstream.responses, &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body})
 				}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				svc.httpUpstream = checked
 				body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","stream":%t,"reasoning":{"effort":"max"},"input":"test correction","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec"}]}]}`, stream))
 				rec := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestExcelBPSUnknownTargetDoesNotRegenerateVisibleStream(t *testing.T) {
 					{StatusCode: 200, Header: http.Header{}, Body: first},
 					{StatusCode: 200, Header: http.Header{}, Body: fixed},
 				}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","stream":%t,"input":"test","tools":[{"type":"function","name":"shell"}]}`, stream))
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
@@ -185,7 +185,7 @@ func TestExcelBPSToolCorrectionRecoversFromThrottling(t *testing.T) {
 				checked.bodies = append(checked.bodies, body)
 				upstream.responses = append(upstream.responses, &http.Response{StatusCode: status, Header: http.Header{}, Body: body})
 			}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			svc.httpUpstream = checked
 			account := excelAccount()
 			account.Concurrency = 1
@@ -224,7 +224,7 @@ func TestExcelBPSToolCorrectionStopsOnHTTPRejection(t *testing.T) {
 				upstream.responses = append(upstream.responses, bpsCompletionResponse(status, `{"error":{"message":"private echoed request text"}}`))
 				wantRequests++
 			}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"test","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec"}]}]}`)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -252,7 +252,7 @@ func TestExcelBPS429CorrectionDoesNotChangeCodexState(t *testing.T) {
 				{StatusCode: http.StatusTooManyRequests, Header: excelBPSQuotaHeaders("100", "100"), Body: rejected},
 				{StatusCode: http.StatusTooManyRequests, Header: excelBPSQuotaHeaders("100", "100"), Body: io.NopCloser(strings.NewReader(`{"error":{"type":"usage_limit_reached","message":"PRIVATE_UPSTREAM"}}`))},
 			}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
 			svc.accountRepo = repo
 			svc.rateLimitService = NewRateLimitService(repo, nil, svc.cfg, nil, nil)
@@ -311,7 +311,7 @@ func TestExcelBPSMixedToolCorrectionKeepsOriginalOperation(t *testing.T) {
 				{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire(false)))},
 				{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire(true)))},
 			}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			body := []byte(fmt.Sprintf("{\"model\":\"gpt-5.5\",\"stream\":%t,\"input\":\"inspect\",\"tools\":[{\"type\":\"function\",\"name\":\"shell\",\"parameters\":{\"type\":\"object\",\"properties\":{\"cmd\":{\"type\":\"string\"}}}},{\"type\":\"namespace\",\"name\":\"functions\",\"tools\":[{\"type\":\"custom\",\"name\":\"exec\"}]}]}", stream))
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)

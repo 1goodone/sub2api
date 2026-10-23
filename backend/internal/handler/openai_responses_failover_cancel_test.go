@@ -24,14 +24,16 @@ import (
 // 触发回调（用于模拟“上游在途期间客户端断开”）。
 type openAIResponsesFailoverCancelUpstream struct {
 	service.HTTPUpstream
-	mu         sync.Mutex
-	accountIDs []int64
-	onFirstDo  func()
+	mu           sync.Mutex
+	accountIDs   []int64
+	requestPaths []string
+	onFirstDo    func()
 }
 
-func (u *openAIResponsesFailoverCancelUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+func (u *openAIResponsesFailoverCancelUpstream) Do(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
 	u.mu.Lock()
 	u.accountIDs = append(u.accountIDs, accountID)
+	u.requestPaths = append(u.requestPaths, req.URL.Path)
 	first := len(u.accountIDs) == 1
 	u.mu.Unlock()
 	if first && u.onFirstDo != nil {
@@ -55,6 +57,10 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 }
 
 func newOpenAIResponsesFailoverTestHandlerWithAccountCount(t *testing.T, upstream service.HTTPUpstream, accountCount int, configure ...func([]service.Account)) *OpenAIGatewayHandler {
+	return newOpenAIResponsesFailoverTestHandlerWithSettings(t, upstream, accountCount, nil, configure...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithSettings(t *testing.T, upstream service.HTTPUpstream, accountCount int, settings *service.SettingService, configure ...func([]service.Account)) *OpenAIGatewayHandler {
 	t.Helper()
 	accounts := make([]service.Account, accountCount)
 	for i := range accounts {
@@ -97,7 +103,7 @@ func newOpenAIResponsesFailoverTestHandlerWithAccountCount(t *testing.T, upstrea
 		nil,
 		nil,
 		nil,
-		nil,
+		settings,
 		nil,
 	)
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)

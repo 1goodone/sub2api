@@ -58,7 +58,7 @@ func TestExcelBPSRecoversBeforeClientOutput(t *testing.T) {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
 				u := &excelBPSRecoveryUpstream{status: tc.status, wire: tc.wire}
-				h := newOpenAIResponsesFailoverTestHandler(t, u, enableExcelBPSFailoverAccounts)
+				h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, u, 2, newExcelBPSRecoverySettings(true), enableExcelBPSFailoverAccounts)
 				c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
 				c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(fmt.Sprintf(`{"model":"gpt-6-astra","input":"hello","stream":%t}`, stream)))
 				h.Responses(c)
@@ -84,7 +84,7 @@ func TestExcelBPSRecoversBeforeClientOutput(t *testing.T) {
 
 func TestExcelBPSRecoveryPreservesRouteAndModel(t *testing.T) {
 	u := &excelBPSRecoveryUpstream{status: 403, wire: `{"error":{"code":"model_not_allowed"}}`}
-	h := newOpenAIResponsesFailoverTestHandlerWithAccountCount(t, u, 4, func(accounts []service.Account) {
+	h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, u, 4, newExcelBPSRecoverySettings(true), func(accounts []service.Account) {
 		enableExcelBPSFailoverAccounts(accounts)
 		accounts[1].Extra["openai_excel_bps"] = false
 		accounts[2].Credentials["model_mapping"] = map[string]any{"gpt-6-astra": "gpt-6-luna"}
@@ -100,7 +100,7 @@ func TestExcelBPSDoesNotReplayDeliveredOutputOrPolicyFailures(t *testing.T) {
 	text := "data: " + `{"type":"response.output_text.delta","delta":"DELIVERED"}` + "\n\n"
 	for _, wire := range []string{text + bpsRecoveryFailure("rate_limit_exceeded"), text, bpsRecoveryFailure("cyber_policy"), bpsRecoveryFailure("invalid_prompt"), bpsRecoveryFailure("UNKNOWN_CODE")} {
 		u := &excelBPSRecoveryUpstream{status: 200, wire: wire}
-		h := newOpenAIResponsesFailoverTestHandler(t, u, enableExcelBPSFailoverAccounts)
+		h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, u, 2, newExcelBPSRecoverySettings(true), enableExcelBPSFailoverAccounts)
 		c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
 		c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"gpt-6-astra","input":"hello","stream":true}`))
 		h.Responses(c)
@@ -111,7 +111,7 @@ func TestExcelBPSDoesNotReplayDeliveredOutputOrPolicyFailures(t *testing.T) {
 
 func TestExcelBPSRecoveryExhaustionIsBounded(t *testing.T) {
 	u := &excelBPSRecoveryUpstream{status: 500, wire: `{"error":{"type":"server_error","message":"PRIVATE_ERROR"}}`, allFailed: true}
-	h := newOpenAIResponsesFailoverTestHandler(t, u, enableExcelBPSFailoverAccounts)
+	h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, u, 2, newExcelBPSRecoverySettings(true), enableExcelBPSFailoverAccounts)
 	c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
 	c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"gpt-6-astra","input":"hello"}`))
 	h.Responses(c)
@@ -119,4 +119,54 @@ func TestExcelBPSRecoveryExhaustionIsBounded(t *testing.T) {
 	require.GreaterOrEqual(t, rec.Code, 500)
 	require.NotEmpty(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	require.NotContains(t, rec.Body.String(), "PRIVATE_ERROR")
+}
+
+func TestExcelBPSRecoveryDisabledDoesNotSwitchAccounts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		wire   string
+	}{
+		{"server", 500, `{"error":{"code":"server_error"}}`},
+		{"model", 403, `{"error":{"code":"model_not_allowed"}}`},
+		{"stream rate limit", 200, bpsRecoveryFailure("rate_limit_exceeded")},
+		{"EOF", 200, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u := &excelBPSRecoveryUpstream{status: tc.status, wire: tc.wire}
+			h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, u, 2, newExcelBPSRecoverySettings(false), enableExcelBPSFailoverAccounts)
+			c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
+			c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"gpt-6-astra","input":"hello","stream":true}`))
+			h.Responses(c)
+			require.Equal(t, []int64{1}, u.ids)
+			require.NotEmpty(t, rec.Body.String())
+			require.NotContains(t, rec.Body.String(), "RECOVERED")
+		})
+	}
+}
+
+func TestExcelBPSRecoverySwitchDoesNotChangeNativeFailover(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, bpsAccount := range []bool{false, true} {
+			t.Run(fmt.Sprintf("switch=%t/bpsAccount=%t", enabled, bpsAccount), func(t *testing.T) {
+				upstream := &openAIResponsesFailoverCancelUpstream{}
+				h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, upstream, 2, newExcelBPSRecoverySettings(enabled), func(accounts []service.Account) {
+					if bpsAccount {
+						enableExcelBPSFailoverAccounts(accounts)
+						for i := range accounts {
+							accounts[i].Extra["openai_excel_bps_models"] = []string{"gpt-6-astra"}
+							accounts[i].Extra["openai_passthrough"] = false
+						}
+					}
+				})
+				// gpt-5.1 uses the native route even on a BPS-enabled account.
+				c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
+				h.Responses(c)
+				require.Equal(t, []int64{1, 2}, upstream.calls())
+				require.NotContains(t, strings.Join(upstream.requestPaths, " "), "/basispoints/")
+				require.Equal(t, http.StatusBadGateway, rec.Code)
+				require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+			})
+		}
+	}
 }

@@ -308,7 +308,7 @@ func TestExcelBPSTransportAndStreamFailureAreServerErrors(t *testing.T) {
 				upstream.err = nil
 				upstream.resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_test\",\"status\":\"in_progress\"}}\n\n"))}
 			}
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			svc.httpUpstream = upstream
 			body := []byte("{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"test\"}")
 			rec := httptest.NewRecorder()
@@ -349,7 +349,7 @@ func TestExcelBPSAttachmentLeaseCannotChangeExitOrReleaseOwner(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))}, nil
 			}}
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			svc.httpUpstream = upstream
 			resp, borrowed, _, err := svc.doExcelBPSRequest(context.Background(), c, account, "scope", []byte("{}"), "token", "account", pinnedExcelBPSAcquire("http://127.0.0.1:19007", lease))
 			if fail {

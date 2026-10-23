@@ -422,6 +422,7 @@ const baseSettingsResponse = {
   home_content: "",
   compact_home_enabled: false,
   excel_bps_enabled: true,
+  excel_bps_recovery_enabled: false,
   excel_bps_image_mode: 'relay',
   excel_bps_image_relay_enabled: false,
   excel_bps_image_base_url: '',
@@ -602,8 +603,9 @@ const baseSettingsResponse = {
   },
 };
 
-function mountView() {
+function mountView(attachTo?: HTMLElement) {
   return mount(SettingsView, {
+    attachTo,
     global: {
       stubs: {
         AppLayout: AppLayoutStub,
@@ -1090,6 +1092,35 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     expect(showError).not.toHaveBeenCalled();
     expect(showSuccess).toHaveBeenCalledWith('admin.settings.settingsSaved');
+    wrapper.unmount();
+  });
+
+  it.each([false, true])("loads and saves the BPS recovery gateway switch (%s)", async (enabled) => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_recovery_enabled: enabled });
+    const wrapper = mountView(document.body);
+    await flushPromises();
+    const card = wrapper.get('[data-testid="excel-bps-recovery-settings"]');
+    expect(card.isVisible()).toBe(false);
+    await openGatewayTab(wrapper);
+    expect(card.isVisible()).toBe(true);
+    const toggle = card.get('#excel-bps-recovery-enabled');
+    expect((toggle.element as HTMLInputElement).checked).toBe(enabled);
+    expect(card.text()).toContain('BPS 凭证失效会暂停整个账号');
+    await toggle.setValue(!enabled);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_recovery_enabled: !enabled });
+    expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("defaults BPS recovery off when older servers omit the setting", async () => {
+    const settings: Partial<typeof baseSettingsResponse> = { ...baseSettingsResponse };
+    delete settings.excel_bps_recovery_enabled;
+    getSettings.mockResolvedValueOnce(settings);
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#excel-bps-recovery-enabled').element as HTMLInputElement).checked).toBe(false);
     wrapper.unmount();
   });
 

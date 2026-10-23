@@ -116,7 +116,7 @@ func TestExcelBPSQuotaSnapshotAtResponseBoundary(t *testing.T) {
 				upstream := &httpUpstreamRecorder{resp: &http.Response{
 					StatusCode: http.StatusOK, Header: excelBPSQuotaHeaders("63", "28"), Body: io.NopCloser(strings.NewReader(wire)),
 				}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				svc.codexSnapshotThrottle = newAccountWriteThrottle(time.Hour)
 				repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
 				svc.accountRepo = repo
@@ -156,7 +156,7 @@ func TestExcelBPSQuotaSnapshotAtResponseBoundary(t *testing.T) {
 func TestExcelBPSQuotaSnapshotRequiresHeaders(t *testing.T) {
 	for _, headers := range []http.Header{nil, {"X-Codex-Primary-Used-Percent": {"invalid"}}} {
 		upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(""))}}
-		svc := openAIClientToolsTestService(upstream)
+		svc := openAIExcelBPSRecoveryTestService(upstream)
 		svc.codexSnapshotThrottle = newAccountWriteThrottle(time.Hour)
 		repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
 		svc.accountRepo = repo
@@ -208,7 +208,7 @@ func TestExcelBPS429ClassifiesQuotaAndTransientLimits(t *testing.T) {
 					reader = &excelBPSCancelReader{Reader: reader, cancel: cancel}
 				}
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusTooManyRequests, Header: tc.headers, Body: io.NopCloser(reader)}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
 				svc.accountRepo = repo
 				svc.rateLimitService = NewRateLimitService(repo, nil, svc.cfg, nil, nil)
@@ -330,7 +330,7 @@ func TestExcelBPSNon429DoesNotChangeQuotaState(t *testing.T) {
 	for _, status := range []int{400, 403, 500} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: status, Header: excelBPSQuotaHeaders("100", "100"), Body: io.NopCloser(strings.NewReader("{}"))}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
 			svc.accountRepo = repo
 			svc.rateLimitService = NewRateLimitService(repo, nil, svc.cfg, nil, nil)

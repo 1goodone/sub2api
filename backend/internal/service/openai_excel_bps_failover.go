@@ -16,15 +16,45 @@ import (
 )
 
 type excelBPSFailoverRouteKey struct{}
+type excelBPSRecoveryKey struct{}
+
+// Snapshot the opt-in switch once per BPS request, including its repair sends.
+// Unconfigured or unreadable settings preserve the pre-recovery behavior.
+func (s *OpenAIGatewayService) excelBPSRecoveryEnabled(ctx context.Context) bool {
+	if enabled, ok := ctx.Value(excelBPSRecoveryKey{}).(bool); ok {
+		return enabled
+	}
+	if s == nil || s.settingService == nil {
+		return false
+	}
+	read := func() bool {
+		enabled, err := s.settingService.GetProtocolFeatureEnabled(ctx, SettingKeyExcelBPSRecoveryEnabled)
+		return err == nil && enabled
+	}
+	if route, ok := ctx.Value(excelBPSFailoverRouteKey{}).(*excelBPSFailoverRoute); ok {
+		route.recoveryOnce.Do(func() { route.recoveryEnabled = read() })
+		return route.recoveryEnabled
+	}
+	return read()
+}
+
+func (s *OpenAIGatewayService) withExcelBPSRecovery(ctx context.Context) context.Context {
+	return context.WithValue(ctx, excelBPSRecoveryKey{}, s.excelBPSRecoveryEnabled(ctx))
+}
 
 // Shared by all attempts of one request, including detached upstream contexts.
 // Recovering a BPS request must not silently change its protocol or mapped model.
 type excelBPSFailoverRoute struct {
-	mu    sync.Mutex
-	model string
+	mu              sync.Mutex
+	model           string
+	recoveryOnce    sync.Once
+	recoveryEnabled bool
 }
 
 func lockExcelBPSFailoverRoute(ctx context.Context, c *gin.Context, account *Account, model string) {
+	if enabled, _ := ctx.Value(excelBPSRecoveryKey{}).(bool); !enabled {
+		return
+	}
 	route, _ := ctx.Value(excelBPSFailoverRouteKey{}).(*excelBPSFailoverRoute)
 	if route == nil && c != nil && c.Request != nil {
 		route, _ = c.Request.Context().Value(excelBPSFailoverRouteKey{}).(*excelBPSFailoverRoute)
@@ -52,7 +82,7 @@ func excelBPSFailoverRouteBlocked(ctx context.Context, account *Account, model s
 }
 
 func (s *OpenAIGatewayService) pauseExcelBPSCredentials(ctx context.Context, account *Account) {
-	if account == nil || isQualityObservation(ctx) {
+	if account == nil || isQualityObservation(ctx) || !s.excelBPSRecoveryEnabled(ctx) {
 		return
 	}
 	const reason = "Excel BPS credential is unavailable; repair credentials and resume this account"
@@ -145,7 +175,7 @@ func (s *OpenAIGatewayService) newExcelBPSFailover(ctx context.Context, c *gin.C
 // withheld, the original body is reused, and no delivered generation is replayed.
 func (s *OpenAIGatewayService) doExcelBPSRepairRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	response, err := s.doPriorityObservedHTTP(req, proxyURL, account)
-	if err != nil || response == nil || response.StatusCode != http.StatusTooManyRequests || req.GetBody == nil || isControlledExperiment(req.Context()) || isQualityObservation(req.Context()) {
+	if err != nil || response == nil || response.StatusCode != http.StatusTooManyRequests || req.GetBody == nil || !s.excelBPSRecoveryEnabled(req.Context()) || isControlledExperiment(req.Context()) || isQualityObservation(req.Context()) {
 		return response, err
 	}
 	delay := time.Second

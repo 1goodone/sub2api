@@ -111,7 +111,7 @@ func TestExcelBPSInvalidEncryptedContentRecoversSameRoute(t *testing.T) {
 					{StatusCode: 200, Header: http.Header{}, Body: second},
 				}}
 				checked := &excelBPSRepairUpstream{httpUpstreamRecorder: upstream, bodies: []*excelBPSRepairBody{first, second}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				svc.httpUpstream = checked
 				account := excelAccount()
 				account.Concurrency = 1
@@ -165,7 +165,7 @@ func TestExcelBPSInvalidEncryptedContentRetryIsBounded(t *testing.T) {
 				{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(excelBPSInvalidCiphertext))},
 				{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(excelBPSInvalidCiphertext))},
 			}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -204,7 +204,7 @@ func TestExcelBPSInvalidEncryptedContentDoesNotRetryOtherFailures(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.rejection))}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -241,7 +241,7 @@ func TestExcelBPSInvalidEncryptedContentStopsOnDisconnect(t *testing.T) {
 				require.True(t, first.closed.Load(), "release the rejected request before retry")
 				return nil, errors.New("private transport diagnostic")
 			}}
-			svc := openAIClientToolsTestService(&upstream.httpUpstreamRecorder)
+			svc := openAIExcelBPSRecoveryTestService(&upstream.httpUpstreamRecorder)
 			svc.httpUpstream = upstream
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)

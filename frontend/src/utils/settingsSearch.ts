@@ -13,6 +13,7 @@ interface SettingsSection {
 
 // Keep this list aligned with the stable settings-section-* anchors in the UI.
 export const SETTINGS_SECTIONS: SettingsSection[] = [
+  { tab: 'gateway', id: 'excel-bps-recovery', title: ['BPS 错误自动恢复', 'BPS error recovery'] },
   { tab: 'security', id: 'admin-api-key', titleKey: 'admin.settings.adminApiKey.title' },
   { tab: 'gateway', id: 'overload-cooldown', titleKey: 'admin.settings.overloadCooldown.title' },
   { tab: 'gateway', id: 'openai-capacity-shed', titleKey: 'admin.settings.openaiCapacityShed.title' },
