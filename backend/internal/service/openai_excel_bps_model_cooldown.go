@@ -21,7 +21,14 @@ type excelBPSModelCooldowns struct {
 }
 
 func isExcelBPSModelPermissionError(status int, code string) bool {
-	return status == 403 && (code == "basispoints_model_access_changed" || code == "model_not_allowed")
+	switch code {
+	case "basispoints_model_access_changed", "model_not_allowed":
+		return status == 403
+	case "model_not_found", "model_not_found_error":
+		return status == 400 || status == 404
+	default:
+		return false
+	}
 }
 
 // Store the actual upstream model, so aliases share a cooldown while native

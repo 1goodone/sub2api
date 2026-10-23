@@ -341,7 +341,14 @@ func TestExcelBPSNon429DoesNotChangeQuotaState(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			_, err := svc.Forward(context.Background(), c, account, []byte("{\"model\":\"gpt-6-astra\",\"input\":\"test\"}"))
 			require.Error(t, err)
-			require.Equal(t, status, rec.Code)
+			if status >= 500 {
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Equal(t, status, failover.StatusCode)
+				require.Empty(t, rec.Body.String())
+			} else {
+				require.Equal(t, status, rec.Code)
+			}
 			requireNoExcelBPSQuotaWrite(t, repo)
 			require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 			require.True(t, account.IsSchedulable())

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -55,13 +56,15 @@ func TestExcelBPSFailureAfterCompactKeepalive(t *testing.T) {
 	_, err = svc.Forward(context.Background(), c, excelAccount(), body)
 	require.Error(t, err)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed\n"))
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.True(t, failover.SafeToFailoverAfterWrite)
+	require.NotContains(t, rec.Body.String(), "response.failed")
 	require.NotContains(t, rec.Body.String(), "PRIVATE_")
 	require.False(t, json.Valid(rec.Body.Bytes()), "already committed keepalive requires an SSE terminal")
-	require.Contains(t, rec.Body.String(), "rate_limit_exceeded")
-	observed, ok := GetOpsStreamError(c)
-	require.True(t, ok)
-	require.Equal(t, http.StatusTooManyRequests, observed.IntendedStatus)
+	require.NotContains(t, rec.Body.String(), "rate_limit_exceeded")
+	_, ok = GetOpsStreamError(c)
+	require.False(t, ok)
 	require.Len(t, upstream.requests, 1)
 }
 
@@ -102,6 +105,14 @@ func TestExcelBPSFailureClassification(t *testing.T) {
 				require.Error(t, err)
 				require.NotNil(t, result)
 				require.Equal(t, tc.event, result.UpstreamTerminalEvent)
+				if !stream && excelBPSFailureCanRecover(&basispoints.UpstreamFailure{Status: tc.status, Code: tc.wantCode}) {
+					var failover *UpstreamFailoverError
+					require.ErrorAs(t, err, &failover)
+					require.Empty(t, rec.Body.String())
+					require.False(t, IsResponseCommitted(c))
+					require.Len(t, upstream.requests, 1)
+					return
+				}
 				require.Len(t, upstream.requests, 1, "never replay a request after an upstream terminal")
 				require.True(t, IsResponseCommitted(c))
 				var failover *UpstreamFailoverError
@@ -147,7 +158,7 @@ func TestExcelBPSFailureClassification(t *testing.T) {
 				require.Equal(t, tc.wantCode, observed.Code)
 				require.Equal(t, http.StatusOK, c.GetInt(OpsUpstreamStatusCodeKey), "mapped status is not an upstream HTTP status")
 				require.Equal(t, tc.status == 429, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
-				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+				require.Equal(t, tc.status == http.StatusUnauthorized, svc.isOpenAIAccountRuntimeBlocked(account))
 				require.True(t, account.IsSchedulable())
 				require.True(t, account.IsExcelBPSEnabled(), "an in-band 403 must not disable the account")
 			})

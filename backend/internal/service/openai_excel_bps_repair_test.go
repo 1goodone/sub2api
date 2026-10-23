@@ -171,6 +171,45 @@ func TestExcelBPSUnknownTargetDoesNotRegenerateVisibleStream(t *testing.T) {
 	}
 }
 
+func TestExcelBPSToolCorrectionRecoversFromThrottling(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			checked := &excelBPSRepairUpstream{httpUpstreamRecorder: upstream}
+			for i, wire := range []string{excelBPSRepairWire(t, "initial", "Run", "text(42);"), "PRIVATE_RATE_LIMIT", excelBPSRepairWire(t, "fixed", "codex2api.custom/functions.exec", "text(42);")} {
+				status := http.StatusOK
+				if i == 1 {
+					status = http.StatusTooManyRequests
+				}
+				body := &excelBPSRepairBody{Reader: strings.NewReader(wire)}
+				checked.bodies = append(checked.bodies, body)
+				upstream.responses = append(upstream.responses, &http.Response{StatusCode: status, Header: http.Header{}, Body: body})
+			}
+			svc := openAIClientToolsTestService(upstream)
+			svc.httpUpstream = checked
+			account := excelAccount()
+			account.Concurrency = 1
+			body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","stream":%t,"input":"test correction","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec"}]}]}`, stream))
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body))
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.Len(t, upstream.requests, 3)
+			require.Equal(t, upstream.bodies[1], upstream.bodies[2])
+			require.Equal(t, 20, result.Usage.InputTokens)
+			require.Contains(t, rec.Body.String(), "text(42);")
+			require.NotContains(t, rec.Body.String(), "PRIVATE_RATE_LIMIT")
+			require.NotContains(t, rec.Body.String(), "response.failed")
+			if stream {
+				require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.output_item.added"))
+			} else {
+				require.Len(t, gjson.GetBytes(rec.Body.Bytes(), "output").Array(), 1)
+			}
+		})
+	}
+}
+
 func TestExcelBPSToolCorrectionStopsOnHTTPRejection(t *testing.T) {
 	for _, status := range []int{403, 429, 500} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
@@ -180,6 +219,11 @@ func TestExcelBPSToolCorrectionStopsOnHTTPRejection(t *testing.T) {
 				{StatusCode: 200, Header: http.Header{}, Body: first},
 				{StatusCode: status, Header: http.Header{}, Body: rejected},
 			}}
+			wantRequests := 2
+			if status == http.StatusTooManyRequests {
+				upstream.responses = append(upstream.responses, bpsCompletionResponse(status, `{"error":{"message":"private echoed request text"}}`))
+				wantRequests++
+			}
 			svc := openAIClientToolsTestService(upstream)
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"test","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec"}]}]}`)
 			rec := httptest.NewRecorder()
@@ -187,7 +231,7 @@ func TestExcelBPSToolCorrectionStopsOnHTTPRejection(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 			result, err := svc.Forward(context.Background(), c, excelAccount(), body)
 			require.Error(t, err)
-			require.Len(t, upstream.requests, 2)
+			require.Len(t, upstream.requests, wantRequests)
 			require.True(t, first.closed.Load())
 			require.True(t, rejected.closed.Load())
 			require.Equal(t, 10, result.Usage.InputTokens)
@@ -206,6 +250,7 @@ func TestExcelBPS429CorrectionDoesNotChangeCodexState(t *testing.T) {
 			upstream := &httpUpstreamRecorder{responses: []*http.Response{
 				{StatusCode: http.StatusOK, Header: http.Header{}, Body: first},
 				{StatusCode: http.StatusTooManyRequests, Header: excelBPSQuotaHeaders("100", "100"), Body: rejected},
+				{StatusCode: http.StatusTooManyRequests, Header: excelBPSQuotaHeaders("100", "100"), Body: io.NopCloser(strings.NewReader(`{"error":{"type":"usage_limit_reached","message":"PRIVATE_UPSTREAM"}}`))},
 			}}
 			svc := openAIClientToolsTestService(upstream)
 			repo := &excelBPSQuotaRepo{writes: make(chan excelBPSQuotaWrite, 4)}
@@ -223,7 +268,8 @@ func TestExcelBPS429CorrectionDoesNotChangeCodexState(t *testing.T) {
 			require.Error(t, err)
 			var failover *UpstreamFailoverError
 			require.NotErrorAs(t, err, &failover)
-			require.Len(t, upstream.requests, 2, "stop after the throttled correction")
+			require.Len(t, upstream.requests, 3, "retry the throttled correction only once")
+			require.Equal(t, upstream.bodies[1], upstream.bodies[2])
 			require.True(t, first.closed.Load())
 			require.True(t, rejected.closed.Load())
 			require.Equal(t, 10, result.Usage.InputTokens)

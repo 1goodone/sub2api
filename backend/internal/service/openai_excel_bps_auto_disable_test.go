@@ -21,6 +21,8 @@ type excelBPSAutoDisableRepo struct {
 	disable func(context.Context, *Account) (bool, error)
 }
 
+func (r *excelBPSAutoDisableRepo) SetError(context.Context, int64, string) error { return nil }
+
 func (r *excelBPSAutoDisableRepo) DisableExcelBPSOn403(ctx context.Context, account *Account) (bool, error) {
 	return r.disable(ctx, account)
 }
@@ -53,6 +55,12 @@ func TestExcelBPSAutoDisableOn403(t *testing.T) {
 				}
 				raw := `{"error":{"code":"permission_denied","message":"PRIVATE_UPSTREAM"}}`
 				wantCode := "basispoints_upstream_error"
+				if tc.status == http.StatusUnauthorized {
+					wantCode = "basispoints_auth_unavailable"
+				}
+				if tc.status >= 500 {
+					wantCode = "basispoints_server_error"
+				}
 				if tc.status == http.StatusTooManyRequests {
 					wantCode = "basispoints_rate_limited"
 				}
@@ -73,7 +81,7 @@ func TestExcelBPSAutoDisableOn403(t *testing.T) {
 				c, _ := gin.CreateTestContext(rec)
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 				_, err := svc.Forward(context.Background(), c, account, []byte(fmt.Sprintf(`{"model":"gpt-6-astra","input":"test","stream":%v}`, stream)))
-				if tc.status == http.StatusTooManyRequests {
+				if tc.status == http.StatusTooManyRequests || tc.status == http.StatusUnauthorized || tc.status >= 500 || tc.modelError {
 					var failover *UpstreamFailoverError
 					require.ErrorAs(t, err, &failover)
 					require.Equal(t, wantCode, gjson.GetBytes(failover.ResponseBody, "error.code").String())

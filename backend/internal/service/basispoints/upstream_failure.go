@@ -102,9 +102,9 @@ func failureIdentifierStatus(identifier string) int {
 		"previous_response_not_found", "thinking_signature_invalid", "invalid_encrypted_content",
 		"cyber_policy", "content_policy_violation":
 		return http.StatusBadRequest
-	case "authentication_error", "invalid_api_key", "token_expired":
+	case "authentication_error", "invalid_api_key", "token_expired", "token_revoked", "token_invalidated":
 		return http.StatusUnauthorized
-	case "permission_error", "permission_denied", "basispoints_model_access_changed":
+	case "permission_error", "permission_denied", "basispoints_model_access_changed", "model_not_allowed":
 		return http.StatusForbidden
 	case "model_not_found", "model_not_found_error":
 		return http.StatusNotFound

@@ -173,7 +173,7 @@ func TestExcelBPSInvalidEncryptedContentRetryIsBounded(t *testing.T) {
 			_, err := svc.Forward(context.Background(), c, account, excelBPSEncryptedHistoryRequest(false))
 			require.Error(t, err)
 			var failover *UpstreamFailoverError
-			if status == http.StatusTooManyRequests {
+			if status == http.StatusTooManyRequests || status >= 500 {
 				require.ErrorAs(t, err, &failover)
 				require.Equal(t, status, failover.StatusCode)
 				require.False(t, c.Writer.Written())
@@ -211,7 +211,13 @@ func TestExcelBPSInvalidEncryptedContentDoesNotRetryOtherFailures(t *testing.T) 
 			_, err := svc.Forward(context.Background(), c, excelAccount(), []byte(tc.body))
 			require.Error(t, err)
 			require.Len(t, upstream.requests, 1)
-			require.Equal(t, tc.status, rec.Code)
+			if tc.status >= 500 {
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.False(t, c.Writer.Written())
+			} else {
+				require.Equal(t, tc.status, rec.Code)
+			}
 		})
 	}
 }

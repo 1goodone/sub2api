@@ -316,13 +316,14 @@ func TestExcelBPSTransportAndStreamFailureAreServerErrors(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
 			_, err := svc.Forward(context.Background(), c, excelAccount(), body)
 			require.Error(t, err)
-			require.Contains(t, rec.Body.String(), "server_error")
 			if streamFailure {
-				require.Equal(t, 200, rec.Code)
-				require.Contains(t, rec.Body.String(), "basispoints_stream_incomplete")
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Empty(t, rec.Body.String())
 				_, marked := GetOpsStreamError(c)
-				require.True(t, marked, "HTTP 200 stream failure must enter Ops errors")
+				require.False(t, marked, "a recoverable attempt is not a final client failure")
 			} else {
+				require.Contains(t, rec.Body.String(), "server_error")
 				require.Equal(t, 502, rec.Code)
 				require.Contains(t, rec.Body.String(), "basispoints_transport_error")
 			}

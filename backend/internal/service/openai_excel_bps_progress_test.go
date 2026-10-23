@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExcelBPSProgressTimeoutPreservesUsageAndDoesNotReplay(t *testing.T) {
+func TestExcelBPSProgressTimeoutPreservesUsageAndAllowsFailoverBeforeOutput(t *testing.T) {
 	r, w := io.Pipe()
 	defer func() { _ = w.Close() }()
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: r}}
@@ -35,7 +35,10 @@ func TestExcelBPSProgressTimeoutPreservesUsageAndDoesNotReplay(t *testing.T) {
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.False(t, result.ClientDisconnect)
 	require.Empty(t, result.UpstreamTerminalEvent)
-	require.Contains(t, rec.Body.String(), "response.failed")
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Empty(t, rec.Body.String())
+	require.False(t, IsResponseCommitted(c))
 }
 
 func TestExcelBPSProgressGuardDoesNotTimeoutBufferedBridgeText(t *testing.T) {
