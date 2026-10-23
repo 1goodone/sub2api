@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -643,6 +644,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			_ = cr.Body.Close()
 			s.handleExcelBPSUnauthorized(ctx, account, cr.StatusCode, cr.Header, raw, token)
 			if isExcelBPSUsagePolicyRejection(cr.StatusCode, raw) {
+				if recoveryEnabled {
+					return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, cr.StatusCode, cr.Header, "content_policy_violation", false)
+				}
 				return fail(cr.StatusCode, "content_policy_violation", "Excel BPS blocked image history compaction under its usage policy; generation was not started")
 			}
 			if cr.StatusCode == 403 {
@@ -802,6 +806,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, resp.StatusCode, resp.Header, "basispoints_auth_unavailable", false)
 		}
 		if isExcelBPSUsagePolicyRejection(resp.StatusCode, raw) {
+			if recoveryEnabled {
+				// Try another BPS account for this request only. A policy rejection
+				// does not prove that the account or its model is unavailable.
+				return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, resp.StatusCode, resp.Header, "content_policy_violation", false)
+			}
 			return fail(resp.StatusCode, "content_policy_violation", "Excel BPS blocked this request under its usage policy; request was not replayed and account scheduling was not changed")
 		}
 		code := gjson.GetBytes(raw, "error.code").String()
@@ -859,6 +868,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	// BPS and Codex share quota. Refresh at the HTTP boundary even if the client
 	// disconnects or a later stream/protocol error prevents normal completion.
 	s.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, resp.Header)
+	var repairUsagePolicyRejected atomic.Bool
 	converted := bridge.StreamWithRepairs(requestCtx, resp.Body, func(repairCtx context.Context, failed map[string]any, validation error) (map[string]any, error) {
 		if isControlledExperiment(ctx) {
 			return nil, errors.New("controlled experiment disables BPS tool repair submissions")
@@ -892,6 +902,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if repairResp.StatusCode < 200 || repairResp.StatusCode >= 300 {
 			raw, _ := io.ReadAll(io.LimitReader(repairResp.Body, 512<<10))
 			observeBPSTestResponse(repairCtx, repairResp, model, token, gjson.GetBytes(raw, "error.code").String())
+			if recoveryEnabled && isExcelBPSUsagePolicyRejection(repairResp.StatusCode, raw) {
+				repairUsagePolicyRejected.Store(true)
+				return nil, errExcelBPSUsagePolicyBlocked
+			}
 			if repairResp.StatusCode == http.StatusTooManyRequests {
 				// Output was already accepted: cool only the BPS route.
 				// Quota headers on this correction must not rewrite Codex windows.
@@ -936,8 +950,12 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 		if repaired.StatusCode < 200 || repaired.StatusCode >= 300 {
 			raw, _ := io.ReadAll(io.LimitReader(repaired.Body, 512<<10))
-			observeBPSTestResponse(repairCtx, repaired, model, token, gjson.GetBytes(raw, "error.code").String())
 			_ = repaired.Body.Close()
+			observeBPSTestResponse(repairCtx, repaired, model, token, gjson.GetBytes(raw, "error.code").String())
+			if recoveryEnabled && isExcelBPSUsagePolicyRejection(repaired.StatusCode, raw) {
+				repairUsagePolicyRejected.Store(true)
+				return nil, errExcelBPSUsagePolicyBlocked
+			}
 			if repaired.StatusCode == http.StatusTooManyRequests {
 				s.coolDownExcelBPS(repairCtx, account, nil, nil)
 			}
@@ -1032,6 +1050,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			switch kind {
 			case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
 				bridgeFailure = basispoints.ParseBridgeFailure(payload)
+				if bridgeFailure != nil && repairUsagePolicyRejected.Load() && canRecover() {
+					return recoverAttempt(http.StatusForbidden, "content_policy_violation", false)
+				}
 				if kind != "response.completed" && bridgeFailure == nil {
 					s.rateLimitService.observeQualityStatus(ctx, account, openAIStreamFailureStatus(payload, extractOpenAISSEErrorMessage(payload)))
 				}
