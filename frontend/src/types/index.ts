@@ -2860,6 +2860,7 @@ export interface QualityBPSPolicy {
   hold_on_usage: boolean
 }
 export interface QualityPolicy {
+  trigger_on_upstream_5xx?: boolean
   admission?: import('@/utils/openaiTwoFAAdmission').OpenAITwoFAAdmissionConfig
   judge?: QualityJudgeConfig
   expected_answer: string
@@ -2888,6 +2889,8 @@ export interface QualityRestoreDiagnostic {
 }
 
 export interface PelicanTestConfig {
+  // Optional display name, persisted with the rule's editable configuration.
+  rule_name?: string
   quality_restore_diagnostic?: QualityRestoreDiagnostic
   quality_model_outcomes?: Record<string, 'passed' | 'failed' | 'inconclusive' | 'skipped'>
   quality_model_actions?: Record<string, string>

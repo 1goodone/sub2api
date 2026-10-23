@@ -921,6 +921,8 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.GET("/account-quality-plans", h.Admin.ScheduledTest.ListQualityPlans)
 	admin.POST("/account-quality-plans/:id/run", h.Admin.ScheduledTest.TriggerQuality)
 	admin.GET("/account-quality-templates", h.Admin.ScheduledTest.ListQualityTemplates)
+	admin.GET("/account-quality-presets", h.Admin.ScheduledTest.ListQualityPresets)
+	admin.POST("/account-quality-presets", h.Admin.ScheduledTest.CreateQualityPreset)
 	admin.POST("/account-quality-templates", h.Admin.ScheduledTest.CreateQualityTemplate)
 	admin.PUT("/account-quality-templates/:id", h.Admin.ScheduledTest.UpdateQualityTemplate)
 	admin.DELETE("/account-quality-templates/:id", h.Admin.ScheduledTest.DeleteQualityTemplate)

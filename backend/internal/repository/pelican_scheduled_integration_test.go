@@ -19,7 +19,7 @@ func TestPelicanSchedulePersistenceLeaseAndRetention(t *testing.T) {
 	plans := NewScheduledTestPlanRepository(integrationDB)
 	results := NewScheduledTestResultRepository(integrationDB)
 	svc := service.NewScheduledTestService(plans, results)
-	config := &service.PelicanTestConfig{Prompt: "<pelican>", ReasoningEffort: "medium", ParallelCount: 2}
+	config := &service.PelicanTestConfig{RuleName: "Saved test rule", Prompt: "<pelican>", ReasoningEffort: "medium", ParallelCount: 2}
 	plan, err := svc.CreatePlan(ctx, &service.ScheduledTestPlan{AccountID: account, ModelID: "gpt-6-astra", CronExpression: "*/30 * * * *", Enabled: true, MaxResults: 2, PelicanConfig: config})
 	require.NoError(t, err)
 	require.Equal(t, config, plan.PelicanConfig)
