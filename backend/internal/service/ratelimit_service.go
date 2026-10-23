@@ -309,6 +309,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 	if account.IsOpenAICompatible() && isOpenAIUpstreamSessionBlocked(responseBody) {
 		return ErrorPolicySkipped
 	}
+	if isOpenAIRequestScoped403(account, statusCode, responseBody) {
+		return ErrorPolicySkipped
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
@@ -354,6 +357,11 @@ func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Conte
 	// A frozen upstream conversation must not reach custom cooldown rules,
 	// linked-account handling, or the escalating account-wide 403 counter.
 	if account.IsOpenAICompatible() && isOpenAIUpstreamSessionBlocked(responseBody) {
+		return false
+	}
+	// Relay content refusals and upstream WebSocket handshake failures must not
+	// reach custom account policies or the escalating account-wide 403 counter.
+	if isOpenAIRequestScoped403(account, statusCode, responseBody) {
 		return false
 	}
 	// An upstream group's image permission says nothing about text credentials.
