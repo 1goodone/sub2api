@@ -86,3 +86,15 @@ normal4 和在途 drain2 已在基线 `2da2bf9ae` 双事件 CI 成功，之后�
 再发唯一一个新的显式客户端 control POST，由轮转 peer 正常完成；最终 accepted/completed各2、usage/dedup各2、tokens14/4，余额相对第一次结算继续减少，三 slots 为0。计数、取消 socket 状态、合成余额及清理 phase 导出固定报告；总共两条模型 POST，不自动重试、不迁移旧流、不承诺向客户端返回取消后的终态。复用既有 hold最多12秒、只读结算12秒、各容器硬内存/internal网络和全部 cleanup 限制；原四个 case AST/断言保持。
 
 本切片本机只做 AST/YAML/diff 静态检查，尚未动态执行；需新精确 head 双事件真实 bootstrap + 五模型 case 及全部原 CI。失败账本并发争抢、多账号 ambiguous failover、真实两机流量、透明续接与媒体生命周期仍不由本取消用例覆盖。
+
+## 后续最小边界：跨应用重叠请求的失败结算与租约隔离
+
+基线 `772b0568a` 的 bootstrap6、normal/drain/partial/acceptedEOF/cancel五模型用例及全部适用 CI 已在双事件通过。新增独立 fresh fixture 用例 `test_failed_concurrent_stream_releases_only_its_lease_and_peer_settles_once`，复用同一合法用户、API Key、账号（各并发上限2）、真实共享 PostgreSQL/Redis 与两个完整应用，不修改生产 handler/账本/schema/并发策略。
+
+精确两条客户端模型 POST 经真实 Caddy 到不同应用，各收到真实 delta 后同时保持活跃：accepted2/completed0/active2、三类 slots均2、usage/dedup/tokens均0、合成余额10。tagged 合成模型只新增独立 `release-failure` 控制通道与固定 held-partial-EOF marker；先只释放失败流，缺 completed/DONE/terminal usage，不重放、不生成成功结算。真实数据库仍无 usage/dedup/扣费，而另一个应用原成功流仍 active1，三类 slots必须均为1；这能检出失败路径误清 peer 租约或漏清自己的租约。
+
+然后释放既有正常 hold，原成功请求完成一次：总 accepted2/completed1/active0、usage/dedup各1、tokens7/2、非零合成扣费、三类 slots均0。原上游计数涵盖失败请求，能识别后台重放；最终固定报告导出 2→1→0 槽位、tokens、合成余额、计数与清理 phase。当前 partial EOF 的 nil ForwardResult 不提交成功 usage，租约按 requestID/leaseID独立删除；本用例验证已有路径，不另定失败计费或调度政策。
+
+原五个 case AST及所有断言保留，原模型/正常hold行为与全套硬内存/internal隔离/cleanup/CI预算保持。新失败hold复用12秒上限；失败租约状态只读收敛最多6秒，最终结算12秒，不为了测试延长生产停机或槽位TTL。无第三请求/客户端模型重试，本机仅静态，动态待新精确head双事件 bootstrap6+模型6项和全部原CI。
+
+边界：这是重叠成功/失败请求的账本隔离与各自租约收尾，未证明多个成功终态同时写账本、同幂等身份的重复提交争抢、第三请求限流或所有多账号 ambiguous failover；真实两机、透明续接与长期媒体生命周期仍未交付。若实际新 CI失败，必须读精确原始日志定向修复，不能弱化槽位/计费/无重放断言或改变生产策略迁就夹具。

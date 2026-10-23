@@ -443,6 +443,100 @@ class FullApplicationClientCancelTest(FullApplicationInflightDrainTest):
         self.phase("new-peer-control-after-client-cancel-unique-billing-and-cleanup")
 
 
+class FullApplicationConcurrentFailureTest(FullApplicationInflightDrainTest):
+    def failed_model_post(self):
+        connection = http.client.HTTPConnection(*self.edge_port, timeout=12)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/v1/responses", body=json.dumps({
+            "model": "gpt-6.1-sol", "input": "fixture-held-partial-sse-eof", "stream": True}), headers={
+                "Host": "api.fixture.invalid", "Content-Type": "application/json",
+                "Authorization": "Bearer " + self.key, "X-Client-Request-ID": "concurrent-failure"})
+        response = connection.getresponse()
+        self.addCleanup(response.close)
+        self.assertEqual(response.status, 200)
+        self.assertIn("text/event-stream", response.getheader("Content-Type", ""))
+        return connection, response
+
+    def read_live_delta(self, response):
+        for _ in range(12):
+            line = response.readline(4096)
+            self.assertTrue(line, "both concurrent requests must stay live until their own release")
+            if line.startswith(b"data: ") and b"response.output_text.delta" in line and b"OK" in line:
+                return
+        self.fail("concurrent held stream did not emit its real text delta")
+
+    def test_failed_concurrent_stream_releases_only_its_lease_and_peer_settles_once(self):
+        success_connection, success_response = self.model_post("concurrent-success", hold=True)
+        self.read_live_delta(success_response)
+        failed_connection, failed_response = self.failed_model_post()
+        self.read_live_delta(failed_response)
+        expected = {app + ":8080" for app in self.apps}
+        targets = {success_response.getheader("X-Fixture-Target"), failed_response.getheader("X-Fixture-Target")}
+        self.assertEqual(targets, expected, "two overlapping requests must reach different real applications")
+        self.assertEqual(self.model_stats(), {"accepted": 2, "completed": 0, "active": 2})
+        status = self.fixture_command("status")
+        self.assertEqual((status["user_slots"], status["account_slots"], status["api_key_slots"]), (2, 2, 2))
+        self.assertEqual((status["usage_rows"], status["dedup_rows"]), (0, 0))
+        self.assertEqual((status["input_tokens"], status["output_tokens"]), (0, 0))
+        self.assertEqual(status["balance"], 10)
+        self.phase("two-full-app-models-overlap-with-two-shared-leases-no-early-billing")
+
+        control = http.client.HTTPConnection(*self.model_endpoint, timeout=2)
+        try:
+            control.request("POST", "/fixture/release-failure", body="")
+            result = control.getresponse()
+            self.addCleanup(result.close)
+            self.assertEqual(result.status, 204)
+            result.read(1024)
+            result.close()
+        finally:
+            control.close()
+        try:
+            failed_payload = failed_response.read(65536)
+        except http.client.IncompleteRead as error:
+            failed_payload = error.partial
+        self.assertNotIn(b'"response.completed"', failed_payload)
+        self.assertNotIn(b"data: [DONE]", failed_payload)
+        failed_response.close()
+        failed_connection.close()
+
+        def failed_lease_released():
+            status = self.fixture_command("status")
+            return (self.model_stats() == {"accepted": 2, "completed": 0, "active": 1}
+                    and status["usage_rows"] == status["dedup_rows"] == 0
+                    and status["input_tokens"] == status["output_tokens"] == 0
+                    and status["balance"] == 10
+                    and status["user_slots"] == status["account_slots"] == status["api_key_slots"] == 1)
+
+        bootstrap.eventually(failed_lease_released, 6, "failed request releases only its lease without billing peer")
+        self.assertTrue(all(self.state(app)["Running"] for app in self.apps))
+        self.phase("failed-stream-unbilled-peer-still-held-one-shared-lease-remains")
+        self.release_model()
+        self.assertIn(b'"response.completed"', success_response.read(65536))
+        success_response.close()
+        success_connection.close()
+
+        def peer_settled():
+            status = self.fixture_command("status")
+            return (self.model_stats() == {"accepted": 2, "completed": 1, "active": 0}
+                    and status["usage_rows"] == status["dedup_rows"] == 1
+                    and status["input_tokens"] == 7 and status["output_tokens"] == 2
+                    and 9 < status["balance"] < 10
+                    and status["user_slots"] == status["account_slots"] == status["api_key_slots"] == 0)
+
+        bootstrap.eventually(peer_settled, 12, "successful peer settles once after failed concurrent request")
+        self.report["concurrent_failure_verification"] = {"authenticated_posts": 2, "accepted": 2,
+                                                          "completed": 1, "usage_rows": 1, "dedup_rows": 1,
+                                                          "input_tokens": 7, "output_tokens": 2,
+                                                          "balance_before": 10,
+                                                          "balance_final": self.fixture_command("status")["balance"],
+                                                          "slots_before_failure": 2, "slots_after_failure": 1,
+                                                          "slots_final": 0, "failed_request_replayed": False,
+                                                          "failed_request_billed": False,
+                                                          "scope": "overlapping failed/successful requests; not concurrent duplicate billing identities"}
+        self.phase("concurrent-failure-peer-completed-once-unique-billing-all-leases-clean")
+
+
 if __name__ == "__main__":
     # The original bootstrap suite still runs as its existing CI step. This
     # Explicit cases avoid rerunning inherited tests as accidental duplicates.
@@ -451,6 +545,7 @@ if __name__ == "__main__":
         FullApplicationInflightDrainTest("test_inflight_sse_finishes_on_draining_owner_and_new_model_reaches_peer_once"),
         FullApplicationPartialEOFTest("test_partial_model_sse_eof_is_not_replayed_or_billed_and_peer_can_continue"),
         FullApplicationAcceptedEOFTest("test_accepted_model_request_eof_is_not_replayed_or_settled_as_success"),
-        FullApplicationClientCancelTest("test_client_cancel_drains_existing_upstream_usage_once_and_peer_can_continue")])
+        FullApplicationClientCancelTest("test_client_cancel_drains_existing_upstream_usage_once_and_peer_can_continue"),
+        FullApplicationConcurrentFailureTest("test_failed_concurrent_stream_releases_only_its_lease_and_peer_settles_once")])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)

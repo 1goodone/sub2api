@@ -214,10 +214,12 @@ type modelState struct {
 	accepted, completed, active int
 	release                     chan struct{}
 	releaseOnce                 sync.Once
+	failureRelease              chan struct{}
+	failureReleaseOnce          sync.Once
 }
 
 func serve() error {
-	s := &modelState{release: make(chan struct{})}
+	s := &modelState{release: make(chan struct{}), failureRelease: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/fixture/release", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -225,6 +227,14 @@ func serve() error {
 			return
 		}
 		s.releaseOnce.Do(func() { close(s.release) })
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/fixture/release-failure", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		s.failureReleaseOnce.Do(func() { close(s.failureRelease) })
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/fixture/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +293,18 @@ func serve() error {
 			// without terminal usage/completion. The application must not turn
 			// this accepted/partly emitted request into another generation.
 			return
+		}
+		if bytes.Contains(body.Input, []byte("fixture-held-partial-sse-eof")) {
+			// The failed stream has its own control so its peer's successful
+			// stream stays active while real per-request leases are released.
+			select {
+			case <-s.failureRelease:
+			case <-r.Context().Done():
+				return
+			case <-time.After(12 * time.Second):
+				return
+			}
+			return // Semantic output, but no terminal usage or completion.
 		}
 		if bytes.Contains(body.Input, []byte("fixture-hold-until-release")) {
 			// Synthetic control only, not a gateway replay/recovery mechanism.

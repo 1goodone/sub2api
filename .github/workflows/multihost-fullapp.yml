@@ -63,7 +63,7 @@ jobs:
           go build -tags=fullappfixture -trimpath \
             -o "$RUNNER_TEMP/sub2api-fullapp/fullapp-fixture" ./cmd/fullapp-fixture
           echo "FULLAPP_FIXTURE_BIN=$RUNNER_TEMP/sub2api-fullapp/fullapp-fixture" >> "$GITHUB_ENV"
-      - name: Authenticated model SSE, drain, EOF and client cancel through two complete applications
+      - name: Authenticated SSE, drain, EOF, cancel and concurrent failure through two complete applications
         timeout-minutes: 15
         env:
           FULLAPP_REPORT: ${{ runner.temp }}/sub2api-fullapp/model-result.json
