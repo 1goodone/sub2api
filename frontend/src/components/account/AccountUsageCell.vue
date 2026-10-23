@@ -121,10 +121,11 @@
     <template v-else-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'setup-token')">
       <div
         v-if="openAIImageGenLabel"
-        class="mb-1 text-[11px] leading-4 text-gray-600 dark:text-gray-300"
+        class="mb-1 inline-flex items-center gap-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400"
         :title="openAIImageGenTitle"
       >
-        {{ t('admin.accounts.openai.imageGenQuota') }} {{ openAIImageGenLabel }}
+        <span>{{ t('admin.accounts.openai.imageGenQuota') }}</span>
+        <span class="rounded-full px-1.5 py-0.5 font-medium tabular-nums" :class="openAIImageGenClass">{{ openAIImageGenLabel }}</span>
       </div>
       <div v-if="codexTurnTickets.length" class="mb-1 space-y-0.5">
         <div
@@ -881,14 +882,21 @@ const openAIImageGen = computed(() => {
 const openAIImageGenLabel = computed(() => {
   const quota = openAIImageGen.value
   if (!quota) return ''
-  return quota.total == null ? `${quota.remaining}/—` : `${quota.remaining}/${quota.total}`
+  return String(quota.remaining)
+})
+
+const openAIImageGenClass = computed(() => {
+  const quota = openAIImageGen.value
+  if (!quota) return ''
+  if (quota.remaining <= 0) return 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+  if (quota.remaining <= 20) return 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+  return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
 })
 
 const openAIImageGenTitle = computed(() => {
   const quota = openAIImageGen.value
   if (!quota) return ''
   const parts = [t('admin.accounts.openai.imageGenQuotaTitle')]
-  if (quota.total == null) parts.push(t('admin.accounts.openai.imageGenQuotaUnknownTotal'))
   if (quota.resetAfter) parts.push(quota.resetAfter)
   return parts.join(' · ')
 })

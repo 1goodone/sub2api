@@ -348,7 +348,8 @@
           <template #cell-image_capacity="{ row }">
             <span
               v-if="imageCapacityLabel(row)"
-              class="whitespace-nowrap text-xs tabular-nums text-gray-700 dark:text-gray-200"
+              class="inline-flex min-w-[2.25rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums"
+              :class="imageCapacityClass(row)"
               :title="imageCapacityTitle(row)"
             >{{ imageCapacityLabel(row) }}</span>
             <span v-else class="text-xs text-gray-400">—</span>
@@ -885,14 +886,21 @@ function imageCapacityOf(row: AccountListItem) {
 function imageCapacityLabel(row: AccountListItem) {
   const quota = imageCapacityOf(row)
   if (!quota) return ''
-  return quota.total == null ? `${quota.remaining}/—` : `${quota.remaining}/${quota.total}`
+  return String(quota.remaining)
+}
+
+function imageCapacityClass(row: AccountListItem) {
+  const quota = imageCapacityOf(row)
+  if (!quota) return ''
+  if (quota.remaining <= 0) return 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+  if (quota.remaining <= 20) return 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+  return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
 }
 
 function imageCapacityTitle(row: AccountListItem) {
   const quota = imageCapacityOf(row)
   if (!quota) return ''
   const parts = [t('admin.accounts.openai.imageGenQuotaTitle')]
-  if (quota.total == null) parts.push(t('admin.accounts.openai.imageGenQuotaUnknownTotal'))
   if (quota.resetAfter) parts.push(quota.resetAfter)
   return parts.join(' · ')
 }
