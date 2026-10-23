@@ -138,3 +138,15 @@ tagged工具的显式 `seed-multi` 沿真实 repository 能力接口原子创建
 本次PR549最终整合同时保留双成功，模型suite为9项（原七项加两项多账号），本章节单片suite8为历史开发检查点；最终精确head须双事件bootstrap6+models9重新验证。
 
 随后补齐按账号的 HTTP-observed attempt 计数：在合成模型 `/v1/responses` 到达、按固定合成凭据识别角色后、body解析前增加；body读完且认证/模型合法后才计accepted，终态写出后计completed。它不代表未到达上游的DNS/TCP/TLS失败或全部应用网络尝试。新多账号观察helper要求本fixture每账号observed attempts=accepted，保留两个场景原有所有断言；固定日志与报告同时列出每账号attempt/accepted/completed。无响应EOF最终各账号attempt1/accepted1、合计completion1；partial场景两账号attempt之和1/accepted之和1、completion0。原六类及两个新case测试方法AST不变，仅新多账号helper增加观察/断言，不改变生产策略或资源预算。此增补也尚未动态验证。
+
+## 后续最小边界：两应用容量已满时，第三个排队客户端取消
+
+#549 head `b2774d546` 的双事件 bootstrap6+模型9及全部适用CI已成功并合并。本轮固定合并后的production `a4276268e`，只新增独立fresh case `test_third_queued_client_cancels_before_generation_without_releasing_two_active_peers`，验证真实请求链的共享Key等待取消，区别于此前已生成模型后的cancel、只占两槽的成功/失败场景。
+
+同一合法用户/Key/单账号并发上限2，真实Caddy让两完整app各持一条已输出delta的原成功流，三类slots和Key queue active均2、waiting0。第三条合法客户端POST在独立reader线程等待响应，沿当前默认Key队列（max_waiting5、timeout30秒，不改配置）进入真实Redis waiting1；其不得额外占user/account槽或到达合成上游，accepted仍2/active2、usage/dedup0/余额10。
+
+只在真实queue waiting=1被观察到后关闭第三客户端TCP并有界join reader，要求没有返回业务响应，waiting收敛0；原两流active2、三slots2和Keyactive2全部保持、没有新增模型生成或扣费。再只调用一次既有release，两个原响应各完成一次，最终accepted2/completed2、usage2/dedup2、tokens14/4、精确合成余额9.999978，三slots、Keyactive和waiting均0。总计恰好3客户端POST、2上游接受/生成，无客户端重试或收费模型。
+
+tagged status仅复用实际 `APIKeySlotQueueCache.GetAPIKeyQueueStats` 原子观察接口输出固定active/waiting计数，不修改生产Redis/队列状态或业务路径。reader的cleanup注册在容器清理之前，失败也shutdown/close/join，不保留后台连接；原九个case AST不变，suite明确10项。原hold12秒/读流与硬资源/internal隔离/CI预算不变，新增等待观察3秒、取消清队只读3秒、reader join2秒、最终只读结算12秒；若原hold先到期或队列没有真实进入，应失败，不延长生产预算或skip。
+
+此项验证既有队列取消前置准入与peer租约隔离，不覆盖队列满/超时/撤销或所有队列策略、同billing身份去重、多账号全部故障、真实双机/透明续接媒体。新源码本机仅AST/gofmt/diff静态，没有Go/Docker/动态；后续精确head必须远端双事件真实编译/bootstrap6+模型10及全部CI/security/Caddy，原始waiting1→0/active与账本/slots/cleanup及checkout分开归档。失败据原joblog最小定位，不改队列/计费/取消策略迁就断言。

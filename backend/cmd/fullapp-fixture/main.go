@@ -43,22 +43,24 @@ type fixtureInput struct {
 }
 
 type fixtureOutput struct {
-	UserID           int64   `json:"user_id"`
-	APIKeyID         int64   `json:"api_key_id"`
-	AccountID        int64   `json:"account_id"`
-	UsageRows        int64   `json:"usage_rows"`
-	DedupRows        int64   `json:"dedup_rows"`
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	Balance          float64 `json:"balance"`
-	UserSlots        int     `json:"user_slots"`
-	AccountSlots     int     `json:"account_slots"`
-	APIKeySlots      int     `json:"api_key_slots"`
-	PeerAccountID    int64   `json:"peer_account_id"`
-	PeerUsageRows    int64   `json:"peer_usage_rows"`
-	PeerInputTokens  int64   `json:"peer_input_tokens"`
-	PeerOutputTokens int64   `json:"peer_output_tokens"`
-	PeerAccountSlots int     `json:"peer_account_slots"`
+	UserID             int64   `json:"user_id"`
+	APIKeyID           int64   `json:"api_key_id"`
+	AccountID          int64   `json:"account_id"`
+	UsageRows          int64   `json:"usage_rows"`
+	DedupRows          int64   `json:"dedup_rows"`
+	InputTokens        int64   `json:"input_tokens"`
+	OutputTokens       int64   `json:"output_tokens"`
+	Balance            float64 `json:"balance"`
+	UserSlots          int     `json:"user_slots"`
+	AccountSlots       int     `json:"account_slots"`
+	APIKeySlots        int     `json:"api_key_slots"`
+	PeerAccountID      int64   `json:"peer_account_id"`
+	PeerUsageRows      int64   `json:"peer_usage_rows"`
+	PeerInputTokens    int64   `json:"peer_input_tokens"`
+	PeerOutputTokens   int64   `json:"peer_output_tokens"`
+	PeerAccountSlots   int     `json:"peer_account_slots"`
+	APIKeyQueueActive  int     `json:"api_key_queue_active"`
+	APIKeyQueueWaiting int     `json:"api_key_queue_waiting"`
 }
 
 var fixtureStage = "input"
@@ -232,6 +234,10 @@ func run(op string) error {
 			return err
 		}
 		out.APIKeySlots = keys[in.APIKeyID]
+		out.APIKeyQueueActive, out.APIKeyQueueWaiting, err = slots.(service.APIKeySlotQueueCache).GetAPIKeyQueueStats(ctx, in.APIKeyID)
+		if err != nil {
+			return err
+		}
 		if op == "status-multi" {
 			if in.PeerAccountID <= 0 || in.PeerAccountID == in.AccountID {
 				return errors.New("distinct fixture peer account required")

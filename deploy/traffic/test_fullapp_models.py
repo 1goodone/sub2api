@@ -12,6 +12,7 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
+import threading
 import unittest
 from decimal import Decimal
 
@@ -730,6 +731,113 @@ class FullApplicationMultiAccountPartialEOFTest(FullApplicationMultiAccountEOFTe
 
 
 
+class FullApplicationQueuedCancelTest(FullApplicationConcurrentSuccessTest):
+    def test_third_queued_client_cancels_before_generation_without_releasing_two_active_peers(self):
+        first_connection, first_response = self.model_post("queue-active-first", hold=True)
+        self.read_live_delta(first_response)
+        second_connection, second_response = self.model_post("queue-active-second", hold=True)
+        self.read_live_delta(second_response)
+        self.assertEqual({first_response.getheader("X-Fixture-Target"), second_response.getheader("X-Fixture-Target")},
+                         {app + ":8080" for app in self.apps})
+        self.assertEqual(self.model_stats(), {"accepted": 2, "completed": 0, "active": 2})
+        status = self.fixture_command("status")
+        self.assertEqual((status["user_slots"], status["account_slots"], status["api_key_slots"]), (2, 2, 2))
+        self.assertEqual((status["api_key_queue_active"], status["api_key_queue_waiting"]), (2, 0))
+        self.phase("two-real-app-held-streams-fill-key-user-account-capacity-before-third-request")
+
+        queued = http.client.HTTPConnection(*self.edge_port, timeout=8)
+        outcome = {"returned_response": False, "disconnected": False}
+        reader = None
+
+        def cancel_and_join():
+            # Run before container teardown, including any assertion/timeout
+            # failure. No daemon thread may retain a response/socket silently.
+            if queued.sock is not None:
+                try:
+                    queued.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass  # The canceled peer may already have closed it.
+            queued.close()
+            if reader is not None:
+                reader.join(timeout=2)
+                self.assertFalse(reader.is_alive(), "queued response reader cleanup exceeded budget")
+
+        self.addCleanup(cancel_and_join)
+        queued.request("POST", "/v1/responses", body=json.dumps({
+            "model": "gpt-6.1-sol", "input": "synthetic queued request must never reach model", "stream": True}),
+            headers={"Host": "api.fixture.invalid", "Content-Type": "application/json",
+                     "Authorization": "Bearer " + self.key, "X-Client-Request-ID": "queue-cancel-third"})
+
+        def receive_queued_response():
+            try:
+                response = queued.getresponse()
+                outcome["returned_response"] = True
+                response.close()
+            except (OSError, http.client.HTTPException):
+                # Export only fixed facts, never connection/error details.
+                outcome["disconnected"] = True
+            finally:
+                queued.close()
+
+        reader = threading.Thread(target=receive_queued_response, daemon=True)
+        reader.start()
+
+        def third_waiting():
+            status = self.fixture_command("status")
+            return (self.model_stats() == {"accepted": 2, "completed": 0, "active": 2}
+                    and status["api_key_queue_active"] == 2 and status["api_key_queue_waiting"] == 1
+                    and status["user_slots"] == status["account_slots"] == status["api_key_slots"] == 2
+                    and status["usage_rows"] == status["dedup_rows"] == 0 and status["balance"] == 10
+                    and reader.is_alive() and not outcome["returned_response"])
+
+        bootstrap.eventually(third_waiting, 3, "third real request is queued in shared Redis before upstream admission")
+        self.phase("third-authenticated-client-is-in-key-queue-no-extra-generation-or-user-account-slot")
+        self.assertIsNotNone(queued.sock)
+        queued.sock.shutdown(socket.SHUT_RDWR)
+        reader.join(timeout=2)
+        self.assertFalse(reader.is_alive(), "canceled queued HTTP reader must terminate")
+        self.assertTrue(outcome["disconnected"])
+        self.assertFalse(outcome["returned_response"])
+
+        def canceled_waiter_removed():
+            status = self.fixture_command("status")
+            return (self.model_stats() == {"accepted": 2, "completed": 0, "active": 2}
+                    and status["api_key_queue_active"] == 2 and status["api_key_queue_waiting"] == 0
+                    and status["user_slots"] == status["account_slots"] == status["api_key_slots"] == 2
+                    and status["usage_rows"] == status["dedup_rows"] == 0
+                    and status["input_tokens"] == status["output_tokens"] == 0 and status["balance"] == 10)
+
+        bootstrap.eventually(canceled_waiter_removed, 3, "canceled waiter removed without releasing active peer reservations")
+        self.phase("canceled-queued-client-never-reached-upstream-two-active-leases-intact")
+        self.release_model()
+        for connection, response in ((first_connection, first_response), (second_connection, second_response)):
+            self.assertIn(b'"response.completed"', response.read(65536))
+            response.close()
+            connection.close()
+
+        def active_peers_settled():
+            status = self.fixture_command("status")
+            return (self.model_stats() == {"accepted": 2, "completed": 2, "active": 0}
+                    and status["usage_rows"] == status["dedup_rows"] == 2
+                    and status["input_tokens"] == 14 and status["output_tokens"] == 4
+                    and Decimal(str(status["balance"])) == Decimal("9.999978")
+                    and status["user_slots"] == status["account_slots"] == status["api_key_slots"] == 0
+                    and status["api_key_queue_active"] == status["api_key_queue_waiting"] == 0)
+
+        bootstrap.eventually(active_peers_settled, 12, "only two admitted peers settle and shared queue/slots finish empty")
+        self.report["queued_cancel_verification"] = {"authenticated_client_posts": 3,
+                                                      "upstream_acceptances": 2, "completed": 2,
+                                                      "queue_waiting_before_cancel": 1, "queue_waiting_after_cancel": 0,
+                                                      "active_peer_slots_after_cancel": 2,
+                                                      "usage_rows": 2, "dedup_rows": 2,
+                                                      "input_tokens": 14, "output_tokens": 4,
+                                                      "balance_final": self.fixture_command("status")["balance"],
+                                                      "all_slots_final": 0, "queue_final": 0,
+                                                      "queued_client_reader_joined": True,
+                                                      "scope": "existing queue cancellation before upstream; not timeout/full-queue/revocation policy"}
+        self.phase("queued-cancel-no-hidden-generation-two-peers-unique-billing-all-capacity-clean")
+
+
 if __name__ == "__main__":
     # The original bootstrap suite still runs as its existing CI step. This
     # Explicit cases avoid rerunning inherited tests as accidental duplicates.
@@ -742,6 +850,7 @@ if __name__ == "__main__":
         FullApplicationConcurrentFailureTest("test_failed_concurrent_stream_releases_only_its_lease_and_peer_settles_once"),
         FullApplicationConcurrentSuccessTest("test_two_held_successes_release_together_and_preserve_both_settlements"),
         FullApplicationMultiAccountEOFTest("test_existing_multi_account_failover_can_accept_again_after_ambiguous_eof"),
-        FullApplicationMultiAccountPartialEOFTest("test_existing_multi_account_policy_stops_after_partial_semantic_output_eof")])
+        FullApplicationMultiAccountPartialEOFTest("test_existing_multi_account_policy_stops_after_partial_semantic_output_eof"),
+        FullApplicationQueuedCancelTest("test_third_queued_client_cancels_before_generation_without_releasing_two_active_peers")])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)
