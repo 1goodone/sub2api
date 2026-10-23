@@ -46,6 +46,8 @@ func TestExcelBPSRecoversBeforeClientOutput(t *testing.T) {
 		wire   string
 	}{
 		{"model permission", 403, `{"error":{"code":"model_not_allowed"}}`},
+		{"usage policy JSON", 403, `{"error":{"message":"403: This request was blocked by our usage policy."}}`},
+		{"usage policy text", 403, "403: This request was blocked by our usage policy."},
 		{"model unavailable", 404, `{"error":{"code":"model_not_found"}}`},
 		{"revoked credential", 401, `{"error":{"code":"token_revoked"}}`},
 		{"server error", 500, `{"error":{"type":"server_error"}}`},
@@ -129,6 +131,7 @@ func TestExcelBPSRecoveryDisabledDoesNotSwitchAccounts(t *testing.T) {
 	}{
 		{"server", 500, `{"error":{"code":"server_error"}}`},
 		{"model", 403, `{"error":{"code":"model_not_allowed"}}`},
+		{"usage policy", 403, `{"error":{"message":"403: This request was blocked by our usage policy."}}`},
 		{"stream rate limit", 200, bpsRecoveryFailure("rate_limit_exceeded")},
 		{"EOF", 200, ""},
 	} {
