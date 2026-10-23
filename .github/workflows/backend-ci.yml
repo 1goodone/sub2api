@@ -36,6 +36,13 @@ jobs:
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.27.3'
+      - name: Install Redis for isolated snapshot adapter checks
+        run: |
+          if ! command -v redis-server >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends redis-server
+          fi
+          redis-server --version
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -91,6 +98,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s deploy/tests -p 'test_gateway_render.py'
+      - name: Offline multi-host contract checks
+        run: python -m unittest discover -s deploy/tests -p 'test_multihost_preflight.py'
+      - run: python -m unittest discover -s deploy/tests -p 'test_migrate_reauth_managed.py'
       - run: python -m unittest discover -s deploy/connection-diagnostics -p 'test_collect.py'
 
   prism-adapter:

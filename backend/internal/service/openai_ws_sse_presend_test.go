@@ -452,8 +452,9 @@ func TestOpenAIWSSSEFallbackKeepsHTTPNamespaceContract(t *testing.T) {
 					if flatten {
 						item = `{"type":"function_call","name":"mcp__lookup","call_id":"fc_1","arguments":"{}"}`
 					}
-					// Compare protocol behavior independently of the wall clock: without
-					// created_at, each forward supplies its own current Unix second.
+					// Use the same upstream created_at for both forwards so the exact
+					// namespace comparison cannot vary across a wall-clock second.
+					// This fixture isolates protocol behavior from timestamp synthesis.
 					h.resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_item.added","item":` + item + "}\n\n" + `data: {"type":"response.completed","response":{"id":"resp_namespace","created_at":1700000000,"output":[` + item + `],"usage":{"input_tokens":7,"output_tokens":2}}}` + "\n\n"))
 					s := wsSSETestService(t, d, h)
 					if bypass != "handshake" {
@@ -471,6 +472,7 @@ func TestOpenAIWSSSEFallbackKeepsHTTPNamespaceContract(t *testing.T) {
 				normalHTTP, normalResponse := forward(false)
 				fallbackHTTP, fallbackResponse := forward(true)
 				require.Equal(t, normalResponse, fallbackResponse, "HTTP fallback must restore response namespaces as well")
+				require.Contains(t, fallbackResponse, `"created_at":1700000000`, "fallback must preserve the upstream timestamp")
 				if flatten {
 					require.NotContains(t, fallbackResponse, "mcp__lookup")
 				}

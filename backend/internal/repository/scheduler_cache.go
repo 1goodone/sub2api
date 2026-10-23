@@ -25,6 +25,7 @@ const (
 	schedulerVersionPrefix         = "sched:ver:"
 	schedulerEpochPrefix           = "sched:epoch:"
 	schedulerRetiredPrefix         = "sched:retired:"
+	schedulerPublishedPrefix       = "sched:published:"
 	schedulerSnapshotPrefix        = "sched:"
 	schedulerLockPrefix            = "sched:lock:"
 
@@ -176,6 +177,7 @@ return 0
 	// KEYS[4] = snapshotKey   (新写入的快照 key)
 	// KEYS[5] = epochKey
 	// KEYS[6] = retiredKey
+	// KEYS[7] = publication stamp (generation + Redis clock, never reader-local time)
 	// ARGV[1] = 新版本号字符串
 	// ARGV[2] = bucket 字符串 (用于 SADD)
 	// ARGV[3] = 快照 key 前缀 (用于构造旧快照 key)
@@ -210,6 +212,11 @@ end
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('SET', KEYS[2], '1')
 redis.call('SADD', KEYS[3], ARGV[2])
+if currentActive ~= ARGV[1] then
+	local now = redis.call('TIME')
+	local millis = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+	redis.call('HSET', KEYS[7], 'version', ARGV[1], 'published_ms', tostring(millis))
+end
 
 if currentActive ~= false and currentActive ~= ARGV[1] then
 	redis.call('EXPIRE', ARGV[3] .. currentActive, tonumber(ARGV[4]))
@@ -547,6 +554,7 @@ func (c *schedulerCache) activateSnapshotVersion(ctx context.Context, bucket ser
 		snapshotKey,
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
 		schedulerBucketKey(schedulerRetiredPrefix, bucket),
+		schedulerBucketKey(schedulerPublishedPrefix, bucket),
 	}
 	args := []any{version, bucket.String(), snapshotKeyPrefix, snapshotGraceTTLSeconds, token.Epoch}
 

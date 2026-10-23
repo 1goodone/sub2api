@@ -512,6 +512,8 @@ type OpenAIGatewayService struct {
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
+	openaiWSNodeOwnerOnce          sync.Once
+	openaiWSNodeOwnerToken         string
 	openaiSchedulerOnce            sync.Once
 	codexQuotaOverdraftOnce        sync.Once
 	openaiProxyStreamCircuitOnce   sync.Once
