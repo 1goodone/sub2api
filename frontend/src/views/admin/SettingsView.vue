@@ -4666,6 +4666,30 @@
 
         <!-- Tab: Gateway — Claude Code, Scheduling -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <div class="card" data-testid="excel-bps-recovery-settings">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 id="settings-section-excel-bps-recovery" tabindex="-1" class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ localText('BPS 错误自动恢复', 'BPS error recovery') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ localText('仅由 BPS 错误触发，不修改普通 OpenAI / Codex 请求的重试策略。默认关闭，保存后对新请求生效。', 'Triggered only by BPS errors; ordinary OpenAI / Codex retry policies are unchanged. Off by default; saved changes apply to new requests.') }}
+              </p>
+            </div>
+            <div class="space-y-3 p-6">
+              <div class="flex items-center justify-between gap-4">
+                <label for="excel-bps-recovery-enabled" class="font-medium text-gray-900 dark:text-white">
+                  {{ localText('开启 BPS 错误自动恢复', 'Enable BPS error recovery') }}
+                </label>
+                <Toggle id="excel-bps-recovery-enabled" v-model="form.excel_bps_recovery_enabled" />
+              </div>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；模型不可用时冷却对应模型；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output, model-specific cooldown for unavailable models, and one additional retry for throttled tool corrections. Turning this off restores the existing BPS error handling.') }}
+              </p>
+              <p class="text-sm text-amber-700 dark:text-amber-400">
+                {{ localText('BPS 凭证失效会暂停整个账号，包括该账号的其他通道。关闭此开关不会自动恢复已暂停账号，修复凭证后需手动恢复。', 'Invalid BPS credentials pause the entire account, including its other routes. Turning this switch off does not resume paused accounts; repair credentials and resume manually.') }}
+              </p>
+            </div>
+          </div>
           <!-- Claude Code Settings -->
           <div class="card">
             <div
@@ -10473,6 +10497,7 @@ function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] 
 
 const form = reactive<SettingsForm>({
   excel_bps_enabled: true,
+  excel_bps_recovery_enabled: false,
   prism_browser_enabled: false,
   prism_browser_base_url: "http://127.0.0.1:8319/v1",
   prism_browser_api_key_configured: false,
@@ -11832,6 +11857,7 @@ async function loadSettings() {
     );
     form.desktop_enabled = settings.desktop_enabled !== false;
     form.excel_bps_enabled = settings.excel_bps_enabled !== false;
+    form.excel_bps_recovery_enabled = settings.excel_bps_recovery_enabled === true;
     form.prism_browser_enabled = Boolean(settings.prism_browser_enabled);
     form.prism_browser_base_url =
       settings.prism_browser_base_url || "http://127.0.0.1:8319/v1";
@@ -12270,6 +12296,7 @@ async function saveSettings() {
     const payload: UpdateSettingsRequest = {
       prism_browser_enabled: form.prism_browser_enabled,
       excel_bps_enabled: form.excel_bps_enabled,
+      excel_bps_recovery_enabled: form.excel_bps_recovery_enabled,
       prism_browser_base_url: form.prism_browser_base_url,
       ...(form.prism_browser_api_key.trim()
         ? { prism_browser_api_key: form.prism_browser_api_key.trim() }

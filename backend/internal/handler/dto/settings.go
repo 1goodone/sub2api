@@ -328,6 +328,7 @@ type SystemSettings struct {
 
 	// Channel Monitor feature switch
 	ExcelBPSEnabled                      bool   `json:"excel_bps_enabled"`
+	ExcelBPSRecoveryEnabled              bool   `json:"excel_bps_recovery_enabled"`
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`

@@ -48,7 +48,7 @@ func TestExcelBPSErrorDoesNotAppendFallback(t *testing.T) {
 				Credentials: map[string]any{"access_token": "test-token", "chatgpt_account_id": "test-account"},
 				Extra:       map[string]any{"openai_excel_bps": true, "openai_passthrough": true}}
 			repo := excelBPSErrorAccountRepo{account: account}
-			gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
+			gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, newExcelBPSRecoverySettings(true), nil)
 			body := `{"model":"gpt-6-astra","stream":` + map[bool]string{true: "true", false: "false"}[tt.stream] + `,"input":` + tt.input + `}`
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -57,6 +57,13 @@ func TestExcelBPSErrorDoesNotAppendFallback(t *testing.T) {
 			_, err := gateway.Forward(context.Background(), c, account, []byte(body))
 			require.Error(t, err)
 			response := rec.Body.String()
+			if tt.name == "model_denied" || tt.name == "incomplete_stream" || tt.name == "incomplete_json" {
+				var failover *service.UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Empty(t, response)
+				require.False(t, service.IsResponseCommitted(c))
+				return
+			}
 			require.NotEmpty(t, response, "forward error: %v", err)
 			h := &OpenAIGatewayHandler{}
 			if !openAIForwardErrorAlreadyCommunicated(c, before, err) {

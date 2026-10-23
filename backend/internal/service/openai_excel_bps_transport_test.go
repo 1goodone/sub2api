@@ -308,7 +308,7 @@ func TestExcelBPSTransportAndStreamFailureAreServerErrors(t *testing.T) {
 				upstream.err = nil
 				upstream.resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_test\",\"status\":\"in_progress\"}}\n\n"))}
 			}
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			svc.httpUpstream = upstream
 			body := []byte("{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"test\"}")
 			rec := httptest.NewRecorder()
@@ -316,13 +316,14 @@ func TestExcelBPSTransportAndStreamFailureAreServerErrors(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
 			_, err := svc.Forward(context.Background(), c, excelAccount(), body)
 			require.Error(t, err)
-			require.Contains(t, rec.Body.String(), "server_error")
 			if streamFailure {
-				require.Equal(t, 200, rec.Code)
-				require.Contains(t, rec.Body.String(), "basispoints_stream_incomplete")
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Empty(t, rec.Body.String())
 				_, marked := GetOpsStreamError(c)
-				require.True(t, marked, "HTTP 200 stream failure must enter Ops errors")
+				require.False(t, marked, "a recoverable attempt is not a final client failure")
 			} else {
+				require.Contains(t, rec.Body.String(), "server_error")
 				require.Equal(t, 502, rec.Code)
 				require.Contains(t, rec.Body.String(), "basispoints_transport_error")
 			}
@@ -348,7 +349,7 @@ func TestExcelBPSAttachmentLeaseCannotChangeExitOrReleaseOwner(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))}, nil
 			}}
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			svc.httpUpstream = upstream
 			resp, borrowed, _, err := svc.doExcelBPSRequest(context.Background(), c, account, "scope", []byte("{}"), "token", "account", pinnedExcelBPSAcquire("http://127.0.0.1:19007", lease))
 			if fail {

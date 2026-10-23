@@ -24,7 +24,8 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
-	ExcelBPSEnabled *bool `json:"excel_bps_enabled"`
+	ExcelBPSEnabled         *bool `json:"excel_bps_enabled"`
+	ExcelBPSRecoveryEnabled *bool `json:"excel_bps_recovery_enabled"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
 	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"`      // 省略=保持现值
@@ -2270,6 +2271,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AccountQuotaNotifyEmails
 		}(),
+		ExcelBPSRecoveryEnabled: func() bool {
+			if req.ExcelBPSRecoveryEnabled != nil {
+				return *req.ExcelBPSRecoveryEnabled
+			}
+			return previousSettings.ExcelBPSRecoveryEnabled
+		}(),
 		ExcelBPSEnabled: func() bool {
 			if req.ExcelBPSEnabled != nil {
 				return *req.ExcelBPSEnabled
@@ -2853,6 +2860,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ExcelBPSEnabled:                      updatedSettings.ExcelBPSEnabled,
+		ExcelBPSRecoveryEnabled:              updatedSettings.ExcelBPSRecoveryEnabled,
 		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 		ChannelMonitorHideThroughput:         updatedSettings.ChannelMonitorHideThroughput,

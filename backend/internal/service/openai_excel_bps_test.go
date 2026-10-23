@@ -64,7 +64,7 @@ func TestExcelBPSForwardContract(t *testing.T) {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			wire := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_excel\",\"status\":\"completed\",\"model\":\"gpt-5.6-sol\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"21\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n"
 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(wire))}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","stream":%v,"reasoning":{"effort":"max"},"input":"test","tools":[{"type":"custom","name":"apply_patch"}]}`, stream))
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -106,7 +106,7 @@ func TestExcelBPSUsagePreservesRequestedEffortBeforeGroupMapping(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
 				wire := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bps_effort\",\"status\":\"completed\",\"model\":\"gpt-5.6-sol\",\"output\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n"
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire))}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","stream":%t,"reasoning":{"effort":%q},"input":"test"}`, stream, tc.requested))
 				ctx := WithRequestedReasoningEffort(context.Background(), tc.requested)
 				if tc.ceiling != "" {
@@ -138,20 +138,20 @@ func TestExcelBPSUsagePreservesRequestedEffortBeforeGroupMapping(t *testing.T) {
 	}
 }
 
-func TestExcelBPSModelDeniedDoesNotFailover(t *testing.T) {
+func TestExcelBPSModelDeniedFailsOverWithoutExposingRejection(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"basispoints_model_access_changed","message":"SECRET_UPSTREAM"}}`))}}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 	_, err := svc.Forward(context.Background(), c, excelAccount(), []byte(`{"model":"gpt-5.6-sol","input":"x"}`))
 	require.Error(t, err)
 	var failover *UpstreamFailoverError
-	require.NotErrorAs(t, err, &failover)
-	require.Equal(t, 403, rec.Code)
-	require.Contains(t, rec.Body.String(), "basispoints_model_access_changed")
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, 403, failover.StatusCode)
+	require.Empty(t, rec.Body.String())
 	require.NotContains(t, rec.Body.String(), "SECRET_UPSTREAM")
-	require.True(t, IsResponseCommitted(c))
+	require.False(t, IsResponseCommitted(c))
 }
 
 func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
@@ -162,7 +162,7 @@ func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
 				Header:     http.Header{"X-Request-Id": {"bps-upstream-request"}},
 				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_value","param":"input[2].id","message":"Expected an ID that begins with fc. token=test-token; refresh-secret Bearer other-secret https://user:pass@example.com/?api_key=query-secret; echoed prompt: private-user-input"},"access_token":"other-secret"}`)),
 			}}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			svc.cfg.Gateway.LogUpstreamErrorBody = logBody
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -220,7 +220,7 @@ func TestExcelBPSHTTPErrorAfterCompactKeepalive(t *testing.T) {
 		StatusCode: http.StatusBadRequest, Header: http.Header{},
 		Body: io.NopCloser(strings.NewReader(`{"error":{"message":"invalid input"}}`)),
 	}}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", nil)
@@ -256,7 +256,7 @@ func TestExcelBPSMihomoFailsClosed(t *testing.T) {
 	for _, identity := range []bool{false, true} {
 		t.Run(fmt.Sprint(identity), func(t *testing.T) {
 			upstream := &httpUpstreamRecorder{}
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			account := excelAccount()
 			account.Extra["openai_excel_bps_mihomo"] = true
 			body, _ := nativeGatewayBody(t)

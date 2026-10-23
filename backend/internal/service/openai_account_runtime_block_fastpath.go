@@ -670,6 +670,9 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(ctx context.
 	if s == nil {
 		return false
 	}
+	if excelBPSFailoverRouteBlocked(ctx, account, requestedModel) {
+		return true
+	}
 	if s.isExcelBPSCoolingDown(account, requestedModel) || s.isExcelBPSModelCoolingDown(account, requestedModel) {
 		return true
 	}

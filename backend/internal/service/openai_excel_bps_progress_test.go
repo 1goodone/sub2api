@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExcelBPSProgressTimeoutPreservesUsageAndDoesNotReplay(t *testing.T) {
+func TestExcelBPSProgressTimeoutPreservesUsageAndAllowsFailoverBeforeOutput(t *testing.T) {
 	r, w := io.Pipe()
 	defer func() { _ = w.Close() }()
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: r}}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	svc.cfg.Gateway.ExcelBPSStreamDataIntervalTimeout = 1
 	go func() {
 		_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\",\"usage\":{\"input_tokens\":7,\"output_tokens\":2}}}\n\n")
@@ -35,14 +35,17 @@ func TestExcelBPSProgressTimeoutPreservesUsageAndDoesNotReplay(t *testing.T) {
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.False(t, result.ClientDisconnect)
 	require.Empty(t, result.UpstreamTerminalEvent)
-	require.Contains(t, rec.Body.String(), "response.failed")
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Empty(t, rec.Body.String())
+	require.False(t, IsResponseCommitted(c))
 }
 
 func TestExcelBPSProgressGuardDoesNotTimeoutBufferedBridgeText(t *testing.T) {
 	// The complete upstream response may be buffered for local structured-output
 	// validation; the timeout watches raw reads rather than withheld client text.
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"{}\"}]}]}}\n\n"))}}
-	svc := openAIClientToolsTestService(upstream)
+	svc := openAIExcelBPSRecoveryTestService(upstream)
 	svc.cfg.Gateway.ExcelBPSStreamDataIntervalTimeout = 1
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

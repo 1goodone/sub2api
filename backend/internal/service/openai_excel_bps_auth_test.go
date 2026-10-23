@@ -73,7 +73,7 @@ func TestExcelBPS401PersistsAfterCancellationAndBlocksOnWriteFailure(t *testing.
 					raw = `{"error":{"code":"token_revoked"}}`
 				}
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 401, Header: http.Header{}, Body: io.NopCloser(&excelBPSCancelReader{Reader: strings.NewReader(raw), cancel: cancel})}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				repo, _ := setupExcelBPSAuth(svc)
 				if writeFailure {
 					repo.writeErr = errors.New("database unavailable")
@@ -93,7 +93,7 @@ func TestExcelBPS401PersistsAfterCancellationAndBlocksOnWriteFailure(t *testing.
 	}
 }
 
-func TestExcelBPS401RespectsAPIKeyPolicies(t *testing.T) {
+func TestExcelBPS401PausesAccountRegardlessOfPoolErrorPolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		pool, custom bool
@@ -106,7 +106,7 @@ func TestExcelBPS401RespectsAPIKeyPolicies(t *testing.T) {
 		{name: "custom includes 401", custom: true, codes: []any{float64(401)}, blocked: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := openAIClientToolsTestService(nil)
+			svc := openAIExcelBPSRecoveryTestService(nil)
 			repo, invalidator := setupExcelBPSAuth(svc)
 			account := excelAccount()
 			account.Type = AccountTypeAPIKey
@@ -114,8 +114,8 @@ func TestExcelBPS401RespectsAPIKeyPolicies(t *testing.T) {
 			account.Credentials["custom_error_codes_enabled"] = tc.custom
 			account.Credentials["custom_error_codes"] = tc.codes
 			svc.handleExcelBPSUnauthorized(context.Background(), account, 401, http.Header{}, []byte(`{}`))
-			require.Equal(t, tc.blocked, svc.isOpenAIAccountRuntimeBlocked(account))
-			require.Equal(t, tc.blocked, repo.errorCalls == 1)
+			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			require.Equal(t, 1, repo.errorCalls)
 			require.Zero(t, repo.tempCalls)
 			require.Empty(t, invalidator.ids)
 			requireNoExcelBPSQuotaWrite(t, &repo.excelBPSQuotaRepo)
@@ -140,7 +140,7 @@ func TestExcelBPS401AppliesAuthenticationPolicy(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", route, stream, tc.name), func(t *testing.T) {
 					rejected := &excelBPSRepairBody{Reader: strings.NewReader(tc.raw)}
 					upstream := &httpUpstreamRecorder{}
-					svc := openAIClientToolsTestService(upstream)
+					svc := openAIExcelBPSRecoveryTestService(upstream)
 					repo, invalidator := setupExcelBPSAuth(svc)
 					account := excelAccount()
 					if !tc.noRefresh {
@@ -153,6 +153,7 @@ func TestExcelBPS401AppliesAuthenticationPolicy(t *testing.T) {
 					switch route {
 					case "attachment":
 						enableNativeAttachments(svc)
+						svc.settingService.settingRepo.(*excelBPSImageSettingsRepo).values[SettingKeyExcelBPSRecoveryEnabled] = "true"
 						body, _ = nativeGatewayBody(t)
 						var err error
 						body, err = sjson.SetBytes(body, "stream", stream)
@@ -176,35 +177,27 @@ func TestExcelBPS401AppliesAuthenticationPolicy(t *testing.T) {
 					_, err := svc.Forward(context.Background(), c, account, body)
 					require.Error(t, err)
 					var failover *UpstreamFailoverError
-					require.NotErrorAs(t, err, &failover, "authentication state updates must not replay BPS requests")
+					if route == "responses" || route == "attachment" {
+						require.ErrorAs(t, err, &failover)
+						require.False(t, IsResponseCommitted(c))
+						require.Empty(t, rec.Body.String())
+					} else {
+						require.NotErrorAs(t, err, &failover, "tool correction does not replay the whole request")
+						require.True(t, IsResponseCommitted(c))
+					}
 					require.Len(t, upstream.requests, wantRequests)
 					require.True(t, rejected.closed.Load())
 					if first != nil {
 						require.True(t, first.closed.Load())
-					}
-					require.True(t, IsResponseCommitted(c))
-					if wantRequests == 1 {
-						require.Equal(t, http.StatusUnauthorized, rec.Code)
-						require.Contains(t, rec.Body.String(), "authentication failed")
 					}
 					require.NotContains(t, rec.Body.String(), "scheduling was not changed")
 					require.Equal(t, account.ID, repo.accountID)
 					require.NoError(t, repo.ctxErr)
 					require.False(t, repo.deadline.IsZero())
 					require.LessOrEqual(t, repo.deadline.Sub(started), openAIAccountStateUpdateTimeout+time.Second)
-					if tc.permanent {
-						require.Equal(t, 1, repo.errorCalls)
-						require.Zero(t, repo.tempCalls)
-					} else {
-						require.Equal(t, 1, repo.tempCalls)
-						require.Zero(t, repo.errorCalls)
-						require.WithinDuration(t, started.Add(7*time.Minute), repo.until, 5*time.Second)
-					}
-					if tc.invalidate {
-						require.Equal(t, []int64{account.ID}, invalidator.ids)
-					} else {
-						require.Empty(t, invalidator.ids)
-					}
+					require.Equal(t, 1, repo.errorCalls)
+					require.Zero(t, repo.tempCalls)
+					require.Equal(t, []int64{account.ID}, invalidator.ids)
 					require.True(t, svc.isOpenAIAccountRuntimeBlocked(account), "stale scheduler snapshots must be excluded immediately")
 					require.True(t, account.IsSchedulable(), "do not mutate the shared account snapshot")
 					require.True(t, account.IsExcelBPSEnabled())

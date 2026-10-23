@@ -31,6 +31,17 @@ function collectAnchors(source: string, anchors: Map<string, string>, defaultTab
 }
 
 describe('settings feature search', () => {
+  it('locates BPS recovery in gateway settings in both languages', () => {
+    for (const [locale, query] of [['zh', 'BPS 错误自动恢复'], ['en', 'BPS error recovery']] as const) {
+      const sections = withSettingsSearch([{ path: '/admin/settings', label: 'Settings' }], key => key, locale)
+      const gateway = sections[0]?.children?.find(section => section.path === '/admin/settings?tab=gateway')
+      expect(gateway?.children).toEqual(expect.arrayContaining([expect.objectContaining({
+        path: '/admin/settings?tab=gateway#settings-section-excel-bps-recovery', label: query
+      })]))
+    }
+    expect(settingsLocation('features', '#settings-section-excel-bps-recovery').tab).toBe('gateway')
+  })
+
   it('finds risk switches in both languages without exposing an absent business page', () => {
     for (const [locale, messages, queries] of [
       ['zh', zh, ['风控', 'cyber', '会话自动屏蔽', '屏蔽时长', '严格要求明确会话身份']],

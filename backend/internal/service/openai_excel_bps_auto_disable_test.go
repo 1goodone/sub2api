@@ -21,6 +21,8 @@ type excelBPSAutoDisableRepo struct {
 	disable func(context.Context, *Account) (bool, error)
 }
 
+func (r *excelBPSAutoDisableRepo) SetError(context.Context, int64, string) error { return nil }
+
 func (r *excelBPSAutoDisableRepo) DisableExcelBPSOn403(ctx context.Context, account *Account) (bool, error) {
 	return r.disable(ctx, account)
 }
@@ -53,6 +55,12 @@ func TestExcelBPSAutoDisableOn403(t *testing.T) {
 				}
 				raw := `{"error":{"code":"permission_denied","message":"PRIVATE_UPSTREAM"}}`
 				wantCode := "basispoints_upstream_error"
+				if tc.status == http.StatusUnauthorized {
+					wantCode = "basispoints_auth_unavailable"
+				}
+				if tc.status >= 500 {
+					wantCode = "basispoints_server_error"
+				}
 				if tc.status == http.StatusTooManyRequests {
 					wantCode = "basispoints_rate_limited"
 				}
@@ -61,7 +69,7 @@ func TestExcelBPSAutoDisableOn403(t *testing.T) {
 					wantCode = "basispoints_model_access_changed"
 				}
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(raw))}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				calls := 0
 				svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(ctx context.Context, got *Account) (bool, error) {
 					calls++
@@ -73,7 +81,7 @@ func TestExcelBPSAutoDisableOn403(t *testing.T) {
 				c, _ := gin.CreateTestContext(rec)
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 				_, err := svc.Forward(context.Background(), c, account, []byte(fmt.Sprintf(`{"model":"gpt-6-astra","input":"test","stream":%v}`, stream)))
-				if tc.status == http.StatusTooManyRequests {
+				if tc.status == http.StatusTooManyRequests || tc.status == http.StatusUnauthorized || tc.status >= 500 || tc.modelError {
 					var failover *UpstreamFailoverError
 					require.ErrorAs(t, err, &failover)
 					require.Equal(t, wantCode, gjson.GetBytes(failover.ResponseBody, "error.code").String())
@@ -104,7 +112,7 @@ func TestExcelBPSAutoDisableIgnoresTransportAndStreamErrors(t *testing.T) {
 			}
 			account := excelAccount()
 			account.Extra["openai_excel_bps_auto_disable_on_403"] = true
-			svc := openAIClientToolsTestService(upstream)
+			svc := openAIExcelBPSRecoveryTestService(upstream)
 			svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
 				t.Fatal("only an upstream HTTP 403 may disable BPS")
 				return false, nil

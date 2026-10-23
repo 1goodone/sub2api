@@ -522,7 +522,8 @@ const (
 	SettingKeyChannelMonitorHideUserRanking = "channel_monitor_hide_user_ranking"
 
 	// Protocol-wide switches default on for BPS compatibility and off for Prism.
-	SettingKeyExcelBPSEnabled = "excel_bps_enabled"
+	SettingKeyExcelBPSEnabled         = "excel_bps_enabled"
+	SettingKeyExcelBPSRecoveryEnabled = "excel_bps_recovery_enabled"
 	// Prism browser bridge is administrator-managed and disabled by default.
 	SettingKeyPrismBrowserEnabled = "prism_browser_enabled"
 	SettingKeyPrismBrowserBaseURL = "prism_browser_base_url"
