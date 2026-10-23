@@ -83,8 +83,11 @@ export interface PelicanHistoryResult extends ScheduledTestResult {
   account_id: number
   account_name: string
 }
-export async function listPelicanHistory(beforeId = 0, limit = 24): Promise<{ items: PelicanHistoryResult[]; next_cursor: number; total: number }> {
-  const { data } = await apiClient.get('/admin/pelican-test-results', { params: { before_id: beforeId, limit } })
+// accountId narrows the history to one account; omit it for every account.
+export async function listPelicanHistory(beforeId = 0, limit = 24, accountId?: number): Promise<{ items: PelicanHistoryResult[]; next_cursor: number; total: number }> {
+  const params: { before_id: number; limit: number; account_id?: number } = { before_id: beforeId, limit }
+  if (accountId) params.account_id = accountId
+  const { data } = await apiClient.get('/admin/pelican-test-results', { params })
   return data
 }
 

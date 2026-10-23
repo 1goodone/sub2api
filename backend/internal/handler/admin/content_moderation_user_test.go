@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -149,4 +150,36 @@ func TestModerationUserHandlerCacheFailureCannotReportSuccess(t *testing.T) {
 	require.Contains(t, w.Body.String(), "Action committed")
 	require.Len(t, repo.actions, 1)
 	require.Zero(t, repo.reads)
+}
+
+func TestModerationUserHandlerIndependentExemptions(t *testing.T) {
+	for _, field := range []string{"keyword_exempt", "api_audit_exempt"} {
+		repo := &moderationUserHandlerRepo{state: service.ModerationUserState{UserID: 306, Status: "disabled", CurrentCount: 10}}
+		h := NewContentModerationHandler(service.NewContentModerationService(&moderationUserHandlerSettings{}, repo, nil, nil, nil, nil, nil, nil))
+		body := `{"action":"exemption","version":0,"confirm":true,"reason":"review","` + field + `":true,"actor_id":999}`
+		for _, role := range []string{"", "user", "observer"} {
+			require.Equal(t, 403, moderationUserRequest(t, h, "POST", "/users/306/actions", role, body).Code)
+		}
+		require.Empty(t, repo.actions)
+		w := moderationUserRequest(t, h, "POST", "/users/306/actions", "admin", body)
+		require.Equal(t, 200, w.Code, w.Body.String())
+		require.Len(t, repo.actions, 1)
+		require.Equal(t, int64(17), repo.actions[0].ActorID)
+		raw, err := json.Marshal(repo.actions[0])
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"`+field+`":true`)
+		require.Contains(t, w.Body.String(), `"status":"disabled"`)
+		for _, invalid := range []string{
+			`{"action":"exemption","version":1,"confirm":true,"reason":"review","` + field + `":"yes"}`,
+			`{"action":"reset","version":1,"confirm":true,"reason":"review","` + field + `":true}`,
+		} {
+			require.Equal(t, 400, moderationUserRequest(t, h, "POST", "/users/306/actions", "admin", invalid).Code)
+		}
+	}
+	repo := &moderationUserHandlerRepo{}
+	h := NewContentModerationHandler(service.NewContentModerationService(&moderationUserHandlerSettings{}, repo, nil, nil, nil, nil, nil, nil))
+	for _, filter := range []string{"auto_ban_exempt", "keyword_exempt", "api_audit_exempt"} {
+		w := moderationUserRequest(t, h, "GET", "/users?state="+filter, "admin", "")
+		require.Equal(t, 200, w.Code, w.Body.String())
+	}
 }

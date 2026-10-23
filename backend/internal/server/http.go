@@ -27,6 +27,7 @@ import (
 
 // ProviderSet 提供服务器层的依赖
 var ProviderSet = wire.NewSet(
+	ProvideLifecycle,
 	ProvideRouter,
 	ProvideHTTPServer,
 )
@@ -47,6 +48,7 @@ func ProvideRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	redisClient *redis.Client,
+	lifecycle *Lifecycle,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -94,6 +96,9 @@ func ProvideRouter(
 
 	settingService.IPRisk = iprisk.New(settingService.IPRiskStore(), redisClient, serverless.NewGeoJSResolver(redisClient), strings.EqualFold(os.Getenv("IP_RISK_DISABLED"), "true"))
 	settingService.IPRisk.Start()
+	if lifecycle != nil && settingService.IPRisk != nil {
+		lifecycle.onDrain = append(lifecycle.onDrain, settingService.IPRisk.Stop)
+	}
 	if handlers.Admin != nil && handlers.Admin.Setting != nil {
 		if handlers.Admin.PromptAudit != nil {
 			handlers.Admin.Setting.ConfigureIPAudit(handlers.Admin.AuditLog, handlers.Admin.PromptAudit.IPAuditPenaltySummary, handlers.Admin.PromptAudit.ReleaseIPAuditPenalty)
@@ -136,7 +141,7 @@ func warnAuthProxyMisconfiguration(r *gin.Engine) {
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器
-func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
+func ProvideHTTPServer(cfg *config.Config, router *gin.Engine, lifecycle *Lifecycle) *http.Server {
 	httpHandler := http.Handler(router)
 	server := &http.Server{
 		Addr:           cfg.Server.Address(),
@@ -185,6 +190,9 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 		}
 	}
 
+	if lifecycle != nil {
+		httpHandler = lifecycle.Wrap(httpHandler)
+	}
 	server.Handler = httpHandler
 	return server
 }

@@ -232,6 +232,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			c.Set(string(ContextKeySubscription), subscription)
 		} else {
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
+				apiKeyService.NotifyBalanceRejected(apiKey.User)
 				abortWithGoogleError(c, 403, service.InsufficientUserBalanceMessage)
 				return
 			}

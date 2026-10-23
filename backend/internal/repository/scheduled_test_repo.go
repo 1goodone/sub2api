@@ -95,7 +95,9 @@ func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.
 	if err != nil {
 		return nil, err
 	}
-	if updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil &&
+	// Importing configuration cannot implicitly undo account restrictions or
+	// discard their ownership. Incompatible live isolation still rejects below.
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil &&
 		updated.PelicanConfig.Quality.Action == service.QualityActionIsolateModels &&
 		(state.Action == "remove_groups" || state.Action == "disable_scheduling") {
 		if err = restoreQualityAccountActionForIsolation(ctx, tx, updated, &state); err != nil {
@@ -105,7 +107,7 @@ func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.
 	if err = checkQualityIsolationScope(updated, &state); err != nil {
 		return nil, err
 	}
-	if updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil && updated.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil && updated.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
 		if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
 			return nil, err
 		}
@@ -396,20 +398,23 @@ func (r *scheduledTestResultRepository) GetResult(ctx context.Context, planID, r
 
 // ListPelicanHistory lists every retained output, including failures and paused plans.
 // Cursor pagination is independent of account-table filters or pages. Bodies are lazy-loaded.
-func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*service.PelicanHistoryResult, int64, error) {
+// A non-zero accountID narrows the same history to that account's plans.
+func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) ([]*service.PelicanHistoryResult, int64, error) {
 	const historyFilter = `
  FROM scheduled_test_results r
  JOIN scheduled_test_plans p ON p.id = r.plan_id
  JOIN accounts a ON a.id = p.account_id
  WHERE p.pelican_config IS NOT NULL AND p.pelican_config->'quality' IS NULL AND a.deleted_at IS NULL`
 	var total int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+historyFilter).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+historyFilter+`
+ AND ($1::bigint = 0 OR p.account_id = $1)`, accountID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.status, r.error_message,
  r.latency_ms, r.started_at, r.finished_at, r.created_at, r.pelican_config, a.id, a.name`+historyFilter+`
  AND ($1::bigint = 0 OR r.id < $1)
- ORDER BY r.id DESC LIMIT $2`, beforeID, limit)
+ AND ($3::bigint = 0 OR p.account_id = $3)
+ ORDER BY r.id DESC LIMIT $2`, beforeID, limit, accountID)
 	if err != nil {
 		return nil, 0, err
 	}

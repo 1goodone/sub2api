@@ -1,6 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
+      <SecurityAuditNav active="/admin/risk-control" />
       <div v-if="loading" class="flex items-center justify-center py-16">
         <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"></div>
       </div>
@@ -23,7 +24,22 @@
           </div>
         </div>
 
-        <ModerationUsersSummary />
+        <section class="space-y-3">
+          <h2>
+            <button
+              id="moderation-users-toggle"
+              type="button"
+              class="btn btn-secondary"
+              data-test="moderation-users-toggle"
+              :aria-expanded="moderationUsersExpanded"
+              aria-controls="moderation-users-region"
+              @click="moderationUsersMounted = true; moderationUsersExpanded = !moderationUsersExpanded"
+            >{{ t('admin.moderationUsers.listTitle') }}</button>
+          </h2>
+          <div id="moderation-users-region" v-show="moderationUsersExpanded" role="region" aria-labelledby="moderation-users-toggle">
+            <ModerationUsersSummary v-if="moderationUsersMounted" />
+          </div>
+        </section>
         <p class="text-sm text-gray-600 dark:text-gray-300" data-test="active-audit-engine">
           {{ t('admin.riskControl.activeEngine', { engine: engineLabel(status?.engine ?? savedEngine) }) }}
         </p>
@@ -669,6 +685,12 @@
                             </button>
                           </div>
                         </div>
+                        <ModerationKeyURLEditor
+                          v-if="configForm.engine === 'typesafe' && row.configured && row.key_hash && row.base_url"
+                          :row="row"
+                          :disabled="saving || configForm.clear_api_key || isStoredApiKeyPendingDelete(row)"
+                          :persist="saveKeyURL"
+                        />
                         <p v-if="row.last_error" class="mt-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs leading-5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
                           {{ row.last_error }}
                         </p>
@@ -1174,8 +1196,10 @@ import { computed, onMounted, onUnmounted, reactive, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import SecurityAuditNav from '@/components/admin/security/SecurityAuditNav.vue'
 import ModerationUsersSummary from '@/components/admin/moderation/ModerationUsersSummary.vue'
 import ModerationUserPanel from '@/components/admin/moderation/ModerationUserPanel.vue'
+import ModerationKeyURLEditor from '@/components/admin/ModerationKeyURLEditor.vue'
 import CyberEvidencePanel from '@/components/admin/CyberEvidencePanel.vue'
 import CyberEvidenceSettings from '@/components/admin/CyberEvidenceSettings.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -1255,6 +1279,9 @@ const riskThresholdDefaults: Record<string, number> = {
 const riskThresholdCategories = Object.keys(riskThresholdDefaults)
 
 const { t } = useI18n()
+// Mount on first use, then keep the list and any unsubmitted drafts alive.
+const moderationUsersMounted = ref(false)
+const moderationUsersExpanded = ref(false)
 const appStore = useAppStore()
 const defaultBlockMessage = () => t('admin.riskControl.defaultBlockMessage')
 
@@ -1910,6 +1937,22 @@ function applyConfig(config: ContentModerationConfig) {
   const { pendingDeletes, ...fields } = structuredClone(toRaw(engineDrafts.value[configForm.engine]!))
   Object.assign(configForm, fields)
   pendingDeleteApiKeyHashes.value = [...pendingDeletes]
+}
+
+async function saveKeyURL(hash: string, baseURL: string, expected: string) {
+  const updated = await adminAPI.riskControl.updateConfig({ engine_configs: { typesafe: {
+    key_url_updates: [{ key_hash: hash, base_url: baseURL, expected_base_url: expected }],
+  } } })
+  const persisted = await adminAPI.riskControl.getConfig()
+  const profile = persisted.engine_configs?.typesafe ?? (persisted.engine === 'typesafe' ? persisted : undefined)
+  const saved = profile?.api_key_statuses.find(row => row.key_hash === hash)
+  const writtenProfile = updated.engine_configs?.typesafe ?? (updated.engine === 'typesafe' ? updated : undefined)
+  const written = writtenProfile?.api_key_statuses.find(row => row.key_hash === hash)
+  if (!saved?.base_url || saved.base_url !== written?.base_url) throw new Error(t('admin.riskControl.keyUrlReadbackFailed'))
+  const merge = (rows: ContentModerationAPIKeyStatus[]) => rows.map(row => row.key_hash === hash ? { ...row, base_url: saved.base_url } : row)
+  if (configForm.engine === 'typesafe') configForm.api_key_statuses = merge(configForm.api_key_statuses)
+  if (engineDrafts.value.typesafe) engineDrafts.value.typesafe.api_key_statuses = merge(engineDrafts.value.typesafe.api_key_statuses)
+  if (status.value?.engine === 'typesafe') status.value.api_key_statuses = merge(status.value.api_key_statuses)
 }
 
 async function loadAll() {

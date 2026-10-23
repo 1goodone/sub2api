@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
+import SecurityAuditNav from '@/components/admin/security/SecurityAuditNav.vue'
 import type { DOMWrapper, VueWrapper } from '@vue/test-utils'
 
 import RiskControlView from '../RiskControlView.vue'
@@ -16,6 +17,7 @@ const {
   testAPIKeys,
   showError,
   showSuccess,
+  listModerationUsers,
 } = vi.hoisted(() => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn(),
@@ -26,6 +28,7 @@ const {
   testAPIKeys: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  listModerationUsers: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -48,6 +51,14 @@ vi.mock('@/api/admin', () => ({
     },
   },
 }))
+
+// Exercise the real summary while keeping its API calls offline.
+vi.mock('@/api/admin/riskControl', () => ({
+  listModerationUsers,
+  getModerationUser: vi.fn(),
+  manageModerationUser: vi.fn(),
+}))
+config.global.stubs.RouterLink = RouterLinkStub
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -194,6 +205,8 @@ function findButtonByText(wrapper: VueWrapper, text: string): DOMWrapper<HTMLBut
 
 describe('admin RiskControlView', () => {
   beforeEach(() => {
+    listModerationUsers.mockReset()
+    listModerationUsers.mockResolvedValue({ items: [], total: 0 })
     getConfig.mockReset()
     updateConfig.mockReset()
     getStatus.mockReset()
@@ -218,6 +231,106 @@ describe('admin RiskControlView', () => {
       api_key_masks: [],
       api_key_statuses: [],
     }))
+  })
+
+  it('delegates content moderation navigation with the current route highlighted', async () => {
+    const wrapper = mount(RiskControlView, { attachTo: document.body, global: { stubs: { AppLayout: AppLayoutStub, Icon: true } } })
+    await flushPromises()
+    expect(wrapper.getComponent(SecurityAuditNav).props('active')).toBe('/admin/risk-control')
+    wrapper.unmount()
+  })
+
+  it('mounts and queries the user list only on first expansion and retains drafts across repeated collapse', async () => {
+    const wrapper = mount(RiskControlView, { attachTo: document.body, global: { stubs: { AppLayout: AppLayoutStub, Icon: true } } })
+    await flushPromises()
+    const toggle = wrapper.get<HTMLButtonElement>('[data-test="moderation-users-toggle"]')
+    expect(toggle.element.tagName).toBe('BUTTON') // Native Enter/Space activation.
+    expect(toggle.attributes('type')).toBe('button')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-test="moderation-user-summary"]').exists()).toBe(false)
+    expect(listModerationUsers).not.toHaveBeenCalled()
+    await toggle.trigger('click'); await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const region = wrapper.get(`#${toggle.attributes('aria-controls')}`)
+    expect(region.attributes('aria-labelledby')).toBe(toggle.attributes('id'))
+    const summary = wrapper.get('[data-test="moderation-user-summary"]')
+    const originalNode = summary.element
+    await summary.get('input').setValue('306') // Unsubmitted search draft.
+    for (let i = 0; i < 3; i++) {
+      await toggle.trigger('click')
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(summary.isVisible()).toBe(false)
+      await toggle.trigger('click'); await flushPromises()
+      expect(summary.isVisible()).toBe(true)
+      expect(summary.element).toBe(originalNode)
+      expect(summary.get('input').element).toHaveProperty('value', '306')
+    }
+    expect(listModerationUsers).toHaveBeenCalledTimes(1)
+    expect(updateConfig).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('saves each key URL inline with readback, cancellation, validation and errors', async () => {
+    const rows = ['row-a', 'row-b'].map((key_hash, i) => ({
+      index: i + 1, key_hash, masked: '********fixture', status: 'frozen' as const,
+      failure_count: 1, success_count: 0, last_error: 'typesafe API status 401',
+      last_latency_ms: 10, last_http_status: 401, last_tested: false, configured: true,
+      base_url: `https://relay-${i}.example/v1`,
+    }))
+    let persisted = { ...baseConfig(), engine: 'typesafe' as const, api_key_statuses: rows }
+    getConfig.mockImplementation(async () => structuredClone(persisted))
+    getStatus.mockResolvedValue({ ...runtimeStatus(), engine: 'typesafe', api_key_statuses: rows })
+    updateConfig.mockImplementation(async (payload) => {
+      const change = payload.engine_configs.typesafe.key_url_updates[0]
+      persisted = { ...persisted, api_key_statuses: persisted.api_key_statuses.map(row => row.key_hash === change.key_hash ? { ...row, base_url: change.base_url.replace(/\/$/, '') } : row) }
+      return structuredClone(persisted)
+    })
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    const row = (id: string) => wrapper.get(`[data-key-url="${id}"]`)
+    expect(row('row-a').text()).toContain(rows[0].base_url)
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('https://cancelled.example')
+    await row('row-a').get('[data-test="key-url-cancel"]').trigger('click')
+    expect(updateConfig).not.toHaveBeenCalled()
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('')
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(updateConfig).not.toHaveBeenCalled()
+    for (const id of ['row-a', 'row-b']) {
+      if (id === 'row-b') await row(id).get('[data-test="key-url-edit"]').trigger('click')
+      await row(id).get('input').setValue(`https://${id}.example/v1/`)
+      await row(id).get('[data-test="key-url-save"]').trigger('click')
+      expect(row(id).get('[data-test="key-url-save"]').attributes('disabled')).toBeDefined()
+      await flushPromises()
+      expect(row(id).text()).toContain(`https://${id}.example/v1`)
+    }
+    expect(updateConfig).toHaveBeenNthCalledWith(1, { engine_configs: { typesafe: { key_url_updates: [{ key_hash: 'row-a', base_url: 'https://row-a.example/v1/', expected_base_url: rows[0].base_url }] } } })
+    expect(row('row-a').text()).toContain('https://row-a.example/v1')
+    expect(getConfig.mock.calls.length).toBeGreaterThanOrEqual(3)
+    updateConfig.mockRejectedValueOnce({ response: { data: { message: 'fixture save failure' } } })
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('https://failed.example')
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').text()).toContain('admin.riskControl.keyUrlSaveFailed')
+    expect(row('row-b').text()).toContain('https://row-b.example/v1')
+    // A write without successful readback must not show a success confirmation.
+    getConfig.mockRejectedValueOnce(new Error('fixture readback failure'))
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(row('row-a').find('[role="status"]').exists()).toBe(false)
+    expect(row('row-a').find('input').exists()).toBe(true)
+    getConfig.mockResolvedValueOnce({ ...persisted, api_key_statuses: rows })
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(row('row-a').find('[role="status"]').exists()).toBe(false)
+    await row('row-a').get('[data-test="key-url-cancel"]').trigger('click')
+    wrapper.unmount()
   })
 
   it.each(['openai', 'typesafe'] as const)('shows the selected draft engine keys while %s remains active', async (activeEngine) => {

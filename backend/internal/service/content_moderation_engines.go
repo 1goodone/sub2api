@@ -20,25 +20,33 @@ type ContentModerationEngineConfig struct {
 	Model           string             `json:"model"`
 	ProxyID         *int64             `json:"proxy_id,omitempty"`
 	APIKeys         []string           `json:"api_keys,omitempty"`
+	APIKeyBaseURLs  map[string]string  `json:"api_key_base_urls,omitempty"`
 	PausedKeyHashes []string           `json:"paused_key_hashes,omitempty"`
 	TimeoutMS       int                `json:"timeout_ms"`
 	RetryCount      int                `json:"retry_count"`
 	Thresholds      map[string]float64 `json:"thresholds"`
 }
 
+type ContentModerationKeyURLUpdate struct {
+	KeyHash         string  `json:"key_hash"`
+	BaseURL         string  `json:"base_url"`
+	ExpectedBaseURL *string `json:"expected_base_url"`
+}
+
 type UpdateContentModerationEngineInput struct {
-	BaseURL            *string                        `json:"base_url"`
-	Model              *string                        `json:"model"`
-	ProxyID            *int64                         `json:"proxy_id"`
-	APIKey             *string                        `json:"api_key"`
-	APIKeys            *[]string                      `json:"api_keys"`
-	APIKeySlots        *[]ContentModerationAPIKeySlot `json:"api_key_slots"`
-	APIKeysMode        string                         `json:"api_keys_mode"`
-	DeleteAPIKeyHashes *[]string                      `json:"delete_api_key_hashes"`
-	ClearAPIKey        bool                           `json:"clear_api_key"`
+	KeyURLUpdates      []ContentModerationKeyURLUpdate `json:"key_url_updates"`
+	BaseURL            *string                         `json:"base_url"`
+	Model              *string                         `json:"model"`
+	ProxyID            *int64                          `json:"proxy_id"`
+	APIKey             *string                         `json:"api_key"`
+	APIKeys            *[]string                       `json:"api_keys"`
+	APIKeySlots        *[]ContentModerationAPIKeySlot  `json:"api_key_slots"`
+	APIKeysMode        string                          `json:"api_keys_mode"`
+	DeleteAPIKeyHashes *[]string                       `json:"delete_api_key_hashes"`
+	ClearAPIKey        bool                            `json:"clear_api_key"`
 	TimeoutMS          *int                           `json:"timeout_ms"`
-	RetryCount         *int                           `json:"retry_count"`
-	Thresholds         *map[string]float64            `json:"thresholds"`
+	RetryCount         *int                            `json:"retry_count"`
+	Thresholds         *map[string]float64             `json:"thresholds"`
 }
 
 type ContentModerationAPIKeySlot struct {
@@ -146,6 +154,7 @@ func (cfg *ContentModerationConfig) engineProfile(engine string) *ContentModerat
 	} else {
 		p = ContentModerationEngineConfig{BaseURL: cfg.BaseURL, BaseURLs: append([]string(nil), cfg.BaseURLs...), Model: cfg.Model, ProxyID: cfg.ProxyID, APIKeys: cfg.apiKeys(), PausedKeyHashes: append([]string(nil), cfg.PausedKeyHashes...), TimeoutMS: cfg.TimeoutMS, RetryCount: cfg.RetryCount, Thresholds: cfg.Thresholds}
 	}
+	p.APIKeyBaseURLs = cloneModerationKeyURLs(p.APIKeyBaseURLs)
 	p.ProxyID = cloneInt64Ptr(p.ProxyID)
 	p.APIKeys = append([]string(nil), p.APIKeys...)
 	p.PausedKeyHashes = append([]string(nil), p.PausedKeyHashes...)
@@ -203,6 +212,7 @@ func (cfg *ContentModerationConfig) applyEngineProfile(p *ContentModerationEngin
 	cfg.BaseURL, cfg.BaseURLs, cfg.Model, cfg.ProxyID = p.BaseURL, append([]string(nil), p.BaseURLs...), p.Model, cloneInt64Ptr(p.ProxyID)
 	cfg.APIKey, cfg.APIKeys = "", append([]string(nil), p.APIKeys...)
 	cfg.PausedKeyHashes = append([]string(nil), p.PausedKeyHashes...)
+	cfg.APIKeyBaseURLs = cloneModerationKeyURLs(p.APIKeyBaseURLs)
 	cfg.TimeoutMS, cfg.RetryCount = p.TimeoutMS, p.RetryCount
 	cfg.Thresholds = cloneFloatMap(p.Thresholds)
 }
@@ -275,6 +285,51 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 			p.APIKeys = normalizeModerationAPIKeys(append(p.APIKeys, *input.APIKey))
 		}
 	}
+	if len(input.KeyURLUpdates) > 0 {
+		if engine != ContentModerationEngineTypeSafe {
+			return infraerrors.BadRequest("INVALID_KEY_URL_ENGINE", "仅 TypeSafe 支持逐 Key URL")
+		}
+		known := map[string]bool{}
+		for _, key := range p.APIKeys {
+			known[scopedModerationKeyHash(key, engine)] = true
+		}
+		if p.APIKeyBaseURLs == nil {
+			p.APIKeyBaseURLs = map[string]string{}
+		}
+		for _, change := range input.KeyURLUpdates {
+			if !known[change.KeyHash] {
+				return infraerrors.New(409, "MODERATION_KEY_CHANGED", "Key 已变更，请刷新后重试")
+			}
+			old := p.BaseURL
+			if base := p.APIKeyBaseURLs[change.KeyHash]; base != "" {
+				old = base
+			}
+			if change.ExpectedBaseURL == nil || strings.TrimRight(strings.TrimSpace(*change.ExpectedBaseURL), "/") != strings.TrimRight(strings.TrimSpace(old), "/") {
+				return infraerrors.New(409, "MODERATION_KEY_URL_CHANGED", "该 Key URL 已变更，请刷新后重试")
+			}
+			base := strings.TrimRight(strings.TrimSpace(change.BaseURL), "/")
+			if base == "" {
+				return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "Key URL 不能为空")
+			}
+			if _, err := typesafe.SystemOneURL(base); err != nil {
+				return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BASE_URL", "Key URL 无效")
+			}
+			p.APIKeyBaseURLs[change.KeyHash] = base
+		}
+	}
+	// Remove orphan overrides when credentials are explicitly removed/replaced.
+	for hash := range p.APIKeyBaseURLs {
+		found := false
+		for _, key := range p.APIKeys {
+			if scopedModerationKeyHash(key, engine) == hash {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(p.APIKeyBaseURLs, hash)
+		}
+	}
 	if engine == ContentModerationEngineTypeSafe {
 		urls := p.BaseURLs
 		if len(urls) == 0 {
@@ -292,7 +347,7 @@ func (s *ContentModerationService) updateEngineProfile(ctx context.Context, cfg 
 	if err := s.validateConfig(ctx, check); err != nil {
 		return err
 	}
-	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, BaseURLs: append([]string(nil), check.BaseURLs...), Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, PausedKeyHashes: append([]string(nil), p.PausedKeyHashes...), TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
+	p = &ContentModerationEngineConfig{BaseURL: check.BaseURL, BaseURLs: append([]string(nil), check.BaseURLs...), Model: check.Model, ProxyID: check.ProxyID, APIKeys: check.APIKeys, APIKeyBaseURLs: check.APIKeyBaseURLs, PausedKeyHashes: append([]string(nil), p.PausedKeyHashes...), TimeoutMS: check.TimeoutMS, RetryCount: check.RetryCount, Thresholds: check.Thresholds}
 	if engine == ContentModerationEngineTypeSafe {
 		cfg.TypeSafe = p
 	} else {
@@ -315,4 +370,37 @@ func scopedModerationKeyHash(key string, engine ...string) string {
 		return moderationAPIKeyHash("typesafe\x00" + key)
 	}
 	return moderationAPIKeyHash(key)
+}
+
+func (cfg *ContentModerationConfig) keyBaseURL(key string) string {
+	if cfg.Engine == ContentModerationEngineTypeSafe {
+		if base := cfg.APIKeyBaseURLs[scopedModerationKeyHash(key, cfg.Engine)]; base != "" {
+			return base
+		}
+	}
+	return cfg.BaseURL
+}
+
+func (s *ContentModerationService) configAPIKeyStatuses(cfg *ContentModerationConfig) []ContentModerationAPIKeyStatus {
+	keys := cfg.apiKeys()
+	rows := s.apiKeyStatuses(keys, cfg.Engine)
+	if cfg.Engine == ContentModerationEngineTypeSafe {
+		for i, key := range keys {
+			rows[i].BaseURL = cfg.keyBaseURL(key)
+		}
+	}
+	return rows
+}
+
+var ErrContentModerationConfigConflict = infraerrors.New(409, "MODERATION_CONFIG_CHANGED", "配置已被其他操作修改，请刷新后重试")
+
+func cloneModerationKeyURLs(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }
