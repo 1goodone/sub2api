@@ -266,8 +266,6 @@ export default {
       },
       security: {
         loginRateLimit: '登录限流',
-        registrationIPLimit: '同 IP 注册数量限制',
-        registrationIPLimitHint: '默认开启，同一 IP 最多注册 2 个账号（含邮箱和第三方登录注册）。共享网络可能导致正常用户受限。关闭仅取消此数量限制，不影响验证码、邮箱验证、请求限流和登录防护；保存后立即生效。已有计数不会清空，关闭期间不累计，重新开启后继续使用保留的计数。',
         loginRateLimitHint: '默认开启。限制登录请求频率，15 分钟内验证失败 10 次后封禁 IP 1 小时。关闭后，密码、二次验证、Passkey 及第三方绑定登录将跳过频率限制和 IP 封禁；保存后立即生效，对管理员和普通用户均有效。已有封禁在重新开启后仍按原有效期生效。',
         registrationIPLimit: '注册 IP 限额',
         registrationIPLimitHint: '默认开启。同一 IP 公开注册终身最多 2 个账号，IPv6 按 /64 计算。关闭后不再按 IP 计数；已记下的名额保留，重新开启后继续生效。管理端创建的账号不计入，删除账号不退还名额。保存后立即生效。',

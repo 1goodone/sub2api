@@ -1845,23 +1845,6 @@
                 />
               </div>
 
-              <div
-                class="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700"
-              >
-                <div>
-                  <label class="font-medium text-gray-900 dark:text-white">
-                    {{ t("admin.settings.security.registrationIPLimit") }}
-                  </label>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.security.registrationIPLimitHint") }}
-                  </p>
-                </div>
-                <Toggle
-                  v-model="form.registration_ip_limit_enabled"
-                  data-testid="registration-ip-limit-toggle"
-                />
-              </div>
-
               <!-- TOTP 2FA -->
               <div
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
