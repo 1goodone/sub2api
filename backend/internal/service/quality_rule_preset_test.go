@@ -18,7 +18,7 @@ func TestQualityPresetSavesOnlyReusableConfiguration(t *testing.T) {
 	plans := newTemplatePlanRepo()
 	repo := newFakeTemplateRepo(plans, QualityTemplateAccount{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth})
 	// No plan/result/account service: any accidental dispatch must fail this test.
-	svc := ProvideScheduledTestService(nil, nil, repo, nil)
+	svc := ProvideScheduledTestService(nil, nil, repo, nil, nil)
 	input := presetInput()
 	input.Name = "  Saved template  "
 	input.ID = 99
@@ -59,7 +59,7 @@ func TestQualityPresetValidatesNameAndPlanConfiguration(t *testing.T) {
 		func(p *QualityRulePreset) { p.PelicanConfig.Quality.Action = QualityActionOpenAITwoFAAdmission },
 	} {
 		repo := newFakeTemplateRepo(newTemplatePlanRepo())
-		svc := ProvideScheduledTestService(nil, nil, repo, nil)
+		svc := ProvideScheduledTestService(nil, nil, repo, nil, nil)
 		input := presetInput()
 		change(input)
 		_, err := svc.CreateQualityPreset(context.Background(), input)
@@ -70,7 +70,7 @@ func TestQualityPresetValidatesNameAndPlanConfiguration(t *testing.T) {
 
 func TestQualityPresetKeepsBPSOptionsAndDropsGeneratedQuestionData(t *testing.T) {
 	repo := newFakeTemplateRepo(newTemplatePlanRepo())
-	svc := ProvideScheduledTestService(nil, nil, repo, nil)
+	svc := ProvideScheduledTestService(nil, nil, repo, nil, nil)
 	input := presetInput()
 	input.Name = strings.Repeat("模", 100)
 	input.PelicanConfig.QuestionKind = OpenAICodexStateProbeQuestionKind

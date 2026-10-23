@@ -1005,7 +1005,7 @@ describe('quality operations', () => {
   it('keeps the single-rule run action unchanged', async () => {
     vi.mocked(listQualityPlans).mockResolvedValue(rules())
     const wrapper = mountView(); await flushPromises()
-    await wrapper.get('[data-plan-id="1"] .rule-actions button:last-child').trigger('click'); await flushPromises()
+    await wrapper.get('[data-plan-id="1"] [data-testid="quality-rule-run"]').trigger('click'); await flushPromises()
     expect(runQualityPlan).toHaveBeenCalledWith(1)
     expect(wrapper.text()).toContain('qualityOps.queued')
     wrapper.unmount()
@@ -1017,7 +1017,7 @@ describe('quality operations', () => {
     const wrapper = mountView(); await flushPromises()
     await wrapper.get('[data-testid="quality-select-rules"]').setValue(true)
     await wrapper.get('[data-testid="quality-bulk-edit"]').trigger('click'); await flushPromises()
-    expect(accountsAPI.list).not.toHaveBeenCalled()
+    expect(accountsAPI.list).toHaveBeenCalled()
     expect(wrapper.get('button[form="quality-rule-form"]').attributes('disabled')).toBeDefined()
     await wrapper.get('[data-testid="quality-bulk-field-model"]').setValue(true)
     await wrapper.get('input[placeholder="gpt-6-astra"]').setValue('new-model')

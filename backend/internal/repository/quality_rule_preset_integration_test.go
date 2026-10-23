@@ -13,7 +13,7 @@ import (
 func TestQualityPresetPersistsWithoutDistributingPlans(t *testing.T) {
 	ctx := context.Background()
 	repo := NewQualityRuleTemplateRepository(integrationEntClient, integrationDB)
-	svc := service.ProvideScheduledTestService(nil, nil, repo, nil)
+	svc := service.ProvideScheduledTestService(nil, nil, repo, nil, nil)
 	var plansBefore, templatesBefore int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_test_plans`).Scan(&plansBefore))
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM quality_rule_templates`).Scan(&templatesBefore))
@@ -23,7 +23,7 @@ func TestQualityPresetPersistsWithoutDistributingPlans(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = integrationDB.ExecContext(ctx, `DELETE FROM quality_rule_presets WHERE id=$1`, saved.ID) })
 	// A separate repository/service instance must read persisted data, not a cache.
-	reloaded := service.ProvideScheduledTestService(nil, nil, NewQualityRuleTemplateRepository(integrationEntClient, integrationDB), nil)
+	reloaded := service.ProvideScheduledTestService(nil, nil, NewQualityRuleTemplateRepository(integrationEntClient, integrationDB), nil, nil)
 	presets, err := reloaded.ListQualityPresets(ctx)
 	require.NoError(t, err)
 	var found *service.QualityRulePreset

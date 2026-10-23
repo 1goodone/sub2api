@@ -30,7 +30,7 @@ func (r *handlerPresetRepo) ListPresets(context.Context) ([]*service.QualityRule
 func TestQualityPresetHTTPCreateAndReloadWithoutPlanWrites(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &handlerPresetRepo{}
-	h := NewScheduledTestHandler(service.ProvideScheduledTestService(nil, nil, repo, nil))
+	h := NewScheduledTestHandler(service.ProvideScheduledTestService(nil, nil, repo, nil, nil))
 	r := gin.New()
 	r.POST("/admin/account-quality-presets", h.CreateQualityPreset)
 	r.GET("/admin/account-quality-presets", h.ListQualityPresets)
