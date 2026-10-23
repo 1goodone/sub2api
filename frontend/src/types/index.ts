@@ -2951,6 +2951,8 @@ export interface CreateScheduledTestPlanRequest {
 }
 
 export interface UpdateScheduledTestPlanRequest {
+  // Configuration reuse must not implicitly restore or discard target ownership.
+  preserve_quality_state?: boolean
   pelican_config?: PelicanTestConfig
   model_id?: string
   cron_expression?: string
