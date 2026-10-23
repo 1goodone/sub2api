@@ -117,16 +117,8 @@
       </div>
     </template>
 
-    <!-- OpenAI Codex accounts: ticket status; usage querying remains OAuth-only. -->
+    <!-- OpenAI Codex accounts: ticket status; usage querying remains OAuth-only. Image quota stays on the account list column. -->
     <template v-else-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'setup-token')">
-      <div
-        v-if="openAIImageGenLabel"
-        class="mb-1 inline-flex items-center gap-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400"
-        :title="openAIImageGenTitle"
-      >
-        <span>{{ t('admin.accounts.openai.imageGenQuota') }}</span>
-        <span class="rounded-full px-1.5 py-0.5 font-medium tabular-nums" :class="openAIImageGenClass">{{ openAIImageGenLabel }}</span>
-      </div>
       <div v-if="codexTurnTickets.length" class="mb-1 space-y-0.5">
         <div
           v-for="ticket in codexTurnTickets"
@@ -872,57 +864,6 @@ const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day ||
     (codexQuotaOverdraftEnabled.value && !!usageInfo.value?.codex_quota_overdraft)
-})
-
-function finiteImageCount(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.floor(value)
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed)
-  }
-  return null
-}
-
-const openAIImageGen = computed(() => {
-  if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return null
-  const usage = usageInfo.value
-  if (usage?.image_gen_remaining != null) {
-    return {
-      remaining: usage.image_gen_remaining,
-      total: usage.image_gen_total == null ? null : finiteImageCount(usage.image_gen_total),
-      resetAfter: usage.image_gen_reset_after || '',
-    }
-  }
-  const extra = props.account.extra
-  const remaining = finiteImageCount(extra?.openai_image_gen_remaining)
-  if (remaining == null) return null
-  return {
-    remaining,
-    total: finiteImageCount(extra?.openai_image_gen_total),
-    resetAfter: typeof extra?.openai_image_gen_reset_after === 'string' ? extra.openai_image_gen_reset_after : '',
-  }
-})
-
-const openAIImageGenLabel = computed(() => {
-  const quota = openAIImageGen.value
-  if (!quota) return ''
-  return String(quota.remaining)
-})
-
-const openAIImageGenClass = computed(() => {
-  const quota = openAIImageGen.value
-  if (!quota) return ''
-  if (quota.remaining <= 0) return 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
-  if (quota.remaining <= 20) return 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
-  return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-})
-
-const openAIImageGenTitle = computed(() => {
-  const quota = openAIImageGen.value
-  if (!quota) return ''
-  const parts = [t('admin.accounts.openai.imageGenQuotaTitle')]
-  if (quota.resetAfter) parts.push(quota.resetAfter)
-  return parts.join(' · ')
 })
 
 const codexTurnTickets = computed(() => props.account.codex_turn_tickets ?? [])
