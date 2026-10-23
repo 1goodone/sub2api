@@ -188,12 +188,15 @@ func TestExcelBPSImagePolicySettings(t *testing.T) {
 func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 	for _, mode := range []string{"native", "relay"} {
 		for _, stream := range []bool{false, true} {
-			for _, failure := range []string{"", "compact_reject", "compact_policy", "compact_failed", "compact_eof", "generation_reject", "invalid_compaction"} {
+			for _, failure := range []string{"", "compact_reject", "compact_policy", "compact_policy_recover", "compact_failed", "compact_eof", "generation_reject", "invalid_compaction"} {
 				t.Run(fmt.Sprintf("%s/stream=%v/%s", mode, stream, failure), func(t *testing.T) {
 					svc := openAIClientToolsTestService(nil)
 					svc.cache = newImagePolicyMemoryCache()
 					repo := &excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageMode: mode, SettingKeyExcelBPSImageBaseURL: "https://images.example", SettingKeyExcelBPSImageLimitPolicy: "auto_compact"}}
 					svc.settingService = NewSettingService(repo, svc.cfg)
+					if failure == "compact_policy_recover" {
+						repo.values[SettingKeyExcelBPSRecoveryEnabled] = "true"
+					}
 					_, pixels := nativeGatewayBody(t)
 					raw := bytes.ReplaceAll(imagePolicyRequest(t, 19, 2), []byte("data:image/png;base64,synthetic"), []byte("data:image/png;base64,"+base64.StdEncoding.EncodeToString(pixels)))
 					raw, e := sjson.SetBytes(raw, "stream", stream)
@@ -227,7 +230,7 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 							if failure == "compact_reject" {
 								return &http.Response{StatusCode: 429, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 							}
-							if failure == "compact_policy" {
+							if failure == "compact_policy" || failure == "compact_policy_recover" {
 								return &http.Response{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"403: This request was blocked by our usage policy."}}`))}, nil
 							}
 							response["output"] = []any{map[string]any{"type": "compaction", "id": "cmp-policy", "encrypted_content": "opaque-policy-state"}}
@@ -277,6 +280,14 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 					if failure != "" {
 						require.Error(t, err)
 						require.NotContains(t, rec.Body.String(), "continued")
+						if failure == "compact_policy_recover" {
+							var failover *UpstreamFailoverError
+							require.ErrorAs(t, err, &failover)
+							require.Equal(t, 403, failover.StatusCode)
+							require.False(t, failover.RetryableOnSameAccount)
+							require.Empty(t, rec.Body.String())
+							require.Equal(t, 1, phase, "generation must wait for another account")
+						}
 						if failure == "compact_policy" {
 							require.ErrorIs(t, err, errExcelBPSUsagePolicyBlocked)
 							require.Equal(t, http.StatusForbidden, rec.Code)
