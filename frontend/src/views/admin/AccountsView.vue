@@ -1850,10 +1850,6 @@ const openBPSLogin = () => {
   bpsFocusIds.value = null
   showBPSLogin.value = true
 }
-const openBPSLoginFor = (row: AccountListItem) => {
-  bpsFocusIds.value = [row.id]
-  showBPSLogin.value = true
-}
 const loadLoginGuards = async () => {
   try {
     const status = await listTokenGuardV2Accounts()
