@@ -47,7 +47,7 @@ export function copyQualityRuleConfig(source: PelicanTestConfig): PelicanTestCon
       bps: bps ? {
         failure_threshold: bps.failure_threshold, usage_percent: bps.usage_percent, require_all: bps.require_all,
         all_models: bps.all_models, models: [...(bps.models || [])], omit_unsupported_tools: bps.omit_unsupported_tools,
-        ignore_encrypted_content: bps.ignore_encrypted_content, auto_disable_on_403: bps.auto_disable_on_403,
+        ignore_images: bps.ignore_images, ignore_encrypted_content: bps.ignore_encrypted_content, auto_disable_on_403: bps.auto_disable_on_403,
         auto_recover_on_403: bps.auto_recover_on_403, recovery_interval_minutes: bps.recovery_interval_minutes,
         auto_move_on_403: bps.auto_move_on_403, target_group_id: bps.target_group_id,
         session_proxy: bps.session_proxy, proxy_source: bps.proxy_source, cache_creation_as_input: bps.cache_creation_as_input,

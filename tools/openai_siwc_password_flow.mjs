@@ -1,7 +1,5 @@
 // SIWC runs the existing password/TOTP helpers against a server-bound OAuth URL.
 // New consent or additional verification is handed back to the administrator.
-import {warmChatGPTProtocol} from './openai_protocol_warmup.mjs';
-
 export async function loginSIWCPassword(client, options, helpers) {
   const {authBase, email, password, totpSecret, rl} = options;
   const auth = new URL(process.env.OPENAI_SIWC_AUTH_URL || 'about:blank');
@@ -22,7 +20,7 @@ export async function loginSIWCPassword(client, options, helpers) {
     client.siwcOAuth = {callbackUrl: callback.toString(), state, codeVerifier: 'server-owned'};
     return true;
   }
-  const deviceId = await warmChatGPTProtocol(client);
+  const deviceId = client.jar?.value?.('oai-did', authBase) || '';
   let page = await client.follow(auth.toString());
   if (completed(page.finalUrl)) return {emailVerified: true, deviceId};
   if (!helpers.isPasswordLoginPage(page.finalUrl)) {

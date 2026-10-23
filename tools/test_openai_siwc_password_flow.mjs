@@ -24,7 +24,7 @@ function fixture(continued = 'success') {
 
 test('saved password and TOTP produce only a server-bound callback',async()=>{
   const f=fixture();const result=await loginSIWCPassword(f.client,f.options,f.helpers);
-  assert.equal(result.mfaVerified,true);assert.equal(f.calls[0],'https://chatgpt.com/api/auth/csrf');assert.deepEqual(f.calls.slice(-2),['password','totp']);
+  assert.equal(result.mfaVerified,true);assert.match(f.calls[0],/\/api\/accounts\/authorize\?/);assert.equal(f.calls.includes('https://chatgpt.com/api/auth/csrf'),false);assert.deepEqual(f.calls.slice(-2),['password','totp']);
   assert.equal(new URL(f.client.siwcOAuth.callbackUrl).searchParams.get('client_id'),'issued');
   assert.equal(f.client.siwcOAuth.codeVerifier,'server-owned');
   assert.equal(f.client.siwcOAuth.access_token,undefined);

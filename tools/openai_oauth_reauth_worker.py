@@ -1472,6 +1472,12 @@ def terminate_worker(_signum: int, _frame: Any) -> None:
 
 
 def _worker_loop(config: WorkerConfig, stop: Any = None) -> None:
+    if hasattr(os, "setpgid"):
+        os.setpgid(0, 0)
+    _run_worker_loop(config, stop)
+
+
+def _run_worker_loop(config: WorkerConfig, stop: Any = None) -> None:
     signal.signal(signal.SIGTERM, terminate_worker)
     protocol = load_protocol(config.protocol_root) if config.protocol_root is not None else None
     api = WorkerAPI(config)
@@ -1510,6 +1516,13 @@ def reconcile_worker_pool(context: Any, children: dict, config: WorkerConfig, ta
             children[slot] = (child, stop)
 
 
+def signal_worker_group(child: Any, sig: int) -> None:
+    try:
+        os.killpg(child.pid, sig)
+    except ProcessLookupError:
+        child.terminate()
+
+
 def run_worker_pool(config: WorkerConfig) -> None:
     context = multiprocessing.get_context("fork" if sys.platform.startswith("linux") else "spawn")
     children = {}
@@ -1532,7 +1545,7 @@ def run_worker_pool(config: WorkerConfig) -> None:
     finally:
         for child, _stop in children.values():
             if child.is_alive():
-                child.terminate()
+                signal_worker_group(child, signal.SIGTERM)
         for child, _stop in children.values():
             child.join(timeout=5)
             if child.is_alive():

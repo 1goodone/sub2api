@@ -289,7 +289,6 @@ const accounts = ref<AccountListItem[]>([]), accountsLoading = ref(false), accou
 const search = ref(''), accountPage = ref(1), accountPages = ref(1)
 const accountGroup = ref(''), accountType = ref(''), accountsError = ref(''), selectingAccounts = ref(false)
 const accountStatuses = ref<string[]>(['active']), accountScope = ref<'all' | 'manual'>('all')
-const accountStatusOptions = qualityAccountStatusOptions
 function ruleScope(action?: QualityPolicy['action']) { return action === 'enable_bps' ? 'bps' : action === 'observe_only' ? 'observation' : 'quarantine' }
 const bulkSourceScope = ref('quarantine')
 const existingAccountIds = computed(() => new Set(plans.value.filter(plan =>

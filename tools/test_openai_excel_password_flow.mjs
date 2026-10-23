@@ -31,10 +31,9 @@ function fixture(override={}) {
 test('password and TOTP stay within the Excel PKCE authorization',async()=>{
   const f=fixture();const result=await loginExcelPassword(f.client,f.options,f.helpers);
   assert.equal(result.mfaVerified,true);
-  assert.equal(f.calls[0],'https://chatgpt.com/api/auth/csrf');
-  assert.match(f.calls[1],/\/api\/accounts\/authorize\?/);
-  assert.equal(f.calls[2],'https://auth.openai.com/log-in/password');
-  assert.deepEqual(f.calls.slice(3),['password','totp','workspace']);
+  assert.match(f.calls[0],/\/api\/accounts\/authorize\?/);
+  assert.equal(f.calls[1],'https://auth.openai.com/log-in/password');
+  assert.deepEqual(f.calls.slice(2),['password','totp','workspace']);
   const q=f.getAuth().searchParams;
   assert.equal(q.get('client_id'),'excel-client');assert.match(q.get('state'),/^bps\..+\.PC$/);
   assert.equal(q.get('scope'),'openid offline_access email profile organization.read');
