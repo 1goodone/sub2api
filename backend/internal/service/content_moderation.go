@@ -895,7 +895,10 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			"protocol", input.Protocol)
 		return allow, nil
 	}
-	input.moderationVersion = s.CaptureModerationUserVersion(ctx, input.UserID)
+	moderationState := s.captureModerationUserState(ctx, input.UserID)
+	if moderationState != nil {
+		input.moderationVersion = &moderationState.Version
+	}
 	cfg := runtimeSnapshot.config
 	if securityPenaltyOwnsEnforcement(ctx) {
 		cfg = cloneContentModerationConfig(cfg)
