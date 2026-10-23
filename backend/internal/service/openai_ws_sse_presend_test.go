@@ -452,7 +452,9 @@ func TestOpenAIWSSSEFallbackKeepsHTTPNamespaceContract(t *testing.T) {
 					if flatten {
 						item = `{"type":"function_call","name":"mcp__lookup","call_id":"fc_1","arguments":"{}"}`
 					}
-					h.resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_item.added","item":` + item + "}\n\n" + `data: {"type":"response.completed","response":{"id":"resp_namespace","output":[` + item + `],"usage":{"input_tokens":7,"output_tokens":2}}}` + "\n\n"))
+					// Compare protocol behavior independently of the wall clock: without
+					// created_at, each forward supplies its own current Unix second.
+					h.resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_item.added","item":` + item + "}\n\n" + `data: {"type":"response.completed","response":{"id":"resp_namespace","created_at":1700000000,"output":[` + item + `],"usage":{"input_tokens":7,"output_tokens":2}}}` + "\n\n"))
 					s := wsSSETestService(t, d, h)
 					if bypass != "handshake" {
 						s.cfg.Gateway.OpenAIWS.SSEAccelerationMaxPayloadBytes = 64
