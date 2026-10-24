@@ -1,4 +1,5 @@
 
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }))
 vi.mock('@/api/admin/credentialEncryption', () => ({
   getCredentialEncryption: vi.fn().mockResolvedValue({ configured: true, source: 'server_config' }),
   initializeCredentialEncryption: vi.fn(),

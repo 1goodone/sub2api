@@ -842,7 +842,7 @@ describe('TypeSafe optional category contract', () => {
     const wrapper = mountView()
     await flushPromises()
     await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
-    await wrapper.get('textarea[autocomplete="new-password"]').setValue('offline-fixture')
+    await wrapper.get('[data-test="audit-endpoint-key"]').setValue('offline-fixture')
     await findButtonByText(wrapper, 'admin.riskControl.testInputApiKeys').trigger('click')
     await flushPromises()
     expect(testAPIKeys).toHaveBeenCalledWith(expect.objectContaining({ category_settings: { jailbreak: { enabled: true }, control_bypass: { enabled: false } }, thresholds: expect.objectContaining({ jailbreak: 0.80 }) }))
