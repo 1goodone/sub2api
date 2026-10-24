@@ -59,6 +59,114 @@ class ReauthEngineTests(unittest.TestCase):
         raw=json.dumps({'credential':self.credentials(),'label':'中文'},ensure_ascii=False).encode()
         response=ChunkResponse([bytes([c]) for c in raw])
         self.assertEqual(worker._session_studio_result(response)['label'],'中文')
+    def test_progress_and_null_errors_do_not_complete_login(self):
+        notifications = (
+            {'type': 'progress', 'status': 'active'},
+            {'type': 'progress', 'error': None},
+            {'type': 'progress', 'error': {'message': 'synthetic-diagnostic'}},
+            {'type': 'progress', 'status': 'failed', 'error': 'synthetic-diagnostic'},
+            {'type': 'heartbeat', 'status': 'active'},
+            {'type': 'log', 'message': 'synthetic-notification'},
+            {'status': 'active'},
+            {'error': None},
+            {'status': 'active', 'error': None},
+        )
+        terminal = {'type': 'result', 'payload': {'credential': self.credentials()}}
+        for notification in notifications:
+            with self.subTest(notification=notification):
+                api = self.api()
+                response = ChunkResponse([json.dumps(notification).encode() + b'\n',
+                                          json.dumps(terminal).encode()])
+                with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=response), patch.object(
+                    worker.subprocess, 'run'
+                ) as local:
+                    worker.process_password_claim(api, self.claim())
+                api.credentials.assert_called_once_with(7, self.credentials(), {})
+                local.assert_not_called()
+                self.assertTrue(response.closed)
+    def test_terminal_failure_cannot_be_replaced_by_later_success(self):
+        failures = (
+            {'type': 'result', 'payload': {'status': 'failed', 'error': 'synthetic-private'}},
+            {'type': 'result', 'payload': {'error': {'message': 'synthetic-private'}}},
+            {'type': 'result', 'payload': {'status': 'failed', 'credential': self.credentials()}},
+            {'type': 'result', 'payload': {'credential': self.credentials(), 'error': 'synthetic-private'}},
+            {'status': 'failed'},
+            {'status': 'auth_failed', 'error': None},
+            {'status': 'error'},
+            {'error': {'message': 'synthetic-private'}},
+        )
+        success = {'type': 'result', 'payload': {'credential': self.credentials()}}
+        for terminal in failures:
+            for buffered in (False, True):
+                with self.subTest(terminal=terminal, buffered=buffered):
+                    api = self.api()
+                    response = Mock()
+                    response.__enter__ = Mock(return_value=response)
+                    response.__exit__ = Mock(return_value=False)
+                    raw = json.dumps(terminal).encode() + b'\n'
+                    if buffered:
+                        raw += json.dumps(success).encode()
+                    response.read1.side_effect = [raw, AssertionError('read past terminal failure')]
+                    with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=response), patch.object(
+                        worker.subprocess, 'run'
+                    ) as local, self.assertRaisesRegex(
+                        worker.WorkerError, '^Session Studio login failed$'
+                    ):
+                        worker.process_password_claim(api, self.claim())
+                    api.credentials.assert_not_called()
+                    local.assert_not_called()
+                    self.assertEqual(response.read1.call_count, 1)
+    def test_terminal_success_requires_complete_oauth_credentials(self):
+        for missing in self.credentials():
+            for value in (None, '', ' ', 123):
+                with self.subTest(missing=missing, value=value):
+                    credentials = dict(self.credentials(), **{missing: value})
+                    terminal = {'type': 'result', 'payload': {'status': 'success', 'credential': credentials}}
+                    response = ChunkResponse([json.dumps(terminal).encode()])
+                    api = self.api()
+                    with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=response), self.assertRaisesRegex(
+                        worker.WorkerError, '^Session Studio returned incomplete OAuth credentials$'
+                    ):
+                        worker.process_password_claim(api, self.claim())
+                    api.credentials.assert_not_called()
+    def test_legacy_json_results_keep_existing_validation(self):
+        for status in (None, 'active', 'ok', 'success', 'succeeded'):
+            with self.subTest(status=status):
+                result = {'credential': self.credentials(), 'error': None}
+                if status is not None:
+                    result['status'] = status
+                api = self.api()
+                with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=ChunkResponse([json.dumps(result).encode()])):
+                    worker.process_password_claim(api, self.claim())
+                api.credentials.assert_called_once_with(7, self.credentials(), {})
+    def test_malformed_terminal_payload_is_private_and_never_skipped(self):
+        for payload in (None, 'synthetic-private', ['synthetic-private']):
+            with self.subTest(payload=payload):
+                terminal = {'type': 'result', 'payload': payload}
+                success = {'type': 'result', 'payload': {'credential': self.credentials()}}
+                response = ChunkResponse([json.dumps(terminal).encode() + b'\n' + json.dumps(success).encode()])
+                api = self.api()
+                with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=response), self.assertRaisesRegex(
+                    worker.WorkerError, '^Session Studio returned an invalid result$'
+                ):
+                    worker.process_password_claim(api, self.claim())
+                api.credentials.assert_not_called()
+    def test_unknown_typed_event_is_private_and_never_skipped(self):
+        event = {'type': 'synthetic-private', 'error': 'synthetic-private'}
+        success = {'type': 'result', 'payload': {'credential': self.credentials()}}
+        api = self.api()
+        response = ChunkResponse([json.dumps(event).encode() + b'\n' + json.dumps(success).encode()])
+        with patch.object(worker.NO_REDIRECT_OPENER, 'open', return_value=response), self.assertRaisesRegex(
+            worker.WorkerError, '^Session Studio returned an unsupported event$'
+        ):
+            worker.process_password_claim(api, self.claim())
+        api.credentials.assert_not_called()
+    def test_progress_without_terminal_result_fails_closed(self):
+        for event in ({'type': 'progress', 'error': None}, {'status': 'active'}, {'error': None}):
+            with self.subTest(event=event), self.assertRaisesRegex(
+                worker.WorkerError, '^Session Studio response ended without a result$'
+            ):
+                worker._session_studio_result(ChunkResponse([json.dumps(event).encode()]))
     def test_invalid_and_unbounded_results_fail_closed(self):
         for data in (b'[]',b'{bad',b'{"type":"result","payload":null}',b'{"type":"heartbeat"}'):
             with self.subTest(data=data),self.assertRaises(worker.WorkerError):

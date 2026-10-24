@@ -95,6 +95,8 @@ Worker 单元测试使用离线协议替身及本地假邮箱；真实密码/TOT
 
 Session Studio 的 JSON / NDJSON 解析一收到终态即返回，不等连接 EOF；响应设置大小和时间边界，拒绝重定向，第三方原始错误及登录输出不写入日志。本地流程在真实执行完成前不再提前上报 `password_submitted` / `mfa_submitted`，避免将整个登录时间误显示为密码阶段停滞。
 
+Session Studio 事件流使用 `type=result` 与对象类型的 `payload` 表示终态；`type=progress` / `heartbeat` 是通知，其中的 `error` 信息或 `active` 状态不结束登录。其他类型不含结果字段的普通通知继续忽略，带 `payload` / `credential` / `error` / `status` 的未知类型则拒绝，避免跳过含义不明的结果。旧版无事件类型的 JSON 结果继续兼容：`credential`、非空 `error` 或明确成功 / 失败状态可结束解析，单独的 `active` / `error=null` 不表示完成。首个终态失败、无效终态或不完整 OAuth 凭据均会拒绝，不会跳过它们接受后续成功；完整凭据仍须经过后端身份校验与 CAS 写回。
+
 这条临时路径依据仓库现有守护协议实现。离线协议测试不代表外部服务已在线验收，也不保证所有账号都能达到历史守护样本约 10 秒的速度。
 
 统一设置保存于既有 settings 表的 account_token_guard_v2_runtime 项，无新增迁移。历史账号 engine 字段保留用于兼容；回退旧 API 前检查各账号历史 engine 值，因为旧 API 不读取新统一设置。暂停自动巡检不会取消已领取的巡检或已排队的重登。
