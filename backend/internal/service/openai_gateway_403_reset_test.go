@@ -21,7 +21,7 @@ func (s *openAI403CounterResetStub) ResetOpenAI403Count(_ context.Context, accou
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ResetsOpenAI403CounterForZeroUsage(t *testing.T) {
-	counter := &openAI403CounterResetStub{}
+	counter := &excelBPSPolicyCounterStub{counts: map[int64]int64{777: 2}}
 	rateLimitSvc := NewRateLimitService(nil, nil, nil, nil, nil)
 	rateLimitSvc.SetOpenAI403CounterCache(counter)
 
@@ -44,5 +44,7 @@ func TestOpenAIGatewayServiceRecordUsage_ResetsOpenAI403CounterForZeroUsage(t *t
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{777}, counter.resetCalls)
+	require.Equal(t, int64(2), counter.counts[777], "native usage must not clear BPS policy failures")
+	require.Empty(t, counter.resets)
 	require.Equal(t, 1, usageRepo.calls)
 }

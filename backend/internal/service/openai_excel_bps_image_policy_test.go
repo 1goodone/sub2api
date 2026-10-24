@@ -194,8 +194,15 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 					svc.cache = newImagePolicyMemoryCache()
 					repo := &excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageMode: mode, SettingKeyExcelBPSImageBaseURL: "https://images.example", SettingKeyExcelBPSImageLimitPolicy: "auto_compact"}}
 					svc.settingService = NewSettingService(repo, svc.cfg)
+					account := excelAccount()
+					var policyCounter *excelBPSPolicyCounterStub
+					disableCalls := 0
 					if failure == "compact_policy_recover" {
 						repo.values[SettingKeyExcelBPSRecoveryEnabled] = "true"
+						account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+						policyCounter = attachExcelBPSPolicyCounter(svc)
+						policyCounter.counts[account.ID] = 2
+						svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) { disableCalls++; return true, nil }}
 					}
 					_, pixels := nativeGatewayBody(t)
 					raw := bytes.ReplaceAll(imagePolicyRequest(t, 19, 2), []byte("data:image/png;base64,synthetic"), []byte("data:image/png;base64,"+base64.StdEncoding.EncodeToString(pixels)))
@@ -276,7 +283,7 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 					c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(raw))
 					c.Request.Header.Set("User-Agent", "codex_cli_rs/0.116.0")
 					c.Request.Header.Set("session_id", "policy-session")
-					result, err := svc.forwardExcelBPS(context.Background(), c, excelAccount(), raw, time.Now())
+					result, err := svc.forwardExcelBPS(context.Background(), c, account, raw, time.Now())
 					if failure != "" {
 						require.Error(t, err)
 						require.NotContains(t, rec.Body.String(), "continued")
@@ -287,6 +294,10 @@ func TestExcelBPSImagePolicyForwardCompactAndContinue(t *testing.T) {
 							require.False(t, failover.RetryableOnSameAccount)
 							require.Empty(t, rec.Body.String())
 							require.Equal(t, 1, phase, "generation must wait for another account")
+							require.Equal(t, int64(3), policyCounter.counts[account.ID])
+							require.Equal(t, 1, policyCounter.increments)
+							require.Equal(t, 1, disableCalls)
+							require.Empty(t, policyCounter.resets)
 						}
 						if failure == "compact_policy" {
 							require.ErrorIs(t, err, errExcelBPSUsagePolicyBlocked)

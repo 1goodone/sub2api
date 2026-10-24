@@ -257,7 +257,8 @@ func TestExcelBPS429ClassifiesQuotaAndTransientLimits(t *testing.T) {
 				} else {
 					requireNoExcelBPSQuotaWrite(t, repo)
 					require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
-					require.Equal(t, !tc.cancelOnRead, svc.isExcelBPSRateLimited(account, "gpt-6-astra"))
+					require.Equal(t, !tc.cancelOnRead, svc.isExcelBPSCoolingDown(ctx, account, "gpt-6-astra"))
+					require.False(t, svc.isExcelBPSCoolingDown(ctx, account, "gpt-6.1-sol"))
 					retryState, ok := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
 					require.True(t, ok)
 					require.Equal(t, retryStarted, retryState)

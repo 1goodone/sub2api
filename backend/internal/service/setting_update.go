@@ -472,6 +472,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// Channel monitor feature switch
 	updates[SettingKeyExcelBPSEnabled] = strconv.FormatBool(settings.ExcelBPSEnabled)
 	updates[SettingKeyExcelBPSRecoveryEnabled] = strconv.FormatBool(settings.ExcelBPSRecoveryEnabled)
+	minutes := settings.ExcelBPSModelRateLimitCooldownMinutes
+	if minutes < 0 || minutes > MaxExcelBPSModelRateLimitCooldownMinutes {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_MODEL_RATE_LIMIT_COOLDOWN", "BPS model rate-limit cooldown must be between 1 and 43200 minutes")
+	}
+	if minutes == 0 {
+		minutes = DefaultExcelBPSModelRateLimitCooldownMinutes
+	}
+	updates[SettingKeyExcelBPSModelRateLimitCooldownMinutes] = strconv.Itoa(minutes)
 	updates[SettingKeyChannelMonitorEnabled] = strconv.FormatBool(settings.ChannelMonitorEnabled)
 	updates[SettingKeyChannelMonitorMode] = normalizeChannelMonitorMode(settings.ChannelMonitorMode)
 	if v := clampChannelMonitorInterval(settings.ChannelMonitorDefaultIntervalSeconds); v > 0 {

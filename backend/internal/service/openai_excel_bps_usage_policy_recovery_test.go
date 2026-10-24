@@ -20,6 +20,7 @@ func TestExcelBPSUsagePolicyRecoveryDoesNotMutateAccount(t *testing.T) {
 		`{"error":{"code":"content_policy_violation"}}`,
 	} {
 		svc := openAIExcelBPSRecoveryTestService(&httpUpstreamRecorder{resp: bpsCompletionResponse(403, raw)})
+		counter := attachExcelBPSPolicyCounter(svc)
 		disableCalls, moveCalls := 0, 0
 		svc.accountRepo = &excelBPSGroupActionRepo{
 			excelBPSAutoDisableRepo: excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) { disableCalls++; return true, nil }},
@@ -42,6 +43,7 @@ func TestExcelBPSUsagePolicyRecoveryDoesNotMutateAccount(t *testing.T) {
 		require.Empty(t, rec.Body.String())
 		require.False(t, IsResponseCommitted(c))
 		require.Zero(t, disableCalls)
+		require.Equal(t, int64(1), counter.counts[account.ID])
 		require.Zero(t, moveCalls)
 		require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 		require.False(t, svc.isExcelBPSModelCoolingDown(account, "gpt-6-astra"))
@@ -65,11 +67,17 @@ func TestExcelBPSUsagePolicyCorrectionRecovery(t *testing.T) {
 					{StatusCode: 403, Header: http.Header{}, Body: rejected},
 				}}
 				svc := openAIExcelBPSRecoveryTestService(upstream)
+				counter := attachExcelBPSPolicyCounter(svc)
+				account := excelAccount()
+				account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+				counter.counts[account.ID] = 2
+				disableCalls := 0
+				svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) { disableCalls++; return true, nil }}
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
 				c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
 				body := fmt.Sprintf(`{"model":"gpt-6-astra","stream":%t,"input":"hello","tools":%s}`, stream, tools)
-				_, err := svc.Forward(context.Background(), c, excelAccount(), []byte(body))
+				_, err := svc.Forward(context.Background(), c, account, []byte(body))
 				var failover *UpstreamFailoverError
 				require.ErrorAs(t, err, &failover)
 				require.Equal(t, 403, failover.StatusCode)
@@ -77,6 +85,10 @@ func TestExcelBPSUsagePolicyCorrectionRecovery(t *testing.T) {
 				require.Len(t, upstream.requests, 2, "only the original send and its rejected correction")
 				require.True(t, rejected.closed.Load())
 				require.Empty(t, rec.Body.String())
+				require.Equal(t, int64(3), counter.counts[account.ID])
+				require.Equal(t, 1, counter.increments, "one rejection per selected-account attempt")
+				require.Equal(t, 1, disableCalls)
+				require.Empty(t, counter.resets, "HTTP 200 before failed correction is not success")
 			})
 		}
 	}
@@ -89,14 +101,23 @@ func TestExcelBPSUsagePolicyCorrectionDoesNotReplayVisibleOutput(t *testing.T) {
 		{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("403: This request was blocked by our usage policy."))},
 	}}
 	svc := openAIExcelBPSRecoveryTestService(upstream)
+	counter := attachExcelBPSPolicyCounter(svc)
+	account := excelAccount()
+	account.Extra["openai_excel_bps_auto_disable_on_403"] = true
+	counter.counts[account.ID] = 2
+	disableCalls := 0
+	svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) { disableCalls++; return true, nil }}
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
 	body := []byte(`{"model":"gpt-6-astra","stream":true,"input":"hello","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec"}]}]}`)
-	_, err := svc.Forward(context.Background(), c, excelAccount(), body)
+	_, err := svc.Forward(context.Background(), c, account, body)
 	require.Error(t, err)
 	var failover *UpstreamFailoverError
 	require.NotErrorAs(t, err, &failover)
 	require.Contains(t, rec.Body.String(), "DELIVERED")
 	require.LessOrEqual(t, len(upstream.requests), 2)
+	require.Equal(t, int64(3), counter.counts[account.ID])
+	require.Equal(t, 1, disableCalls)
+	require.Empty(t, counter.resets)
 }

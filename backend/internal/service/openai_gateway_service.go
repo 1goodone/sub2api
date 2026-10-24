@@ -538,7 +538,9 @@ type OpenAIGatewayService struct {
 	openaiAccountRuntimeBlockGeneration sync.Map // key: int64(accountID), value: uint64
 	openaiAccountRuntimeBlockSequence   atomic.Uint64
 	openaiOAuth429RetryStartedAt        sync.Map // key: int64(accountID), value: time.Time
-	excelBPSRateLimitedUntil            sync.Map // account ID -> time.Time; BPS only, never Codex quota
+	excelBPSRateLimitedUntil            sync.Map // account ID -> time.Time; legacy BPS cooldown
+	excelBPSModelRateLimits             sync.Map // excelBPSRateLimitKey -> immutable excelBPSRateLimitState
+	excelBPSRateLimitSweepAt            atomic.Int64
 	grokCredentialMutationLocks         sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
