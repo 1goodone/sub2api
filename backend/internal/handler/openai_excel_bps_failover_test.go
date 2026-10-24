@@ -21,6 +21,7 @@ type excelBPSFailoverUpstream struct {
 	ids        []int64
 	bodies     [][]byte
 	allLimited bool
+	inBand     bool
 	cancel     context.CancelFunc
 }
 
@@ -35,6 +36,9 @@ func (u *excelBPSFailoverUpstream) Do(req *http.Request, _ string, id int64, _ i
 		u.cancel()
 	}
 	if id == 1 || u.allLimited {
+		if u.inBand {
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"rate_limit_exceeded\",\"resets_in_seconds\":60}}}\n\n"))}, nil
+		}
 		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": {"60"}}, Body: io.NopCloser(strings.NewReader("PRIVATE_UPSTREAM"))}, nil
 	}
 	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bps_failover\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"success\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n"))}, nil
@@ -95,5 +99,25 @@ func TestExcelBPS429HandlerStopsWhenExhaustedOrCanceled(t *testing.T) {
 				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
 			}
 		})
+	}
+}
+
+func TestExcelBPS429RecoveryBoundsHandlerAccountSwitches(t *testing.T) {
+	for _, inBand := range []bool{false, true} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("inBand=%t/stream=%t", inBand, stream), func(t *testing.T) {
+				upstream := &excelBPSFailoverUpstream{allLimited: true, inBand: inBand}
+				h := newOpenAIResponsesFailoverTestHandlerWithSettings(t, upstream, 8, newExcelBPSRecoverySettings(true), enableExcelBPSFailoverAccounts)
+				c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
+				c.Request = httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(fmt.Sprintf("{\"model\":\"gpt-6-astra\",\"input\":\"hello\",\"stream\":%t}", stream)))
+				h.Responses(c)
+				require.Equal(t, []int64{1, 2, 3}, upstream.ids)
+				require.Equal(t, http.StatusTooManyRequests, rec.Code)
+				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
+				for _, body := range upstream.bodies {
+					require.Equal(t, "gpt-6-astra", gjson.GetBytes(body, "model").String())
+				}
+			})
+		}
 	}
 }

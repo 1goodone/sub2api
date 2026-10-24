@@ -279,6 +279,7 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 			}
 		}
 		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "response.cancelled" || kind == "error"
+		observeUpstreamFailure(ctx, kind, payload)
 		return emit(kind, normalizeFailureEvent(kind, payload))
 	}
 	err := readEvents(reader, func(event string, data []byte) error {
@@ -309,6 +310,9 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		failed["error"] = failure.Details()
 		var upstreamFailure *UpstreamFailure
 		if errors.As(err, &upstreamFailure) {
+			if observer, ok := ctx.Value(upstreamFailureObserverKey{}).(func(*UpstreamFailure)); ok && observer != nil {
+				observer(upstreamFailure)
+			}
 			failed["error"] = upstreamFailure.Details()
 		}
 		for _, field := range []string{"id", "model", "usage"} {

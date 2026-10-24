@@ -678,7 +678,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(ctx context.
 	if excelBPSFailoverRouteBlocked(ctx, account, requestedModel) {
 		return true
 	}
-	if s.isExcelBPSCoolingDown(account, requestedModel) || s.isExcelBPSModelCoolingDown(account, requestedModel) {
+	if s.isExcelBPSCoolingDown(ctx, account, requestedModel) || s.isExcelBPSModelCoolingDown(account, requestedModel) {
 		return true
 	}
 	if !s.codexTurnStateOwnerCompatible(ctx, account) {
