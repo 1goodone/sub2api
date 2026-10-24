@@ -82,6 +82,9 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	// SimpleModeKeyRateLimitOnly is set only by upstream simple-mode window billing.
+	// Local callers leave it false, so durable recovery still notifies balance and quota.
+	SimpleModeKeyRateLimitOnly bool
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
