@@ -2,11 +2,14 @@ import { apiClient } from '../client'
 
 export type ModerationMode = 'off' | 'observe' | 'pre_block'
 export type ModerationEngine = 'openai' | 'typesafe'
+export type ModerationCategorySettings = Record<string, { enabled: boolean }>
 export interface ModerationEngineMeta {
   engine: ModerationEngine
   model: string
   rules_version: string
   skipped_images: number
+  category_settings?: ModerationCategorySettings
+  matched_categories?: string[]
 }
 export type KeywordBlockingMode = 'keyword_only' | 'keyword_and_api' | 'api_only'
 export type ContentModerationModelFilterType = 'all' | 'include' | 'exclude'
@@ -35,6 +38,7 @@ export interface ContentModerationConfig {
   all_groups: boolean
   group_ids: number[]
   record_non_hits: boolean
+  category_settings?: ModerationCategorySettings
   thresholds: Record<string, number>
   worker_count: number
   queue_size: number
@@ -76,6 +80,7 @@ export interface ContentModerationAPIKeyStatus {
 
 export interface TestContentModerationAPIKeysPayload {
   engine?: ModerationEngine
+  category_settings?: ModerationCategorySettings
   thresholds?: Record<string, number>
   api_keys?: string[]
   base_url?: string
@@ -94,12 +99,14 @@ export interface TestContentModerationAPIKeysResponse {
 }
 
 export interface ContentModerationTestAuditResult {
+  matched_categories?: string[]
   engine_meta?: ModerationEngineMeta
   flagged: boolean
   highest_category: string
   highest_score: number
   composite_score: number
   category_scores: Record<string, number>
+  category_settings?: ModerationCategorySettings
   thresholds: Record<string, number>
 }
 
@@ -123,6 +130,7 @@ export interface UpdateContentModerationConfig {
   all_groups?: boolean
   group_ids?: number[]
   record_non_hits?: boolean
+  category_settings?: ModerationCategorySettings
   thresholds?: Record<string, number>
   worker_count?: number
   queue_size?: number
@@ -235,7 +243,7 @@ export interface ContentModerationAPIKeySlot {
 
 export type UpdateModerationEngineConfig = Pick<UpdateContentModerationConfig,
   'base_url' | 'model' | 'proxy_id' | 'api_keys' | 'api_key_slots' | 'api_keys_mode' | 'delete_api_key_hashes' |
-  'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds'> & { key_url_updates?: Array<{ key_hash: string; base_url: string; expected_base_url: string }> }
+  'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds' | 'category_settings'> & { key_url_updates?: Array<{ key_hash: string; base_url: string; expected_base_url: string }> }
 
 export interface ListContentModerationLogsParams {
   page?: number

@@ -1,6 +1,8 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/views/admin/__tests__/RiskControlView.spec.ts \
+	src/i18n/__tests__/riskControlLocales.spec.ts \
 	src/components/common/__tests__/PlatformTypeBadge.openaiPlans.spec.ts \
 	src/components/common/__tests__/PlatformTypeBadge.grok.spec.ts \
 	src/views/admin/__tests__/AutoConfigView.spec.ts \

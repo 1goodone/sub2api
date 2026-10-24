@@ -171,52 +171,55 @@ func TestModerationExemptionsLegacyDefaults(t *testing.T) {
 }
 
 func TestModerationExemptionsTypeSafeAdapter(t *testing.T) {
-	for mask := 0; mask < 8; mask++ {
-		svc, _, _ := exemptionService(t, ContentModerationModePreBlock, ContentModerationKeywordModeKeywordAndAPI, exemptionFixture(t, mask&1 != 0, mask&2 != 0, mask&4 != 0))
-		snapshot, err := svc.loadRuntimeSnapshot(context.Background())
-		require.NoError(t, err)
-		cfg := cloneContentModerationConfig(snapshot.config)
-		cfg.Engine = ContentModerationEngineTypeSafe
-		cfg.Model = "jev-latest"
-		cfg.BaseURL = "https://offline.invalid"
-		cfg.TypeSafe = moderationEngineDefaults(ContentModerationEngineTypeSafe)
-		cfg.TypeSafe.BaseURL = cfg.BaseURL
-		cfg.TypeSafe.APIKeys = append([]string(nil), cfg.APIKeys...)
-		// Exercise the merged exemption gates and persisted per-key URL routing
-		// through the real Check -> scheduler -> TypeSafe adapter path.
-		cfg.TypeSafe.APIKeyBaseURLs = map[string]string{
-			scopedModerationKeyHash(cfg.TypeSafe.APIKeys[0], ContentModerationEngineTypeSafe): "https://per-key.invalid/relay/v1",
-		}
-		raw, err := json.Marshal(cfg)
-		require.NoError(t, err)
-		svc.replaceRuntimeConfig(cfg, raw)
-		calls := 0
-		svc.httpClient = &http.Client{Transport: typeSafeURLRoundTripper(func(req *http.Request) (*http.Response, error) {
-			calls++
-			require.Equal(t, "https://per-key.invalid/relay/v1/systemone", req.URL.String())
-			var body struct {
-				State     string         `json:"state"`
-				Questions map[string]any `json:"questions"`
-			}
-			require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
-			require.Contains(t, body.State, "blocked-word")
-			require.Len(t, body.Questions, 13)
-			answers := make(map[string]any)
-			for category := range body.Questions {
-				answers[category] = map[string]any{"type": "noul", "noul": 0.0}
-			}
-			answers["violence"] = map[string]any{"type": "noul", "noul": 1.0}
-			raw, err := json.Marshal(map[string]any{"model": "jev-fixed", "answers": answers})
+	for _, hitCategory := range []string{"violence", "jailbreak", "control_bypass"} {
+		for mask := 0; mask < 8; mask++ {
+			svc, _, _ := exemptionService(t, ContentModerationModePreBlock, ContentModerationKeywordModeKeywordAndAPI, exemptionFixture(t, mask&1 != 0, mask&2 != 0, mask&4 != 0))
+			snapshot, err := svc.loadRuntimeSnapshot(context.Background())
 			require.NoError(t, err)
-			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
-		})}
-		decision, err := svc.Check(context.Background(), exemptionInput(true))
-		require.NoError(t, err)
-		wantCalls := 0
-		if mask&3 == 1 {
-			wantCalls = 1
+			cfg := cloneContentModerationConfig(snapshot.config)
+			cfg.Engine = ContentModerationEngineTypeSafe
+			cfg.Model = "jev-latest"
+			cfg.BaseURL = "https://offline.invalid"
+			cfg.TypeSafe = moderationEngineDefaults(ContentModerationEngineTypeSafe)
+			cfg.TypeSafe.CategorySettings[hitCategory] = ContentModerationCategorySetting{Enabled: true}
+			cfg.TypeSafe.BaseURL = cfg.BaseURL
+			cfg.TypeSafe.APIKeys = append([]string(nil), cfg.APIKeys...)
+			// Exercise the merged exemption gates and persisted per-key URL routing
+			// through the real Check -> scheduler -> TypeSafe adapter path.
+			cfg.TypeSafe.APIKeyBaseURLs = map[string]string{
+				scopedModerationKeyHash(cfg.TypeSafe.APIKeys[0], ContentModerationEngineTypeSafe): "https://per-key.invalid/relay/v1",
+			}
+			raw, err := json.Marshal(cfg)
+			require.NoError(t, err)
+			svc.replaceRuntimeConfig(cfg, raw)
+			calls := 0
+			svc.httpClient = &http.Client{Transport: typeSafeURLRoundTripper(func(req *http.Request) (*http.Response, error) {
+				calls++
+				require.Equal(t, "https://per-key.invalid/relay/v1/systemone", req.URL.String())
+				var body struct {
+					State     string         `json:"state"`
+					Questions map[string]any `json:"questions"`
+				}
+				require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+				require.Contains(t, body.State, "blocked-word")
+				require.Len(t, body.Questions, 15)
+				answers := make(map[string]any)
+				for category := range body.Questions {
+					answers[category] = map[string]any{"type": "noul", "noul": 0.0}
+				}
+				answers[hitCategory] = map[string]any{"type": "noul", "noul": 1.0}
+				raw, err := json.Marshal(map[string]any{"model": "jev-fixed", "answers": answers})
+				require.NoError(t, err)
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
+			})}
+			decision, err := svc.Check(context.Background(), exemptionInput(true))
+			require.NoError(t, err)
+			wantCalls := 0
+			if mask&3 == 1 {
+				wantCalls = 1
+			}
+			require.Equal(t, wantCalls, calls)
+			require.Equal(t, mask&3 != 3, decision.Blocked)
 		}
-		require.Equal(t, wantCalls, calls)
-		require.Equal(t, mask&3 != 3, decision.Blocked)
 	}
 }
