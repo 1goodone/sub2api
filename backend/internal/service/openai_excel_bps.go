@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -325,6 +326,11 @@ func newExcelBPSRequestTo(ctx context.Context, targetURL, accept string, body []
 func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Context, account *Account, body []byte, start time.Time) (forwardResult *OpenAIForwardResult, forwardErr error) {
 	ctx = s.withExcelBPSRecovery(ctx)
 	recoveryEnabled := s.excelBPSRecoveryEnabled(ctx)
+	// Compaction and tool repairs belong to the same selected-account attempt.
+	var policyRejectionOnce sync.Once
+	recordPolicyRejection := func() {
+		policyRejectionOnce.Do(func() { s.recordExcelBPSPolicyRejection(ctx, account) })
+	}
 	var compactUsage OpenAIUsage
 	var compactID string
 	originalImagePolicyModel := gjson.GetBytes(body, "model").String()
@@ -653,6 +659,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			s.handleExcelBPSUnauthorized(ctx, account, cr.StatusCode, cr.Header, raw, token)
 			if isExcelBPSUsagePolicyRejection(cr.StatusCode, raw) {
 				if recoveryEnabled {
+					recordPolicyRejection()
 					return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, cr.StatusCode, cr.Header, "content_policy_violation", false)
 				}
 				return fail(cr.StatusCode, "content_policy_violation", "Excel BPS blocked image history compaction under its usage policy; generation was not started")
@@ -815,8 +822,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 		if isExcelBPSUsagePolicyRejection(resp.StatusCode, raw) {
 			if recoveryEnabled {
-				// Try another BPS account for this request only. A policy rejection
-				// does not prove that the account or its model is unavailable.
+				// A single rejection only switches accounts. Repeated rejections
+				// honor the account's opt-in BPS auto-disable threshold.
+				recordPolicyRejection()
 				return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, resp.StatusCode, resp.Header, "content_policy_violation", false)
 			}
 			return fail(resp.StatusCode, "content_policy_violation", "Excel BPS blocked this request under its usage policy; request was not replayed and account scheduling was not changed")
@@ -911,6 +919,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			raw, _ := io.ReadAll(io.LimitReader(repairResp.Body, 512<<10))
 			observeBPSTestResponse(repairCtx, repairResp, model, token, gjson.GetBytes(raw, "error.code").String())
 			if recoveryEnabled && isExcelBPSUsagePolicyRejection(repairResp.StatusCode, raw) {
+				recordPolicyRejection()
 				repairUsagePolicyRejected.Store(true)
 				return nil, errExcelBPSUsagePolicyBlocked
 			}
@@ -961,6 +970,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			_ = repaired.Body.Close()
 			observeBPSTestResponse(repairCtx, repaired, model, token, gjson.GetBytes(raw, "error.code").String())
 			if recoveryEnabled && isExcelBPSUsagePolicyRejection(repaired.StatusCode, raw) {
+				recordPolicyRejection()
 				repairUsagePolicyRejected.Store(true)
 				return nil, errExcelBPSUsagePolicyBlocked
 			}
@@ -1207,6 +1217,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	if terminal != "response.completed" {
 		return result, fmt.Errorf("excel BPS terminal: %s", terminal)
+	}
+	if terminalSuccessful && !result.ClientDisconnect && !repairUsagePolicyRejected.Load() {
+		s.resetExcelBPSPolicyRejections(ctx, account)
 	}
 	imagePolicy.finish(ctx, imagePolicy.compact || len(compactOutput) > 0 || (imagePolicy.history != nil && imagePolicy.history.Count < imageSettings.Limits.MaxImages-imageSettings.WarningRemaining))
 	s.bindHTTPResponseAccount(ctx, c, account, result.ResponseID)
