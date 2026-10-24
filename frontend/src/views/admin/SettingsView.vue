@@ -4683,7 +4683,7 @@
                 <Toggle id="excel-bps-recovery-enabled" v-model="form.excel_bps_recovery_enabled" />
               </div>
               <p class="text-sm text-gray-500 dark:text-gray-400">
-                {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；使用政策 HTTP 403 仅换号，不停号或冷却模型；模型不可用时冷却对应模型；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output. HTTP 403 usage policy rejections switch accounts without pausing accounts or cooling models. Unavailable models receive model-specific cooldowns, and throttled tool corrections get one additional retry. Turning this off restores the existing BPS error handling.') }}
+                {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；使用政策 HTTP 403 换号重试，180 分钟内连续 3 次会触发账号已开启的“403 自动关闭 BPS”，仅关闭 BPS，成功完成 BPS 请求后计数清零；模型不可用时冷却对应模型；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output. HTTP 403 usage policy rejections switch accounts; 3 consecutive rejections within 180 minutes trigger the account’s opt-in 403 auto-disable for BPS only. A completed BPS request resets this counter. Unavailable models receive model-specific cooldowns, and throttled tool corrections get one additional retry. Turning this off restores the existing BPS error handling.') }}
               </p>
               <p class="text-sm text-amber-700 dark:text-amber-400">
                 {{ localText('BPS 凭证失效会暂停整个账号，包括该账号的其他通道。关闭此开关不会自动恢复已暂停账号，修复凭证后需手动恢复。', 'Invalid BPS credentials pause the entire account, including its other routes. Turning this switch off does not resume paused accounts; repair credentials and resume manually.') }}

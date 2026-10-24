@@ -1106,7 +1106,9 @@ describe("admin SettingsView payment visible method controls", () => {
     const toggle = card.get('#excel-bps-recovery-enabled');
     expect((toggle.element as HTMLInputElement).checked).toBe(enabled);
     expect(card.text()).toContain('BPS 凭证失效会暂停整个账号');
-    expect(card.text()).toContain('使用政策 HTTP 403 仅换号');
+    expect(card.text()).toContain('使用政策 HTTP 403 换号重试');
+    expect(card.text()).toContain('180 分钟内连续 3 次');
+    expect(card.text()).toContain('仅关闭 BPS');
     await toggle.setValue(!enabled);
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
