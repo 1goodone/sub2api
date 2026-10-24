@@ -117,7 +117,7 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 		if account.ID == sticky.ID || !account.IsSchedulable() || (!quotaSticky && account.Priority > sticky.Priority) ||
 			!s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) ||
 			!s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport, req.RequestedModel) ||
-			s.service.isExcelBPSRateLimited(account, req.RequestedModel) {
+			s.service.isExcelBPSCoolingDown(ctx, account, req.RequestedModel) {
 			continue
 		}
 		if _, excluded := req.ExcludedIDs[account.ID]; excluded {

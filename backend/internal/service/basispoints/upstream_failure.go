@@ -8,10 +8,11 @@ import (
 // UpstreamFailure is a safe interpretation of an in-band error. Status is a
 // semantic status, not evidence of the HTTP status returned by the upstream.
 type UpstreamFailure struct {
-	Status  int
-	Code    string
-	Type    string
-	Message string
+	Status    int
+	Code      string
+	Type      string
+	Message   string
+	RateLimit *RateLimitHint `json:"-"`
 }
 
 func (f *UpstreamFailure) Error() string { return f.Message }
@@ -79,8 +80,12 @@ func classifyUpstreamFailure(kind string, payload object) *UpstreamFailure {
 			errorType = "invalid_request_error"
 		}
 	}
-	return &UpstreamFailure{Status: status, Code: code, Type: errorType,
+	failure := &UpstreamFailure{Status: status, Code: code, Type: errorType,
 		Message: "Excel BPS upstream failure: " + code + "; request was not replayed"}
+	if status == http.StatusTooManyRequests {
+		failure.RateLimit = rateLimitHint(payload)
+	}
+	return failure
 }
 
 func failureStatus(value any) int {

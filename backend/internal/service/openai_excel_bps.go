@@ -111,11 +111,30 @@ func (s *OpenAIGatewayService) coolDownExcelBPS(ctx context.Context, account *Ac
 	}
 }
 
-func (s *OpenAIGatewayService) isExcelBPSCoolingDown(account *Account, requestedModel string) bool {
+func (s *OpenAIGatewayService) isExcelBPSCoolingDown(ctx context.Context, account *Account, requestedModel string) bool {
 	if s == nil || account == nil {
 		return false
 	}
-	return s.isExcelBPSRateLimited(account, requestedModel)
+	if s.isExcelBPSRateLimited(account, requestedModel) {
+		return true
+	}
+	if !account.IsExcelBPSEnabledForModel(requestedModel) || !s.excelBPSRecoveryEnabled(ctx) {
+		return false
+	}
+	if bps, known := ctx.Value(excelBPSSchedulingKey{}).(bool); known && !bps {
+		return false
+	}
+	key := excelBPSRateLimitKey{account.ID, account.GetMappedModel(requestedModel)}
+	if value, ok := s.excelBPSModelRateLimits.Load(key); ok {
+		state := value.(excelBPSRateLimitState)
+		if time.Now().Before(state.until) {
+			return true
+		}
+		if !time.Now().Before(state.until.Add(excelBPSRateLimitStreakTTL)) {
+			s.excelBPSModelRateLimits.CompareAndDelete(key, value)
+		}
+	}
+	return false
 }
 
 func (s *OpenAIGatewayService) isExcelBPSRateLimited(account *Account, model string) bool {
@@ -367,6 +386,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	originalModel := gjson.GetBytes(body, "model").String()
 	model := account.GetMappedModel(originalModel)
+	var rateLimitOnce sync.Once
+	recordRateLimit := func(headers http.Header, raw []byte, failure *basispoints.UpstreamFailure, httpStatus int) {
+		rateLimitOnce.Do(func() { s.coolDownExcelBPSAttempt(ctx, account, model, headers, raw, failure, httpStatus) })
+	}
 	stream := gjson.GetBytes(body, "stream").Bool()
 	clientCanceled := func() (*OpenAIForwardResult, error) {
 		StopOpenAICompactSSEKeepaliveCommitted(c)
@@ -657,6 +680,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			raw, _ := io.ReadAll(io.LimitReader(cr.Body, 512<<10))
 			_ = cr.Body.Close()
 			s.handleExcelBPSUnauthorized(ctx, account, cr.StatusCode, cr.Header, raw, token)
+			if recoveryEnabled && cr.StatusCode == http.StatusTooManyRequests {
+				recordRateLimit(cr.Header, raw, nil, cr.StatusCode)
+				return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, cr.StatusCode, cr.Header, "basispoints_rate_limited", false)
+			}
 			if isExcelBPSUsagePolicyRejection(cr.StatusCode, raw) {
 				if recoveryEnabled {
 					recordPolicyRejection()
@@ -680,6 +707,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			compactUsageWire, _ = compactResponse["usage"].(map[string]any)
 		}
 		if compactErr != nil {
+			var limited *basispoints.UpstreamFailure
+			if recoveryEnabled && errors.As(compactErr, &limited) && limited.Status == http.StatusTooManyRequests {
+				recordRateLimit(nil, nil, limited, cr.StatusCode)
+				return nil, s.newExcelBPSFailover(ctx, c, account, originalModel, limited.Status, nil, limited.Code, false)
+			}
 			return fail(502, "basispoints_image_compaction_failed", "Image history compaction did not complete; generation was not started")
 		}
 		window, _, compactErr := basispoints.CompactWindow(compactResponse)
@@ -851,7 +883,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lockExcelBPSFailoverRoute(ctx, c, account, originalModel)
 			if !isQualityObservation(ctx) {
-				s.coolDownExcelBPS(ctx, account, resp.Header, raw)
+				recordRateLimit(resp.Header, raw, nil, resp.StatusCode)
 			}
 			// The request was rejected before any output. Leave the response open
 			// so the handler can try another account within its existing budget.
@@ -864,6 +896,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			)
 			failover.SuppressScheduleFailure = true
 			failover.SkipOAuth429AttemptLimit = true
+			s.limitExcelBPS429Failover(ctx, c, account, originalModel, failover)
 			return nil, failover
 		}
 		if resp.StatusCode == http.StatusForbidden {
@@ -885,7 +918,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	// disconnects or a later stream/protocol error prevents normal completion.
 	s.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, resp.Header)
 	var repairUsagePolicyRejected atomic.Bool
+	var repairStarted atomic.Bool
+	var observedFailure atomic.Pointer[basispoints.UpstreamFailure]
+	requestCtx = basispoints.WithUpstreamFailureObserver(requestCtx, func(failure *basispoints.UpstreamFailure) { observedFailure.Store(failure) })
 	converted := bridge.StreamWithRepairs(requestCtx, resp.Body, func(repairCtx context.Context, failed map[string]any, validation error) (map[string]any, error) {
+		repairStarted.Store(true)
 		if isControlledExperiment(ctx) {
 			return nil, errors.New("controlled experiment disables BPS tool repair submissions")
 		}
@@ -926,7 +963,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			if repairResp.StatusCode == http.StatusTooManyRequests {
 				// Output was already accepted: cool only the BPS route.
 				// Quota headers on this correction must not rewrite Codex windows.
-				s.coolDownExcelBPS(repairCtx, account, nil, nil)
+				if recoveryEnabled {
+					recordRateLimit(repairResp.Header, nil, &basispoints.UpstreamFailure{Status: http.StatusTooManyRequests, Code: "basispoints_rate_limited", RateLimit: basispoints.ParseRateLimitHint(raw)}, repairResp.StatusCode)
+				} else {
+					s.coolDownExcelBPS(repairCtx, account, nil, nil)
+				}
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repairResp.StatusCode, repairResp.Header, raw, token)
 			if isExcelBPSModelPermissionError(repairResp.StatusCode, gjson.GetBytes(raw, "error.code").String()) && (recoveryEnabled || repairResp.StatusCode == http.StatusForbidden) && !isQualityObservation(repairCtx) {
@@ -942,6 +983,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		upstreamBody = correctedBody
 		return basispoints.ReadToolRepairResponse(repairResp.Body)
 	}, func(repairCtx context.Context) (io.ReadCloser, error) {
+		repairStarted.Store(true)
 		markPriorityAttemptFailure(repairCtx)
 		repairBody, err := basispoints.RepairRequest(upstreamBody)
 		if err != nil {
@@ -975,7 +1017,11 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				return nil, errExcelBPSUsagePolicyBlocked
 			}
 			if repaired.StatusCode == http.StatusTooManyRequests {
-				s.coolDownExcelBPS(repairCtx, account, nil, nil)
+				if recoveryEnabled {
+					recordRateLimit(repaired.Header, nil, &basispoints.UpstreamFailure{Status: http.StatusTooManyRequests, Code: "basispoints_rate_limited", RateLimit: basispoints.ParseRateLimitHint(raw)}, repaired.StatusCode)
+				} else {
+					s.coolDownExcelBPS(repairCtx, account, nil, nil)
+				}
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repaired.StatusCode, repaired.Header, raw, token)
 			if isExcelBPSModelPermissionError(repaired.StatusCode, gjson.GetBytes(raw, "error.code").String()) && (recoveryEnabled || repaired.StatusCode == http.StatusForbidden) && !isQualityObservation(repairCtx) {
@@ -1091,14 +1137,17 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 					case http.StatusTooManyRequests:
 						// The HTTP 200 quota headers do not describe this in-band 429.
 						if !isQualityObservation(ctx) {
-							s.coolDownExcelBPS(ctx, account, nil, payload)
+							if observed := observedFailure.Load(); observed != nil && observed.Status == upstreamFailure.Status {
+								upstreamFailure.RateLimit = observed.RateLimit
+							}
+							recordRateLimit(nil, nil, upstreamFailure, resp.StatusCode)
 						}
 					case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound:
 						if isExcelBPSModelPermissionError(upstreamFailure.Status, upstreamFailure.Code) && !isQualityObservation(ctx) {
 							s.coolDownExcelBPSModel(account, model)
 						}
 					}
-					if canRecover() && excelBPSFailureCanRecover(upstreamFailure) {
+					if canRecover() && excelBPSFailureCanRecover(upstreamFailure) && (upstreamFailure.Status != http.StatusTooManyRequests || !repairStarted.Load()) {
 						return recoverAttempt(upstreamFailure.Status, upstreamFailure.Code, upstreamFailure.Status >= 500)
 					}
 				}
@@ -1222,6 +1271,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		s.resetExcelBPSPolicyRejections(ctx, account)
 	}
 	imagePolicy.finish(ctx, imagePolicy.compact || len(compactOutput) > 0 || (imagePolicy.history != nil && imagePolicy.history.Count < imageSettings.Limits.MaxImages-imageSettings.WarningRemaining))
+	if recoveryEnabled && terminalSuccessful && !result.ClientDisconnect && !isQualityObservation(ctx) {
+		s.resetExcelBPSModelRateLimit(account, model, start)
+	}
 	s.bindHTTPResponseAccount(ctx, c, account, result.ResponseID)
 	if stream && terminalSuccessful && !result.ClientDisconnect {
 		MarkOpsStreamCompleted(c, account.ID)

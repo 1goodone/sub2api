@@ -144,6 +144,7 @@ func mergeImageUsage(dst, src object) {
 // arrives. The caller never sees intermediate text or executable tool events.
 func ReadImageCompaction(reader io.Reader, observe func([]byte)) (map[string]any, error) {
 	var response object
+	var terminalFailure *UpstreamFailure
 	completed := false
 	progressiveUsage := object{}
 	err := readEvents(io.LimitReader(reader, 32<<20), func(event string, raw []byte) error {
@@ -175,6 +176,7 @@ func ReadImageCompaction(reader io.Reader, observe func([]byte)) (map[string]any
 		case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
 			response, _ = p["response"].(object)
 			completed = kind == "response.completed"
+			terminalFailure = classifyUpstreamFailure(kind, p)
 			return io.EOF
 		}
 		return nil
@@ -187,6 +189,9 @@ func ReadImageCompaction(reader io.Reader, observe func([]byte)) (map[string]any
 	}
 	if err != nil && err != io.EOF {
 		return response, err
+	}
+	if terminalFailure != nil {
+		return response, terminalFailure
 	}
 	if !completed || response == nil {
 		return response, fmt.Errorf("image history compaction did not complete")

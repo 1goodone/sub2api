@@ -45,10 +45,11 @@ func (s *OpenAIGatewayService) withExcelBPSRecovery(ctx context.Context) context
 // Shared by all attempts of one request, including detached upstream contexts.
 // Recovering a BPS request must not silently change its protocol or mapped model.
 type excelBPSFailoverRoute struct {
-	mu              sync.Mutex
-	model           string
-	recoveryOnce    sync.Once
-	recoveryEnabled bool
+	mu                  sync.Mutex
+	model               string
+	recoveryOnce        sync.Once
+	recoveryEnabled     bool
+	rateLimitedAccounts map[int64]struct{}
 }
 
 func lockExcelBPSFailoverRoute(ctx context.Context, c *gin.Context, account *Account, model string) {
@@ -162,6 +163,7 @@ func (s *OpenAIGatewayService) newExcelBPSFailover(ctx context.Context, c *gin.C
 		err.SameAccountRetryDelay = time.Second
 		err.SameAccountRetryDeadline = time.Now().Add(10 * time.Second)
 	}
+	s.limitExcelBPS429Failover(ctx, c, account, model, err)
 	if c != nil {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,

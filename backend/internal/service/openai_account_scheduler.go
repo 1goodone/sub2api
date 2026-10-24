@@ -1632,7 +1632,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude(excelBPSModelPermissionFilterReason)
 			continue
 		}
-		if s.service.isExcelBPSCoolingDown(account, req.RequestedModel) {
+		if s.service.isExcelBPSCoolingDown(ctx, account, req.RequestedModel) {
 			filterStats.exclude(excelBPSRateLimitedFilterReason)
 			continue
 		}

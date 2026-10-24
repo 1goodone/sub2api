@@ -429,6 +429,7 @@ export function deriveWeChatConnectStoredMode(
 export interface SystemSettings {
 	excel_bps_enabled: boolean;
   excel_bps_recovery_enabled: boolean;
+  excel_bps_model_rate_limit_cooldown_minutes: number;
   // Registration settings
   registration_enabled: boolean;
   login_rate_limit_enabled: boolean;
@@ -849,6 +850,7 @@ export interface SystemSettings {
 export interface UpdateSettingsRequest {
 	excel_bps_enabled?: boolean;
   excel_bps_recovery_enabled?: boolean;
+  excel_bps_model_rate_limit_cooldown_minutes?: number;
   registration_enabled?: boolean;
   login_rate_limit_enabled?: boolean;
   registration_ip_limit_enabled?: boolean;

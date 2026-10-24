@@ -200,8 +200,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpsMetricsIntervalSeconds:    "60",
 
 		// Protocol feature defaults
-		SettingKeyExcelBPSEnabled:         "true",
-		SettingKeyExcelBPSRecoveryEnabled: "false",
+		SettingKeyExcelBPSEnabled:                       "true",
+		SettingKeyExcelBPSRecoveryEnabled:               "false",
+		SettingKeyExcelBPSModelRateLimitCooldownMinutes: strconv.Itoa(DefaultExcelBPSModelRateLimitCooldownMinutes),
 
 		// Channel monitor defaults (enabled, 60s)
 		SettingKeyChannelMonitorEnabled:                "true",
@@ -864,6 +865,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Channel monitor feature (default: enabled, 60s)
 	result.ExcelBPSEnabled = !isFalseSettingValue(settings[SettingKeyExcelBPSEnabled])
 	result.ExcelBPSRecoveryEnabled = settings[SettingKeyExcelBPSRecoveryEnabled] == "true"
+	result.ExcelBPSModelRateLimitCooldownMinutes = parseExcelBPSModelRateLimitCooldownMinutes(settings[SettingKeyExcelBPSModelRateLimitCooldownMinutes])
 	result.ChannelMonitorEnabled = !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled])
 	result.ChannelMonitorMode = normalizeChannelMonitorMode(settings[SettingKeyChannelMonitorMode])
 	result.ChannelMonitorDefaultIntervalSeconds = parseChannelMonitorInterval(
