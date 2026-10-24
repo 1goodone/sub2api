@@ -318,6 +318,7 @@ export interface ModerationUserState {
   auto_ban_exempt: boolean
   keyword_exempt: boolean
   api_audit_exempt: boolean
+  email_exempt: boolean
   owned_disable: boolean
   status: string
   current_count: number
@@ -334,6 +335,7 @@ export interface ModerationUserAction {
   auto_ban_exempt?: boolean
   keyword_exempt?: boolean
   api_audit_exempt?: boolean
+  email_exempt?: boolean
 }
 
 export async function getModerationUser(userID: number): Promise<ModerationUserState> {
@@ -346,7 +348,7 @@ export async function manageModerationUser(userID: number, payload: ModerationUs
   return data
 }
 
-export async function listModerationUsers(params: { page: number; page_size: number; state: 'all' | 'exempt' | 'enforced' | 'auto_ban_exempt' | 'keyword_exempt' | 'api_audit_exempt'; user_id?: number }): Promise<{ items: ModerationUserState[]; total: number }> {
+export async function listModerationUsers(params: { page: number; page_size: number; state: 'all' | 'exempt' | 'enforced' | 'auto_ban_exempt' | 'keyword_exempt' | 'api_audit_exempt' | 'email_exempt'; user_id?: number }): Promise<{ items: ModerationUserState[]; total: number }> {
   const { data } = await apiClient.get<{ items: ModerationUserState[]; total: number }>('/admin/risk-control/users', { params })
   return data
 }
