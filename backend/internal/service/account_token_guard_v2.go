@@ -33,22 +33,33 @@ const (
 )
 
 type AccountTokenGuardV2Rules struct {
-	ProbeIntervalSeconds   int `json:"probe_interval_seconds"`
-	RetryIntervalSeconds   int `json:"retry_interval_seconds"`
-	ReloginCooldownSeconds int `json:"relogin_cooldown_seconds"`
-	FailStreakThreshold    int `json:"fail_streak_threshold"`
+	ReloginBackoffMaxSeconds int `json:"relogin_backoff_max_seconds"`
+	ReloginMaxFailures       int `json:"relogin_max_failures"`
+	ProbeIntervalSeconds     int `json:"probe_interval_seconds"`
+	RetryIntervalSeconds     int `json:"retry_interval_seconds"`
+	ReloginCooldownSeconds   int `json:"relogin_cooldown_seconds"`
+	FailStreakThreshold      int `json:"fail_streak_threshold"`
 }
 
 func defaultAccountTokenGuardV2Rules() AccountTokenGuardV2Rules {
 	return AccountTokenGuardV2Rules{
-		ProbeIntervalSeconds:   int(AccountTokenGuardV2ProbeInterval.Seconds()),
-		RetryIntervalSeconds:   int(AccountTokenGuardV2RetryInterval.Seconds()),
-		ReloginCooldownSeconds: int(AccountTokenGuardV2ReloginCooldown.Seconds()),
-		FailStreakThreshold:    AccountTokenGuardV2FailThreshold,
+		ReloginBackoffMaxSeconds: DefaultReloginBackoffMax,
+		ReloginMaxFailures:       DefaultReloginMaxFailures,
+		ProbeIntervalSeconds:     int(AccountTokenGuardV2ProbeInterval.Seconds()),
+		RetryIntervalSeconds:     int(AccountTokenGuardV2RetryInterval.Seconds()),
+		ReloginCooldownSeconds:   int(AccountTokenGuardV2ReloginCooldown.Seconds()),
+		FailStreakThreshold:      AccountTokenGuardV2FailThreshold,
 	}
 }
 
 func ValidateAccountTokenGuardV2Rules(rules AccountTokenGuardV2Rules) error {
+	rules = NormalizeReloginBudgetRules(rules)
+	if rules.ReloginMaxFailures < 1 || rules.ReloginMaxFailures > 20 {
+		return errors.New("relogin_max_failures must be between 1 and 20")
+	}
+	if rules.ReloginBackoffMaxSeconds < rules.ReloginCooldownSeconds || rules.ReloginBackoffMaxSeconds > 604800 {
+		return errors.New("relogin_backoff_max_seconds must be between relogin_cooldown_seconds and 604800")
+	}
 	if rules.ProbeIntervalSeconds < 60 || rules.ProbeIntervalSeconds > 86400 {
 		return errors.New("probe_interval_seconds must be between 60 and 86400")
 	}
@@ -65,21 +76,24 @@ func ValidateAccountTokenGuardV2Rules(rules AccountTokenGuardV2Rules) error {
 }
 
 type AccountTokenGuardV2Record struct {
-	AccountID          int64
-	Enabled            bool
-	AutoReloginEnabled bool
-	ProbeState         string
-	ProbeDetail        string
-	FailStreak         int
-	LastProbeAt        *time.Time
-	LastReauthAt       *time.Time
-	NextProbeAt        time.Time
-	CooldownUntil      *time.Time
-	BlockedReason      string
-	LeaseOwner         string
-	LeaseUntil         *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ReloginFailStreak    int
+	LastCountedTaskID    int64
+	AutoReloginExhausted bool
+	AccountID            int64
+	Enabled              bool
+	AutoReloginEnabled   bool
+	ProbeState           string
+	ProbeDetail          string
+	FailStreak           int
+	LastProbeAt          *time.Time
+	LastReauthAt         *time.Time
+	NextProbeAt          time.Time
+	CooldownUntil        *time.Time
+	BlockedReason        string
+	LeaseOwner           string
+	LeaseUntil           *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type AccountTokenGuardV2ProbeCompletion struct {
@@ -139,25 +153,29 @@ type AccountTokenGuardV2AccountInput struct {
 }
 
 type AccountTokenGuardV2Account struct {
-	AccountID          int64                    `json:"account_id"`
-	AccountName        string                   `json:"account_name"`
-	AccountStatus      string                   `json:"account_status"`
-	Schedulable        bool                     `json:"schedulable"`
-	Enabled            bool                     `json:"enabled"`
-	AutoReloginEnabled bool                     `json:"auto_relogin_enabled"`
-	ProbeState         string                   `json:"probe_state"`
-	ProbeDetail        string                   `json:"probe_detail"`
-	FailStreak         int                      `json:"fail_streak"`
-	LastProbeAt        *time.Time               `json:"last_probe_at,omitempty"`
-	LastReauthAt       *time.Time               `json:"last_reauth_at,omitempty"`
-	NextProbeAt        time.Time                `json:"next_probe_at"`
-	CooldownUntil      *time.Time               `json:"cooldown_until,omitempty"`
-	BlockedReason      string                   `json:"blocked_reason,omitempty"`
-	LoginConfig        *OpenAIOAuthReauthConfig `json:"login_config,omitempty"`
-	LatestTask         *OpenAIOAuthReauthTask   `json:"latest_task,omitempty"`
+	ReloginFailStreak    int                      `json:"relogin_fail_streak"`
+	LastCountedTaskID    int64                    `json:"last_counted_task_id"`
+	AutoReloginExhausted bool                     `json:"auto_relogin_exhausted"`
+	AccountID            int64                    `json:"account_id"`
+	AccountName          string                   `json:"account_name"`
+	AccountStatus        string                   `json:"account_status"`
+	Schedulable          bool                     `json:"schedulable"`
+	Enabled              bool                     `json:"enabled"`
+	AutoReloginEnabled   bool                     `json:"auto_relogin_enabled"`
+	ProbeState           string                   `json:"probe_state"`
+	ProbeDetail          string                   `json:"probe_detail"`
+	FailStreak           int                      `json:"fail_streak"`
+	LastProbeAt          *time.Time               `json:"last_probe_at,omitempty"`
+	LastReauthAt         *time.Time               `json:"last_reauth_at,omitempty"`
+	NextProbeAt          time.Time                `json:"next_probe_at"`
+	CooldownUntil        *time.Time               `json:"cooldown_until,omitempty"`
+	BlockedReason        string                   `json:"blocked_reason,omitempty"`
+	LoginConfig          *OpenAIOAuthReauthConfig `json:"login_config,omitempty"`
+	LatestTask           *OpenAIOAuthReauthTask   `json:"latest_task,omitempty"`
 }
 
 type AccountTokenGuardV2Service struct {
+	now      func() time.Time
 	repo     AccountTokenGuardV2Repository
 	settings AccountTokenGuardV2Settings
 	accounts AccountTokenGuardV2AccountReader
@@ -174,6 +192,7 @@ type AccountTokenGuardV2Service struct {
 func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings AccountTokenGuardV2Settings, accounts AccountTokenGuardV2AccountReader, prober AccountTokenGuardV2Prober, reauth *OpenAIOAuthReauthService) *AccountTokenGuardV2Service {
 	host, _ := os.Hostname()
 	svc := &AccountTokenGuardV2Service{
+		now:  time.Now,
 		repo: repo, settings: settings, accounts: accounts, prober: prober, reauth: reauth,
 		leaseOwner: fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.NewString()),
 		stopCh:     make(chan struct{}), doneCh: make(chan struct{}),
@@ -201,10 +220,13 @@ func (s *AccountTokenGuardV2Service) GetRules(ctx context.Context) (AccountToken
 		return rules, err
 	}
 	if strings.TrimSpace(raw) != "" {
+		// Missing fields from saved old settings acquire safe, bounded defaults.
+		rules.ReloginMaxFailures, rules.ReloginBackoffMaxSeconds = 0, 0
 		if err := json.Unmarshal([]byte(raw), &rules); err != nil {
 			return rules, err
 		}
 	}
+	rules = NormalizeReloginBudgetRules(rules)
 	if err := ValidateAccountTokenGuardV2Rules(rules); err != nil {
 		return rules, err
 	}
@@ -212,6 +234,7 @@ func (s *AccountTokenGuardV2Service) GetRules(ctx context.Context) (AccountToken
 }
 
 func (s *AccountTokenGuardV2Service) SaveRules(ctx context.Context, rules AccountTokenGuardV2Rules) (AccountTokenGuardV2Rules, error) {
+	rules = NormalizeReloginBudgetRules(rules)
 	if err := ValidateAccountTokenGuardV2Rules(rules); err != nil {
 		return rules, infraerrors.BadRequest("TOKEN_GUARD_V2_RULES_INVALID", err.Error())
 	}
@@ -331,6 +354,7 @@ func (s *AccountTokenGuardV2Service) ListAccounts(ctx context.Context) ([]Accoun
 		view, viewErr := s.recordView(ctx, record)
 		if viewErr != nil {
 			view = &AccountTokenGuardV2Account{
+				ReloginFailStreak: record.ReloginFailStreak, LastCountedTaskID: record.LastCountedTaskID, AutoReloginExhausted: record.AutoReloginExhausted,
 				AccountID: record.AccountID, Enabled: record.Enabled, AutoReloginEnabled: record.AutoReloginEnabled,
 				ProbeState: record.ProbeState, ProbeDetail: record.ProbeDetail, FailStreak: record.FailStreak,
 				LastProbeAt: record.LastProbeAt, LastReauthAt: record.LastReauthAt, NextProbeAt: record.NextProbeAt,
@@ -367,6 +391,7 @@ func (s *AccountTokenGuardV2Service) recordView(ctx context.Context, record Acco
 		lastReauthAt = reauthStatus.Task.FinishedAt
 	}
 	return &AccountTokenGuardV2Account{
+		ReloginFailStreak: record.ReloginFailStreak, LastCountedTaskID: record.LastCountedTaskID, AutoReloginExhausted: record.AutoReloginExhausted,
 		AccountID: record.AccountID, AccountName: account.Name, AccountStatus: account.Status, Schedulable: account.Schedulable,
 		Enabled: record.Enabled, AutoReloginEnabled: record.AutoReloginEnabled,
 		ProbeState: record.ProbeState, ProbeDetail: record.ProbeDetail, FailStreak: record.FailStreak,
@@ -427,7 +452,7 @@ func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID i
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	now := s.clockNow()
 	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(time.Duration(rules.ReloginCooldownSeconds)*time.Second))
 	return task, nil
 }
@@ -438,7 +463,7 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 		slog.Warn("account_token_guard_v2_rules_read_failed", "error", err)
 		rules = defaultAccountTokenGuardV2Rules()
 	}
-	now := time.Now()
+	now := s.clockNow()
 	completion := AccountTokenGuardV2ProbeCompletion{
 		ProbeState: AccountTokenGuardV2ProbeTransient, ProbeDetail: "inspection failed",
 		FailStreak: record.FailStreak, LastProbeAt: now, NextProbeAt: now.Add(time.Duration(rules.ProbeIntervalSeconds) * time.Second),
@@ -457,34 +482,66 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 	completion.ProbeState = state
 	completion.ProbeDetail = detail
 	completion.BlockedReason = ""
+	budgetRepo, hasBudget := s.repo.(AccountReloginBudgetRepository)
+	pending := false
+	if hasBudget {
+		var updated *AccountTokenGuardV2Record
+		updated, pending, err = budgetRepo.ReconcileReloginBudget(ctx, record.AccountID, s.leaseOwner, rules, now, state)
+		if err != nil || updated == nil {
+			completion.BlockedReason = "re-login budget could not be reconciled"
+			s.completeProbe(ctx, record.AccountID, completion)
+			return
+		}
+		record = *updated
+		completion.CooldownUntil = record.CooldownUntil
+	} else {
+		completion.BlockedReason = "automatic re-login budget is unavailable"
+	}
+	if record.AutoReloginExhausted {
+		completion.BlockedReason = "automatic re-login budget exhausted; explicit recovery required"
+	} else if pending {
+		completion.BlockedReason = "re-login task active or history reconciliation pending"
+	}
 	if state != AccountTokenGuardV2ProbeOK && record.BlockedReason == "account_retired" {
 		completion.BlockedReason = "account_retired"
 	}
 	switch state {
 	case AccountTokenGuardV2ProbeOK:
 		completion.FailStreak = 0
-		completion.CooldownUntil = nil
+		// The reconciler alone can clear a budget cooldown after a verified
+		// success. A plain OK must retain an explicit recovery's cooldown.
 	case AccountTokenGuardV2ProbeAuth:
 		completion.FailStreak++
 		completion.NextProbeAt = now.Add(time.Duration(rules.RetryIntervalSeconds) * time.Second)
 		cooldownActive := record.CooldownUntil != nil && record.CooldownUntil.After(now)
-		if record.AutoReloginEnabled && completion.FailStreak >= rules.FailStreakThreshold && !cooldownActive {
-			task, taskErr := s.reauth.CreateTask(ctx, record.AccountID)
+		if cooldownActive && completion.BlockedReason == "" {
+			completion.BlockedReason = "automatic re-login cooling down"
+		}
+		if hasBudget && record.Enabled && record.AutoReloginEnabled && !record.AutoReloginExhausted && !pending && completion.FailStreak >= rules.FailStreakThreshold && !cooldownActive {
+			task, taskErr := s.reauth.createTaskForProfile(ctx, record.AccountID, "codex", func(createCtx context.Context, id int64, hash string) (*OpenAIOAuthReauthTaskRecord, error) {
+				return budgetRepo.CreateAutomaticRelogin(createCtx, id, hash, s.leaseOwner, rules, s.clockNow())
+			})
 			if taskErr == nil && task != nil {
 				completion.LastReauthAt = &now
 				cooldown := now.Add(time.Duration(rules.ReloginCooldownSeconds) * time.Second)
 				completion.CooldownUntil = &cooldown
 				completion.ProbeDetail = detail + "; automatic re-login queued"
 			} else if infraerrors.Code(taskErr) == http.StatusConflict {
-				completion.ProbeDetail = detail + "; re-login task already active"
+				completion.ProbeDetail = detail + "; re-login task already active or budget gated"
 			} else if taskErr != nil {
 				completion.BlockedReason = "automatic re-login could not be queued"
 				completion.ProbeDetail = detail + "; " + completion.BlockedReason
 			}
 		}
 	}
-	if err := s.repo.CompleteProbe(context.WithoutCancel(ctx), record.AccountID, s.leaseOwner, completion); err != nil {
-		slog.Warn("account_token_guard_v2_probe_save_failed", "account_id", record.AccountID, "error", err)
+	s.completeProbe(ctx, record.AccountID, completion)
+}
+
+func (s *AccountTokenGuardV2Service) completeProbe(ctx context.Context, accountID int64, completion AccountTokenGuardV2ProbeCompletion) {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.repo.CompleteProbe(persistCtx, accountID, s.leaseOwner, completion); err != nil {
+		slog.Warn("account_token_guard_v2_probe_save_failed", "account_id", accountID, "error", err)
 	}
 }
 

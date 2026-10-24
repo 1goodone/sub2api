@@ -154,6 +154,7 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/typesafe-content-audit.md
 !docs/multi-host-session-owner.md
 !docs/security-penalties.md
 !docs/ip-risk-control.md

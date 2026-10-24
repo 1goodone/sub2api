@@ -108,16 +108,17 @@ type OpenAIOAuthReauthRuntimeSettings struct {
 
 // OpenAIOAuthReauthTask is the safe task status exposed to administrators.
 type OpenAIOAuthReauthTask struct {
-	OAuthProfile string     `json:"oauth_profile"`
-	ID           int64      `json:"id"`
-	AccountID    int64      `json:"account_id"`
-	Status       string     `json:"status"`
-	Stage        string     `json:"stage"`
-	Error        string     `json:"error,omitempty"`
-	Attempt      int        `json:"attempt"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	Diagnostic   *LocalProtocolDiagnostic `json:"diagnostic,omitempty"`
+	OAuthProfile string                   `json:"oauth_profile"`
+	ID           int64                    `json:"id"`
+	AccountID    int64                    `json:"account_id"`
+	Status       string                   `json:"status"`
+	Stage        string                   `json:"stage"`
+	Error        string                   `json:"error,omitempty"`
+	Attempt      int                      `json:"attempt"`
+	CreatedAt    time.Time                `json:"created_at"`
+	UpdatedAt    time.Time                `json:"updated_at"`
+	FinishedAt   *time.Time               `json:"finished_at,omitempty"`
 }
 
 // OpenAIOAuthReauthStatus combines saved configuration and the latest task.
@@ -722,6 +723,16 @@ func (s *OpenAIOAuthReauthService) createProfileTask(ctx context.Context, accoun
 }
 
 func (s *OpenAIOAuthReauthService) createProfileTaskWithPool(ctx context.Context, accountID int64, profile, proxyCiphertext, poolCiphertext string, attempt int) (*OpenAIOAuthReauthTask, error) {
+	return s.insertProfileTask(ctx, accountID, profile, proxyCiphertext, poolCiphertext, attempt, nil)
+}
+
+// The guard supplies an atomic budget-aware insertion, after all the same
+// credential, account, encryption and worker checks as a manual task.
+func (s *OpenAIOAuthReauthService) createTaskForProfile(ctx context.Context, accountID int64, profile string, creator func(context.Context, int64, string) (*OpenAIOAuthReauthTaskRecord, error)) (*OpenAIOAuthReauthTask, error) {
+	return s.insertProfileTask(ctx, accountID, profile, "", "", 1, creator)
+}
+
+func (s *OpenAIOAuthReauthService) insertProfileTask(ctx context.Context, accountID int64, profile, proxyCiphertext, poolCiphertext string, attempt int, creator func(context.Context, int64, string) (*OpenAIOAuthReauthTaskRecord, error)) (*OpenAIOAuthReauthTask, error) {
 	if profile != "codex" && profile != "excel" && profile != "siwc" {
 		return nil, infraerrors.BadRequest("OPENAI_REAUTH_PROFILE_INVALID", "Invalid OAuth profile")
 	}
@@ -793,7 +804,11 @@ func (s *OpenAIOAuthReauthService) createProfileTaskWithPool(ctx context.Context
 			record, err = excelRepo.CreateExcelTask(ctx, accountID, expectedCredentialsHash)
 		}
 	default:
-		record, err = s.repo.CreateTask(ctx, accountID, expectedCredentialsHash)
+		if creator != nil {
+			record, err = creator(ctx, accountID, expectedCredentialsHash)
+		} else {
+			record, err = s.repo.CreateTask(ctx, accountID, expectedCredentialsHash)
+		}
 	}
 	if err != nil {
 		if infraerrors.Code(err) == http.StatusConflict {
@@ -1423,14 +1438,19 @@ func safeReauthTask(record *OpenAIOAuthReauthTaskRecord) *OpenAIOAuthReauthTask 
 	if record == nil {
 		return nil
 	}
+	_, diagnostic, _ := localProtocolError(record.Error)
 	return &OpenAIOAuthReauthTask{
-		ID: record.ID, AccountID: record.AccountID, Status: record.Status, OAuthProfile: reauthTaskProfile(record),
+		Diagnostic: diagnostic,
+		ID:         record.ID, AccountID: record.AccountID, Status: record.Status, OAuthProfile: reauthTaskProfile(record),
 		Stage: record.Stage, Error: sanitizeReauthError(record.Error), Attempt: record.Attempt,
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, FinishedAt: record.FinishedAt,
 	}
 }
 
 func sanitizeReauthError(raw string) string {
+	if safe, _, handled := localProtocolError(raw); handled {
+		return safe
+	}
 	msg := strings.TrimSpace(raw)
 	if msg == "" {
 		return ""

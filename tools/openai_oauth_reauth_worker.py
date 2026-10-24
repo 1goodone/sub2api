@@ -705,20 +705,6 @@ def _best_effort_progress(api: WorkerAPI, task_id: int, stage: str) -> None:
         LOGGER.warning("task=%s progress=%s failed: %s", task_id, stage, sanitize_error(str(exc)))
 
 
-def protocol_output_is_retired(value: str) -> bool:
-    # OpenAI returns this from mfa/verify after the password is accepted when the
-    # account has been deleted or deactivated. Match the code or that sentence
-    # only; do not keep the rest of the runner output.
-    return re.search(
-        r"(?:account|user)_(?:deactivated|deleted|suspended|disabled)"
-        r"|do not have an account because it has been deleted"
-        r"|account has been (?:deleted|deactivated)"
-        r"|账号已废",
-        str(value or ""),
-        re.IGNORECASE,
-    ) is not None
-
-
 def sanitize_error(value: str) -> str:
     text = URL_RE.sub("[redacted URL]", str(value or ""))
     text = SENSITIVE_PARAM_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
@@ -731,6 +717,30 @@ def sanitize_error(value: str) -> str:
     text = html.unescape(re.sub(r"(?s)<[^>]+>", " ", text))
     text = re.sub(r"\s+", " ", text).strip()
     return (text or "automatic re-login failed")[:500]
+
+
+def _extract_chatgpt_session_token(cookies: Any) -> str:
+    """Return the Web session cookie, joining NextAuth chunked cookies safely."""
+    base = ""
+    chunks: dict[int, str] = {}
+    prefix = CHATGPT_SESSION_COOKIE + "."
+    for cookie in cookies if isinstance(cookies, list) else []:
+        if not isinstance(cookie, dict):
+            continue
+        name = str(cookie.get("name") or "")
+        value = str(cookie.get("value") or "")
+        if name == CHATGPT_SESSION_COOKIE:
+            base = value
+        elif name.startswith(prefix):
+            suffix = name[len(prefix):]
+            if suffix.isdigit() and value:
+                chunks[int(suffix)] = value
+    if chunks:
+        indexes = sorted(chunks)
+        if indexes != list(range(indexes[-1] + 1)):
+            return ""
+        return "".join(chunks[index] for index in indexes)
+    return base
 
 
 def _close_protocol_session(session: Any) -> None:
@@ -1000,8 +1010,21 @@ def _session_studio_result(response: Any) -> dict[str, Any]:
                 if not isinstance(payload, dict):
                     raise WorkerError("Session Studio returned an invalid result")
                 return payload
-            if "credential" in event or "error" in event or str(event.get("status", "")).lower() in {
-                "active", "ok", "success", "succeeded", "failed", "error", "auth_failed"
+            # Typed notifications are not results, even when they contain an
+            # informational error or a status such as active. Only the result
+            # envelope above carries a terminal payload in the event protocol.
+            if event.get("type") in ("progress", "heartbeat"):
+                continue
+            if "type" in event:
+                # Preserve harmless notifications with other type names, but
+                # never skip an unknown event that might carry a final result.
+                if any(key in event for key in ("payload", "credential", "error", "status")):
+                    raise WorkerError("Session Studio returned an unsupported event")
+                continue
+            # Keep the legacy, unwrapped JSON result contract. An active status
+            # or a null error alone does not establish that login has finished.
+            if "credential" in event or event.get("error") or str(event.get("status", "")).lower() in {
+                "ok", "success", "succeeded", "failed", "error", "auth_failed"
             }:
                 return event
         if time.monotonic() >= deadline:
@@ -1151,6 +1174,22 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     _best_effort_progress(api, task_id, "protocol_connecting")
     with tempfile.TemporaryDirectory(prefix="sub2api-reauth-") as temp_dir:
         output_path = Path(temp_dir) / "oauth.json"
+        diagnostic_path = Path(temp_dir) / "protocol-diagnostic.json"
+        if oauth_profile == "codex":
+            try:
+                from .openai_codex_oauth_adapter import prepare_codex_runtime, read_protocol_diagnostic, protocol_failure
+            except ImportError:
+                from openai_codex_oauth_adapter import prepare_codex_runtime, read_protocol_diagnostic, protocol_failure
+            try:
+                script = prepare_codex_runtime(root.resolve(), Path(temp_dir))
+            except ValueError:
+                raise WorkerError("unsupported_codex_runtime_layout") from None
+
+            def codex_diagnostic():
+                try:
+                    return read_protocol_diagnostic(diagnostic_path, task_id)
+                except ValueError:
+                    raise WorkerError(protocol_failure(None, 1, 0, "diagnostic_invalid")) from None
         if oauth_profile == "excel":
             try:
                 from .openai_excel_oauth_adapter import prepare_excel_runtime
@@ -1185,6 +1224,18 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             command.extend(("--proxy", proxy_url))
         child_env = os.environ.copy()
         child_env.pop("OPENAI_REAUTH_WORKER_TOKEN", None)
+        # Only this task selects the private side channel. Ambient paths and
+        # identity hints must never carry diagnostics into another task.
+        for key in ("SUB2API_PROTOCOL_DIAGNOSTIC_PATH", "SUB2API_PROTOCOL_TASK_ID", "OPENAI_CODEX_EXPECTED_WORKSPACE"):
+            child_env.pop(key, None)
+        if oauth_profile == "codex":
+            child_env["SUB2API_PROTOCOL_DIAGNOSTIC_PATH"] = str(diagnostic_path)
+            child_env["SUB2API_PROTOCOL_TASK_ID"] = str(task_id)
+            child_env["CHATGPT_PROXY_MAX_ATTEMPTS"] = "1"
+            for key in ("CHATGPT_BASE", "AUTH_BASE", "CHATGPT_PROXY_URL"):
+                child_env.pop(key, None)
+            if claim.get("expected_workspace"):
+                child_env["OPENAI_CODEX_EXPECTED_WORKSPACE"] = str(claim["expected_workspace"])
         if oauth_profile == "excel":
             # One bounded fixed-exit attempt. Never rotate proxies to retry a rejected login.
             child_env["CHATGPT_PROXY_MAX_ATTEMPTS"] = "1"
@@ -1208,35 +1259,43 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
             child_env["CHATGPT_TOTP_SECRET"] = totp_secret
         else:
             child_env.pop("CHATGPT_TOTP_SECRET", None)
+        protocol_started = time.monotonic()
         try:
             result = subprocess.run(
                 command,
                 cwd=temp_dir,
                 env=child_env,
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
+                # Codex diagnostics never depend on raw runner output. Other
+                # profiles retain their existing private classification path.
+                stdout=subprocess.DEVNULL if oauth_profile == "codex" else subprocess.PIPE,
+                stderr=subprocess.DEVNULL if oauth_profile == "codex" else subprocess.PIPE,
                 text=True,
                 timeout=10 * 60 if oauth_profile in {"excel", "siwc"} else 25 * 60,
                 check=False,
             )
         except subprocess.TimeoutExpired:
+            if oauth_profile == "codex":
+                raise WorkerError(protocol_failure(codex_diagnostic(), 1,
+                                  (time.monotonic() - protocol_started) * 1000, "timeout")) from None
             raise WorkerError("password/TOTP protocol timed out") from None
+        except OSError:
+            if oauth_profile == "codex":
+                raise WorkerError(protocol_failure(None, 1,
+                                  (time.monotonic() - protocol_started) * 1000, "runtime_error")) from None
+            raise WorkerError("password/TOTP protocol could not start") from None
+        diagnostic = codex_diagnostic() if oauth_profile == "codex" else None
+        if oauth_profile == "codex" and diagnostic and (result.returncode != 0 or diagnostic["reason"] != "none"):
+            raise WorkerError(protocol_failure(diagnostic, result.returncode,
+                              (time.monotonic() - protocol_started) * 1000))
         if oauth_profile == "excel" and callable(getattr(api, "private_protocol_diagnostics", None)):
             # Only the explicit isolated CLI implements this hook. The queue API
             # cannot select a path or persist raw external-runner output.
             api.private_protocol_diagnostics(result.stdout, result.stderr)
         if result.returncode != 0:
             if oauth_profile == "siwc":
-                combined = result.stdout + "\n" + result.stderr
-                if "PROTOCOL_WARMUP_FAILED" in combined:
-                    raise WorkerError("SIWC protocol warmup failed before password submission; credentials retained")
-                raise WorkerError(_siwc_password_failure(combined, result.returncode))
+                raise WorkerError(_siwc_password_failure(result.stdout + "\n" + result.stderr, result.returncode))
             # The external runner may echo unlabeled secrets that regexes cannot redact.
-            protocol_output = (result.stdout or "") + "\n" + (result.stderr or "")
-            if protocol_output_is_retired(protocol_output):
-                raise WorkerError(
-                    "account_retired: You do not have an account because it has been deleted or deactivated"
-                )
             if oauth_profile == "excel":
                 private_output = result.stdout + "\n" + result.stderr
                 stage = "web_login"
@@ -1245,7 +1304,7 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                                       ("Convert OAuth callback", "excel_token_exchange")):
                     if marker in private_output:
                         stage = label
-                reasons = [label for marker, label in (("PROTOCOL_WARMUP_FAILED", "warmup_failed"), ("security-check", "security_check"), ("PROXY_RISK_CONTROL", "security_check"),
+                reasons = [label for marker, label in (("security-check", "security_check"), ("PROXY_RISK_CONTROL", "security_check"),
                            ("EXCEL_ADDITIONAL_VERIFICATION_REQUIRED", "additional_verification"),
                            ("EXCEL_CALLBACK_STATE_MISMATCH", "callback_state_mismatch"),
                            ("EXCEL_EXPECTED_WORKSPACE_NOT_LISTED", "workspace_not_listed"),
@@ -1253,10 +1312,27 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
                            ("SESSION_SELECTION_INVALID", "session_selection"), ("CLIENT_ID", "client_id")) if marker in private_output]
                 reason = ",".join(sorted(set(reasons))) or "protocol_error"
                 raise WorkerError(f"Excel password/TOTP login failed (stage={stage}, reason={reason}, exit={result.returncode})")
+            private_output = (result.stdout or "") + "\n" + (result.stderr or "")
+            if proxy_url and any(marker in private_output.lower() for marker in (
+                "econnrefused", "connection refused", "proxy connect", "proxy error",
+                "could not connect", "connect etimedout", "socket hang up",
+            )):
+                raise WorkerError("proxy_unavailable")
+            if "Password was rejected" in private_output:
+                raise WorkerError("password_rejected")
+            if "2FA key was rejected" in private_output or "code generated from the configured 2FA key was rejected" in private_output:
+                raise WorkerError("totp_rejected")
             raise WorkerError(f"password/TOTP protocol failed (exit {result.returncode})")
         try:
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            with output_path.open("rb") as output:
+                raw_output = output.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw_output) > MAX_RESPONSE_BYTES:
+                raise ValueError
+            payload = json.loads(raw_output)
         except (OSError, UnicodeDecodeError, ValueError):
+            if oauth_profile == "codex":
+                raise WorkerError(protocol_failure(diagnostic, 0,
+                                  (time.monotonic() - protocol_started) * 1000, "output_invalid")) from None
             raise WorkerError("password/TOTP protocol did not produce valid OAuth credentials") from None
 
     if oauth_profile == "siwc":
@@ -1272,7 +1348,7 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     credentials = account.get("credentials") if isinstance(account, dict) else None
     extra = account.get("extra") if isinstance(account, dict) else None
     if not isinstance(credentials, dict) or not all(
-        str(credentials.get(key) or "").strip()
+        isinstance(credentials.get(key), str) and credentials[key].strip()
         for key in ("access_token", "refresh_token", "id_token")
     ):
         raise WorkerError("password/TOTP protocol returned incomplete OAuth credentials")
@@ -1290,30 +1366,6 @@ def process_password_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
     if not result or result.get("status") != "succeeded":
         raise WorkerError(str((result or {}).get("error") or "credentials were not accepted"))
     LOGGER.info("task=%s account=%s succeeded", task_id, account_id)
-
-
-def _extract_chatgpt_session_token(cookies: Any) -> str:
-    """Return the Web session cookie, joining NextAuth chunked cookies safely."""
-    base = ""
-    chunks: dict[int, str] = {}
-    prefix = CHATGPT_SESSION_COOKIE + "."
-    for cookie in cookies if isinstance(cookies, list) else []:
-        if not isinstance(cookie, dict):
-            continue
-        name = str(cookie.get("name") or "")
-        value = str(cookie.get("value") or "")
-        if name == CHATGPT_SESSION_COOKIE:
-            base = value
-        elif name.startswith(prefix):
-            suffix = name[len(prefix):]
-            if suffix.isdigit() and value:
-                chunks[int(suffix)] = value
-    if chunks:
-        indexes = sorted(chunks)
-        if indexes != list(range(indexes[-1] + 1)):
-            return ""
-        return "".join(chunks[index] for index in indexes)
-    return base
 
 
 def process_session_export_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
@@ -1352,6 +1404,10 @@ def process_session_export_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         _best_effort_session_progress(api, task_id, "mfa_submitted")
         session = WebSession(api.config, login_claim, totp_secret, login=lambda *_args: data)
         _best_effort_session_progress(api, task_id, "session_request")
+        # WebSession performs the authenticated GET /api/auth/session while
+        # constructing the cookie-backed client. Reuse that complete upstream
+        # JSON instead of issuing a second request and rebuilding a reduced
+        # three-field object.
         payload = getattr(session, "auth_session_payload", None)
         if not isinstance(payload, dict):
             raise WorkerError("ChatGPT returned an invalid Session")
@@ -1364,6 +1420,8 @@ def process_session_export_claim(api: WorkerAPI, claim: dict[str, Any]) -> None:
         session_token = _extract_chatgpt_session_token(data.get("cookies"))
         if not session_token:
             raise WorkerError("ChatGPT returned no session token")
+        # Keep upstream fields internally for identity and expiry checks. The
+        # API compacts the downloadable result to accessToken/sessionToken.
         payload = {**payload, "sessionToken": session_token}
         _best_effort_session_progress(api, task_id, "identity_verification")
         api.session_export_result(task_id, payload)
@@ -1391,7 +1449,7 @@ def session_export_error_code(exc: BaseException) -> str:
         return "session_token_missing"
     if "tosub2_root" in text or ("worker" in text and "required" in text):
         return "worker_offline"
-    if "proxy_unavailable" in text or ("proxy" in text and "unavailable" in text):
+    if "proxy_unavailable" in text or "proxy" in text and "unavailable" in text:
         return "proxy_unavailable"
     if "totp" in text or "verification_failed" in text or "2fa" in text or "mfa" in text:
         return "totp_rejected"
@@ -1472,12 +1530,6 @@ def terminate_worker(_signum: int, _frame: Any) -> None:
 
 
 def _worker_loop(config: WorkerConfig, stop: Any = None) -> None:
-    if hasattr(os, "setpgid"):
-        os.setpgid(0, 0)
-    _run_worker_loop(config, stop)
-
-
-def _run_worker_loop(config: WorkerConfig, stop: Any = None) -> None:
     signal.signal(signal.SIGTERM, terminate_worker)
     protocol = load_protocol(config.protocol_root) if config.protocol_root is not None else None
     api = WorkerAPI(config)
@@ -1516,13 +1568,6 @@ def reconcile_worker_pool(context: Any, children: dict, config: WorkerConfig, ta
             children[slot] = (child, stop)
 
 
-def signal_worker_group(child: Any, sig: int) -> None:
-    try:
-        os.killpg(child.pid, sig)
-    except ProcessLookupError:
-        child.terminate()
-
-
 def run_worker_pool(config: WorkerConfig) -> None:
     context = multiprocessing.get_context("fork" if sys.platform.startswith("linux") else "spawn")
     children = {}
@@ -1545,7 +1590,7 @@ def run_worker_pool(config: WorkerConfig) -> None:
     finally:
         for child, _stop in children.values():
             if child.is_alive():
-                signal_worker_group(child, signal.SIGTERM)
+                child.terminate()
         for child, _stop in children.values():
             child.join(timeout=5)
             if child.is_alive():
