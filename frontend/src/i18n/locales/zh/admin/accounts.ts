@@ -1074,6 +1074,24 @@ export default {
             failed: '重新登录失败'
           }
         },
+        manualBps: {
+          title: 'BPS 账户授权',
+          subtitle: '自动 BPS 登录卡在出口 IP 时，用当前浏览器完成 Excel 授权。结果只写入这个账号的 BPS 会话，不会替换现有 Codex 登录，也不需要邮箱密码。',
+          generate: '生成授权链接',
+          generating: '正在生成授权链接...',
+          open: '在浏览器中打开',
+          copy: '复制授权链接',
+          callback: '回调链接',
+          callbackPlaceholder: '粘贴 bps.openai.com 回调链接',
+          callbackHint: '登录后即使页面提示无法完成，也复制地址栏完整链接。授权码由服务器通过账号代理交换。',
+          complete: '完成 BPS 授权',
+          completing: '正在保存 BPS 授权...',
+          completed: 'BPS 授权已保存到这个账号',
+          invalidCallback: '请粘贴 bps.openai.com 的完整回调链接',
+          invalidAuthUrl: '授权链接不是官方 Excel 授权地址',
+          failed: 'BPS 授权失败',
+          retry: '这次授权已失效，请重新生成链接。'
+        },
         oauthPassthrough: '自动透传（仅替换认证）',
         excelBPS: 'Excel / BPS 协议',
         excelBPSOmitUnsupportedTools: '保持 BPS，省略不支持的托管工具',

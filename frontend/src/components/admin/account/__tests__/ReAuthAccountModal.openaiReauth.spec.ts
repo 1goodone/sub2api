@@ -26,4 +26,14 @@ describe('ReAuthAccountModal OpenAI protocol re-login', () => {
   it('keeps the automatic flow protocol-only', () => {
     expect(source).not.toMatch(/Roxy|Selenium|Playwright|WebDriver/)
   })
+
+  it('adds account-bound manual BPS authorization without replacing Codex credentials', () => {
+    expect(source).toContain('showManualBPS')
+    expect(source).toContain('beginExcelManualAuthorization')
+    expect(source).toContain('completeExcelManualAuthorization')
+    expect(source).toContain('extractExcelCallback')
+    expect(source).toContain("t('admin.accounts.openai.manualBps.title')")
+    expect(source).toContain('completeExcelManualAuthorization')
+    expect(source).not.toContain('applyOAuthCredentials(props.account.id, {\n        callback')
+  })
 })

@@ -188,6 +188,70 @@
         </p>
       </section>
 
+      <section
+        v-if="showManualBPS"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+            {{ t('admin.accounts.openai.manualBps.title') }}
+          </h3>
+          <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+            {{ t('admin.accounts.openai.manualBps.subtitle') }}
+          </p>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="manualBpsLoading"
+            @click="beginManualBPS"
+          >
+            {{ manualBpsLoading && !manualBpsSessionId ? t('admin.accounts.openai.manualBps.generating') : t('admin.accounts.openai.manualBps.generate') }}
+          </button>
+          <a
+            v-if="manualBpsAuthUrl"
+            class="btn btn-secondary"
+            :href="manualBpsAuthUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ t('admin.accounts.openai.manualBps.open') }}
+          </a>
+          <button
+            v-if="manualBpsAuthUrl"
+            type="button"
+            class="btn btn-secondary"
+            @click="copyManualBPSLink"
+          >
+            {{ t('admin.accounts.openai.manualBps.copy') }}
+          </button>
+        </div>
+        <label class="mt-3 block text-sm text-gray-700 dark:text-gray-300">
+          {{ t('admin.accounts.openai.manualBps.callback') }}
+          <textarea
+            v-model="manualBpsCallback"
+            class="input mt-1 w-full"
+            rows="3"
+            :placeholder="t('admin.accounts.openai.manualBps.callbackPlaceholder')"
+          />
+        </label>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.openai.manualBps.callbackHint') }}
+        </p>
+        <button
+          type="button"
+          class="btn btn-primary mt-3"
+          :disabled="manualBpsLoading || !manualBpsSessionId || !manualBpsCallback.trim()"
+          @click="completeManualBPS"
+        >
+          {{ manualBpsLoading && manualBpsSessionId ? t('admin.accounts.openai.manualBps.completing') : t('admin.accounts.openai.manualBps.complete') }}
+        </button>
+        <p v-if="manualBpsError" class="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+          {{ manualBpsError }}
+        </p>
+      </section>
+
       <!-- Add Method Selection (Claude only) -->
       <fieldset v-if="isAnthropic" class="border-0 p-0">
         <legend class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</legend>
@@ -347,6 +411,8 @@ import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
+import { useClipboard } from '@/composables/useClipboard'
+import { extractExcelCallback } from '@/utils/excelCallback'
 import type { Account } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -376,6 +442,8 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
+const EXCEL_OAUTH_CLIENT_ID = 'app_fnr0pYvVwwFDocDumLG3H2Bp'
 
 // OAuth composables
 const claudeOAuth = useAccountOAuth()
@@ -400,9 +468,23 @@ const openaiReauthError = ref('')
 let openaiReauthPollTimer: ReturnType<typeof setInterval> | null = null
 let openaiReauthRequestAccountID: number | null = null
 let openaiReauthStartedTaskID: number | null = null
+const manualBpsAuthUrl = ref('')
+const manualBpsSessionId = ref('')
+const manualBpsCallback = ref('')
+const manualBpsLoading = ref(false)
+const manualBpsError = ref('')
 
 // Computed - check platform
 const isOpenAI = computed(() => props.account?.platform === 'openai')
+const showManualBPS = computed(() => {
+  const account = props.account
+  if (!account || account.platform !== 'openai' || account.type !== 'oauth' || account.parent_account_id) return false
+  const credentials = (account.credentials || {}) as Record<string, unknown>
+  const clientID = String(credentials.client_id || '')
+  const plan = String(credentials.plan_type || '').trim().toLowerCase()
+  const mode = String(credentials.auth_mode || '')
+  return clientID !== EXCEL_OAUTH_CLIENT_ID && plan !== 'free' && mode !== 'personalAccessToken' && mode !== 'agentIdentity'
+})
 const isOpenAILike = computed(() => isOpenAI.value)
 const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
@@ -643,8 +725,75 @@ watch(
 )
 
 // Methods
+const resetManualBPS = () => {
+  manualBpsAuthUrl.value = ''
+  manualBpsSessionId.value = ''
+  manualBpsCallback.value = ''
+  manualBpsLoading.value = false
+  manualBpsError.value = ''
+}
+
+const isExcelAuthorizeURL = (raw: string) => {
+  try {
+    const url = new URL(raw)
+    return url.origin === 'https://auth.openai.com' &&
+      url.pathname === '/api/accounts/authorize' &&
+      url.searchParams.get('client_id') === EXCEL_OAUTH_CLIENT_ID
+  } catch {
+    return false
+  }
+}
+
+const beginManualBPS = async () => {
+  if (!props.account || manualBpsLoading.value) return
+  manualBpsLoading.value = true
+  manualBpsError.value = ''
+  try {
+    const result = await adminAPI.accounts.beginExcelManualAuthorization(props.account.id)
+    if (!isExcelAuthorizeURL(result.auth_url) || !result.session_id) {
+      manualBpsError.value = t('admin.accounts.openai.manualBps.invalidAuthUrl')
+      return
+    }
+    manualBpsCallback.value = ''
+    manualBpsAuthUrl.value = result.auth_url
+    manualBpsSessionId.value = result.session_id
+  } catch (error: unknown) {
+    manualBpsError.value = openAIReauthErrorMessage(error, t('admin.accounts.openai.manualBps.failed'))
+  } finally {
+    manualBpsLoading.value = false
+  }
+}
+
+const copyManualBPSLink = () => {
+  if (manualBpsAuthUrl.value) void copyToClipboard(manualBpsAuthUrl.value)
+}
+
+const completeManualBPS = async () => {
+  if (!props.account || !manualBpsSessionId.value || manualBpsLoading.value) return
+  const callback = extractExcelCallback(manualBpsCallback.value)
+  if (!callback) {
+    manualBpsError.value = t('admin.accounts.openai.manualBps.invalidCallback')
+    return
+  }
+  manualBpsLoading.value = true
+  manualBpsError.value = ''
+  try {
+    await adminAPI.accounts.completeExcelManualAuthorization(props.account.id, manualBpsSessionId.value, callback)
+    resetManualBPS()
+    appStore.showSuccess(t('admin.accounts.openai.manualBps.completed'))
+  } catch (error: unknown) {
+    manualBpsAuthUrl.value = ''
+    manualBpsSessionId.value = ''
+    manualBpsCallback.value = ''
+    manualBpsError.value = `${openAIReauthErrorMessage(error, t('admin.accounts.openai.manualBps.failed'))} ${t('admin.accounts.openai.manualBps.retry')}`
+  } finally {
+    manualBpsLoading.value = false
+  }
+}
+
 const resetState = () => {
   resetOpenAIReauthState()
+  resetManualBPS()
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
   claudeOAuth.resetState()

@@ -510,6 +510,27 @@ export async function startExcelOAuthReauth(id: number): Promise<OpenAIOAuthReau
   return data
 }
 
+export interface ExcelManualAuthorization {
+  auth_url: string
+  session_id: string
+}
+
+export async function beginExcelManualAuthorization(id: number): Promise<ExcelManualAuthorization> {
+  const { data } = await apiClient.post<ExcelManualAuthorization>(`/admin/accounts/${id}/excel/authorize`)
+  return data
+}
+
+export async function completeExcelManualAuthorization(
+  id: number,
+  sessionId: string,
+  callbackUrl: string
+): Promise<void> {
+  await apiClient.post(`/admin/accounts/${id}/excel/callback`, {
+    session_id: sessionId,
+    callback_url: callbackUrl,
+  })
+}
+
 export interface BPSLoginAccountResult {
   account_id: number
   task_id?: number
@@ -1650,6 +1671,8 @@ export const accountsAPI = {
   saveOpenAIOAuthReauthConfig,
   startOpenAIOAuthReauth,
   startExcelOAuthReauth,
+  beginExcelManualAuthorization,
+  completeExcelManualAuthorization,
   startBPSLogin,
   listBPSLoginStatuses,
   getStats,

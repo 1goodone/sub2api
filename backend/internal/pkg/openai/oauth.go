@@ -53,6 +53,10 @@ type OAuthSession struct {
 	SIWCHostID              string
 	SIWCPreviousGrant       string
 	SIWCExpectedCredentials map[string]any
+	// ExcelAccountID binds a manual BPS authorization to an existing account.
+	// A non-zero value must not be exchanged by the generic account-creation flow.
+	ExcelAccountID    int64
+	ExcelExpectedHash string
 
 	State        string    `json:"state"`
 	CodeVerifier string    `json:"code_verifier"`

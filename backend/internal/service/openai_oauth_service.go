@@ -163,6 +163,9 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 	if session.SIWCAccountID != 0 {
 		return nil, infraerrors.BadRequest("OPENAI_SIWC_BOUND_SESSION", "Complete SIWC authorization on the bound account")
 	}
+	if session.ExcelAccountID != 0 {
+		return nil, infraerrors.BadRequest("OPENAI_EXCEL_BOUND_SESSION", "Complete BPS authorization on the bound account")
+	}
 	if input.State == "" {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_STATE_REQUIRED", "oauth state is required")
 	}

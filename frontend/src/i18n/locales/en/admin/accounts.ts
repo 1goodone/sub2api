@@ -987,6 +987,24 @@ export default {
             failed: 'Re-login failed'
           }
         },
+        manualBps: {
+          title: 'BPS account authorization',
+          subtitle: 'When automatic BPS login is stuck on the egress IP, finish the Excel login in this browser. The result is stored as this account’s BPS session and does not replace the existing Codex login or require the mailbox password.',
+          generate: 'Generate authorization link',
+          generating: 'Generating authorization link...',
+          open: 'Open in browser',
+          copy: 'Copy authorization link',
+          callback: 'Callback URL',
+          callbackPlaceholder: 'Paste the bps.openai.com callback URL',
+          callbackHint: 'If the page says it cannot finish, copy the full address bar anyway. The server exchanges the code through the account proxy.',
+          complete: 'Complete BPS authorization',
+          completing: 'Saving BPS authorization...',
+          completed: 'BPS authorization saved on this account',
+          invalidCallback: 'Paste the full bps.openai.com callback URL',
+          invalidAuthUrl: 'The authorization link is not the official Excel authorization URL',
+          failed: 'BPS authorization failed',
+          retry: 'This authorization is no longer valid. Generate a new link.'
+        },
         oauthPassthrough: 'Auto passthrough (auth only)',
         excelBPS: 'Excel / BPS protocol',
         excelBPSOmitUnsupportedTools: 'Keep BPS and omit unsupported hosted tools',

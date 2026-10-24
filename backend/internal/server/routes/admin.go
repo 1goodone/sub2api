@@ -433,6 +433,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 			accounts.PUT("/:id/siwc/enabled", h.Admin.OpenAIOAuthReauth.SetSIWCEnabled)
 			accounts.POST("/:id/siwc/authorize", h.Admin.OpenAIOAuthReauth.BeginSIWC)
 			accounts.POST("/:id/siwc/callback", h.Admin.OpenAIOAuthReauth.CompleteSIWC)
+			accounts.POST("/:id/excel/authorize", h.Admin.OpenAIOAuthReauth.BeginExcelManual)
+			accounts.POST("/:id/excel/callback", h.Admin.OpenAIOAuthReauth.CompleteExcelManual)
 			accounts.GET("/:id/totp-rotation", h.Admin.OpenAIOAuthReauth.RotationStatus)
 			accounts.POST("/:id/totp-rotation", h.Admin.OpenAIOAuthReauth.RotateTOTP)
 			accounts.POST("/:id/totp-rotation/verify", h.Admin.OpenAIOAuthReauth.RetryTOTP)

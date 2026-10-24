@@ -73,6 +73,46 @@ func (r *openAIOAuthReauthRepository) ApplyExcelCredentials(ctx context.Context,
 	return true, tx.Commit()
 }
 
+// SaveManualExcelCredentials upserts a browser-completed BPS grant without a worker task.
+// The account row is locked and the Codex credential snapshot must still match.
+// Account status and the Codex credential columns are not changed.
+func (r *openAIOAuthReauthRepository) SaveManualExcelCredentials(ctx context.Context, id int64, expected map[string]any, ciphertext string, diagnosis ...service.ExcelBPSCredentialState) (bool, error) {
+	raw, err := json.Marshal(expected)
+	if err != nil {
+		return false, err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var locked int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM accounts
+ WHERE id=$1 AND deleted_at IS NULL AND platform='openai' AND type='oauth' AND parent_account_id IS NULL
+ AND COALESCE(lower(trim(credentials->>'plan_type')),'') <> 'free'
+ AND COALESCE(credentials->>'client_id','') <> 'app_fnr0pYvVwwFDocDumLG3H2Bp'
+ AND COALESCE(credentials->>'auth_mode','') NOT IN ('personalAccessToken','agentIdentity')
+ AND credentials=$2::jsonb
+ FOR UPDATE`, id, string(raw)).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO openai_excel_oauth_credentials(account_id,credentials_ciphertext)
+ VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET credentials_ciphertext=EXCLUDED.credentials_ciphertext,updated_at=NOW()`, locked, ciphertext); err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE accounts SET extra=COALESCE(extra,'{}'::jsonb)-'openai_excel_bps_authorization_pending' WHERE id=$1`, locked); err != nil {
+		return false, err
+	}
+	if err = writeExcelGrantDiagnosis(ctx, tx, locked, diagnosis); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
 func (r *openAIOAuthReauthRepository) ReplaceExcelCredentials(ctx context.Context, id int64, expected, replacement string, diagnosis ...service.ExcelBPSCredentialState) (bool, error) {
 	return r.mutateExcelGrant(ctx, id, expected, replacement, false, diagnosis)
 }
