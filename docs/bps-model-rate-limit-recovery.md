@@ -1,15 +1,15 @@
 # BPS model rate-limit recovery
 
-This policy is enabled by **System settings → Gateway service → Excel BPS error recovery** (`excel_bps_recovery_enabled`). It applies to BPS Responses forwarding; it does not change native Codex/OpenAI retry policy or silently choose another model or protocol. Turning the switch off makes new requests ignore this policy's model backoffs. In-flight requests retain their existing switch snapshot.
+This policy is enabled by **System settings → Gateway service → Excel BPS error recovery** (`excel_bps_recovery_enabled`). It applies to BPS Responses forwarding; it does not change native Codex/OpenAI retry policy or silently choose another model or protocol. Turning the switch off makes new requests ignore this policy's model restrictions and stops them creating new one-day restrictions. Turning it back on resumes any unexpired restrictions still held by the process. In-flight requests retain their existing switch snapshot.
 
-## Model backoff
+## One-day model restriction
 
 - Ordinary BPS HTTP 429 and in-stream rate-limit errors cool down the selected **account + mapped upstream model**. Other BPS models on the same account remain eligible.
-- With no valid upstream timing hint, consecutive failures wait **30, 60, 120, 240, then 300 seconds**. A configured general 429 cooldown longer than 30 seconds remains a floor, with the backoff cap at least that floor.
-- Valid structured `resets_at`, `resets_in_seconds`, or `Retry-After` take precedence over the fallback. Upstream-directed waits are bounded at two hours; an existing longer deadline is never shortened by a concurrent response.
-- A fully completed BPS response resets that model's streak. An older in-flight success cannot erase a newer failure. Streaks expire after 15 idle minutes beyond the last cooldown deadline.
+- A model rate limit restricts that account/model for **24 hours from the latest failure**, not until calendar midnight. Each additional in-flight rate-limit failure renews the full day; a concurrent response cannot shorten an existing later deadline. The model becomes eligible automatically when the deadline expires.
+- Upstream reset times, `Retry-After`, and the general 429 cooldown setting do not change this fixed one-day policy. Safe numeric body reset hints remain available in diagnostics only; no duration arithmetic is performed on untrusted hint values.
+- A successful response cannot clear an active restriction, even if it completes after the limit was observed. Only a successful business attempt started after expiry clears the old streak. Observation-only requests cannot clear business state. Streaks expire after 15 idle minutes beyond the last cooldown deadline.
 - Explicit account-wide HTTP quota exhaustion retains the existing quota handling. A generic `rate_limit_exceeded` body with a reset time alone does not prove account-wide exhaustion.
-- These temporary model backoffs are process-local. Restarting a process clears them; separate replicas maintain independent backoffs. They do not pause accounts or change stored model permissions.
+- These temporary model restrictions are process-local. Restarting a process clears them; separate replicas maintain independent restrictions. They do not pause accounts or change stored model permissions.
 
 ## Bounded recovery
 
@@ -21,9 +21,9 @@ Main-request failures before client output and image-history compaction failures
 
 Search backend system logs for:
 
-- `openai.excel_bps_model_rate_limited`: account, mapped model, scope, original HTTP status, safe error code, cooldown source/deadline/seconds, and consecutive failure count.
+- `openai.excel_bps_model_rate_limited`: account, mapped model, scope, original HTTP status, safe error code, cooldown source (`model_limit_24h`)/deadline/seconds, consecutive failure count, and safe numeric body reset hints when supplied.
 - `openai.excel_bps_rate_limit_retry_exhausted`: locked model, distinct limited-account count, and account limit.
 
 Request logger context is preserved where available. Original upstream messages, request content, and credentials are not included. Structured reset metadata travels through an internal observer before stream normalization and is not exposed in client error payloads. For in-stream failures, HTTP status may be 200 while the semantic failure is 429.
 
-The three-account budget is independent of the usage-policy 403 failure counter. Neither this counter nor model backoff can restore upstream capacity or guarantee a successful response when all eligible accounts are limited.
+The three-account budget is independent of the usage-policy 403 failure counter. Neither this counter nor the model restriction can restore upstream capacity or guarantee a successful response when all eligible accounts are limited.

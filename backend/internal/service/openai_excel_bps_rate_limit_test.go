@@ -32,7 +32,11 @@ func TestBPSModelRateLimitIsolationAndSwitch(t *testing.T) {
 	other := *a
 	other.ID++
 	require.False(t, s.isExcelBPSCoolingDown(on, &other, "alias"))
-	require.False(t, s.isExcelBPSCoolingDown(off, a, "alias"), "turning recovery off ignores its model backoff")
+	require.False(t, s.isExcelBPSCoolingDown(off, a, "alias"), "turning recovery off ignores its one-day model restriction")
+	require.True(t, s.isExcelBPSCoolingDown(on, a, "alias"), "turning recovery back on respects the unexpired restriction")
+	s.coolDownExcelBPSAttempt(off, &other, "gpt-6.1-sol", nil, nil, nil, 429)
+	_, exists := s.excelBPSModelRateLimits.Load(excelBPSRateLimitKey{other.ID, "gpt-6.1-sol"})
+	require.False(t, exists, "switch-off requests must not create one-day model restrictions")
 	native := context.WithValue(on, excelBPSSchedulingKey{}, false)
 	require.False(t, s.isExcelBPSCoolingDown(native, a, "alias"))
 	require.False(t, s.isOpenAIAccountRuntimeBlocked(a))
@@ -41,25 +45,33 @@ func TestBPSModelRateLimitIsolationAndSwitch(t *testing.T) {
 	require.False(t, s.isExcelBPSCoolingDown(on, a, "alias"))
 }
 
-func TestBPSModelRateLimitBackoffAndSuccess(t *testing.T) {
+func TestBPSModelRateLimitOneDayAndSuccess(t *testing.T) {
 	s := &OpenAIGatewayService{}
 	a := excelAccount()
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	model := "gpt-6.1-sol"
-	for n, seconds := range []int{30, 60, 120, 240, 300, 300} {
+	for n := 0; n < 6; n++ {
 		before := time.Now()
 		s.coolDownExcelBPSAttempt(ctx, a, model, nil, nil, nil, 429)
 		state := bpsRateLimitState(t, s, a, model)
 		require.Equal(t, n+1, state.failures)
-		require.WithinDuration(t, before.Add(time.Duration(seconds)*time.Second), state.until, time.Second)
+		require.WithinDuration(t, before.Add(24*time.Hour), state.until, time.Second)
 	}
-	s.resetExcelBPSModelRateLimit(a, model, time.Now().Add(-time.Hour))
-	require.Equal(t, 6, bpsRateLimitState(t, s, a, model).failures, "old in-flight success cannot clear a newer failure")
+	original := bpsRateLimitState(t, s, a, model)
+	for _, started := range []time.Time{time.Now().Add(-time.Hour), time.Now()} {
+		s.resetExcelBPSModelRateLimit(a, model, started)
+		require.Equal(t, original, bpsRateLimitState(t, s, a, model), "success must not lift an active one-day restriction")
+	}
+	key := excelBPSRateLimitKey{a.ID, model}
+	expired := original
+	expired.until = time.Now().Add(-time.Second)
+	s.excelBPSModelRateLimits.Store(key, expired)
+	require.False(t, s.isExcelBPSCoolingDown(ctx, a, model), "the model is eligible after the restriction expires")
 	s.resetExcelBPSModelRateLimit(a, model, time.Now())
-	require.False(t, s.isExcelBPSCoolingDown(ctx, a, model))
+	_, exists := s.excelBPSModelRateLimits.Load(key)
+	require.False(t, exists, "a post-expiry success clears the old streak")
 	s.coolDownExcelBPSAttempt(ctx, a, model, nil, nil, nil, 429)
 	require.Equal(t, 1, bpsRateLimitState(t, s, a, model).failures)
-	key := excelBPSRateLimitKey{a.ID, model}
 	old := bpsRateLimitState(t, s, a, model)
 	old.until = time.Now().Add(-excelBPSRateLimitStreakTTL - time.Minute)
 	s.excelBPSModelRateLimits.Store(key, old)
@@ -67,21 +79,21 @@ func TestBPSModelRateLimitBackoffAndSuccess(t *testing.T) {
 	require.Equal(t, 1, bpsRateLimitState(t, s, a, model).failures)
 }
 
-func TestBPSModelRateLimitHintsAndBounds(t *testing.T) {
+func TestBPSModelRateLimitHintsDoNotChangeOneDay(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		hint    *basispoints.RateLimitHint
 		headers http.Header
-		seconds int
-		source  string
 	}{
-		{"body seconds", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, nil, 120, "upstream_reset_after"},
-		{"body absolute", &basispoints.RateLimitHint{ResetAtUnix: time.Now().Unix() + 180}, nil, 180, "upstream_reset_at"},
-		{"retry after", nil, http.Header{"Retry-After": []string{"90"}}, 90, "retry_after"},
-		{"expired", &basispoints.RateLimitHint{ResetAtUnix: 1}, nil, 30, "exponential_backoff"},
-		{"body longer than header", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, http.Header{"Retry-After": []string{"90"}}, 120, "upstream_reset_after"},
-		{"header longer than body", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, http.Header{"Retry-After": []string{"180"}}, 180, "retry_after"},
-		{"bounded", &basispoints.RateLimitHint{ResetAfterSeconds: 9223372036854775807}, nil, 7200, "upstream_reset_after"},
+		{"no hint", nil, nil},
+		{"body seconds", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, nil},
+		{"body absolute", &basispoints.RateLimitHint{ResetAtUnix: time.Now().Unix() + 180}, nil},
+		{"retry after", nil, http.Header{"Retry-After": []string{"90"}}},
+		{"expired", &basispoints.RateLimitHint{ResetAtUnix: 1}, nil},
+		{"body longer than header", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, http.Header{"Retry-After": []string{"90"}}},
+		{"header longer than body", &basispoints.RateLimitHint{ResetAfterSeconds: 120}, http.Header{"Retry-After": []string{"180"}}},
+		{"oversized body", &basispoints.RateLimitHint{ResetAfterSeconds: 9223372036854775807}, nil},
+		{"oversized header", nil, http.Header{"Retry-After": []string{"9223372036854775807"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &OpenAIGatewayService{}
@@ -90,11 +102,31 @@ func TestBPSModelRateLimitHintsAndBounds(t *testing.T) {
 			before := time.Now()
 			s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", tc.headers, nil, &basispoints.UpstreamFailure{Status: 429, Code: "rate_limit_exceeded", RateLimit: tc.hint}, 200)
 			state := bpsRateLimitState(t, s, a, "gpt-6.1-sol")
-			require.Equal(t, tc.source, state.source)
-			require.WithinDuration(t, before.Add(time.Duration(tc.seconds)*time.Second), state.until, 2*time.Second)
+			require.Equal(t, "model_limit_24h", state.source)
+			require.WithinDuration(t, before.Add(24*time.Hour), state.until, 2*time.Second)
 			s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", http.Header{"Retry-After": []string{"1"}}, nil, &basispoints.UpstreamFailure{Status: 429}, 200)
 			require.False(t, bpsRateLimitState(t, s, a, "gpt-6.1-sol").until.Before(state.until))
 		})
+	}
+}
+
+func TestBPSModelRateLimitRepeatedFailureRestartsDay(t *testing.T) {
+	s := &OpenAIGatewayService{}
+	a := excelAccount()
+	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
+	key := excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}
+	for _, remaining := range []time.Duration{time.Hour, 48 * time.Hour} {
+		previous := excelBPSRateLimitState{until: time.Now().Add(remaining), lastFailure: time.Now().Add(-time.Hour), failures: 1, source: "model_limit_24h"}
+		s.excelBPSModelRateLimits.Store(key, previous)
+		before := time.Now()
+		s.coolDownExcelBPSAttempt(ctx, a, key.model, nil, nil, nil, 429)
+		state := bpsRateLimitState(t, s, a, key.model)
+		require.False(t, state.until.Before(previous.until), "a concurrent failure cannot shorten an existing deadline")
+		if remaining < 24*time.Hour {
+			require.WithinDuration(t, before.Add(24*time.Hour), state.until, time.Second)
+		} else {
+			require.Equal(t, previous.until, state.until)
+		}
 	}
 }
 
@@ -153,8 +185,8 @@ func TestBPSRateLimitSSETimingReachesGateway(t *testing.T) {
 		require.True(t, failure.ShouldRetryNextAccount())
 		require.Empty(t, rec.Body.String())
 		state := bpsRateLimitState(t, svc, a, "gpt-6.1-sol")
-		require.Equal(t, "upstream_reset_after", state.source)
-		require.WithinDuration(t, time.Now().Add(120*time.Second), state.until, 2*time.Second)
+		require.Equal(t, "model_limit_24h", state.source)
+		require.WithinDuration(t, time.Now().Add(24*time.Hour), state.until, 2*time.Second)
 		require.False(t, svc.isExcelBPSRateLimited(a, "gpt-6-astra"))
 		require.False(t, svc.isOpenAIAccountRuntimeBlocked(a))
 	}

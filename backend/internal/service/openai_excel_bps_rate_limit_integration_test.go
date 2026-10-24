@@ -54,7 +54,7 @@ func TestBPSRateLimitHTTPResetRemainsModelScoped(t *testing.T) {
 	a := excelAccount()
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", nil, []byte(`{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded","resets_in_seconds":120}}`), nil, 429)
-	require.Equal(t, "upstream_reset_after", bpsRateLimitState(t, s, a, "gpt-6.1-sol").source)
+	require.Equal(t, "model_limit_24h", bpsRateLimitState(t, s, a, "gpt-6.1-sol").source)
 	require.False(t, s.isExcelBPSRateLimited(a, "gpt-6-astra"))
 	require.False(t, s.isOpenAIAccountRuntimeBlocked(a))
 }
@@ -71,8 +71,9 @@ func TestBPSRateLimitLogsAreStructuredAndCorrelated(t *testing.T) {
 	require.Equal(t, "request_fixture", fields["request_id"])
 	require.Equal(t, "bps_account_model", fields["scope"])
 	require.Equal(t, int64(429), fields["upstream_http_status"])
-	require.Equal(t, int64(90), fields["cooldown_seconds"])
-	require.Equal(t, "upstream_reset_after", fields["cooldown_source"])
+	require.Equal(t, int64(86400), fields["cooldown_seconds"])
+	require.Equal(t, "model_limit_24h", fields["cooldown_source"])
+	require.Equal(t, int64(90), fields["upstream_reset_after_seconds"])
 	require.Equal(t, int64(1), fields["consecutive_failures"])
 	require.NotContains(t, fmt.Sprint(fields), "PRIVATE_REQUEST_OR_TOKEN")
 }
@@ -82,29 +83,35 @@ func TestBPSRateLimitOlderFailurePreservesNewerTimestamp(t *testing.T) {
 	a := excelAccount()
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	later := time.Now().Add(time.Second)
-	s.excelBPSModelRateLimits.Store(excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}, excelBPSRateLimitState{until: later.Add(time.Minute), lastFailure: later, failures: 1, source: "exponential_backoff"})
+	s.excelBPSModelRateLimits.Store(excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}, excelBPSRateLimitState{until: later.Add(time.Minute), lastFailure: later, failures: 1, source: "model_limit_24h"})
 	s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", nil, nil, nil, 429)
 	require.Equal(t, later, bpsRateLimitState(t, s, a, "gpt-6.1-sol").lastFailure)
 }
 
-func TestBPSRateLimitCompletedResponseResetsStreak(t *testing.T) {
-	for _, observation := range []bool{false, true} {
-		upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(200, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ok\",\"status\":\"completed\",\"model\":\"gpt-6.1-sol\",\"output\":[]}}\n\n")}
-		s := openAIExcelBPSRecoveryTestService(upstream)
-		a := excelAccount()
-		key := excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}
-		s.excelBPSModelRateLimits.Store(key, excelBPSRateLimitState{until: time.Now().Add(-time.Second), lastFailure: time.Now().Add(-time.Minute), failures: 3})
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-		ctx := context.Background()
-		if observation {
-			ctx = withPelicanTestOptions(ctx, pelicanTestOptions{observeOnly: true})
+func TestBPSRateLimitCompletedResponseRespectsOneDay(t *testing.T) {
+	for _, active := range []bool{false, true} {
+		for _, observation := range []bool{false, true} {
+			upstream := &httpUpstreamRecorder{resp: bpsCompletionResponse(200, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ok\",\"status\":\"completed\",\"model\":\"gpt-6.1-sol\",\"output\":[]}}\n\n")}
+			s := openAIExcelBPSRecoveryTestService(upstream)
+			a := excelAccount()
+			key := excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}
+			until := time.Now().Add(-time.Second)
+			if active {
+				until = time.Now().Add(24 * time.Hour)
+			}
+			s.excelBPSModelRateLimits.Store(key, excelBPSRateLimitState{until: until, lastFailure: time.Now().Add(-time.Minute), failures: 3})
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			ctx := context.Background()
+			if observation {
+				ctx = withPelicanTestOptions(ctx, pelicanTestOptions{observeOnly: true})
+			}
+			_, err := s.Forward(ctx, c, a, []byte(`{"model":"gpt-6.1-sol","input":"hello","stream":true}`))
+			require.NoError(t, err)
+			_, exists := s.excelBPSModelRateLimits.Load(key)
+			require.Equal(t, active || observation, exists, "success cannot lift an active restriction, and observation cannot clear business failure state")
 		}
-		_, err := s.Forward(ctx, c, a, []byte(`{"model":"gpt-6.1-sol","input":"hello","stream":true}`))
-		require.NoError(t, err)
-		_, exists := s.excelBPSModelRateLimits.Load(key)
-		require.Equal(t, observation, exists, "observation must not clear a business failure streak")
 	}
 }
 
@@ -126,7 +133,7 @@ func TestBPSRateLimitToolCorrectionDoesNotReplayAcceptedGeneration(t *testing.T)
 		require.NotErrorAs(t, err, &failover)
 		require.Len(t, upstream.requests, 2)
 		require.NotContains(t, rec.Body.String(), "PRIVATE")
-		require.Equal(t, "upstream_reset_after", bpsRateLimitState(t, s, a, "gpt-5.6-sol").source)
+		require.Equal(t, "model_limit_24h", bpsRateLimitState(t, s, a, "gpt-5.6-sol").source)
 		require.False(t, s.isOpenAIAccountRuntimeBlocked(a))
 	}
 }

@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	excelBPSRateLimitBase        = 30 * time.Second
-	excelBPSRateLimitBackoffCap  = 5 * time.Minute
-	excelBPSRateLimitStreakTTL   = 15 * time.Minute
-	excelBPSRateLimitMaxAccounts = 3
+	excelBPSModelRateLimitDuration = 24 * time.Hour
+	excelBPSRateLimitStreakTTL     = 15 * time.Minute
+	excelBPSRateLimitMaxAccounts   = 3
 )
 
 type excelBPSRateLimitKey struct {
@@ -31,7 +30,7 @@ type excelBPSRateLimitState struct {
 }
 
 // Ordinary BPS 429s do not establish that the primary Codex grant is exhausted.
-// Keep the opt-in backoff scoped to the actual BPS model. Explicit HTTP account
+// Keep the opt-in one-day restriction scoped to the actual BPS model. Explicit HTTP account
 // quota signals retain the existing account-wide handling.
 func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, account *Account, model string, headers http.Header, raw []byte, failure *basispoints.UpstreamFailure, httpStatus int) {
 	if s == nil || account == nil || isQualityObservation(ctx) || isControlledExperiment(ctx) {
@@ -54,14 +53,6 @@ func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, acco
 		}
 	}
 	now := time.Now()
-	base := excelBPSRateLimitBase
-	if s.rateLimitService != nil {
-		if configured, enabled := s.rateLimitService.get429FallbackCooldown(ctx, account); enabled {
-			if configured > base {
-				base = configured
-			}
-		}
-	}
 	hint := basispoints.ParseRateLimitHint(raw)
 	code := "basispoints_rate_limited"
 	switch upstreamCode := gjson.GetBytes(raw, "error.code").String(); upstreamCode {
@@ -83,38 +74,10 @@ func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, acco
 		if loaded && now.Before(previous.until.Add(excelBPSRateLimitStreakTTL)) {
 			failures = min(previous.failures+1, 16)
 		}
-		delay := base
-		capDelay := base
-		if capDelay < excelBPSRateLimitBackoffCap {
-			capDelay = excelBPSRateLimitBackoffCap
-		}
-		for n := 1; n < failures && delay < capDelay; n++ {
-			delay = min(delay*2, capDelay)
-		}
-		source := "exponential_backoff"
-		hasHint := false
-		maxDelay := time.Duration(maxRateLimit429CooldownSeconds) * time.Second
-		if hint != nil {
-			if hint.ResetAfterSeconds > 0 {
-				delay = time.Duration(min(hint.ResetAfterSeconds, int64(maxRateLimit429CooldownSeconds))) * time.Second
-				source = "upstream_reset_after"
-				hasHint = true
-			}
-			if hint.ResetAtUnix > now.Unix() {
-				absoluteDelay := time.Duration(min(hint.ResetAtUnix-now.Unix(), int64(maxRateLimit429CooldownSeconds))) * time.Second
-				if !hasHint || absoluteDelay > delay {
-					delay, source = absoluteDelay, "upstream_reset_at"
-				}
-				hasHint = true
-			}
-		}
-		if reset := parseRetryAfterResetTime(headers, now); reset != nil && reset.After(now) {
-			headerDelay := min(reset.Sub(now), maxDelay)
-			if !hasHint || headerDelay > delay {
-				delay, source = headerDelay, "retry_after"
-			}
-		}
-		until := now.Add(min(delay, maxDelay))
+		// A model limit blocks this account/model for a full day from the latest
+		// failure. Upstream reset hints are diagnostic only for this opt-in policy.
+		source := "model_limit_24h"
+		until := now.Add(excelBPSModelRateLimitDuration)
 		if previous.until.After(until) {
 			until, source = previous.until, previous.source
 		}
@@ -142,18 +105,24 @@ func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, acco
 			return true
 		})
 	}
-	logger.FromContext(ctx).Warn("openai.excel_bps_model_rate_limited",
+	fields := []zap.Field{
 		zap.String("component", "service.openai_excel_bps"), zap.Int64("account_id", account.ID), zap.String("model", model),
 		zap.String("scope", "bps_account_model"), zap.Int("upstream_http_status", httpStatus), zap.String("upstream_error_code", code),
-		zap.String("cooldown_source", stored.source), zap.Time("cooldown_until", stored.until), zap.Int64("cooldown_seconds", int64((stored.until.Sub(now)+time.Second-1)/time.Second)), zap.Int("consecutive_failures", stored.failures))
+		zap.String("cooldown_source", stored.source), zap.Time("cooldown_until", stored.until), zap.Int64("cooldown_seconds", int64((stored.until.Sub(now)+time.Second-1)/time.Second)), zap.Int("consecutive_failures", stored.failures),
+	}
+	if hint != nil {
+		fields = append(fields, zap.Int64("upstream_reset_after_seconds", hint.ResetAfterSeconds), zap.Int64("upstream_reset_at_unix", hint.ResetAtUnix))
+	}
+	logger.FromContext(ctx).Warn("openai.excel_bps_model_rate_limited", fields...)
 }
 
 func (s *OpenAIGatewayService) resetExcelBPSModelRateLimit(account *Account, upstreamModel string, attemptStarted time.Time) {
 	key := excelBPSRateLimitKey{account.ID, upstreamModel}
 	if value, ok := s.excelBPSModelRateLimits.Load(key); ok {
 		state := value.(excelBPSRateLimitState)
-		// An older concurrent success must not erase a newer failed attempt.
-		if !state.lastFailure.After(attemptStarted) {
+		// A successful response (including one already in flight) cannot lift an
+		// active one-day restriction. Only a post-expiry attempt can clear it.
+		if !state.until.After(attemptStarted) && !state.lastFailure.After(attemptStarted) {
 			s.excelBPSModelRateLimits.CompareAndDelete(key, value)
 		}
 	}

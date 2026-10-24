@@ -46,7 +46,7 @@ func TestBPSFailureTimingIsInternalOnly(t *testing.T) {
 			var observed atomic.Pointer[UpstreamFailure]
 			ctx := WithUpstreamFailureObserver(context.Background(), func(f *UpstreamFailure) { observed.Store(f) })
 			reader := bridge.StreamWithRepairs(ctx, io.NopCloser(strings.NewReader(sse(payload))), nil, nil)
-			defer reader.Close()
+			t.Cleanup(func() { require.NoError(t, reader.Close()) })
 			raw, err := io.ReadAll(reader)
 			require.NoError(t, err)
 			f := observed.Load()

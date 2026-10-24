@@ -1138,7 +1138,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 							s.coolDownExcelBPSModel(account, model)
 						}
 					}
-					if canRecover() && excelBPSFailureCanRecover(upstreamFailure) && !(upstreamFailure.Status == http.StatusTooManyRequests && repairStarted.Load()) {
+					if canRecover() && excelBPSFailureCanRecover(upstreamFailure) && (upstreamFailure.Status != http.StatusTooManyRequests || !repairStarted.Load()) {
 						return recoverAttempt(upstreamFailure.Status, upstreamFailure.Code, upstreamFailure.Status >= 500)
 					}
 				}
