@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	excelBPSModelRateLimitDuration = 24 * time.Hour
-	excelBPSRateLimitStreakTTL     = 15 * time.Minute
-	excelBPSRateLimitMaxAccounts   = 3
+	excelBPSRateLimitStreakTTL   = 15 * time.Minute
+	excelBPSRateLimitMaxAccounts = 3
 )
 
 type excelBPSRateLimitKey struct {
@@ -30,7 +29,7 @@ type excelBPSRateLimitState struct {
 }
 
 // Ordinary BPS 429s do not establish that the primary Codex grant is exhausted.
-// Keep the opt-in one-day restriction scoped to the actual BPS model. Explicit HTTP account
+// Keep the opt-in configurable restriction scoped to the actual BPS model. Explicit HTTP account
 // quota signals retain the existing account-wide handling.
 func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, account *Account, model string, headers http.Header, raw []byte, failure *basispoints.UpstreamFailure, httpStatus int) {
 	if s == nil || account == nil || isQualityObservation(ctx) || isControlledExperiment(ctx) {
@@ -52,6 +51,7 @@ func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, acco
 			return
 		}
 	}
+	cooldown := s.settingService.GetExcelBPSModelRateLimitCooldown(ctx)
 	now := time.Now()
 	hint := basispoints.ParseRateLimitHint(raw)
 	code := "basispoints_rate_limited"
@@ -74,10 +74,10 @@ func (s *OpenAIGatewayService) coolDownExcelBPSAttempt(ctx context.Context, acco
 		if loaded && now.Before(previous.until.Add(excelBPSRateLimitStreakTTL)) {
 			failures = min(previous.failures+1, 16)
 		}
-		// A model limit blocks this account/model for a full day from the latest
+		// A model limit blocks this account/model for the configured duration from the latest
 		// failure. Upstream reset hints are diagnostic only for this opt-in policy.
-		source := "model_limit_24h"
-		until := now.Add(excelBPSModelRateLimitDuration)
+		source := "model_limit_cooldown"
+		until := now.Add(cooldown)
 		if previous.until.After(until) {
 			until, source = previous.until, previous.source
 		}
@@ -121,7 +121,7 @@ func (s *OpenAIGatewayService) resetExcelBPSModelRateLimit(account *Account, ups
 	if value, ok := s.excelBPSModelRateLimits.Load(key); ok {
 		state := value.(excelBPSRateLimitState)
 		// A successful response (including one already in flight) cannot lift an
-		// active one-day restriction. Only a post-expiry attempt can clear it.
+		// active model restriction. Only a post-expiry attempt can clear it.
 		if !state.until.After(attemptStarted) && !state.lastFailure.After(attemptStarted) {
 			s.excelBPSModelRateLimits.CompareAndDelete(key, value)
 		}

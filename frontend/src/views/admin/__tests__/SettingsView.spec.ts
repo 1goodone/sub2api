@@ -423,6 +423,7 @@ const baseSettingsResponse = {
   compact_home_enabled: false,
   excel_bps_enabled: true,
   excel_bps_recovery_enabled: false,
+  excel_bps_model_rate_limit_cooldown_minutes: 1440,
   excel_bps_image_mode: 'relay',
   excel_bps_image_relay_enabled: false,
   excel_bps_image_base_url: '',
@@ -1112,6 +1113,44 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_recovery_enabled: !enabled });
     expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it.each([false, true])("loads and saves BPS model cooldown while recovery is %s", async (enabled) => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_recovery_enabled: enabled, excel_bps_model_rate_limit_cooldown_minutes: 180 });
+    const wrapper = mountView(document.body);
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const input = wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes');
+    expect((input.element as HTMLInputElement).value).toBe('180');
+    expect(input.attributes('min')).toBe('1');
+    expect(input.attributes('max')).toBe('43200');
+    await input.setValue('30');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_recovery_enabled: enabled, excel_bps_model_rate_limit_cooldown_minutes: 30 });
+    expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("defaults BPS model cooldown to one day when older servers omit it", async () => {
+    const settings: Partial<typeof baseSettingsResponse> = { ...baseSettingsResponse };
+    delete settings.excel_bps_model_rate_limit_cooldown_minutes;
+    getSettings.mockResolvedValueOnce(settings);
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes').element as HTMLInputElement).value).toBe('1440');
+    wrapper.unmount();
+  });
+
+  it.each(['0', '-1', '43201', '1.5', ''])("rejects invalid BPS model cooldown %s before saving", async (value) => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes').setValue(value);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalled();
     wrapper.unmount();
   });
 

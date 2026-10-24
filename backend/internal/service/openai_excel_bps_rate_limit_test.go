@@ -102,7 +102,7 @@ func TestBPSModelRateLimitHintsDoNotChangeOneDay(t *testing.T) {
 			before := time.Now()
 			s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", tc.headers, nil, &basispoints.UpstreamFailure{Status: 429, Code: "rate_limit_exceeded", RateLimit: tc.hint}, 200)
 			state := bpsRateLimitState(t, s, a, "gpt-6.1-sol")
-			require.Equal(t, "model_limit_24h", state.source)
+			require.Equal(t, "model_limit_cooldown", state.source)
 			require.WithinDuration(t, before.Add(24*time.Hour), state.until, 2*time.Second)
 			s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", http.Header{"Retry-After": []string{"1"}}, nil, &basispoints.UpstreamFailure{Status: 429}, 200)
 			require.False(t, bpsRateLimitState(t, s, a, "gpt-6.1-sol").until.Before(state.until))
@@ -116,7 +116,7 @@ func TestBPSModelRateLimitRepeatedFailureRestartsDay(t *testing.T) {
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	key := excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}
 	for _, remaining := range []time.Duration{time.Hour, 48 * time.Hour} {
-		previous := excelBPSRateLimitState{until: time.Now().Add(remaining), lastFailure: time.Now().Add(-time.Hour), failures: 1, source: "model_limit_24h"}
+		previous := excelBPSRateLimitState{until: time.Now().Add(remaining), lastFailure: time.Now().Add(-time.Hour), failures: 1, source: "model_limit_cooldown"}
 		s.excelBPSModelRateLimits.Store(key, previous)
 		before := time.Now()
 		s.coolDownExcelBPSAttempt(ctx, a, key.model, nil, nil, nil, 429)
@@ -185,7 +185,7 @@ func TestBPSRateLimitSSETimingReachesGateway(t *testing.T) {
 		require.True(t, failure.ShouldRetryNextAccount())
 		require.Empty(t, rec.Body.String())
 		state := bpsRateLimitState(t, svc, a, "gpt-6.1-sol")
-		require.Equal(t, "model_limit_24h", state.source)
+		require.Equal(t, "model_limit_cooldown", state.source)
 		require.WithinDuration(t, time.Now().Add(24*time.Hour), state.until, 2*time.Second)
 		require.False(t, svc.isExcelBPSRateLimited(a, "gpt-6-astra"))
 		require.False(t, svc.isOpenAIAccountRuntimeBlocked(a))

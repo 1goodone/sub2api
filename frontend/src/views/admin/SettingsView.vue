@@ -4685,6 +4685,25 @@
               <p class="text-sm text-gray-500 dark:text-gray-400">
                 {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；使用政策 HTTP 403 仅换号，不停号或冷却模型；模型不可用时冷却对应模型；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output. HTTP 403 usage policy rejections switch accounts without pausing accounts or cooling models. Unavailable models receive model-specific cooldowns, and throttled tool corrections get one additional retry. Turning this off restores the existing BPS error handling.') }}
               </p>
+              <div class="max-w-sm space-y-2">
+                <label for="excel-bps-model-rate-limit-cooldown-minutes" class="input-label">
+                  {{ localText('模型限流冷却时长（分钟）', 'Model rate-limit cooldown (minutes)') }}
+                </label>
+                <input
+                  id="excel-bps-model-rate-limit-cooldown-minutes"
+                  v-model.number="form.excel_bps_model_rate_limit_cooldown_minutes"
+                  class="input"
+                  type="number"
+                  min="1"
+                  :max="excelBPSModelRateLimitCooldownLimits.maxMinutes"
+                  step="1"
+                  required
+                  aria-describedby="excel-bps-model-rate-limit-cooldown-help"
+                />
+              </div>
+              <p id="excel-bps-model-rate-limit-cooldown-help" class="text-sm text-gray-500 dark:text-gray-400">
+                {{ localText('默认 1440 分钟（24 小时），可设为 1–43200 分钟。仅在开启 BPS 错误自动恢复时生效：模型限流后冷却该账号的对应模型，并按策略尝试其他账号。保存后用于新触发的限流，已有冷却保留原到期时间。', 'Default: 1440 minutes (24 hours); range: 1–43200 minutes. Applies only with BPS error recovery enabled: cool down the affected account/model and try another account within the retry policy. Saved changes apply to new rate limits; existing cooldown deadlines are preserved.') }}
+              </p>
               <p class="text-sm text-amber-700 dark:text-amber-400">
                 {{ localText('BPS 凭证失效会暂停整个账号，包括该账号的其他通道。关闭此开关不会自动恢复已暂停账号，修复凭证后需手动恢复。', 'Invalid BPS credentials pause the entire account, including its other routes. Turning this switch off does not resume paused accounts; repair credentials and resume manually.') }}
               </p>
@@ -10495,9 +10514,12 @@ function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] 
   return listPlatformIds().filter((platform) => !!map?.[platform]);
 }
 
+const excelBPSModelRateLimitCooldownLimits = { defaultMinutes: 1440, maxMinutes: 43200 };
+
 const form = reactive<SettingsForm>({
   excel_bps_enabled: true,
   excel_bps_recovery_enabled: false,
+  excel_bps_model_rate_limit_cooldown_minutes: excelBPSModelRateLimitCooldownLimits.defaultMinutes,
   prism_browser_enabled: false,
   prism_browser_base_url: "http://127.0.0.1:8319/v1",
   prism_browser_api_key_configured: false,
@@ -11858,6 +11880,9 @@ async function loadSettings() {
     form.desktop_enabled = settings.desktop_enabled !== false;
     form.excel_bps_enabled = settings.excel_bps_enabled !== false;
     form.excel_bps_recovery_enabled = settings.excel_bps_recovery_enabled === true;
+    const bpsCooldown = settings.excel_bps_model_rate_limit_cooldown_minutes;
+    form.excel_bps_model_rate_limit_cooldown_minutes = Number.isInteger(bpsCooldown) && bpsCooldown >= 1 && bpsCooldown <= excelBPSModelRateLimitCooldownLimits.maxMinutes
+      ? bpsCooldown : excelBPSModelRateLimitCooldownLimits.defaultMinutes;
     form.prism_browser_enabled = Boolean(settings.prism_browser_enabled);
     form.prism_browser_base_url =
       settings.prism_browser_base_url || "http://127.0.0.1:8319/v1";
@@ -12094,6 +12119,10 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    if (!Number.isInteger(form.excel_bps_model_rate_limit_cooldown_minutes) || form.excel_bps_model_rate_limit_cooldown_minutes < 1 || form.excel_bps_model_rate_limit_cooldown_minutes > excelBPSModelRateLimitCooldownLimits.maxMinutes) {
+      appStore.showError(localText('BPS 模型限流冷却时长须为 1–43200 分钟的整数。', 'BPS model rate-limit cooldown must be a whole number from 1 to 43200 minutes.'));
+      return;
+    }
     const imageBaseUrl = form.excel_bps_image_base_url.trim();
     if ((form.excel_bps_image_relay_enabled && form.excel_bps_image_mode === 'relay') || imageBaseUrl) {
       try {
@@ -12297,6 +12326,7 @@ async function saveSettings() {
       prism_browser_enabled: form.prism_browser_enabled,
       excel_bps_enabled: form.excel_bps_enabled,
       excel_bps_recovery_enabled: form.excel_bps_recovery_enabled,
+      excel_bps_model_rate_limit_cooldown_minutes: form.excel_bps_model_rate_limit_cooldown_minutes,
       prism_browser_base_url: form.prism_browser_base_url,
       ...(form.prism_browser_api_key.trim()
         ? { prism_browser_api_key: form.prism_browser_api_key.trim() }

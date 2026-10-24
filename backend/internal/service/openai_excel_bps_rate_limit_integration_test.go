@@ -54,7 +54,7 @@ func TestBPSRateLimitHTTPResetRemainsModelScoped(t *testing.T) {
 	a := excelAccount()
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", nil, []byte(`{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded","resets_in_seconds":120}}`), nil, 429)
-	require.Equal(t, "model_limit_24h", bpsRateLimitState(t, s, a, "gpt-6.1-sol").source)
+	require.Equal(t, "model_limit_cooldown", bpsRateLimitState(t, s, a, "gpt-6.1-sol").source)
 	require.False(t, s.isExcelBPSRateLimited(a, "gpt-6-astra"))
 	require.False(t, s.isOpenAIAccountRuntimeBlocked(a))
 }
@@ -72,7 +72,7 @@ func TestBPSRateLimitLogsAreStructuredAndCorrelated(t *testing.T) {
 	require.Equal(t, "bps_account_model", fields["scope"])
 	require.Equal(t, int64(429), fields["upstream_http_status"])
 	require.Equal(t, int64(86400), fields["cooldown_seconds"])
-	require.Equal(t, "model_limit_24h", fields["cooldown_source"])
+	require.Equal(t, "model_limit_cooldown", fields["cooldown_source"])
 	require.Equal(t, int64(90), fields["upstream_reset_after_seconds"])
 	require.Equal(t, int64(1), fields["consecutive_failures"])
 	require.NotContains(t, fmt.Sprint(fields), "PRIVATE_REQUEST_OR_TOKEN")
@@ -83,7 +83,7 @@ func TestBPSRateLimitOlderFailurePreservesNewerTimestamp(t *testing.T) {
 	a := excelAccount()
 	ctx := context.WithValue(context.Background(), excelBPSRecoveryKey{}, true)
 	later := time.Now().Add(time.Second)
-	s.excelBPSModelRateLimits.Store(excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}, excelBPSRateLimitState{until: later.Add(time.Minute), lastFailure: later, failures: 1, source: "model_limit_24h"})
+	s.excelBPSModelRateLimits.Store(excelBPSRateLimitKey{a.ID, "gpt-6.1-sol"}, excelBPSRateLimitState{until: later.Add(time.Minute), lastFailure: later, failures: 1, source: "model_limit_cooldown"})
 	s.coolDownExcelBPSAttempt(ctx, a, "gpt-6.1-sol", nil, nil, nil, 429)
 	require.Equal(t, later, bpsRateLimitState(t, s, a, "gpt-6.1-sol").lastFailure)
 }
@@ -133,7 +133,7 @@ func TestBPSRateLimitToolCorrectionDoesNotReplayAcceptedGeneration(t *testing.T)
 		require.NotErrorAs(t, err, &failover)
 		require.Len(t, upstream.requests, 2)
 		require.NotContains(t, rec.Body.String(), "PRIVATE")
-		require.Equal(t, "model_limit_24h", bpsRateLimitState(t, s, a, "gpt-5.6-sol").source)
+		require.Equal(t, "model_limit_cooldown", bpsRateLimitState(t, s, a, "gpt-5.6-sol").source)
 		require.False(t, s.isOpenAIAccountRuntimeBlocked(a))
 	}
 }

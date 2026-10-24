@@ -201,8 +201,9 @@ type SystemSettings struct {
 	OpsQueryModeDefault          string
 	OpsMetricsIntervalSeconds    int
 
-	ExcelBPSEnabled         bool `json:"excel_bps_enabled"`
-	ExcelBPSRecoveryEnabled bool `json:"excel_bps_recovery_enabled"`
+	ExcelBPSEnabled                       bool `json:"excel_bps_enabled"`
+	ExcelBPSRecoveryEnabled               bool `json:"excel_bps_recovery_enabled"`
+	ExcelBPSModelRateLimitCooldownMinutes int  `json:"excel_bps_model_rate_limit_cooldown_minutes"`
 
 	// Channel Monitor feature
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
