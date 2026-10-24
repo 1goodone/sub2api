@@ -19,7 +19,7 @@ COPY tools/openai_totp_rotation.py tools/openai_totp_journal.mjs tools/test_open
 COPY tools/test_openai_oauth_reauth_worker.py tools/test_openai_oauth_reauth_engines.py tools/test_openai_oauth_reauth_runtime_controls.py /build/tools/
 COPY tools/openai_codex_oauth_adapter.py tools/openai_codex_diagnostics.mjs tools/test_openai_codex_oauth_adapter.py tools/test_openai_codex_diagnostics.mjs /build/tools/
 COPY tools/openai_excel_oauth_adapter.py tools/openai_excel_2fa_login.py tools/test_openai_excel_oauth_adapter.py /build/tools/
-COPY tools/openai_excel_password_flow.mjs tools/test_openai_excel_password_flow.mjs /build/tools/
+COPY tools/openai_excel_password_flow.mjs tools/test_openai_excel_password_flow.mjs tools/openai_protocol_warmup.mjs /build/tools/
 COPY tools/openai_siwc_oauth_adapter.py tools/openai_siwc_password_flow.mjs tools/test_openai_siwc_oauth_adapter.py tools/test_openai_siwc_password_flow.mjs /build/tools/
 COPY tools/fixtures/siwc-http-transport.mjs /build/tools/fixtures/
 COPY tools/fixtures/codex-http-transport.mjs /build/tools/fixtures/
