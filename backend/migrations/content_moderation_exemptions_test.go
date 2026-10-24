@@ -23,7 +23,7 @@ func TestModerationExemptionsMigrationDefaultsAndScope(t *testing.T) {
 }
 
 func TestModerationEmailExemptionMigrationDefaultsAndScope(t *testing.T) {
-	raw, err := FS.ReadFile("301_content_moderation_email_exemption.sql")
+	raw, err := FS.ReadFile("309_content_moderation_email_exemption.sql")
 	require.NoError(t, err)
 	sql := strings.ToUpper(string(raw))
 	require.Equal(t, 2, strings.Count(sql, "ADD COLUMN IF NOT EXISTS EMAIL_EXEMPT BOOLEAN NOT NULL DEFAULT FALSE"))

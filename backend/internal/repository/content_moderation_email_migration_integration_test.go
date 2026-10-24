@@ -23,7 +23,7 @@ func TestModerationEmailMigrationLegacyDefaultAndAuditSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, `INSERT INTO content_moderation_user_actions(user_id,actor_id,action,reason,version,auto_ban_exempt,keyword_exempt,api_audit_exempt) VALUES($1,7,'exemption','legacy',2,TRUE,TRUE,TRUE)`, id)
 	require.NoError(t, err)
-	migration, err := dbmigrations.FS.ReadFile("301_content_moderation_email_exemption.sql")
+	migration, err := dbmigrations.FS.ReadFile("309_content_moderation_email_exemption.sql")
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, string(migration))
 	require.NoError(t, err)

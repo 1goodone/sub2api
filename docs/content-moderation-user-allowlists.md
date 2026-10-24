@@ -35,4 +35,4 @@
 
 邮件豁免不覆盖全局配置：`email_on_hit` 仍决定是否触发违规提醒，审查封号和 `cyber_policy` 通知保留原有独立触发条件。它不跳过上游 `cyber_policy` 拒绝或止发，也不授权重试。
 
-迁移 `301_content_moderation_email_exemption.sql` 仅给审核状态表和管理操作审计表增加 `email_exempt BOOLEAN NOT NULL DEFAULT FALSE`，不改旧迁移；旧记录默认 false，历史操作不继承当前值。管理 API `exemption` 操作中省略该字段（包括旧客户端只发送原三类字段）保留当前邮件设置，显式 false 才撤销。保存仍要求管理员权限、1–500 字原因、确认、当前版本、缓存失效及服务端读回；新操作记录四个最终值。回退旧二进制会忽略邮件豁免并恢复原通知行为，数据库字段仍保留。
+迁移 `309_content_moderation_email_exemption.sql` 仅给审核状态表和管理操作审计表增加 `email_exempt BOOLEAN NOT NULL DEFAULT FALSE`，不改旧迁移；旧记录默认 false，历史操作不继承当前值。管理 API `exemption` 操作中省略该字段（包括旧客户端只发送原三类字段）保留当前邮件设置，显式 false 才撤销。保存仍要求管理员权限、1–500 字原因、确认、当前版本、缓存失效及服务端读回；新操作记录四个最终值。回退旧二进制会忽略邮件豁免并恢复原通知行为，数据库字段仍保留。

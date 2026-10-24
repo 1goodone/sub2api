@@ -95,7 +95,7 @@ Worker 单元测试使用离线协议替身及本地假邮箱；真实密码/TOT
 
 ### 自动重登失败预算与递增冷却
 
-巡检鉴权失败次数 `fail_streak` 与重登失败预算分开。迁移 `300_account_relogin_budget.sql` 新增持久化 `relogin_fail_streak`、`last_counted_task_id`、`auto_relogin_exhausted`；升级及首次纳管只以已有终态历史建立水位，不追罚旧失败。每轮巡检按新终态task ID幂等核算并持久化，单批处理最多100条、额外读取一条判断是否有后续页；真实OK可推进半批中的成功水位，但只有完整历史的最终成功才允许清预算，未核算完时拒绝自动追加。重启/多实例不重复计数；乱序或仍活跃的较早任务保留水位并阻止自动追加。
+巡检鉴权失败次数 `fail_streak` 与重登失败预算分开。迁移 `308_account_relogin_budget.sql` 新增持久化 `relogin_fail_streak`、`last_counted_task_id`、`auto_relogin_exhausted`；升级及首次纳管只以已有终态历史建立水位，不追罚旧失败。每轮巡检按新终态task ID幂等核算并持久化，单批处理最多100条、额外读取一条判断是否有后续页；真实OK可推进半批中的成功水位，但只有完整历史的最终成功才允许清预算，未核算完时拒绝自动追加。重启/多实例不重复计数；乱序或仍活跃的较早任务保留水位并阻止自动追加。
 
 规则沿用现有 `account_token_guard_v2_rules`，新增 `relogin_backoff_max_seconds`（基础冷却至604800秒）与 `relogin_max_failures`（1–20）。旧JSON未提供/提供0时使用保守默认：连续3次、上限 `max(3600, relogin_cooldown_seconds)`，保留既有基础冷却。默认值是本功能设计选择，不是从线上账号反推的用户设定；页面可显式调整，旧客户端保存四项旧字段时保留已设的新预算（必要时提高上限以容纳新的基础冷却），增加上限或切换开关不会隐式清除已耗尽状态。
 

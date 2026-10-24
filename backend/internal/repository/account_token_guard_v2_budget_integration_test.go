@@ -177,7 +177,7 @@ func TestReloginBudgetMigrationSeedsOnlyOldTerminalCodexTasks(t *testing.T) {
         INSERT INTO budget_seed_tasks VALUES(10,1,'codex','failed'),(12,1,'codex','succeeded'),(15,1,'codex','running'),(20,1,'codex','failed'),(30,1,'excel','failed');
         INSERT INTO budget_seed_rotations VALUES(20);`)
 	require.NoError(t, err)
-	migration, err := os.ReadFile("../../migrations/300_account_relogin_budget.sql")
+	migration, err := os.ReadFile("../../migrations/308_account_relogin_budget.sql")
 	require.NoError(t, err)
 	sql := strings.NewReplacer("account_token_guard_v2_accounts", "budget_seed_guard", "openai_oauth_reauth_tasks", "budget_seed_tasks", "openai_totp_rotations", "budget_seed_rotations").Replace(string(migration))
 	_, err = tx.ExecContext(ctx, sql)
