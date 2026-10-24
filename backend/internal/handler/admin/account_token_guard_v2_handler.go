@@ -1,9 +1,13 @@
 package admin
 
 import (
+	"errors"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -217,12 +221,27 @@ func (h *AccountTokenGuardV2Handler) Relogin(c *gin.Context) {
 	if !ok {
 		return
 	}
-	task, err := h.service.ReloginNow(c.Request.Context(), accountID)
+	force := false
+	if c.Request != nil && c.Request.ContentLength != 0 {
+		var body struct {
+			Force bool `json:"force"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+			response.ErrorFrom(c, infraerrors.New(http.StatusBadRequest, "TOKEN_GUARD_V2_INVALID_BODY", "invalid re-login request"))
+			return
+		}
+		force = body.Force
+	}
+	result, err := h.service.ReloginNow(c.Request.Context(), accountID, force)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Accepted(c, task)
+	if result != nil && result.Refreshed {
+		response.Success(c, gin.H{"refreshed": true, "account_id": result.AccountID})
+		return
+	}
+	response.Accepted(c, result.Task)
 }
 
 func (h *AccountTokenGuardV2Handler) ResumeReloginBudget(c *gin.Context) {

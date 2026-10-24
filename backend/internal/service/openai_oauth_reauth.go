@@ -48,8 +48,11 @@ const (
 )
 
 const (
-	OpenAIOAuthReauthModeEmailOTPURL              = "email_otp_url"
-	OpenAIOAuthReauthModePasswordTOTP             = "password_totp"
+	OpenAIOAuthReauthModeEmailOTPURL  = "email_otp_url"
+	OpenAIOAuthReauthModePasswordTOTP = "password_totp"
+	// Password/TOTP logins stay at two even when the worker pool is larger.
+	// Email OTP is not limited by this cap.
+	OpenAIOAuthReauthPasswordLoginCap             = 2
 	OpenAIOAuthReauthEngineLocal                  = "local_worker"
 	OpenAIOAuthReauthEngineSessionStudio          = "session_studio"
 	OpenAIOAuthReauthDefaultSessionStudioEndpoint = "https://session.ameng2027.xyz/api/v1/relogin"
@@ -235,7 +238,9 @@ type OpenAIOAuthReauthService struct {
 	encryptionKeyConfigured bool
 	tokenCacheInvalidator   TokenCacheInvalidator
 	runtimeBlocker          AccountRuntimeBlocker
+	credentialWriter        accountCredentialsUpdater
 	markRetired             func(context.Context, int64, string) error
+	markLoginBlocked        func(context.Context, int64, string) error
 	acquireMihomoProxy      func(context.Context, string) (string, func(), error)
 	mihomoLeaseMu           sync.Mutex
 	mihomoLeases            map[int64]func()
@@ -1327,6 +1332,70 @@ func (s *OpenAIOAuthReauthService) SetRetiredAccountMarker(mark func(context.Con
 	s.markRetired = mark
 }
 
+func (s *OpenAIOAuthReauthService) SetCredentialWriter(writer accountCredentialsUpdater) {
+	if s == nil {
+		return
+	}
+	s.credentialWriter = writer
+}
+
+func (s *OpenAIOAuthReauthService) SetLoginBlockedMarker(mark func(context.Context, int64, string) error) {
+	if s == nil {
+		return
+	}
+	s.markLoginBlocked = mark
+}
+
+type storedTokenRefreshOutcome string
+
+const (
+	storedTokenRefreshUnavailable storedTokenRefreshOutcome = "unavailable"
+	storedTokenRefreshRefreshed   storedTokenRefreshOutcome = "refreshed"
+	storedTokenRefreshRejected    storedTokenRefreshOutcome = "rejected"
+	storedTokenRefreshTransient   storedTokenRefreshOutcome = "transient"
+)
+
+func (s *OpenAIOAuthReauthService) RefreshStoredOpenAIToken(ctx context.Context, account *Account) storedTokenRefreshOutcome {
+	if s == nil || s.oauth == nil || s.credentialWriter == nil || account == nil || account.IsCredentialShadow() {
+		return storedTokenRefreshUnavailable
+	}
+	// RefreshAccountToken echoes the current access token when no refresh token
+	// is stored. That is not a refresh, and treating it as one skips password
+	// re-login for an auth-failed OAuth account. Personal access tokens are
+	// validated without a refresh token and must keep that path.
+	if !account.IsOpenAIPersonalAccessToken() && strings.TrimSpace(account.GetCredential("refresh_token")) == "" {
+		return storedTokenRefreshRejected
+	}
+	info, err := s.oauth.RefreshAccountToken(ctx, account)
+	if err != nil {
+		if isNonRetryableRefreshError(err) {
+			return storedTokenRefreshRejected
+		}
+		return storedTokenRefreshTransient
+	}
+	if info == nil || strings.TrimSpace(info.AccessToken) == "" {
+		return storedTokenRefreshRejected
+	}
+	credentials := s.oauth.BuildAccountCredentials(info)
+	if account.Credentials != nil {
+		for key, value := range account.Credentials {
+			if _, exists := credentials[key]; !exists {
+				credentials[key] = value
+			}
+		}
+	}
+	credentials["_token_version"] = time.Now().UnixMilli()
+	credentials = SanitizeStoredCredentials(account.Platform, credentials)
+	if err := s.credentialWriter.UpdateCredentials(ctx, account.ID, credentials); err != nil {
+		return storedTokenRefreshTransient
+	}
+	account.Credentials = credentials
+	if s.tokenCacheInvalidator != nil {
+		_ = s.tokenCacheInvalidator.InvalidateToken(ctx, account)
+	}
+	return storedTokenRefreshRefreshed
+}
+
 func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, workerID, reason string) error {
 	if err := s.ensureReady(); err != nil {
 		return err
@@ -1351,11 +1420,32 @@ func (s *OpenAIOAuthReauthService) FailTask(ctx context.Context, taskID int64, w
 			slog.Warn("openai_oauth_reauth_retire_account_failed", "account_id", record.AccountID, "task_id", taskID)
 		}
 	}
+	if record != nil && s.markLoginBlocked != nil {
+		if blocked := loginFailureBlockReason(reason); blocked != "" {
+			if err := s.markLoginBlocked(ctx, record.AccountID, blocked); err != nil {
+				slog.Warn("openai_oauth_reauth_block_login_failed", "account_id", record.AccountID, "task_id", taskID)
+			}
+		}
+	}
 	s.releaseMihomoLease(taskID)
 	return nil
 }
 
 const retiredAccountDetail = "You do not have an account because it has been deleted or deactivated"
+
+func loginFailureBlockReason(reason string) string {
+	text := strings.ToLower(reason)
+	switch {
+	case strings.Contains(text, "password_rejected"):
+		return "password_rejected"
+	case strings.Contains(text, "totp_rejected"):
+		return "totp_rejected"
+	case strings.Contains(text, "security_check"), strings.Contains(text, "security-check"), strings.Contains(text, "proxy_risk_control"):
+		return "security_check"
+	default:
+		return ""
+	}
+}
 
 func isRetiredAccountReason(reason string) bool {
 	text := strings.ToLower(reason)

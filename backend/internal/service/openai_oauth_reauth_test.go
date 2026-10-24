@@ -31,9 +31,13 @@ type reauthTestAccountReader struct {
 	account  *Account
 	proxy    *Proxy
 	proxyErr error
+	getErr   error
 }
 
 func (r *reauthTestAccountReader) GetAccount(context.Context, int64) (*Account, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
 	if r.account == nil {
 		return nil, ErrAccountNotFound
 	}
@@ -55,12 +59,15 @@ func (r *reauthTestProxyRepo) GetByID(ctx context.Context, id int64) (*Proxy, er
 }
 
 type reauthTestOAuthClient struct {
-	accountID  string
-	userID     string
-	email      string
-	exchanges  int
-	proxyURL   string
-	onExchange func()
+	accountID       string
+	userID          string
+	email           string
+	exchanges       int
+	proxyURL        string
+	onExchange      func()
+	refreshErr      error
+	refreshResponse *openai.TokenResponse
+	onRefresh       func(context.Context) error
 }
 
 func (c *reauthTestOAuthClient) ExchangeCode(_ context.Context, _, _, _, proxyURL, _ string) (*openai.TokenResponse, error) {
@@ -82,10 +89,24 @@ func (c *reauthTestOAuthClient) ExchangeCode(_ context.Context, _, _, _, proxyUR
 		ExpiresIn: 3600,
 	}, nil
 }
-func (*reauthTestOAuthClient) RefreshToken(context.Context, string, string) (*openai.TokenResponse, error) {
-	return nil, errors.New("not used")
+func (c *reauthTestOAuthClient) RefreshToken(ctx context.Context, _, _ string) (*openai.TokenResponse, error) {
+	return c.refreshResult(ctx)
 }
-func (*reauthTestOAuthClient) RefreshTokenWithClientID(context.Context, string, string, string) (*openai.TokenResponse, error) {
+func (c *reauthTestOAuthClient) RefreshTokenWithClientID(ctx context.Context, _, _, _ string) (*openai.TokenResponse, error) {
+	return c.refreshResult(ctx)
+}
+func (c *reauthTestOAuthClient) refreshResult(ctx context.Context) (*openai.TokenResponse, error) {
+	if c.onRefresh != nil {
+		if err := c.onRefresh(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if c.refreshErr != nil {
+		return nil, c.refreshErr
+	}
+	if c.refreshResponse != nil {
+		return c.refreshResponse, nil
+	}
 	return nil, errors.New("not used")
 }
 
@@ -252,6 +273,15 @@ type reauthTestRuntimeBlocker struct {
 func (*reauthTestRuntimeBlocker) BlockAccountScheduling(*Account, time.Time, string) {}
 func (b *reauthTestRuntimeBlocker) ClearAccountSchedulingBlock(accountID int64) {
 	b.clearedAccountID = accountID
+}
+
+type reauthCredentialWriter struct {
+	credentials map[string]any
+}
+
+func (w *reauthCredentialWriter) UpdateCredentials(_ context.Context, _ int64, credentials map[string]any) error {
+	w.credentials = cloneReauthMap(credentials)
+	return nil
 }
 
 func (u *reauthTestUpdater) ApplyOpenAIOAuthReauth(_ context.Context, taskID int64, workerID string, accountID int64, _ map[string]any, credentials, _ map[string]any) (bool, error) {
@@ -953,6 +983,36 @@ func reauthStateFromURL(t *testing.T, raw string) string {
 func reauthTestJWT(claims map[string]any) string {
 	payload, _ := json.Marshal(claims)
 	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
+func TestRefreshStoredOpenAITokenWithoutRefreshTokenIsRejected(t *testing.T) {
+	svc, reader, _, _, client, _ := newReauthTestService("acct-1")
+	writer := &reauthCredentialWriter{}
+	svc.SetCredentialWriter(writer)
+	delete(reader.account.Credentials, "refresh_token")
+	called := false
+	client.onRefresh = func(context.Context) error {
+		called = true
+		return errors.New("upstream refresh should not run")
+	}
+
+	require.Equal(t, storedTokenRefreshRejected, svc.RefreshStoredOpenAIToken(context.Background(), reader.account))
+	reader.account.Credentials["refresh_token"] = "   "
+	require.Equal(t, storedTokenRefreshRejected, svc.RefreshStoredOpenAIToken(context.Background(), reader.account))
+	require.False(t, called)
+	require.Nil(t, writer.credentials)
+}
+
+func TestRefreshStoredOpenAITokenPersistsRotatedToken(t *testing.T) {
+	svc, reader, _, _, client, _ := newReauthTestService("acct-1")
+	writer := &reauthCredentialWriter{}
+	svc.SetCredentialWriter(writer)
+	client.refreshResponse = &openai.TokenResponse{AccessToken: "rotated-access", RefreshToken: "rotated-refresh", ExpiresIn: 3600}
+
+	require.Equal(t, storedTokenRefreshRefreshed, svc.RefreshStoredOpenAIToken(context.Background(), reader.account))
+	require.Equal(t, "rotated-access", writer.credentials["access_token"])
+	require.Equal(t, "rotated-refresh", writer.credentials["refresh_token"])
+	require.Equal(t, "preserved", writer.credentials["custom_setting"])
 }
 
 func cloneReauthMap(source map[string]any) map[string]any {

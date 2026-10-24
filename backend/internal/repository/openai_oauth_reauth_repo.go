@@ -214,6 +214,21 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 			WHERE status = $3
                 AND NOT EXISTS (SELECT 1 FROM openai_totp_rotations rotation WHERE rotation.task_id=openai_oauth_reauth_tasks.id)
                 AND claimed_at < NOW() - ($4 * INTERVAL '1 second')
+		), failed_password AS (
+			UPDATE openai_oauth_reauth_tasks
+			SET status = $1,
+				stage = $2,
+				error_message = 'password login was not retried after the first attempt',
+				finished_at = NOW(),
+				updated_at = NOW()
+			WHERE status = $6
+				AND attempt >= 1
+				AND claimed_at < NOW() - ($4 * INTERVAL '1 second')
+				AND EXISTS (
+					SELECT 1 FROM openai_oauth_reauth_configs AS password_config
+					WHERE password_config.account_id = openai_oauth_reauth_tasks.account_id
+						AND password_config.credential_mode = 'password_totp'
+				)
 		), next_task AS (
 			SELECT id
 			FROM openai_oauth_reauth_tasks
@@ -222,6 +237,41 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 					status = $6
 					AND claimed_at < NOW() - ($4 * INTERVAL '1 second')
 				))
+				AND NOT (
+					status = $6
+					AND attempt >= 1
+					AND EXISTS (
+						SELECT 1 FROM openai_oauth_reauth_configs AS password_config
+						WHERE password_config.account_id = openai_oauth_reauth_tasks.account_id
+							AND password_config.credential_mode = 'password_totp'
+					)
+				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM openai_oauth_reauth_tasks AS busy
+					JOIN openai_oauth_reauth_configs AS busy_config ON busy_config.account_id = busy.account_id
+					JOIN openai_oauth_reauth_configs AS mine ON mine.account_id = openai_oauth_reauth_tasks.account_id
+					WHERE busy.id <> openai_oauth_reauth_tasks.id
+						AND busy.status IN ($6, $3)
+						AND btrim(mine.login_email) <> ''
+						AND lower(btrim(busy_config.login_email)) = lower(btrim(mine.login_email))
+				)
+				AND NOT (
+					EXISTS (
+						SELECT 1 FROM openai_oauth_reauth_configs AS password_mine
+						WHERE password_mine.account_id = openai_oauth_reauth_tasks.account_id
+							AND password_mine.credential_mode = 'password_totp'
+					)
+					AND (
+						SELECT COUNT(*)
+						FROM openai_oauth_reauth_tasks AS password_busy
+						JOIN openai_oauth_reauth_configs AS password_busy_config
+							ON password_busy_config.account_id = password_busy.account_id
+						WHERE password_busy.id <> openai_oauth_reauth_tasks.id
+							AND password_busy.status IN ($6, $3)
+							AND password_busy_config.credential_mode = 'password_totp'
+					) >= $12
+				)
 				AND ($9 = '' OR EXISTS (
 					SELECT 1 FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id AND config.credential_mode = $9
@@ -259,15 +309,113 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 		service.OpenAIOAuthReauthStatusRunning,
 		service.OpenAIOAuthReauthStageStarting,
 		workerID, mode, pq.Array(engines), globalEngine,
+		service.OpenAIOAuthReauthPasswordLoginCap,
 	)
 	record, err := scanOpenAIOAuthReauthTask(row)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	if record != nil && err == nil {
+		released, releaseErr := releaseSameEmailClaim(ctx, tx, record)
+		if releaseErr != nil {
+			return nil, releaseErr
+		}
+		if released {
+			record = nil
+		} else {
+			released, releaseErr = releaseExcessPasswordClaim(ctx, tx, record)
+			if releaseErr != nil {
+				return nil, releaseErr
+			}
+			if released {
+				record = nil
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return record, nil
+}
+
+func releaseSameEmailClaim(ctx context.Context, tx *sql.Tx, record *service.OpenAIOAuthReauthTaskRecord) (bool, error) {
+	var email string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(lower(btrim(login_email)), '')
+		FROM openai_oauth_reauth_configs
+		WHERE account_id = $1
+	`, record.AccountID).Scan(&email)
+	if errors.Is(err, sql.ErrNoRows) || strings.TrimSpace(email) == "" {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "reauth-email:"+email); err != nil {
+		return false, err
+	}
+	var others int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM openai_oauth_reauth_tasks AS busy
+		JOIN openai_oauth_reauth_configs AS busy_config ON busy_config.account_id = busy.account_id
+		WHERE busy.id <> $1
+			AND busy.status IN ($2, $3)
+			AND lower(btrim(busy_config.login_email)) = $4
+	`, record.ID, service.OpenAIOAuthReauthStatusRunning, service.OpenAIOAuthReauthStatusCallbackProcessing, email).Scan(&others); err != nil {
+		return false, err
+	}
+	if others == 0 {
+		return false, nil
+	}
+	return true, requeueOpenAIOAuthReauthClaim(ctx, tx, record.ID)
+}
+
+func releaseExcessPasswordClaim(ctx context.Context, tx *sql.Tx, record *service.OpenAIOAuthReauthTaskRecord) (bool, error) {
+	var mode string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(credential_mode, '')
+		FROM openai_oauth_reauth_configs
+		WHERE account_id = $1
+	`, record.AccountID).Scan(&mode)
+	if errors.Is(err, sql.ErrNoRows) || mode != service.OpenAIOAuthReauthModePasswordTOTP {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "reauth-password-cap"); err != nil {
+		return false, err
+	}
+	var others int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM openai_oauth_reauth_tasks AS busy
+		JOIN openai_oauth_reauth_configs AS busy_config ON busy_config.account_id = busy.account_id
+		WHERE busy.id <> $1
+			AND busy.status IN ($2, $3)
+			AND busy_config.credential_mode = $4
+	`, record.ID, service.OpenAIOAuthReauthStatusRunning, service.OpenAIOAuthReauthStatusCallbackProcessing, service.OpenAIOAuthReauthModePasswordTOTP).Scan(&others); err != nil {
+		return false, err
+	}
+	if others < service.OpenAIOAuthReauthPasswordLoginCap {
+		return false, nil
+	}
+	return true, requeueOpenAIOAuthReauthClaim(ctx, tx, record.ID)
+}
+
+func requeueOpenAIOAuthReauthClaim(ctx context.Context, tx *sql.Tx, id int64) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE openai_oauth_reauth_tasks
+		SET status = $2,
+			stage = $3,
+			worker_id = NULL,
+			attempt = GREATEST(attempt - 1, 0),
+			claimed_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+	`, id, service.OpenAIOAuthReauthStatusQueued, service.OpenAIOAuthReauthStageQueued)
+	return err
 }
 
 func (r *openAIOAuthReauthRepository) GetWorkerStatus(ctx context.Context) (*service.OpenAIOAuthReauthWorkerStatus, error) {

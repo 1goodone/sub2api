@@ -144,6 +144,9 @@ func ProvideOpenAIOAuthReauthService(
 ) *OpenAIOAuthReauthService {
 	credentialUpdater, _ := accountRepo.(OpenAIOAuthReauthCredentialUpdater)
 	svc := NewOpenAIOAuthReauthService(repo, adminService, credentialUpdater, openaiOAuthService, secretEncryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured, tokenCacheInvalidator, runtimeBlocker)
+	if writer, ok := any(accountRepo).(accountCredentialsUpdater); ok {
+		svc.SetCredentialWriter(writer)
+	}
 	if redisClient != nil {
 		svc.siwcSessionStore = redissession.New(redisClient, siwcSessionPrefix, openai.SessionTTL)
 	}

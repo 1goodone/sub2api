@@ -87,7 +87,7 @@ export default {
   legacyEngineHint: "尚未统一设置引擎，已有账号保持原选择，新账号使用本地 Worker。切换后统一应用到所有账密 / TOTP 账号，邮箱链接仍使用本地流程。",
   sessionStudioGlobalHint: "所有账密 / TOTP 账号的后续重登会将邮箱、密码和 TOTP 密钥发送到凭证守护配置的 Session Studio 服务，使用服务端出口，不使用账号代理。邮箱链接仍使用本地流程；失败不会切换引擎。",
   workerConcurrency: "本地 Worker 数量",
-  workerConcurrencyHint: "切换即保存，范围 1–16；新版 Worker 约每 5 秒同步数量，减少时等待正在执行的任务完成。数量按每个 Worker 实例计算，Session Studio 任务也占用进程；旧版 Worker 需升级后生效。",
+  workerConcurrencyHint: "切换即保存，范围 1–16；实际密码登录执行上限是 2。新版 Worker 约每 5 秒同步数量，减少时等待正在执行的任务完成。数量按每个 Worker 实例计算，Session Studio 任务也占用进程；旧版 Worker 需升级后生效。",
   automation: "运行开关",
   switchSaved: "运行开关已更新",
   runtimeSaved: "重登设置已保存，后续领取的任务使用新引擎，运行中的任务不受影响",
@@ -178,7 +178,8 @@ export default {
   paused: '已暂停',
   edit: '编辑',
   inspectNow: '立即巡检',
-  reloginNow: '立即重登',
+  reloginNow: '先刷新令牌',
+  forceRelogin: '强制密码重登',
   pause: '暂停',
   resume: '恢复',
   remove: '移除',
@@ -291,6 +292,7 @@ export default {
   totpSaved: 'TOTP 已保存',
   inspectionQueued: '已完成 {account} 的即时巡检',
   reloginQueued: '已为 {account} 创建重登任务',
+  tokenRefreshed: '已刷新 {account} 的访问令牌，未排队登录',
   pausedNotice: '已暂停 {account}',
   resumedNotice: '已恢复 {account}',
   removedNotice: '已移除 {account}',
@@ -302,6 +304,7 @@ export default {
     pending: '待巡检',
     ok: '正常',
     auth: '鉴权失败',
-    transient: '临时异常'
+    transient: '临时异常',
+    blocked: '已拦截'
   }
 }

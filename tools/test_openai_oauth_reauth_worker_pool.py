@@ -52,7 +52,7 @@ class ReauthWorkerPoolTests(unittest.TestCase):
                 (root / "src" / name).touch()
             base = {"OPENAI_REAUTH_WORKER_TOKEN": "x" * 32, "TOSUB2_ROOT": directory}
             with patch.dict(os.environ, base, clear=True):
-                self.assertEqual(worker.WorkerConfig.from_env().concurrency, 3)
+                self.assertEqual(worker.WorkerConfig.from_env().concurrency, 2)
             for value in ("0", "17", "-1", "2.5", "NaN"):
                 with patch.dict(os.environ, dict(base, OPENAI_REAUTH_CONCURRENCY=value), clear=True):
                     with self.assertRaises(worker.WorkerError):
@@ -98,7 +98,7 @@ class ReauthWorkerPoolTests(unittest.TestCase):
                     patch.object(worker, "_run_worker_loop", parallel_probe):
                 with self.assertRaisesRegex(worker.WorkerError, "process exited"):
                     worker.run_worker_pool(config)
-            self.assertEqual(len(list(Path(directory).glob("done-*"))), 3)
+            self.assertEqual(len(list(Path(directory).glob("done-*"))), 2)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "process-group integration")
     def test_pool_failure_terminates_protocol_descendants(self):

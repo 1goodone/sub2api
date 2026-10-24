@@ -148,6 +148,7 @@ func (m *Manager) run() {
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1", "PYTHONUNBUFFERED=1",
 		"SUB2API_BASE_URL=" + m.baseURL, "OPENAI_REAUTH_WORKER_TOKEN=" + m.token,
 		"OPENAI_TOTP_JOURNAL_DIR=" + filepath.Join(m.root, "totp-recovery"),
+		"OPENAI_REAUTH_PROFILE_ROOT=" + filepath.Join(m.root, "reauth-profiles"),
 		"OPENAI_REAUTH_WORKER_ID=managed-" + randomID(), "TOSUB2_ROOT=" + filepath.Join(dir, "tosub2"),
 		"TOSUB2_PYTHON=" + filepath.Join(dir, "python"), "NODE_EXECUTABLE=" + filepath.Join(dir, "node")}
 	// The managed child has a minimal environment. Pass only this bounded

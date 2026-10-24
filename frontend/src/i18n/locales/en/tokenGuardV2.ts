@@ -87,7 +87,7 @@ export default {
   legacyEngineHint: "No global engine is selected yet. Existing accounts keep their engine; new accounts use the local worker. Selecting an engine applies it to all password/TOTP accounts. Email OTP continues locally.",
   sessionStudioGlobalHint: "Subsequent password/TOTP re-logins send account email, password and TOTP secret to the Session Studio service configured in Credential Guard. The service uses its own egress, not account proxies. Email OTP stays local. Failures do not switch engines.",
   workerConcurrency: "Local worker count",
-  workerConcurrencyHint: "Saved immediately; 1–16 processes per worker instance. Updated workers sync about every 5 seconds; shrinking waits for active tasks to finish. Session Studio tasks also use processes. Older workers must be upgraded.",
+  workerConcurrencyHint: "Saved immediately; the selector stays 1–16, but password-login execution is capped at 2. Updated workers sync about every 5 seconds; shrinking waits for active tasks to finish. Session Studio tasks also use processes. Older workers must be upgraded.",
   automation: "Automation",
   switchSaved: "Automation switch updated",
   runtimeSaved: "Re-login settings saved. Newly claimed tasks use the selected engine; running tasks continue unchanged.",
@@ -178,7 +178,8 @@ export default {
   paused: 'Paused',
   edit: 'Edit',
   inspectNow: 'Probe now',
-  reloginNow: 'Re-login now',
+  reloginNow: 'Refresh token first',
+  forceRelogin: 'Force password re-login',
   pause: 'Pause',
   resume: 'Resume',
   remove: 'Remove',
@@ -291,6 +292,7 @@ export default {
   totpSaved: 'TOTP saved',
   inspectionQueued: 'Finished an immediate probe for {account}',
   reloginQueued: 'Queued a re-login task for {account}',
+  tokenRefreshed: 'Refreshed the access token for {account}; password login was not queued',
   pausedNotice: 'Paused {account}',
   resumedNotice: 'Resumed {account}',
   removedNotice: 'Removed {account}',
@@ -302,6 +304,7 @@ export default {
     pending: 'Pending',
     ok: 'Healthy',
     auth: 'Authentication failed',
-    transient: 'Transient error'
+    transient: 'Transient error',
+    blocked: 'Blocked'
   }
 }

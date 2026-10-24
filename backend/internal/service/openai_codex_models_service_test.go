@@ -3554,6 +3554,33 @@ func TestFetchCodexModelsManifestOAuthStaleServesOldValueAndRefreshesInBackgroun
 	require.EqualValues(t, 2, calls.Load(), "后台刷新必须单飞")
 }
 
+func TestFetchCodexModelsManifestBypassDoesNotServeStaleCache(t *testing.T) {
+	calls := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"models":[{"slug":"cached"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_token"}`))
+	}))
+	t.Cleanup(server.Close)
+	original := chatgptCodexModelsURL
+	chatgptCodexModelsURL = server.URL
+	t.Cleanup(func() { chatgptCodexModelsURL = original })
+
+	s := &OpenAIGatewayService{}
+	account := newCodexModelsTestAccount()
+	_, err := s.FetchCodexModelsManifest(context.Background(), account, "0.137.0", "")
+	require.NoError(t, err)
+	expireCodexModelsManifestCache(s, 2*time.Minute)
+
+	_, err = s.FetchCodexModelsManifest(WithOpenAIModelsCacheBypass(context.Background()), account, "0.137.0", "")
+	require.Error(t, err)
+	require.EqualValues(t, 2, calls.Load(), "旁路探测必须打到上游，不能返回 5 分钟内的旧清单")
+}
+
 func TestFetchCodexModelsManifestOAuthOverdueSynchronousRefreshAndFailure(t *testing.T) {
 	t.Run("overdue refresh waits and re-caches", func(t *testing.T) {
 		calls := &atomic.Int32{}

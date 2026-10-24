@@ -82,8 +82,12 @@ async function run(action: 'probe' | 'relogin') {
   notice.value = ''
   try {
     if (action === 'probe') await probeTokenGuardV2Account(item.value.account_id)
-    else await reloginTokenGuardV2Account(item.value.account_id)
-    notice.value = t(action === 'probe' ? 'tokenGuardV2.inspectionQueued' : 'tokenGuardV2.reloginQueued', { account: item.value.account_name })
+    else {
+      const result = await reloginTokenGuardV2Account(item.value.account_id)
+      const refreshed = !!result && typeof result === 'object' && 'refreshed' in result && result.refreshed
+      notice.value = t(refreshed ? 'tokenGuardV2.tokenRefreshed' : 'tokenGuardV2.reloginQueued', { account: item.value.account_name })
+    }
+    if (action === 'probe') notice.value = t('tokenGuardV2.inspectionQueued', { account: item.value.account_name })
     await load()
   } catch (value) {
     error.value = extractApiErrorMessage(value, t('admin.accounts.credentialOps.actionFailed'))

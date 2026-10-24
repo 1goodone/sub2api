@@ -22,6 +22,7 @@ const (
 	AccountTokenGuardV2ProbeOK        = "ok"
 	AccountTokenGuardV2ProbeAuth      = "auth"
 	AccountTokenGuardV2ProbeTransient = "transient"
+	AccountTokenGuardV2ProbeBlocked   = "blocked"
 
 	AccountTokenGuardV2ProbeInterval   = 30 * time.Minute
 	AccountTokenGuardV2RetryInterval   = 5 * time.Minute
@@ -31,6 +32,10 @@ const (
 
 	accountTokenGuardV2RulesSettingKey = "account_token_guard_v2_rules"
 )
+
+// Separate from the lease so tests can shrink it. A probe, refresh, and
+// follow-up probe each get one of these; three fit inside the two-minute lease.
+var accountTokenGuardProbeTimeout = 30 * time.Second
 
 type AccountTokenGuardV2Rules struct {
 	ReloginBackoffMaxSeconds int `json:"relogin_backoff_max_seconds"`
@@ -119,6 +124,7 @@ type AccountTokenGuardV2Repository interface {
 	MarkReauthRequested(ctx context.Context, accountID int64, requestedAt, cooldownUntil time.Time) error
 	RescheduleEnabled(ctx context.Context) error
 	RetireAccount(ctx context.Context, accountID int64, detail string) error
+	BlockLogin(ctx context.Context, accountID int64, reason string) error
 }
 
 type AccountTokenGuardV2Settings interface {
@@ -199,6 +205,7 @@ func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings 
 	}
 	if reauth != nil {
 		reauth.SetRetiredAccountMarker(svc.MarkAccountRetired)
+		reauth.SetLoginBlockedMarker(svc.MarkLoginBlocked)
 	}
 	return svc
 }
@@ -208,6 +215,13 @@ func (s *AccountTokenGuardV2Service) MarkAccountRetired(ctx context.Context, acc
 		return nil
 	}
 	return s.repo.RetireAccount(ctx, accountID, detail)
+}
+
+func (s *AccountTokenGuardV2Service) MarkLoginBlocked(ctx context.Context, accountID int64, reason string) error {
+	if s == nil || s.repo == nil || accountID <= 0 {
+		return nil
+	}
+	return s.repo.BlockLogin(ctx, accountID, reason)
 }
 
 func (s *AccountTokenGuardV2Service) GetRules(ctx context.Context) (AccountTokenGuardV2Rules, error) {
@@ -440,9 +454,36 @@ func (s *AccountTokenGuardV2Service) ProbeNow(ctx context.Context, accountID int
 	return s.accountView(ctx, accountID)
 }
 
-func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID int64) (*OpenAIOAuthReauthTask, error) {
-	if record, err := s.repo.GetAccount(ctx, accountID); err != nil || record == nil {
+type AccountTokenGuardV2ReloginResult struct {
+	Refreshed bool
+	AccountID int64
+	Task      *OpenAIOAuthReauthTask
+}
+
+func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID int64, force bool) (*AccountTokenGuardV2ReloginResult, error) {
+	record, err := s.repo.GetAccount(ctx, accountID)
+	if err != nil || record == nil {
 		return nil, infraerrors.New(http.StatusNotFound, "TOKEN_GUARD_V2_NOT_FOUND", "monitored account not found")
+	}
+	if !force {
+		if stickyLoginBlock(record.BlockedReason) {
+			return nil, infraerrors.Conflict("TOKEN_GUARD_V2_LOGIN_BLOCKED", "password login stays blocked until the saved credentials change")
+		}
+		if s.accounts == nil {
+			return nil, infraerrors.ServiceUnavailable("TOKEN_GUARD_V2_REFRESH_UNAVAILABLE", "token refresh is temporarily unavailable")
+		}
+		account, accountErr := s.accounts.GetAccount(ctx, accountID)
+		if accountErr != nil {
+			return nil, accountErr
+		}
+		if account != nil && s.reauth != nil {
+			switch s.reauth.RefreshStoredOpenAIToken(ctx, account) {
+			case storedTokenRefreshRefreshed:
+				return &AccountTokenGuardV2ReloginResult{Refreshed: true, AccountID: accountID}, nil
+			case storedTokenRefreshTransient:
+				return nil, infraerrors.ServiceUnavailable("TOKEN_GUARD_V2_REFRESH_UNAVAILABLE", "token refresh is temporarily unavailable")
+			}
+		}
 	}
 	rules, err := s.GetRules(ctx)
 	if err != nil {
@@ -454,7 +495,7 @@ func (s *AccountTokenGuardV2Service) ReloginNow(ctx context.Context, accountID i
 	}
 	now := s.clockNow()
 	_ = s.repo.MarkReauthRequested(ctx, accountID, now, now.Add(time.Duration(rules.ReloginCooldownSeconds)*time.Second))
-	return task, nil
+	return &AccountTokenGuardV2ReloginResult{AccountID: accountID, Task: task}, nil
 }
 
 func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record AccountTokenGuardV2Record) {
@@ -476,9 +517,34 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 		_ = s.repo.CompleteProbe(context.WithoutCancel(ctx), record.AccountID, s.leaseOwner, completion)
 		return
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, accountTokenGuardProbeTimeout)
 	state, detail := s.probeAccount(probeCtx, account)
 	cancel()
+	if state == AccountTokenGuardV2ProbeAuth && s.reauth != nil {
+		refreshCtx, refreshCancel := context.WithTimeout(ctx, accountTokenGuardProbeTimeout)
+		outcome := s.reauth.RefreshStoredOpenAIToken(refreshCtx, account)
+		refreshCancel()
+		switch outcome {
+		case storedTokenRefreshRefreshed:
+			followCtx, followCancel := context.WithTimeout(ctx, accountTokenGuardProbeTimeout)
+			state, detail = s.probeAccount(followCtx, account)
+			followCancel()
+			if state == AccountTokenGuardV2ProbeOK {
+				detail = "access token refreshed"
+			} else if state == AccountTokenGuardV2ProbeAuth {
+				state = AccountTokenGuardV2ProbeTransient
+				detail = "access token refreshed; follow-up inspection was not accepted"
+			}
+		case storedTokenRefreshTransient:
+			state = AccountTokenGuardV2ProbeTransient
+			detail = "token refresh is temporarily unavailable"
+		case storedTokenRefreshRejected, storedTokenRefreshUnavailable:
+			if stickyLoginBlock(record.BlockedReason) {
+				state = AccountTokenGuardV2ProbeBlocked
+				detail = "login is blocked: " + record.BlockedReason
+			}
+		}
+	}
 	completion.ProbeState = state
 	completion.ProbeDetail = detail
 	completion.BlockedReason = ""
@@ -505,6 +571,12 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 	if state != AccountTokenGuardV2ProbeOK && record.BlockedReason == "account_retired" {
 		completion.BlockedReason = "account_retired"
 	}
+	if state != AccountTokenGuardV2ProbeOK && stickyLoginBlock(record.BlockedReason) {
+		completion.BlockedReason = record.BlockedReason
+	}
+	if state == AccountTokenGuardV2ProbeBlocked && completion.BlockedReason == "" {
+		completion.BlockedReason = loginBlockReason(detail)
+	}
 	switch state {
 	case AccountTokenGuardV2ProbeOK:
 		completion.FailStreak = 0
@@ -517,7 +589,7 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 		if cooldownActive && completion.BlockedReason == "" {
 			completion.BlockedReason = "automatic re-login cooling down"
 		}
-		if hasBudget && record.Enabled && record.AutoReloginEnabled && !record.AutoReloginExhausted && !pending && completion.FailStreak >= rules.FailStreakThreshold && !cooldownActive {
+		if hasBudget && record.Enabled && record.AutoReloginEnabled && !record.AutoReloginExhausted && !pending && completion.FailStreak >= rules.FailStreakThreshold && !cooldownActive && !stickyLoginBlock(record.BlockedReason) {
 			task, taskErr := s.reauth.createTaskForProfile(ctx, record.AccountID, "codex", func(createCtx context.Context, id int64, hash string) (*OpenAIOAuthReauthTaskRecord, error) {
 				return budgetRepo.CreateAutomaticRelogin(createCtx, id, hash, s.leaseOwner, rules, s.clockNow())
 			})
@@ -549,26 +621,62 @@ func (s *AccountTokenGuardV2Service) probeAccount(ctx context.Context, account *
 	if strings.TrimSpace(account.GetCredential("access_token")) == "" {
 		return AccountTokenGuardV2ProbeAuth, "account has no access token"
 	}
-	_, err := s.prober.FetchOpenAIModelsList(ctx, account)
+	_, err := s.prober.FetchOpenAIModelsList(WithOpenAIModelsCacheBypass(ctx), account)
 	if err == nil {
 		return AccountTokenGuardV2ProbeOK, "credential accepted"
 	}
 	var upstreamErr *codexModelsManifestUpstreamError
 	if errors.As(err, &upstreamErr) {
+		body := string(upstreamErr.body)
+		if guardProbeLooksBlocked(upstreamErr.statusCode, body+"\n"+err.Error()) {
+			return AccountTokenGuardV2ProbeBlocked, fmt.Sprintf("upstream returned %d", upstreamErr.statusCode)
+		}
 		switch upstreamErr.statusCode {
 		case http.StatusTooManyRequests:
 			return AccountTokenGuardV2ProbeTransient, "upstream returned 429; rate limited"
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return AccountTokenGuardV2ProbeAuth, fmt.Sprintf("upstream returned %d", upstreamErr.statusCode)
+		case http.StatusUnauthorized:
+			return AccountTokenGuardV2ProbeAuth, "upstream returned 401"
 		}
 	}
 	text := strings.ToLower(err.Error())
+	if guardProbeLooksBlocked(0, text) {
+		return AccountTokenGuardV2ProbeBlocked, "upstream returned a challenge page"
+	}
 	for _, marker := range []string{"unauthorized", "invalid token", "invalid_token", "token expired", "invalid_grant", "requires re-login"} {
 		if strings.Contains(text, marker) {
 			return AccountTokenGuardV2ProbeAuth, "credential was rejected"
 		}
 	}
 	return AccountTokenGuardV2ProbeTransient, "temporary inspection failure"
+}
+
+func guardProbeLooksBlocked(status int, text string) bool {
+	if status == http.StatusForbidden {
+		return true
+	}
+	lower := strings.ToLower(text)
+	for _, marker := range []string{"security-check", "security_check", "just a moment", "cf-ray", "challenge-platform", "cloudflare", "<html"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func stickyLoginBlock(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "password_rejected", "totp_rejected", "security_check", "account_retired":
+		return true
+	default:
+		return false
+	}
+}
+
+func loginBlockReason(detail string) string {
+	if guardProbeLooksBlocked(0, detail) {
+		return "security_check"
+	}
+	return "upstream_blocked"
 }
 
 // WorkerStatus separates saved login credentials from execution availability.

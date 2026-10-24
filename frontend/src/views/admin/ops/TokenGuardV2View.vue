@@ -116,6 +116,7 @@
                     <button class="link-btn" :disabled="busyId === item.account_id" @click="probe(item)">{{ t('tokenGuardV2.inspectNow') }}</button>
                     <button class="link-btn" :disabled="busyId === item.account_id" @click="relogin(item)">{{ t('tokenGuardV2.reloginNow') }}</button>
                     <button v-if="item.auto_relogin_exhausted" class="link-btn" :data-testid="'resume-budget-' + item.account_id" :disabled="busyId !== 0 || loading" @click="resumeBudget(item)">{{ t('tokenGuardV2.resumeReloginBudget') }}</button>
+                    <button class="link-btn" :disabled="busyId === item.account_id" @click="relogin(item, true)">{{ t('tokenGuardV2.forceRelogin') }}</button>
                     <OpenAITOTPDialog :account-id="item.account_id" :account-name="item.account_name" :configured="!!(item.login_config?.password_configured && item.login_config?.totp_configured)" />
                     <button class="link-btn danger-text" :disabled="busyId === item.account_id" @click="remove(item)">{{ t('tokenGuardV2.remove') }}</button>
                   </div>
@@ -504,7 +505,7 @@ const proxyLabel = (source: TokenGuardV2ProxySource = 'account', proxyId?: numbe
 }
 const isRetired = (item: TokenGuardV2Account) => item.blocked_reason === 'account_retired'
 const probeLabel = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retired') : t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`)
-const probeClass = (item: TokenGuardV2Account) => isRetired(item) || item.probe_state === 'auth' ? 'danger' : item.probe_state === 'ok' ? 'ok' : ''
+const probeClass = (item: TokenGuardV2Account) => isRetired(item) || item.probe_state === 'auth' || item.probe_state === 'blocked' ? 'danger' : item.probe_state === 'ok' ? 'ok' : ''
 const statusDetail = (item: TokenGuardV2Account) => isRetired(item) ? t('tokenGuardV2.retiredDetail') : (item.blocked_reason || item.probe_detail || '-')
 const taskErrorLabel = (errorCode: string) => {
   const path = `tokenGuardV2.reauthErrors.${errorCode}`
@@ -793,7 +794,22 @@ async function act(item: TokenGuardV2Account, action: () => Promise<unknown>, su
 }
 
 const probe = (item: TokenGuardV2Account) => act(item, () => probeTokenGuardV2Account(item.account_id), 'tokenGuardV2.inspectionQueued')
-const relogin = (item: TokenGuardV2Account) => act(item, () => reloginTokenGuardV2Account(item.account_id), 'tokenGuardV2.reloginQueued')
+async function relogin(item: TokenGuardV2Account, force = false) {
+  if (busyId.value) return
+  busyId.value = item.account_id
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await reloginTokenGuardV2Account(item.account_id, force)
+    const refreshed = !!result && typeof result === 'object' && 'refreshed' in result && result.refreshed
+    notice.value = t(refreshed ? 'tokenGuardV2.tokenRefreshed' : 'tokenGuardV2.reloginQueued', { account: item.account_name })
+    await load(true)
+  } catch (value) {
+    error.value = message(value)
+  } finally {
+    busyId.value = 0
+  }
+}
 async function resumeBudget(item: TokenGuardV2Account) {
   if (!window.confirm(t('tokenGuardV2.resumeReloginBudgetConfirm'))) return
   await act(item, async () => { Object.assign(item, await resumeTokenGuardV2Budget(item.account_id)) }, 'tokenGuardV2.reloginBudgetResumed')

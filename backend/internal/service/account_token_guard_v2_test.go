@@ -10,6 +10,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,6 +97,15 @@ func (r *accountTokenGuardV2TestRepo) RescheduleEnabled(context.Context) error {
 	r.rescheduled = true
 	return nil
 }
+func (r *accountTokenGuardV2TestRepo) BlockLogin(_ context.Context, accountID int64, reason string) error {
+	if r.record == nil {
+		r.record = &AccountTokenGuardV2Record{AccountID: accountID}
+	}
+	if r.record.BlockedReason != "account_retired" {
+		r.record.BlockedReason = reason
+	}
+	return nil
+}
 func (r *accountTokenGuardV2TestRepo) RetireAccount(_ context.Context, accountID int64, detail string) error {
 	if r.record == nil {
 		r.record = &AccountTokenGuardV2Record{AccountID: accountID}
@@ -149,6 +159,47 @@ func TestAccountTokenGuardV2SecondAuthFailureQueuesRelogin(t *testing.T) {
 	require.Contains(t, guardRepo.completion.ProbeDetail, "automatic re-login queued")
 	require.Equal(t, 1, reauthRepo.createCalls)
 	require.NotNil(t, reauthRepo.task)
+}
+
+type guardCredentialWriter struct{ err error }
+
+func (w guardCredentialWriter) UpdateCredentials(context.Context, int64, map[string]any) error {
+	return w.err
+}
+
+func TestAccountTokenGuardV2RejectedRefreshQueuesRelogin(t *testing.T) {
+	reauth, reader, reauthRepo, _, oauthClient, _ := newReauthTestService("acct-1")
+	reauth.SetCredentialWriter(guardCredentialWriter{})
+	oauthClient.refreshErr = errors.New("invalid_grant")
+	require.NoError(t, reauthRepo.UpsertConfig(context.Background(), reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))
+	guardRepo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{
+		AccountID: 42, Enabled: true, AutoReloginEnabled: true, FailStreak: 1, NextProbeAt: time.Now(),
+	}}
+	guardRepo.createTask = reauthRepo.CreateTask
+	svc := NewAccountTokenGuardV2Service(guardRepo, nil, reader, accountTokenGuardV2TestProber{err: &codexModelsManifestUpstreamError{
+		err: errors.New("unauthorized"), statusCode: http.StatusUnauthorized,
+	}}, reauth)
+
+	svc.runProbe(context.Background(), *guardRepo.record)
+
+	require.Equal(t, AccountTokenGuardV2ProbeAuth, guardRepo.completion.ProbeState)
+	require.Equal(t, 1, reauthRepo.createCalls)
+}
+
+func TestAccountTokenGuardV2ChallengeDoesNotQueueRelogin(t *testing.T) {
+	reauth, reader, reauthRepo, _, _, _ := newReauthTestService("acct-1")
+	reauth.SetCredentialWriter(guardCredentialWriter{})
+	guardRepo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{
+		AccountID: 42, Enabled: true, AutoReloginEnabled: true, FailStreak: 2, NextProbeAt: time.Now(),
+	}}
+	svc := NewAccountTokenGuardV2Service(guardRepo, nil, reader, accountTokenGuardV2TestProber{err: &codexModelsManifestUpstreamError{
+		err: errors.New("cloudflare challenge"), statusCode: http.StatusForbidden,
+	}}, reauth)
+
+	svc.runProbe(context.Background(), *guardRepo.record)
+
+	require.Equal(t, AccountTokenGuardV2ProbeBlocked, guardRepo.completion.ProbeState)
+	require.Zero(t, reauthRepo.createCalls)
 }
 
 func TestAccountTokenGuardV2RateLimitNeverQueuesRelogin(t *testing.T) {
@@ -323,4 +374,75 @@ func TestAccountTokenGuardV2RunDuePruneFailurePreservesRecords(t *testing.T) {
 	require.Zero(t, n)
 	require.NotNil(t, repo.record)
 	require.False(t, repo.claimed)
+}
+
+func TestReloginNowReturnsAccountReadError(t *testing.T) {
+	reauth, reader, reauthRepo, _, _, _ := newReauthTestService("acct-1")
+	reader.getErr = errors.New("database unavailable")
+	guardRepo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{AccountID: 42, Enabled: true}}
+	guardRepo.createTask = reauthRepo.CreateTask
+	svc := NewAccountTokenGuardV2Service(guardRepo, nil, reader, nil, reauth)
+
+	_, err := svc.ReloginNow(context.Background(), 42, false)
+	require.ErrorIs(t, err, reader.getErr)
+	require.Zero(t, reauthRepo.createCalls)
+}
+
+type slowAuthThenOKProber struct {
+	calls int
+	delay time.Duration
+}
+
+func (p *slowAuthThenOKProber) FetchOpenAIModelsList(ctx context.Context, _ *Account) (*OpenAIModelsResponse, error) {
+	p.calls++
+	if p.calls == 1 {
+		timer := time.NewTimer(p.delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return nil, &codexModelsManifestUpstreamError{err: errors.New("unauthorized"), statusCode: http.StatusUnauthorized}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &OpenAIModelsResponse{}, nil
+}
+
+func TestRunProbeRefreshUsesFreshTimeoutAfterSlowProbe(t *testing.T) {
+	previous := accountTokenGuardProbeTimeout
+	accountTokenGuardProbeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { accountTokenGuardProbeTimeout = previous })
+
+	reauth, reader, reauthRepo, _, client, _ := newReauthTestService("acct-1")
+	writer := &reauthCredentialWriter{}
+	reauth.SetCredentialWriter(writer)
+	client.refreshResponse = &openai.TokenResponse{AccessToken: "rotated-access", RefreshToken: "rotated-refresh", ExpiresIn: 3600}
+	client.onRefresh = func(ctx context.Context) error {
+		timer := time.NewTimer(120 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	prober := &slowAuthThenOKProber{delay: 120 * time.Millisecond}
+	guardRepo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{
+		AccountID: 42, Enabled: true, AutoReloginEnabled: true, NextProbeAt: time.Now(),
+	}}
+	guardRepo.createTask = reauthRepo.CreateTask
+	svc := NewAccountTokenGuardV2Service(guardRepo, nil, reader, prober, reauth)
+	record, err := guardRepo.GetAccount(context.Background(), 42)
+	require.NoError(t, err)
+
+	svc.runProbe(context.Background(), *record)
+
+	require.Equal(t, 2, prober.calls)
+	require.Equal(t, AccountTokenGuardV2ProbeOK, guardRepo.completion.ProbeState)
+	require.Equal(t, "access token refreshed", guardRepo.completion.ProbeDetail)
+	require.Zero(t, reauthRepo.createCalls)
 }

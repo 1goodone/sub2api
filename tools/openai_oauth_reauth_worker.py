@@ -232,7 +232,7 @@ class WorkerConfig:
     tosub2_root: Path | None = None
     poll_seconds: float = 5.0
     request_timeout: float = 30.0
-    concurrency: int = 3
+    concurrency: int = 2
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -282,7 +282,7 @@ class WorkerConfig:
             raise WorkerError("configure TOSUB2_ROOT for password/TOTP or CODEX_PROTOCOL_ROOT/TURB_ROOT for email OTP")
 
         try:
-            concurrency = int(os.getenv("OPENAI_REAUTH_CONCURRENCY", "3"))
+            concurrency = int(os.getenv("OPENAI_REAUTH_CONCURRENCY", "2"))
         except ValueError:
             raise WorkerError("OPENAI_REAUTH_CONCURRENCY must be an integer from 1 to 16") from None
         if not 1 <= concurrency <= 16:

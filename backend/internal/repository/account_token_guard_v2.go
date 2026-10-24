@@ -212,6 +212,17 @@ func (r *accountTokenGuardV2Repository) RetireAccount(ctx context.Context, accou
 	return err
 }
 
+func (r *accountTokenGuardV2Repository) BlockLogin(ctx context.Context, accountID int64, reason string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE account_token_guard_v2_accounts
+		SET blocked_reason = $2,
+			updated_at = NOW()
+		WHERE account_id = $1
+			AND COALESCE(blocked_reason, '') <> 'account_retired'
+	`, accountID, reason)
+	return err
+}
+
 func (r *accountTokenGuardV2Repository) RescheduleEnabled(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE account_token_guard_v2_accounts

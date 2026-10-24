@@ -164,8 +164,12 @@ export async function probeTokenGuardV2Account(accountId: number): Promise<Token
   return (await apiClient.post(`/admin/account-ops/token-guard-v2/accounts/${accountId}/probe`)).data
 }
 
-export async function reloginTokenGuardV2Account(accountId: number): Promise<TokenGuardV2Task> {
-  return (await apiClient.post(`/admin/account-ops/token-guard-v2/accounts/${accountId}/relogin`)).data
+export async function reloginTokenGuardV2Account(accountId: number, force = false): Promise<TokenGuardV2Task | { refreshed: true; account_id: number }> {
+  const response = await apiClient.post(
+    `/admin/account-ops/token-guard-v2/accounts/${accountId}/relogin`,
+    force ? { force: true } : undefined,
+  )
+  return response.data
 }
 
 export async function resumeTokenGuardV2Budget(accountId: number): Promise<TokenGuardV2Account> {

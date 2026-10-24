@@ -1832,13 +1832,24 @@ func (s *OpenAIGatewayService) handleCodexModelsManifestAccountAuthError(ctx con
 	s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.statusCode, headers, upstreamErr.body)
 }
 
+type openAIModelsCacheBypassKey struct{}
+
+func WithOpenAIModelsCacheBypass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, openAIModelsCacheBypassKey{}, true)
+}
+
+func openAIModelsCacheBypassed(ctx context.Context) bool {
+	bypassed, _ := ctx.Value(openAIModelsCacheBypassKey{}).(bool)
+	return bypassed
+}
+
 func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, request openAIModelsRequest, fetch func(ctx context.Context, ifNoneMatch string) (*OpenAIModelsResponse, error), ifNoneMatch string) (*OpenAIModelsResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	cacheKey := buildOpenAIModelsCacheKey(request)
 	manifest, state := s.openAIModelsCache.get(cacheKey, time.Now())
-	if state == openAIModelsCacheFresh {
+	if state == openAIModelsCacheFresh && !openAIModelsCacheBypassed(ctx) {
 		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
 	}
 	if HasAPIKeyAdmissionOwner(ctx) {
@@ -1849,7 +1860,7 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 		defer cancel()
 		refreshed, err := s.fetchAndCacheOpenAIModels(refreshCtx, cacheKey, fetch)
 		if err != nil {
-			if refreshCtx.Err() == nil && state == openAIModelsCacheStale {
+			if refreshCtx.Err() == nil && state == openAIModelsCacheStale && !openAIModelsCacheBypassed(ctx) {
 				return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
 			}
 			return nil, err
@@ -1857,7 +1868,7 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 		return openAIModelsResponseForClient(refreshed, ifNoneMatch), nil
 	}
 	resultCh := s.refreshCachedOpenAIModels(cacheKey, request, fetch)
-	if state == openAIModelsCacheStale {
+	if state == openAIModelsCacheStale && !openAIModelsCacheBypassed(ctx) {
 		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
 	}
 	select {

@@ -14,7 +14,7 @@ import (
 // An empty engine preserves pre-upgrade account choices until an administrator
 // explicitly selects a global engine. Concurrency alone must not reroute secrets.
 func (s *OpenAIOAuthReauthService) GetRuntimeSettings(ctx context.Context) (OpenAIOAuthReauthRuntimeSettings, error) {
-	cfg := OpenAIOAuthReauthRuntimeSettings{WorkerConcurrency: 3}
+	cfg := OpenAIOAuthReauthRuntimeSettings{WorkerConcurrency: 2}
 	if n, err := strconv.Atoi(os.Getenv("OPENAI_REAUTH_CONCURRENCY")); err == nil && n >= 1 && n <= 16 {
 		cfg.WorkerConcurrency = n
 	}
