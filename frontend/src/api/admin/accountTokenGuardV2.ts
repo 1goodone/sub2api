@@ -19,6 +19,7 @@ export interface TokenGuardV2LoginConfig {
 }
 
 export interface TokenGuardV2Task {
+  diagnostic?: { stage: string; reason: string; elapsed_ms: number; exit_code: number }
   id: number
   account_id: number
   oauth_profile?: string
@@ -32,6 +33,9 @@ export interface TokenGuardV2Task {
 }
 
 export interface TokenGuardV2Account {
+  relogin_fail_streak?: number
+  last_counted_task_id?: number
+  auto_relogin_exhausted?: boolean
   account_id: number
   account_name: string
   account_status: string
@@ -51,6 +55,8 @@ export interface TokenGuardV2Account {
 }
 
 export interface TokenGuardV2Rules {
+  relogin_backoff_max_seconds?: number
+  relogin_max_failures?: number
   probe_interval_seconds: number
   retry_interval_seconds: number
   relogin_cooldown_seconds: number
@@ -160,4 +166,8 @@ export async function probeTokenGuardV2Account(accountId: number): Promise<Token
 
 export async function reloginTokenGuardV2Account(accountId: number): Promise<TokenGuardV2Task> {
   return (await apiClient.post(`/admin/account-ops/token-guard-v2/accounts/${accountId}/relogin`)).data
+}
+
+export async function resumeTokenGuardV2Budget(accountId: number): Promise<TokenGuardV2Account> {
+  return (await apiClient.post(`/admin/account-ops/token-guard-v2/accounts/${accountId}/resume-relogin-budget`, { confirm: true })).data
 }
