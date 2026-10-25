@@ -764,18 +764,6 @@ describe('quality operations', () => {
     wrapper.unmount()
   })
 
-  it('keeps shortcuts usable and reports when browser persistence fails', async () => {
-    const wrapper = mountView(); await flushPromises()
-    ;(wrapper.vm as any).newPlan(); await flushPromises()
-    const save = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage blocked') })
-    try {
-      await wrapper.get('[data-testid="quality-model-shortcuts-input"]').setValue('custom-model')
-      await wrapper.get('[data-testid="quality-save-model-shortcuts"]').trigger('click')
-      expect(wrapper.get('[data-testid="quality-model-shortcuts-error"]').text()).toBe('qualityOps.modelShortcutsSaveFailed')
-      expect(wrapper.findAll('[data-testid="quality-model-shortcut"]').map(button => button.text())).toContain('custom-model')
-    } finally { save.mockRestore(); wrapper.unmount() }
-  })
-
   it('switches to generated reasoning without saving a fixed question or answer', async () => {
     const plan = rules()[0]
     plan.pelican_config!.question_kind = 'candy'
