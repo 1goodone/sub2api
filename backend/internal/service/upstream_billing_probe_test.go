@@ -158,15 +158,17 @@ type upstreamBillingProbeSettingRepo struct {
 	values map[string]string
 }
 
+// calls counts rate requests, one per network probe. balanceCalls counts the
+// /v1/usage request that follows each of them. beforeResponse only gates rate requests.
 type upstreamBillingProbeHTTPStub struct {
 	calls          atomic.Int64
+	balanceCalls   atomic.Int64
 	active         atomic.Int64
 	maxActive      atomic.Int64
 	beforeResponse func()
 }
 
 func (u *upstreamBillingProbeHTTPStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
-	u.calls.Add(1)
 	active := u.active.Add(1)
 	defer u.active.Add(-1)
 	for {
@@ -175,7 +177,16 @@ func (u *upstreamBillingProbeHTTPStub) Do(req *http.Request, proxyURL string, ac
 			break
 		}
 	}
-	if u.beforeResponse != nil && (req == nil || req.URL == nil || !strings.HasPrefix(req.URL.Path, upstreamBalanceProbePath)) {
+	u.calls.Add(1)
+	if req != nil && req.URL != nil && strings.HasPrefix(req.URL.Path, upstreamBalanceProbePath) {
+		u.balanceCalls.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       upstreamBalanceProbeWalletBody(),
+		}, nil
+	}
+	if u.beforeResponse != nil {
 		u.beforeResponse()
 	}
 	return &http.Response{
@@ -428,7 +439,7 @@ func TestUpstreamBillingProbeSyncsResolvedRateForAllAPIKeyPlatforms(t *testing.T
 			now = now.Add(30 * time.Minute)
 			snapshot, err = svc.ProbeAccount(context.Background(), account.ID)
 			require.NoError(t, err)
-			require.Equal(t, int64(2), upstream.calls.Load())
+			require.Equal(t, int64(4), upstream.calls.Load())
 			require.Equal(t, int64(2), upstream.balanceCalls.Load())
 			require.Equal(t, now, *snapshot.ReceivedAt)
 			require.Same(t, snapshot, account.Extra[UpstreamBillingProbeExtraKey])
