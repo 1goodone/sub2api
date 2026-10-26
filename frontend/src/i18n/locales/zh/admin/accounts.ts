@@ -2252,7 +2252,14 @@ export default {
         todayTokens: '今日 Token',
         todayCost: '今日计费',
         usageTrend: '30天费用与请求趋势',
-        noData: '该账号暂无使用数据'
+        noData: '该账号暂无使用数据',
+        range: '统计范围',
+        refresh: '刷新',
+        rangeSubtitle: '{range}使用统计（日均基于实际使用天数）',
+        rangeTotalCost: '{range}总费用',
+        rangeTotalRequests: '{range}请求总数',
+        rangeTotalTokens: '{range} Token 总计',
+        rangeUsageTrend: '{range}费用与请求趋势'
       },
       officialUsage: {
         subtitle: 'OpenAI 官方结算口径，数据最多回溯约 84 天',

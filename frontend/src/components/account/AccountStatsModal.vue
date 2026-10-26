@@ -20,7 +20,7 @@
           <div class="min-w-0">
             <div class="truncate font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
             <div class="truncate text-xs text-gray-500 dark:text-gray-400">
-              {{ activeTab === 'official' ? t('admin.accounts.officialUsage.subtitle') : t('admin.accounts.last30DaysUsage') }}
+              {{ activeTab === 'official' ? t('admin.accounts.officialUsage.subtitle') : localSubtitle }}
             </div>
           </div>
         </div>
@@ -64,8 +64,55 @@
         </button>
       </div>
 
+      <!-- Local range toolbar: same presets as the official settlement tab -->
+      <div
+        v-if="activeTab === 'local'"
+        class="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-dark-500 dark:bg-dark-700/50 lg:flex-row lg:items-center lg:justify-between"
+      >
+        <div class="min-w-0 text-xs text-gray-500 dark:text-gray-400">
+          <div class="flex items-center gap-2">
+            <Icon name="chartBar" size="sm" class="text-primary-600 dark:text-primary-400" />
+            <span>{{ t('admin.accounts.stats.range') }}</span>
+          </div>
+          <p class="mt-1 truncate">{{ localSubtitle }}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <div
+            class="inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-dark-500 dark:bg-dark-700"
+          >
+            <button
+              v-for="option in ranges"
+              :key="option.value"
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                range === option.value
+                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-600'
+              ]"
+              :data-range="option.value"
+              @click="range = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
+            :disabled="loading"
+            @click="loadStats()"
+          >
+            <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
+            {{ t('admin.accounts.stats.refresh') }}
+          </button>
+        </div>
+      </div>
+
       <!-- Loading State -->
-      <div v-if="activeTab === 'local' && loading" class="flex items-center justify-center py-12">
+      <div
+        v-if="activeTab === 'local' && loading && !stats"
+        class="flex items-center justify-center py-12"
+      >
         <LoadingSpinner />
       </div>
 
@@ -78,7 +125,7 @@
           >
             <div class="mb-2 flex items-center justify-between">
               <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{
-                t('admin.accounts.stats.totalCost')
+                t('admin.accounts.stats.rangeTotalCost', { range: rangeLabel })
               }}</span>
               <div class="rounded-lg bg-emerald-100 p-1.5 dark:bg-emerald-900/30">
                 <svg
@@ -116,7 +163,7 @@
           >
             <div class="mb-2 flex items-center justify-between">
               <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{
-                t('admin.accounts.stats.totalRequests')
+                t('admin.accounts.stats.rangeTotalRequests', { range: rangeLabel })
               }}</span>
               <div class="rounded-lg bg-blue-100 p-1.5 dark:bg-blue-900/30">
                 <Icon name="bolt" size="sm" class="text-blue-600 dark:text-blue-400" :stroke-width="2" />
@@ -361,7 +408,7 @@
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{
-                  t('admin.accounts.stats.totalTokens')
+                  t('admin.accounts.stats.rangeTotalTokens', { range: rangeLabel })
                 }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
                   formatTokens(stats.summary.total_tokens)
@@ -459,7 +506,7 @@
         <!-- Usage Trend Chart -->
         <div class="card p-4">
           <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
-            {{ t('admin.accounts.stats.usageTrend') }}
+            {{ t('admin.accounts.stats.rangeUsageTrend', { range: rangeLabel }) }}
           </h3>
           <div class="h-64">
             <Line v-if="trendChartData" :data="trendChartData" :options="lineChartOptions" />
@@ -538,6 +585,7 @@ import EndpointDistributionChart from '@/components/charts/EndpointDistributionC
 import AccountOfficialStatsTab from '@/components/account/AccountOfficialStatsTab.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
+import type { AccountStatsRange } from '@/api/admin/accounts'
 import type { Account, AccountUsageStatsResponse } from '@/types'
 
 ChartJS.register(
@@ -565,6 +613,21 @@ const emit = defineEmits<{
 const loading = ref(false)
 const stats = ref<AccountUsageStatsResponse | null>(null)
 const activeTab = ref<'local' | 'official'>('local')
+// Local stats time filter, using the same presets as the official settlement tab.
+const DEFAULT_RANGE: AccountStatsRange = '30d'
+const range = ref<AccountStatsRange>(DEFAULT_RANGE)
+const ranges = computed(() => [
+  { value: '7d' as const, label: t('admin.accounts.officialUsage.range7d') },
+  { value: '30d' as const, label: t('admin.accounts.officialUsage.range30d') },
+  { value: '90d' as const, label: t('admin.accounts.officialUsage.range90d') },
+  { value: 'all' as const, label: t('admin.accounts.officialUsage.rangeAll') }
+])
+const rangeLabel = computed(
+  () => ranges.value.find((option) => option.value === range.value)?.label ?? ''
+)
+const localSubtitle = computed(() =>
+  t('admin.accounts.stats.rangeSubtitle', { range: rangeLabel.value })
+)
 const officialEligible = computed(() => {
   const account = props.account
   if (!account || account.platform !== 'openai' || account.type !== 'oauth' || account.parent_account_id != null) return false
@@ -726,6 +789,11 @@ watch(
   async (newVal) => {
     if (newVal && props.account) {
       activeTab.value = 'local'
+      if (range.value !== DEFAULT_RANGE) {
+        // Resetting the filter re-triggers the range watcher below, which loads.
+        range.value = DEFAULT_RANGE
+        return
+      }
       await loadStats()
     } else {
       stats.value = null
@@ -733,23 +801,35 @@ watch(
   }
 )
 
+// Reload when the time filter changes while the modal is open.
+let statsRequestID = 0
+
 const loadStats = async () => {
   if (!props.account) return
 
+  const current = ++statsRequestID
   loading.value = true
   try {
-    stats.value = await adminAPI.accounts.getStats(props.account.id, 30)
+    const result = await adminAPI.accounts.getStats(props.account.id, range.value)
+    if (current === statsRequestID) stats.value = result
   } catch (error) {
-    console.error('Failed to load account stats:', error)
-    stats.value = null
+    if (current === statsRequestID) {
+      console.error('Failed to load account stats:', error)
+      stats.value = null
+    }
   } finally {
-    loading.value = false
+    if (current === statsRequestID) loading.value = false
   }
 }
 
 const handleClose = () => {
   emit('close')
 }
+
+// Fetch again whenever the time filter changes while the modal stays open.
+watch(range, () => {
+  if (props.show && props.account) void loadStats()
+})
 
 // Format helpers
 const formatCost = (value: number): string => {

@@ -21,6 +21,9 @@ docker buildx build \
     --build-arg COMMIT="${COMMIT}" \
     --build-arg DATE="${BUILD_DATE}" \
     --build-arg VITE_ENABLE_KEY_PACKAGES=false \
+    --build-arg VITE_DESKTOP_WINDOWS_URL="${VITE_DESKTOP_WINDOWS_URL:-}" \
+    --build-arg VITE_DESKTOP_MAC_ARM_URL="${VITE_DESKTOP_MAC_ARM_URL:-}" \
+    --build-arg VITE_DESKTOP_MAC_INTEL_URL="${VITE_DESKTOP_MAC_INTEL_URL:-}" \
     --build-arg GOPROXY=https://goproxy.cn,direct \
     --build-arg GOSUMDB=sum.golang.google.cn \
     --file "${REPO_ROOT}/Dockerfile" \

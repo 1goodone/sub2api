@@ -261,6 +261,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 			return nil, err
 		}
 	}
+	// 与 RecordUsage 同序：先强制缓存归类，再按分组比例把部分缓存读取挪回普通输入。
+	body = reduceCacheReadUsagePayload(body, downstreamCacheReadReductionPercent(c))
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -419,6 +421,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	inPartialEvent := false
 
+	downstreamPercent := downstreamCacheReadReductionPercent(c)
+
 	for {
 		select {
 		case ev, ok := <-events:
@@ -469,6 +473,11 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
 					sawTerminalEvent = true
 				}
+			}
+
+			// 计费已按原始 data 行解析，这里只改写给下游的副本。
+			if downstreamPercent > 0 {
+				line = reduceClientVisibleSSELine(line, downstreamPercent)
 			}
 
 			if !clientDisconnected {

@@ -643,6 +643,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if clientDisconnected {
 			return
 		}
+		message = reduceCacheReadUsagePayload(message, downstreamCacheReadReductionPercent(c))
 		frame := make([]byte, 0, len(message)+8)
 		frame = append(frame, "data: "...)
 		frame = append(frame, message...)
@@ -1001,6 +1002,7 @@ readLoop:
 		if responseID == "" {
 			responseID = strings.TrimSpace(gjson.GetBytes(finalResponse, "id").String())
 		}
+		finalResponse = reduceCacheReadUsagePayload(finalResponse, downstreamCacheReadReductionPercent(c))
 
 		c.Data(http.StatusOK, "application/json", finalResponse)
 	} else {

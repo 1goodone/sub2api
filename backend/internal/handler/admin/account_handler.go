@@ -1892,8 +1892,61 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(ctx, updatedAccount))
 }
 
+// accountStatsWindow is the resolved half-open [Start, End) range of an account
+// usage stats query.
+type accountStatsWindow struct {
+	Start time.Time
+	End   time.Time
+}
+
+// accountStatsRangeKeys mirrors the official usage tab timers (7d/30d/90d/all).
+var accountStatsRangeDays = map[string]int{
+	"7d":  7,
+	"30d": 30,
+	"90d": 90,
+	"all": 0,
+}
+
+// parseAccountStatsRange resolves the range query parameter, falling back to the
+// legacy days parameter. A lookback of 0 means "all" (from the earliest data).
+func parseAccountStatsRange(rangeKey, daysParam string) (int, error) {
+	key := strings.ToLower(strings.TrimSpace(rangeKey))
+	if key == "" {
+		// Legacy clients only send days (default 30, bounded to 90).
+		days := 30
+		if daysStr := strings.TrimSpace(daysParam); daysStr != "" {
+			if d, err := strconv.Atoi(daysStr); err == nil && d > 0 && d <= 90 {
+				days = d
+			}
+		}
+		return days, nil
+	}
+	days, ok := accountStatsRangeDays[key]
+	if !ok {
+		return 0, fmt.Errorf("range must be one of 7d, 30d, 90d, all")
+	}
+	return days, nil
+}
+
+// resolveAccountStatsWindow turns a lookback into a day-aligned window ending with
+// tomorrow's midnight, matching the official settlement range boundaries. For
+// "all" the window starts at earliest (first day the account could have data).
+func resolveAccountStatsWindow(days int, now, earliest time.Time) accountStatsWindow {
+	end := timezone.StartOfDay(now.AddDate(0, 0, 1))
+	if days > 0 {
+		return accountStatsWindow{
+			Start: timezone.StartOfDay(now.AddDate(0, 0, -days+1)),
+			End:   end,
+		}
+	}
+	if earliest.IsZero() {
+		return accountStatsWindow{Start: time.Time{}, End: end}
+	}
+	return accountStatsWindow{Start: timezone.StartOfDay(earliest), End: end}
+}
+
 // GetStats handles getting account statistics
-// GET /api/v1/admin/accounts/:id/stats
+// GET /api/v1/admin/accounts/:id/stats?range=7d|30d|90d|all (legacy: ?days=N)
 func (h *AccountHandler) GetStats(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1901,26 +1954,46 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Parse days parameter (default 30)
-	days := 30
-	if daysStr := c.Query("days"); daysStr != "" {
-		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 && d <= 90 {
-			days = d
+	days, err := parseAccountStatsRange(c.Query("range"), c.Query("days"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	// "all" is bounded by the account creation day so the window stays finite.
+	var earliest time.Time
+	if days == 0 {
+		earliest, err = h.accountFirstUsageDay(c.Request.Context(), accountID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
 		}
 	}
 
-	// Calculate time range
-	now := timezone.Now()
-	endTime := timezone.StartOfDay(now.AddDate(0, 0, 1))
-	startTime := timezone.StartOfDay(now.AddDate(0, 0, -days+1))
-
-	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, startTime, endTime)
+	window := resolveAccountStatsWindow(days, timezone.Now(), earliest)
+	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, window.Start, window.End)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
 	response.Success(c, stats)
+}
+
+// accountFirstUsageDay returns the account creation time, the earliest day the
+// account can have usage data on.
+func (h *AccountHandler) accountFirstUsageDay(ctx context.Context, accountID int64) (time.Time, error) {
+	if h.adminService == nil {
+		return time.Time{}, nil
+	}
+	account, err := h.adminService.GetAccount(ctx, accountID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if account == nil {
+		return time.Time{}, nil
+	}
+	return account.CreatedAt, nil
 }
 
 // GetOfficialUsage returns OpenAI's official ChatGPT/Codex settlement usage.

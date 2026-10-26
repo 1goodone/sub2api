@@ -37,6 +37,8 @@ export default {
         "historyLimitInvalid": "最近检测次数必须是 15-100 的整数。",
         "duplicateModel": "同一分组里，相同模型和推理强度不能重复配置。",
         "title": "降智状态",
+        "disabled": "未配置",
+        "disabledHint": "该分组还没有配置模型检测。",
         "cadence": "每 {minutes} 分钟检测",
         "window": "近 60 分钟 · 仅显示已检测记录",
         "waiting": "等待检测",

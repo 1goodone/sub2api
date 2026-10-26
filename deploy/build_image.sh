@@ -9,5 +9,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 docker build -t sub2api:latest \
     --build-arg GOPROXY=https://goproxy.cn,direct \
     --build-arg GOSUMDB=sum.golang.google.cn \
+    --build-arg VITE_DESKTOP_WINDOWS_URL="${VITE_DESKTOP_WINDOWS_URL:-}" \
+    --build-arg VITE_DESKTOP_MAC_ARM_URL="${VITE_DESKTOP_MAC_ARM_URL:-}" \
+    --build-arg VITE_DESKTOP_MAC_INTEL_URL="${VITE_DESKTOP_MAC_INTEL_URL:-}" \
     -f "${REPO_ROOT}/Dockerfile" \
     "${REPO_ROOT}"

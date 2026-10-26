@@ -33,13 +33,14 @@ vi.mock('@/components/icons/Icon.vue', () => ({
 
 describe('DesktopDownloadView', () => {
   beforeEach(() => {
+    vi.unstubAllEnvs()
     mocks.appStore.fetchPublicSettings.mockReset()
     mocks.authStore.isAuthenticated = false
     mocks.authStore.isAdmin = false
   })
 
-  it('links each platform directly to its latest installer', () => {
-    const wrapper = mount(DesktopDownloadView, {
+  function mountView() {
+    return mount(DesktopDownloadView, {
       global: {
         stubs: {
           RouterLink: defineComponent({
@@ -49,17 +50,35 @@ describe('DesktopDownloadView', () => {
         }
       }
     })
+  }
 
-    const downloadBaseUrl = 'https://downloads.xymm.win/xiaoyang/updates'
+  it('does not publish installer links until the build sets them', () => {
+    const wrapper = mountView()
+
     expect(wrapper.get('[data-testid="desktop-latest-release"]').attributes('href')).toBe('#desktop-downloads')
-    expect(wrapper.get('[data-testid="desktop-download-windows"]').attributes('href')).toBe(`${downloadBaseUrl}/xiaoyang-windows-x64-setup.exe`)
-    expect(wrapper.get('[data-testid="desktop-download-mac-arm"]').attributes('href')).toBe(`${downloadBaseUrl}/xiaoyang-darwin-aarch64.dmg`)
-    expect(wrapper.get('[data-testid="desktop-download-mac-intel"]').attributes('href')).toBe(`${downloadBaseUrl}/xiaoyang-darwin-x64.dmg`)
-    expect(wrapper.findAll('[data-testid^="desktop-download-"]').every(link => link.attributes('target') === undefined)).toBe(true)
+    expect(wrapper.find('[data-testid="desktop-download-windows"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="desktop-download-mac-arm"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="desktop-download-mac-intel"]').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain('xymm.win')
     expect(wrapper.find('[data-testid="desktop-all-releases"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('desktop.viewRelease')
     expect(wrapper.get('img[alt="小羊咩咩"]').attributes('src')).toBe('/illustrations/xiaoyang-desktop.png')
+    expect(wrapper.text()).not.toContain('desktop.macArmArch')
+  })
+
+  it('links each platform to the installer configured at build time', () => {
+    vi.stubEnv('VITE_DESKTOP_WINDOWS_URL', 'https://downloads.example.invalid/app-windows-x64-setup.exe')
+    vi.stubEnv('VITE_DESKTOP_MAC_ARM_URL', 'https://downloads.example.invalid/app-darwin-aarch64.dmg')
+    vi.stubEnv('VITE_DESKTOP_MAC_INTEL_URL', 'https://downloads.example.invalid/app-darwin-x64.dmg')
+
+    const wrapper = mountView()
+
+    expect(wrapper.get('[data-testid="desktop-download-windows"]').attributes('href')).toBe('https://downloads.example.invalid/app-windows-x64-setup.exe')
+    expect(wrapper.get('[data-testid="desktop-download-mac-arm"]').attributes('href')).toBe('https://downloads.example.invalid/app-darwin-aarch64.dmg')
+    expect(wrapper.get('[data-testid="desktop-download-mac-intel"]').attributes('href')).toBe('https://downloads.example.invalid/app-darwin-x64.dmg')
+    expect(wrapper.findAll('[data-testid^="desktop-download-"]').every(link => link.attributes('target') === undefined)).toBe(true)
     expect(wrapper.text()).toContain('desktop.macArmArch')
+    expect(wrapper.html()).not.toContain('xymm.win')
   })
 
   it('keeps authenticated users inside the application layout', async () => {
@@ -80,6 +99,6 @@ describe('DesktopDownloadView', () => {
     expect(wrapper.get('[data-testid="app-layout"]').exists()).toBe(true)
     expect(wrapper.find('header').exists()).toBe(false)
     expect(wrapper.find('footer').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="desktop-download-windows"]').attributes('href')).toContain('.exe')
+    expect(wrapper.html()).not.toContain('xymm.win')
   })
 })

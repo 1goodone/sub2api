@@ -2196,7 +2196,14 @@ export default {
         todayTokens: 'Today Tokens',
         todayCost: 'Today Cost',
         usageTrend: '30-Day Cost & Request Trend',
-        noData: 'No usage data available for this account'
+        noData: 'No usage data available for this account',
+        range: 'Range',
+        refresh: 'Refresh',
+        rangeSubtitle: '{range} usage statistics (daily averages use actual usage days)',
+        rangeTotalCost: 'Total cost ({range})',
+        rangeTotalRequests: 'Total requests ({range})',
+        rangeTotalTokens: 'Token total ({range})',
+        rangeUsageTrend: 'Cost & request trend ({range})'
       },
       officialUsage: {
         subtitle: 'OpenAI official settlement data, with about 84 days of upstream history',

@@ -275,6 +275,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if respBytes, err := json.Marshal(ccResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
+		respBytes = reduceCacheReadUsagePayload(respBytes, downstreamCacheReadReductionPercent(c))
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
 	} else {
 		c.JSON(http.StatusOK, ccResp)
@@ -394,6 +395,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			return false
 		}
 		out := string(reverseToolNamesIfPresent(c, []byte(sse)))
+		out = reduceClientVisibleSSEBlock(out, downstreamCacheReadReductionPercent(c))
 		if _, err := fmt.Fprint(c.Writer, out); err != nil {
 			clientDisconnected = true
 			return false

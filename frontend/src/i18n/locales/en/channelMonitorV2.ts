@@ -37,6 +37,8 @@ export default {
         "historyLimitInvalid": "Recent checks must be an integer from 15 to 100.",
         "duplicateModel": "The same group cannot repeat a model and reasoning effort.",
         "title": "Reasoning check",
+        "disabled": "Not configured",
+        "disabledHint": "No model check is configured for this group.",
         "cadence": "Every {minutes} min",
         "window": "Last 60 min · observed checks only",
         "waiting": "Waiting for a check",

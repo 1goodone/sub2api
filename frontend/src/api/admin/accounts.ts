@@ -555,15 +555,21 @@ export async function listBPSLoginStatuses(ids: number[]): Promise<BPSLoginStatu
   return data.accounts ?? []
 }
 
+/** Time range for local account statistics, same presets as the official usage tab. */
+export type AccountStatsRange = '7d' | '30d' | '90d' | 'all'
+
 /**
  * Get account usage statistics
  * @param id - Account ID
- * @param days - Number of days (default: 30)
+ * @param range - Time range preset (default: 30d)
  * @returns Account usage statistics with history, summary, and models
  */
-export async function getStats(id: number, days: number = 30): Promise<AccountUsageStatsResponse> {
+export async function getStats(
+  id: number,
+  range: AccountStatsRange = '30d'
+): Promise<AccountUsageStatsResponse> {
   const { data } = await apiClient.get<AccountUsageStatsResponse>(`/admin/accounts/${id}/stats`, {
-    params: { days }
+    params: { range }
   })
   return data
 }

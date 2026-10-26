@@ -659,7 +659,7 @@ const loadStats = async () => {
 
   loading.value = true
   try {
-    stats.value = await adminAPI.accounts.getStats(props.account.id, 30)
+    stats.value = await adminAPI.accounts.getStats(props.account.id, '30d')
   } catch (error) {
     console.error('Failed to load account stats:', error)
     stats.value = null

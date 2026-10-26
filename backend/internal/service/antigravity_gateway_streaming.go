@@ -944,7 +944,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, errType, errMsg)
 	}
-	c.Data(http.StatusOK, "application/json", claudeResp)
+	c.Data(http.StatusOK, "application/json", reduceCacheReadUsagePayload(claudeResp, downstreamCacheReadReductionPercent(c)))
 	return streamRes, nil
 }
 

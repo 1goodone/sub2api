@@ -487,6 +487,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if err != nil {
 			return nil, fmt.Errorf("restore responses client tools: %w", err)
 		}
+		respBytes = reduceCacheReadUsagePayload(respBytes, downstreamCacheReadReductionPercent(c))
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
 	} else {
 		c.JSON(http.StatusOK, responsesResp)
@@ -538,6 +539,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	writerSizeBeforeStream := c.Writer.Size()
 
 	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_responses", requestID)
+	downstreamPercent := downstreamCacheReadReductionPercent(c)
 	defer stream.stop()
 
 	resultWithUsage := func() *ForwardResult {
@@ -599,7 +601,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			}
 			for _, restored := range payloads {
 				eventType := gjson.GetBytes(restored, "type").String()
-				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
+				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, reduceCacheReadUsagePayload(restored, downstreamPercent)); err != nil {
 					stream.markClientDisconnected()
 					return
 				}
@@ -626,6 +628,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 					continue
 				}
 				out := string(reverseToolNamesIfPresent(c, []byte(sse)))
+				out = reduceClientVisibleSSEBlock(out, downstreamPercent)
 				fmt.Fprint(c.Writer, out) //nolint:errcheck
 			}
 			c.Writer.Flush()

@@ -112,6 +112,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 
 	w := c.Writer
+	downstreamPercent := downstreamCacheReadReductionPercent(c)
 	_, ok := w.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -778,7 +779,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					shouldFlush = true
 				}
 				eventShouldFlush = eventShouldFlush || shouldFlush
-				if _, err := writePendingString(line); err != nil {
+				if _, err := writePendingString(reduceClientVisibleSSELine(line, downstreamPercent)); err != nil {
 					handlePendingWriteError(err)
 				} else if _, err := writePendingString("\n"); err != nil {
 					handlePendingWriteError(err)
@@ -850,7 +851,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 		}
 		if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
-			if _, err := writePendingString(line); err != nil {
+			if _, err := writePendingString(reduceClientVisibleSSELine(line, downstreamPercent)); err != nil {
 				handlePendingWriteError(err)
 			} else if _, err := writePendingString("\n"); err != nil {
 				handlePendingWriteError(err)
@@ -1738,6 +1739,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
+	body = reduceCacheReadUsagePayload(body, downstreamCacheReadReductionPercent(c))
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -1848,6 +1850,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			contentType = "text/event-stream"
 		}
 	}
+	body = reduceCacheReadUsagePayload(body, downstreamCacheReadReductionPercent(c))
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}

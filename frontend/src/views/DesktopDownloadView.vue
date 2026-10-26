@@ -128,8 +128,6 @@ import { sanitizeUrl } from '@/utils/url'
 
 const AppLayout = defineAsyncComponent(() => import('@/components/layout/AppLayout.vue').then((module) => module.default))
 
-const DEFAULT_DOWNLOAD_BASE_URL = 'https://downloads.xymm.win/xiaoyang/updates'
-
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -145,32 +143,34 @@ function envUrl(name: string): string {
   return typeof value === 'string' ? sanitizeUrl(value) : ''
 }
 
-const downloadOptions = computed(() => [
-  {
-    key: 'windows',
-    titleKey: 'desktop.windows',
-    detailKey: 'desktop.windowsDetail',
-    archKey: 'desktop.windowsArch',
-    icon: 'terminal' as const,
-    url: envUrl('VITE_DESKTOP_WINDOWS_URL') || `${DEFAULT_DOWNLOAD_BASE_URL}/xiaoyang-windows-x64-setup.exe`
-  },
-  {
-    key: 'mac-arm',
-    titleKey: 'desktop.macArm',
-    detailKey: 'desktop.macArmDetail',
-    archKey: 'desktop.macArmArch',
-    icon: 'cpu' as const,
-    url: envUrl('VITE_DESKTOP_MAC_ARM_URL') || `${DEFAULT_DOWNLOAD_BASE_URL}/xiaoyang-darwin-aarch64.dmg`
-  },
-  {
-    key: 'mac-intel',
-    titleKey: 'desktop.macIntel',
-    detailKey: 'desktop.macIntelDetail',
-    archKey: 'desktop.macIntelArch',
-    icon: 'server' as const,
-    url: envUrl('VITE_DESKTOP_MAC_INTEL_URL') || `${DEFAULT_DOWNLOAD_BASE_URL}/xiaoyang-darwin-x64.dmg`
-  }
-])
+const downloadOptions = computed(() =>
+  [
+    {
+      key: 'windows',
+      titleKey: 'desktop.windows',
+      detailKey: 'desktop.windowsDetail',
+      archKey: 'desktop.windowsArch',
+      icon: 'terminal' as const,
+      url: envUrl('VITE_DESKTOP_WINDOWS_URL')
+    },
+    {
+      key: 'mac-arm',
+      titleKey: 'desktop.macArm',
+      detailKey: 'desktop.macArmDetail',
+      archKey: 'desktop.macArmArch',
+      icon: 'cpu' as const,
+      url: envUrl('VITE_DESKTOP_MAC_ARM_URL')
+    },
+    {
+      key: 'mac-intel',
+      titleKey: 'desktop.macIntel',
+      detailKey: 'desktop.macIntelDetail',
+      archKey: 'desktop.macIntelArch',
+      icon: 'server' as const,
+      url: envUrl('VITE_DESKTOP_MAC_INTEL_URL')
+    }
+  ].filter((option) => option.url !== '')
+)
 
 const features = [
   { icon: 'bell' as const, titleKey: 'desktop.features.balance', detailKey: 'desktop.features.balanceDetail' },
