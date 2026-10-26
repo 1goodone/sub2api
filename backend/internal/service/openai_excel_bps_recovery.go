@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -223,7 +224,10 @@ func (s *OpenAIGatewayService) recoverExcelBPS403Account(ctx context.Context, ac
 // Probe the actual authenticated BPS Responses endpoint without enabling
 // production routing, replaying user requests or applying 403 group actions.
 func (s *OpenAIGatewayService) probeExcelBPS403Recovery(ctx context.Context, account *Account) error {
-	model := excelBPS403RecoveryModel(account)
+	return s.probeExcelBPSRecoveryModel(ctx, account, excelBPS403RecoveryModel(account), "bps-403-recovery")
+}
+
+func (s *OpenAIGatewayService) probeExcelBPSRecoveryModel(ctx context.Context, account *Account, model, purpose string) error {
 	if model == "" || s.httpUpstream == nil {
 		return errors.New("BPS recovery probe unavailable")
 	}
@@ -257,7 +261,7 @@ func (s *OpenAIGatewayService) probeExcelBPS403Recovery(ctx context.Context, acc
 	}
 	var lease excelBPSLease
 	if probe.IsExcelBPSMihomoEnabled() {
-		proxy, lease, err = s.excelBPSAcquireFor(&probe)(ctx, "transient:bps-403-recovery:"+nonce)
+		proxy, lease, err = s.excelBPSAcquireFor(&probe)(ctx, "transient:"+purpose+":"+nonce)
 		if err != nil {
 			return err
 		}
@@ -275,7 +279,21 @@ func (s *OpenAIGatewayService) probeExcelBPS403Recovery(ctx context.Context, acc
 	if err != nil {
 		return err
 	}
-	if resp == nil || resp.Body == nil || resp.StatusCode != http.StatusOK {
+	if resp == nil || resp.Body == nil {
+		return errors.New("BPS recovery request rejected")
+	}
+	stop := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
+	defer stop()
+	if resp.StatusCode != http.StatusOK {
+		if purpose == "bps-model-recovery" && s.excelBPSRecoveryEnabled(ctx) {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+			switch resp.StatusCode {
+			case http.StatusUnauthorized:
+				s.handleExcelBPSUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw, token)
+			case http.StatusTooManyRequests:
+				s.coolDownExcelBPSAttempt(ctx, account, model, resp.Header, raw, nil, resp.StatusCode)
+			}
+		}
 		return errors.New("BPS recovery request rejected")
 	}
 	const maxProbeBytes = 2 << 20
@@ -285,6 +303,27 @@ func (s *OpenAIGatewayService) probeExcelBPS403Recovery(ctx context.Context, acc
 	}
 	if len(wire) > maxProbeBytes {
 		return errors.New("BPS recovery response too large")
+	}
+	// An error event cannot be followed by a completion that releases isolation.
+	if purpose == "bps-model-recovery" {
+		for _, line := range bytes.Split(wire, []byte{'\n'}) {
+			if !bytes.HasPrefix(line, []byte("data:")) {
+				continue
+			}
+			failure := basispoints.ParseUpstreamFailure(bytes.TrimSpace(line[len("data:"):]))
+			if failure == nil {
+				continue
+			}
+			if s.excelBPSRecoveryEnabled(ctx) {
+				switch failure.Status {
+				case http.StatusUnauthorized:
+					s.pauseExcelBPSCredentials(ctx, account)
+				case http.StatusTooManyRequests:
+					s.coolDownExcelBPSAttempt(ctx, account, model, nil, nil, failure, resp.StatusCode)
+				}
+			}
+			return errors.New("BPS recovery stream failed")
+		}
 	}
 	response, err := parseBPSAccountProbeResponse(wire)
 	if err != nil {

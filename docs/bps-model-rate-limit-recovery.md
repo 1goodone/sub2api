@@ -2,6 +2,8 @@
 
 This policy is enabled by **System settings → Gateway service → Excel BPS error recovery** (`excel_bps_recovery_enabled`). It applies to BPS Responses forwarding; it does not change native Codex/OpenAI retry policy or silently choose another model or protocol. Turning the switch off makes new requests ignore this policy's model restrictions and stops them creating new model restrictions. Turning it back on resumes any unexpired restrictions still held by the process. In-flight requests retain their existing switch snapshot.
 
+Unavailable-model access errors use the separate [background probe recovery policy](bps-model-unavailable-recovery.md), with its own default 10-minute interval and the same recovery switch. The 429 policy described here remains independent.
+
 ## Configurable model restriction
 
 - Ordinary BPS HTTP 429 and in-stream rate-limit errors cool down the selected **account + mapped upstream model**. Other BPS models on the same account remain eligible.

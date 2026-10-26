@@ -76,3 +76,37 @@ func TestExcelBPSModelRateLimitSettingsRejectInvalid(t *testing.T) {
 		require.Equal(t, "60", repo.values[service.SettingKeyExcelBPSModelRateLimitCooldownMinutes])
 	}
 }
+
+func TestExcelBPSModelUnavailableSettingsRoundTrip(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	read := func() int64 {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+		h.GetSettings(c)
+		require.Equal(t, http.StatusOK, rec.Code)
+		value := gjson.GetBytes(rec.Body.Bytes(), "data.excel_bps_model_unavailable_cooldown_minutes")
+		require.True(t, value.Exists())
+		return value.Int()
+	}
+	require.Equal(t, int64(10), read())
+	for _, minutes := range []int64{1, 30, 10, 43200} {
+		rec := doUpdateSettings(t, h, map[string]any{"excel_bps_model_unavailable_cooldown_minutes": minutes}, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, minutes, gjson.GetBytes(rec.Body.Bytes(), "data.excel_bps_model_unavailable_cooldown_minutes").Int())
+		require.Equal(t, minutes, read())
+		rec = doUpdateSettings(t, h, map[string]any{"site_name": "preserve BPS cooldown"}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, minutes, read(), "partial settings updates preserve the saved cooldown")
+		require.NotEmpty(t, repo.values[service.SettingKeyExcelBPSModelUnavailableCooldownMinutes])
+	}
+}
+
+func TestExcelBPSModelUnavailableSettingsRejectInvalid(t *testing.T) {
+	for _, value := range []any{0, -1, 43201, 1.5, "30", true, []int{30}} {
+		h, repo := newStepUpSwitchTestHandler(t, map[string]string{service.SettingKeyExcelBPSModelUnavailableCooldownMinutes: "60"})
+		rec := doUpdateSettings(t, h, map[string]any{"excel_bps_model_unavailable_cooldown_minutes": value}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code, "invalid input: %v", value)
+		require.Equal(t, "60", repo.values[service.SettingKeyExcelBPSModelUnavailableCooldownMinutes])
+	}
+}
