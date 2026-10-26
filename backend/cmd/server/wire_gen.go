@@ -523,6 +523,7 @@ func provideCleanup(
 	if openAIGateway != nil {
 		openAIGateway.StartBPSWarmPool()
 		openAIGateway.StartBPS403Recovery()
+		openAIGateway.StartBPSModelRecovery()
 	}
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -546,6 +547,7 @@ func provideCleanup(
 		parallelSteps := []cleanupStep{
 			{"BPSWarmPool", func() error {
 				if openAIGateway != nil {
+					openAIGateway.StopBPSModelRecovery()
 					openAIGateway.StopBPS403Recovery()
 					openAIGateway.StopBPSWarmPool()
 				}

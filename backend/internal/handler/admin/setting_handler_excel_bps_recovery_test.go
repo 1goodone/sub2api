@@ -55,7 +55,7 @@ func TestExcelBPSModelRateLimitSettingsRoundTrip(t *testing.T) {
 		require.True(t, value.Exists())
 		return value.Int()
 	}
-	require.Equal(t, int64(1440), read())
+	require.Equal(t, int64(10), read())
 	for _, minutes := range []int64{1, 30, 1440, 43200} {
 		rec := doUpdateSettings(t, h, map[string]any{"excel_bps_model_rate_limit_cooldown_minutes": minutes}, nil)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

@@ -9,7 +9,7 @@ import (
 
 const (
 	SettingKeyExcelBPSModelRateLimitCooldownMinutes = "excel_bps_model_rate_limit_cooldown_minutes"
-	DefaultExcelBPSModelRateLimitCooldownMinutes    = 24 * 60
+	DefaultExcelBPSModelRateLimitCooldownMinutes    = 10
 	MaxExcelBPSModelRateLimitCooldownMinutes        = 30 * 24 * 60
 )
 
@@ -21,8 +21,8 @@ func parseExcelBPSModelRateLimitCooldownMinutes(raw string) int {
 	return minutes
 }
 
-// GetExcelBPSModelRateLimitCooldown reads the saved policy only on a model-limit
-// failure. Changes apply without restarting; existing deadlines remain intact.
+// GetExcelBPSModelRateLimitCooldown is shared by BPS model rate limits and
+// unavailable-model recovery probes. Saved changes preserve existing deadlines.
 func (s *SettingService) GetExcelBPSModelRateLimitCooldown(ctx context.Context) time.Duration {
 	minutes := DefaultExcelBPSModelRateLimitCooldownMinutes
 	if s != nil && s.settingRepo != nil {

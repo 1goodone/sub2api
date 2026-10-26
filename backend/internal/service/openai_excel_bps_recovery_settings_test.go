@@ -65,8 +65,8 @@ func TestExcelBPSRecoverySwitchControlsFailover(t *testing.T) {
 				c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
 				_, err := svc.Forward(context.Background(), c, excelAccount(), []byte(`{"model":"gpt-6-astra","input":"hello","stream":true}`))
 				require.Error(t, err)
-				if tc.status == 404 {
-					require.Equal(t, enabled, svc.isExcelBPSModelCoolingDown(excelAccount(), "gpt-6-astra"))
+				if tc.status == 403 || tc.status == 404 {
+					require.Equal(t, enabled, svc.isExcelBPSModelCoolingDown(context.Background(), excelAccount(), "gpt-6-astra"))
 				}
 				var failure *UpstreamFailoverError
 				if enabled {

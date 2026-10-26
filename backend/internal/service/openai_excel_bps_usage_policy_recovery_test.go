@@ -46,7 +46,7 @@ func TestExcelBPSUsagePolicyRecoveryDoesNotMutateAccount(t *testing.T) {
 		require.Equal(t, int64(1), counter.counts[account.ID])
 		require.Zero(t, moveCalls)
 		require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
-		require.False(t, svc.isExcelBPSModelCoolingDown(account, "gpt-6-astra"))
+		require.False(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, "gpt-6-astra"))
 		require.False(t, svc.ReportOpenAIAccountScheduleResult(account, "gpt-6-astra", false, nil, err))
 	}
 }

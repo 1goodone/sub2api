@@ -108,7 +108,7 @@ func TestExcelBPSStructuredOutputDoesNotOverrideModelAccess(t *testing.T) {
 			require.Equal(t, http.StatusForbidden, failover.StatusCode)
 			require.Empty(t, rec.Body.String())
 			require.False(t, IsResponseCommitted(c))
-			require.True(t, svc.isExcelBPSModelCoolingDown(account, model))
+			require.True(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, model))
 			require.True(t, account.Schedulable)
 		})
 	}

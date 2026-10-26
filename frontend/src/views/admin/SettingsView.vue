@@ -4683,7 +4683,7 @@
                 <Toggle id="excel-bps-recovery-enabled" v-model="form.excel_bps_recovery_enabled" />
               </div>
               <p class="text-sm text-gray-500 dark:text-gray-400">
-                {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；使用政策 HTTP 403 换号重试，180 分钟内连续 3 次会触发账号已开启的“403 自动关闭 BPS”，仅关闭 BPS，成功完成 BPS 请求后计数清零；模型不可用时冷却对应模型；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output. HTTP 403 usage policy rejections switch accounts; 3 consecutive rejections within 180 minutes trigger the account’s opt-in 403 auto-disable for BPS only. A completed BPS request resets this counter. Unavailable models receive model-specific cooldowns, and throttled tool corrections get one additional retry. Turning this off restores the existing BPS error handling.') }}
+                {{ localText('开启后：首个正文或工具调用输出前，对可恢复错误有界重试或换号；使用政策 HTTP 403 换号重试，180 分钟内连续 3 次会触发账号已开启的“403 自动关闭 BPS”，仅关闭 BPS，成功完成 BPS 请求后计数清零；模型不可用时隔离该账号的对应模型，到期后台测试，成功才恢复；工具纠错 429 最多额外重试一次。关闭后恢复原有 BPS 错误处理。', 'When enabled: bounded retry or failover before the first content or tool output. HTTP 403 usage policy rejections switch accounts; 3 consecutive rejections within 180 minutes trigger the account’s opt-in 403 auto-disable for BPS only. A completed BPS request resets this counter. Unavailable account/model pairs stay isolated until a background test succeeds after their cooldown, and throttled tool corrections get one additional retry. Turning this off restores the existing BPS error handling.') }}
               </p>
               <div class="max-w-sm space-y-2">
                 <label for="excel-bps-model-rate-limit-cooldown-minutes" class="input-label">
@@ -4702,7 +4702,7 @@
                 />
               </div>
               <p id="excel-bps-model-rate-limit-cooldown-help" class="text-sm text-gray-500 dark:text-gray-400">
-                {{ localText('默认 1440 分钟（24 小时），可设为 1–43200 分钟。仅在开启 BPS 错误自动恢复时生效：模型限流后冷却该账号的对应模型，并按策略尝试其他账号。保存后用于新触发的限流，已有冷却保留原到期时间。', 'Default: 1440 minutes (24 hours); range: 1–43200 minutes. Applies only with BPS error recovery enabled: cool down the affected account/model and try another account within the retry policy. Saved changes apply to new rate limits; existing cooldown deadlines are preserved.') }}
+                {{ localText('默认 10 分钟，可设为 1–43200 分钟。模型限流与模型不可用共用此时长，仅在开启 BPS 错误自动恢复时生效。模型不可用后隔离对应账号和模型，到期由后台测试，成功才恢复，失败则按此间隔重试。保存后用于新触发的冷却及后续失败探测，已有冷却保留原到期时间；升级保留已保存的时长。', 'Default: 10 minutes; range: 1–43200 minutes. Model rate limits and unavailable models share this duration when BPS error recovery is enabled. Unavailable account/model pairs stay isolated until a background test succeeds after the interval; failed tests repeat after the same interval. Saved changes apply to new cooldowns and subsequent failed probes. Existing deadlines and previously saved settings are preserved.') }}
               </p>
               <p class="text-sm text-amber-700 dark:text-amber-400">
                 {{ localText('BPS 凭证失效会暂停整个账号，包括该账号的其他通道。关闭此开关不会自动恢复已暂停账号，修复凭证后需手动恢复。', 'Invalid BPS credentials pause the entire account, including its other routes. Turning this switch off does not resume paused accounts; repair credentials and resume manually.') }}
@@ -10547,7 +10547,7 @@ function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] 
   return listPlatformIds().filter((platform) => !!map?.[platform]);
 }
 
-const excelBPSModelRateLimitCooldownLimits = { defaultMinutes: 1440, maxMinutes: 43200 };
+const excelBPSModelRateLimitCooldownLimits = { defaultMinutes: 10, maxMinutes: 43200 };
 
 const form = reactive<SettingsForm>({
   excel_bps_enabled: true,
@@ -12160,6 +12160,7 @@ async function saveSettings() {
       appStore.showError(localText('BPS 模型限流冷却时长须为 1–43200 分钟的整数。', 'BPS model rate-limit cooldown must be a whole number from 1 to 43200 minutes.'));
       return;
     }
+
     const imageBaseUrl = form.excel_bps_image_base_url.trim();
     if ((form.excel_bps_image_relay_enabled && form.excel_bps_image_mode === 'relay') || imageBaseUrl) {
       try {

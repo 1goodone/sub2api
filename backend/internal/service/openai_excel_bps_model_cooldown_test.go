@@ -25,7 +25,7 @@ func TestExcelBPSModelPermissionForward(t *testing.T) {
 				account.Extra["openai_excel_bps_models"] = []any{"gpt-6-astra", "gpt-5.6-sol"}
 				account.Extra["openai_excel_bps_auto_disable_on_403"] = true
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"` + code + `"}}`))}}
-				svc := openAIClientToolsTestService(upstream)
+				svc := openAIExcelBPSRecoveryTestService(upstream)
 				svc.accountRepo = &excelBPSAutoDisableRepo{disable: func(context.Context, *Account) (bool, error) {
 					t.Fatal("model rejection must not disable the account")
 					return false, nil
@@ -34,28 +34,33 @@ func TestExcelBPSModelPermissionForward(t *testing.T) {
 				c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 				_, err := svc.Forward(context.Background(), c, account, []byte(fmt.Sprintf(`{"model":"alias","input":"test","stream":%t}`, stream)))
 				require.Error(t, err)
-				require.True(t, svc.isExcelBPSModelCoolingDown(account, "alias"))
-				require.True(t, svc.isExcelBPSModelCoolingDown(account, "second-alias"))
+				require.True(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, "alias"))
+				require.True(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, "second-alias"))
 				require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(context.Background(), account, "alias", false))
-				require.False(t, svc.isExcelBPSModelCoolingDown(account, "gpt-5.6-sol"))
+				require.False(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, "gpt-5.6-sol"))
 				require.Len(t, upstream.requests, 1)
 				account.Extra["openai_excel_bps"] = false
-				require.False(t, svc.isExcelBPSModelCoolingDown(account, "alias"))
+				require.False(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, "alias"))
 			})
 		}
 	}
 }
 
 func TestExcelBPSModelCooldownExpiryAndBound(t *testing.T) {
-	svc := &OpenAIGatewayService{}
+	svc := openAIExcelBPSRecoveryTestService(nil)
 	account := excelAccount()
-	svc.coolDownExcelBPSModel(account, "gpt-6-astra")
-	svc.excelBPSModelCooldowns.until[excelBPSModelKey{account.ID, "gpt-6-astra"}] = time.Now().Add(-time.Second)
-	require.False(t, svc.isExcelBPSModelCoolingDown(account, "gpt-6-astra"))
-	for i := 0; i < excelBPSModelPermissionMaxEntries+10; i++ {
-		svc.coolDownExcelBPSModel(account, fmt.Sprint(i))
+	key := excelBPSModelKey{account.ID, "gpt-6-astra"}
+	before := time.Now()
+	svc.coolDownExcelBPSModel(context.Background(), account, key.model)
+	require.WithinDuration(t, before.Add(10*time.Minute), svc.excelBPSModelCooldowns.entries[key].nextProbeAt, time.Second)
+	svc.excelBPSModelCooldowns.entries[key].nextProbeAt = time.Now().Add(-time.Second)
+	require.True(t, svc.isExcelBPSModelCoolingDown(context.Background(), account, key.model), "deadline alone must not release the model")
+	for i := 1; i < excelBPSModelPermissionMaxEntries; i++ {
+		svc.excelBPSModelCooldowns.entries[excelBPSModelKey{int64(i) + account.ID, key.model}] = &excelBPSModelCooldown{nextProbeAt: before}
 	}
-	require.Len(t, svc.excelBPSModelCooldowns.until, excelBPSModelPermissionMaxEntries)
+	svc.coolDownExcelBPSModel(context.Background(), account, "gpt-5.6-sol")
+	require.Len(t, svc.excelBPSModelCooldowns.entries, excelBPSModelPermissionMaxEntries)
+	require.NotNil(t, svc.excelBPSModelCooldowns.entries[key], "capacity pressure must not release existing isolation")
 	require.False(t, isExcelBPSModelPermissionError(401, "model_not_allowed"))
 	require.False(t, isExcelBPSModelPermissionError(403, "permission_denied"))
 }
@@ -80,6 +85,7 @@ func TestExcelBPSModelPermissionSchedulers(t *testing.T) {
 				rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService(strconv.FormatBool(advanced)),
 				concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 			}
+			svc.settingService = openAIExcelBPSRecoveryTestService(nil).settingService
 			require.Equal(t, advanced, svc.isOpenAIAdvancedSchedulerEnabled(ctx))
 			selectModel := func(model string) (*AccountSelectionResult, error) {
 				selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", model, nil, OpenAIUpstreamTransportAny, false)
@@ -89,14 +95,14 @@ func TestExcelBPSModelPermissionSchedulers(t *testing.T) {
 				return selection, err
 			}
 
-			svc.coolDownExcelBPSModel(&accounts[0], "gpt-6-astra")
+			svc.coolDownExcelBPSModel(context.Background(), &accounts[0], "gpt-6-astra")
 			for range 10 {
 				selection, err := selectModel("gpt-6-astra")
 				require.NoError(t, err)
 				require.Equal(t, int64(38302), selection.Account.ID)
 			}
 
-			svc.coolDownExcelBPSModel(&accounts[1], "gpt-6-astra")
+			svc.coolDownExcelBPSModel(context.Background(), &accounts[1], "gpt-6-astra")
 			_, err := selectModel("gpt-6-astra")
 			require.ErrorIs(t, err, ErrNoAvailableAccounts)
 			require.Contains(t, err.Error(), excelBPSModelPermissionFilterReason+"=2")

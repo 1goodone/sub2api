@@ -1,23 +1,35 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
-const excelBPSModelPermissionCooldown = 30 * time.Minute
 const excelBPSModelPermissionFilterReason = "excel_bps_model_not_allowed"
 const excelBPSRateLimitedFilterReason = "excel_bps_rate_limited"
 const excelBPSModelPermissionMaxEntries = 4096
+const excelBPSModelRecoveryScanInterval = 15 * time.Second
 
 type excelBPSModelKey struct {
 	accountID int64
 	model     string
 }
+type excelBPSModelCooldown struct {
+	nextProbeAt time.Time
+	probing     bool
+}
 type excelBPSModelCooldowns struct {
-	mu    sync.Mutex
-	until map[excelBPSModelKey]time.Time
+	mu      sync.Mutex
+	entries map[excelBPSModelKey]*excelBPSModelCooldown
+	cancel  context.CancelFunc
+	done    chan struct{}
+	stopped bool
 }
 
 func isExcelBPSModelPermissionError(status int, code string) bool {
@@ -31,52 +43,194 @@ func isExcelBPSModelPermissionError(status int, code string) bool {
 	}
 }
 
-// Store the actual upstream model, so aliases share a cooldown while native
-// Codex requests and the account's other BPS models remain eligible.
-func (s *OpenAIGatewayService) coolDownExcelBPSModel(account *Account, upstreamModel string) {
-	if s == nil || account == nil || strings.TrimSpace(upstreamModel) == "" {
+// Expiry makes a model due for background testing, not eligible for user traffic.
+func (s *OpenAIGatewayService) coolDownExcelBPSModel(ctx context.Context, account *Account, upstreamModel string) {
+	if s == nil || account == nil || !account.IsOpenAI() || strings.TrimSpace(upstreamModel) == "" ||
+		!account.isExcelBPSUpstreamModelEnabled(upstreamModel) || isQualityObservation(ctx) ||
+		isControlledExperiment(ctx) || !s.excelBPSRecoveryEnabled(ctx) {
 		return
 	}
+	next := time.Now().Add(s.settingService.GetExcelBPSModelRateLimitCooldown(ctx))
+	key := excelBPSModelKey{account.ID, upstreamModel}
 	cache := &s.excelBPSModelCooldowns
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	now := time.Now()
-	if cache.until == nil {
-		cache.until = make(map[excelBPSModelKey]time.Time)
+	if cache.entries == nil {
+		cache.entries = make(map[excelBPSModelKey]*excelBPSModelCooldown)
 	}
-	for key, expiry := range cache.until {
-		if !now.Before(expiry) {
-			delete(cache.until, key)
-		}
+	previous := cache.entries[key]
+	if previous == nil && len(cache.entries) >= excelBPSModelPermissionMaxEntries {
+		cache.mu.Unlock()
+		// Never evict an isolated model just to admit a new one.
+		logger.FromContext(ctx).Warn("excel_bps.model_recovery_capacity_reached", zap.Int64("account_id", account.ID))
+		return
 	}
-	key := excelBPSModelKey{account.ID, upstreamModel}
-	if _, exists := cache.until[key]; !exists && len(cache.until) >= excelBPSModelPermissionMaxEntries {
-		var oldest excelBPSModelKey
-		var expiry time.Time
-		for candidate, until := range cache.until {
-			if expiry.IsZero() || until.Before(expiry) {
-				oldest, expiry = candidate, until
-			}
-		}
-		delete(cache.until, oldest)
+	if previous != nil && previous.nextProbeAt.After(next) {
+		next = previous.nextProbeAt
 	}
-	cache.until[key] = now.Add(excelBPSModelPermissionCooldown)
+	// Replacing the entry invalidates any older in-flight probe result.
+	cache.entries[key] = &excelBPSModelCooldown{nextProbeAt: next}
+	cache.mu.Unlock()
+	logger.FromContext(ctx).Info("excel_bps.model_recovery_scheduled", zap.Int64("account_id", account.ID), zap.String("model", upstreamModel), zap.Time("next_probe_at", next))
 }
 
-func (s *OpenAIGatewayService) isExcelBPSModelCoolingDown(account *Account, requestedModel string) bool {
+func (s *OpenAIGatewayService) isExcelBPSModelCoolingDown(ctx context.Context, account *Account, requestedModel string) bool {
 	if s == nil || account == nil || !account.IsExcelBPSEnabledForModel(requestedModel) {
+		return false
+	}
+	if bps, known := ctx.Value(excelBPSSchedulingKey{}).(bool); known && !bps {
 		return false
 	}
 	key := excelBPSModelKey{account.ID, account.GetMappedModel(requestedModel)}
 	cache := &s.excelBPSModelCooldowns
 	cache.mu.Lock()
+	cooling := cache.entries[key] != nil
+	cache.mu.Unlock()
+	// Healthy candidates need no additional settings/database read.
+	return cooling && s.excelBPSRecoveryEnabled(ctx)
+}
+
+func (s *OpenAIGatewayService) StartBPSModelRecovery() {
+	if s == nil || s.accountRepo == nil || s.httpUpstream == nil {
+		return
+	}
+	cache := &s.excelBPSModelCooldowns
+	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	until, exists := cache.until[key]
-	if exists && time.Now().Before(until) {
-		return true
+	if cache.stopped || cache.cancel != nil {
+		return
 	}
-	if exists {
-		delete(cache.until, key)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	cache.cancel, cache.done = cancel, done
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(excelBPSModelRecoveryScanInterval)
+		defer ticker.Stop()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			s.syncExcelBPSModelRecovery(ctx)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+func (s *OpenAIGatewayService) StopBPSModelRecovery() {
+	if s == nil {
+		return
 	}
-	return false
+	cache := &s.excelBPSModelCooldowns
+	cache.mu.Lock()
+	cache.stopped = true
+	cancel, done := cache.cancel, cache.done
+	cache.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		<-done
+	}
+}
+
+func (s *OpenAIGatewayService) excelBPSModelProbingEnabled(ctx context.Context) bool {
+	if !s.excelBPSRecoveryEnabled(ctx) {
+		return false
+	}
+	enabled, err := s.settingService.GetProtocolFeatureEnabled(ctx, SettingKeyExcelBPSEnabled)
+	return err == nil && enabled
+}
+
+func (s *OpenAIGatewayService) syncExcelBPSModelRecovery(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, excelBPS403RecoveryTimeout)
+	defer cancel()
+	if ctx.Err() != nil || s.accountRepo == nil || !s.excelBPSModelProbingEnabled(ctx) {
+		return
+	}
+	cache := &s.excelBPSModelCooldowns
+	cache.mu.Lock()
+	claimed := make(map[excelBPSModelKey]*excelBPSModelCooldown)
+	now := time.Now()
+	for key, entry := range cache.entries {
+		if !entry.probing && !now.Before(entry.nextProbeAt) {
+			entry.probing = true
+			claimed[key] = entry
+			if len(claimed) == excelBPS403RecoveryConcurrency {
+				break
+			}
+		}
+	}
+	cache.mu.Unlock()
+	var wg sync.WaitGroup
+	for key, entry := range claimed {
+		wg.Add(1)
+		go func() { defer wg.Done(); s.recoverExcelBPSModel(ctx, key, entry) }()
+	}
+	wg.Wait()
+}
+
+func (s *OpenAIGatewayService) recoverExcelBPSModel(ctx context.Context, key excelBPSModelKey, entry *excelBPSModelCooldown) {
+	restored, removed := false, false
+	defer func() {
+		if recover() != nil {
+			restored, removed = false, false
+			logger.FromContext(ctx).Error("excel_bps.model_recovery_probe_panicked", zap.Int64("account_id", key.accountID))
+		}
+		cache := &s.excelBPSModelCooldowns
+		next := time.Now().Add(s.settingService.GetExcelBPSModelRateLimitCooldown(ctx))
+		cache.mu.Lock()
+		defer cache.mu.Unlock()
+		if cache.entries[key] != entry {
+			return
+		}
+		if removed || (restored && ctx.Err() == nil) {
+			delete(cache.entries, key)
+			if restored {
+				logger.FromContext(ctx).Info("excel_bps.model_recovery_restored", zap.Int64("account_id", key.accountID), zap.String("model", key.model))
+			}
+		} else {
+			entry.probing, entry.nextProbeAt = false, next
+		}
+	}()
+	probeCtx, cancel := context.WithTimeout(ctx, excelBPS403RecoveryTimeout)
+	defer cancel()
+	if !s.excelBPSModelProbingEnabled(probeCtx) {
+		return
+	}
+	account, err := s.accountRepo.GetByID(probeCtx, key.accountID)
+	if errors.Is(err, ErrAccountNotFound) {
+		removed = true
+		return
+	}
+	if err != nil || account == nil || !account.IsOpenAI() || !account.IsSchedulable() ||
+		!account.isExcelBPSUpstreamModelEnabled(key.model) || s.isOpenAIAccountRuntimeBlocked(account) {
+		return
+	}
+	// Respect rate limits using the already resolved model, without remapping aliases twice.
+	if until, ok := s.excelBPSRateLimitedUntil.Load(account.ID); ok && time.Now().Before(until.(time.Time)) {
+		return
+	}
+	if state, ok := s.excelBPSModelRateLimits.Load(excelBPSRateLimitKey{account.ID, key.model}); ok && time.Now().Before(state.(excelBPSRateLimitState).until) {
+		return
+	}
+	if !s.excelBPSModelProbingEnabled(probeCtx) || probeCtx.Err() != nil {
+		return
+	}
+	cache := &s.excelBPSModelCooldowns
+	cache.mu.Lock()
+	current := cache.entries[key] == entry
+	cache.mu.Unlock()
+	if !current {
+		return
+	}
+	err = s.probeExcelBPSRecoveryModel(probeCtx, account, key.model, "bps-model-recovery")
+	if err != nil {
+		// Classifiable credential failures still pause the entire account. Never log response bodies.
+		s.pauseExcelBPSCredentialError(probeCtx, account, err)
+		logger.FromContext(ctx).Info("excel_bps.model_recovery_probe_failed", zap.Int64("account_id", key.accountID), zap.String("model", key.model))
+		return
+	}
+	restored = probeCtx.Err() == nil && s.excelBPSModelProbingEnabled(probeCtx)
 }

@@ -423,7 +423,7 @@ const baseSettingsResponse = {
   compact_home_enabled: false,
   excel_bps_enabled: true,
   excel_bps_recovery_enabled: false,
-  excel_bps_model_rate_limit_cooldown_minutes: 1440,
+  excel_bps_model_rate_limit_cooldown_minutes: 10,
   excel_bps_image_mode: 'relay',
   excel_bps_image_relay_enabled: false,
   excel_bps_image_base_url: '',
@@ -1124,6 +1124,8 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     await openGatewayTab(wrapper);
     const input = wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes');
+    expect(wrapper.find('#excel-bps-model-unavailable-cooldown-minutes').exists()).toBe(false);
+    expect(wrapper.get('#excel-bps-model-rate-limit-cooldown-help').text()).toContain('模型限流与模型不可用共用此时长');
     expect((input.element as HTMLInputElement).value).toBe('180');
     expect(input.attributes('min')).toBe('1');
     expect(input.attributes('max')).toBe('43200');
@@ -1131,17 +1133,18 @@ describe("admin SettingsView payment visible method controls", () => {
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
     expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_recovery_enabled: enabled, excel_bps_model_rate_limit_cooldown_minutes: 30 });
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty('excel_bps_model_unavailable_cooldown_minutes');
     expect(showError).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("defaults BPS model cooldown to one day when older servers omit it", async () => {
+  it("defaults BPS model cooldown to ten minutes when older servers omit it", async () => {
     const settings: Partial<typeof baseSettingsResponse> = { ...baseSettingsResponse };
     delete settings.excel_bps_model_rate_limit_cooldown_minutes;
     getSettings.mockResolvedValueOnce(settings);
     const wrapper = mountView();
     await flushPromises();
-    expect((wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes').element as HTMLInputElement).value).toBe('1440');
+    expect((wrapper.get('#excel-bps-model-rate-limit-cooldown-minutes').element as HTMLInputElement).value).toBe('10');
     wrapper.unmount();
   });
 

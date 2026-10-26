@@ -1079,7 +1079,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			filterStats.exclude("excluded")
 			continue
 		}
-		if s.isExcelBPSModelCoolingDown(acc, requestedModel) {
+		if s.isExcelBPSModelCoolingDown(ctx, acc, requestedModel) {
 			filterStats.exclude(excelBPSModelPermissionFilterReason)
 			continue
 		}
@@ -1372,7 +1372,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("shadow_parent_unhealthy")
 			continue
 		}
-		if s.isExcelBPSModelCoolingDown(acc, requestedModel) {
+		if s.isExcelBPSModelCoolingDown(ctx, acc, requestedModel) {
 			filterStats.exclude(excelBPSModelPermissionFilterReason)
 			continue
 		}

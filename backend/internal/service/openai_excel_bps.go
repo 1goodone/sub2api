@@ -864,7 +864,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		code := gjson.GetBytes(raw, "error.code").String()
 		if isExcelBPSModelPermissionError(resp.StatusCode, code) && (recoveryEnabled || resp.StatusCode == http.StatusForbidden) {
 			if !isQualityObservation(ctx) {
-				s.coolDownExcelBPSModel(account, model)
+				s.coolDownExcelBPSModel(ctx, account, model)
 			}
 			if !recoveryEnabled {
 				return fail(resp.StatusCode, code, "This model is not available on the selected Excel BPS account")
@@ -971,7 +971,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repairResp.StatusCode, repairResp.Header, raw, token)
 			if isExcelBPSModelPermissionError(repairResp.StatusCode, gjson.GetBytes(raw, "error.code").String()) && (recoveryEnabled || repairResp.StatusCode == http.StatusForbidden) && !isQualityObservation(repairCtx) {
-				s.coolDownExcelBPSModel(account, model)
+				s.coolDownExcelBPSModel(ctx, account, model)
 			}
 			if repairResp.StatusCode == http.StatusForbidden && !isExcelBPSModelPermissionError(http.StatusForbidden, gjson.GetBytes(raw, "error.code").String()) {
 				s.moveExcelBPSOn403(repairCtx, account)
@@ -1025,7 +1025,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			s.handleExcelBPSUnauthorized(repairCtx, account, repaired.StatusCode, repaired.Header, raw, token)
 			if isExcelBPSModelPermissionError(repaired.StatusCode, gjson.GetBytes(raw, "error.code").String()) && (recoveryEnabled || repaired.StatusCode == http.StatusForbidden) && !isQualityObservation(repairCtx) {
-				s.coolDownExcelBPSModel(account, model)
+				s.coolDownExcelBPSModel(ctx, account, model)
 			}
 			if repaired.StatusCode == http.StatusForbidden && !isExcelBPSModelPermissionError(http.StatusForbidden, gjson.GetBytes(raw, "error.code").String()) {
 				s.moveExcelBPSOn403(repairCtx, account)
@@ -1144,7 +1144,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 						}
 					case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound:
 						if isExcelBPSModelPermissionError(upstreamFailure.Status, upstreamFailure.Code) && !isQualityObservation(ctx) {
-							s.coolDownExcelBPSModel(account, model)
+							s.coolDownExcelBPSModel(ctx, account, model)
 						}
 					}
 					if canRecover() && excelBPSFailureCanRecover(upstreamFailure) && (upstreamFailure.Status != http.StatusTooManyRequests || !repairStarted.Load()) {
