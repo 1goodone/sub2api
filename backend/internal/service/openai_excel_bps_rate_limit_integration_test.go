@@ -71,7 +71,7 @@ func TestBPSRateLimitLogsAreStructuredAndCorrelated(t *testing.T) {
 	require.Equal(t, "request_fixture", fields["request_id"])
 	require.Equal(t, "bps_account_model", fields["scope"])
 	require.Equal(t, int64(429), fields["upstream_http_status"])
-	require.Equal(t, int64(86400), fields["cooldown_seconds"])
+	require.Equal(t, int64(600), fields["cooldown_seconds"])
 	require.Equal(t, "model_limit_cooldown", fields["cooldown_source"])
 	require.Equal(t, int64(90), fields["upstream_reset_after_seconds"])
 	require.Equal(t, int64(1), fields["consecutive_failures"])

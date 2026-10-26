@@ -24,10 +24,9 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
-	ExcelBPSEnabled                         *bool `json:"excel_bps_enabled"`
-	ExcelBPSRecoveryEnabled                 *bool `json:"excel_bps_recovery_enabled"`
-	ExcelBPSModelRateLimitCooldownMinutes   *int  `json:"excel_bps_model_rate_limit_cooldown_minutes" binding:"omitempty,min=1,max=43200"`
-	ExcelBPSModelUnavailableCooldownMinutes *int  `json:"excel_bps_model_unavailable_cooldown_minutes" binding:"omitempty,min=1,max=43200"`
+	ExcelBPSEnabled                       *bool `json:"excel_bps_enabled"`
+	ExcelBPSRecoveryEnabled               *bool `json:"excel_bps_recovery_enabled"`
+	ExcelBPSModelRateLimitCooldownMinutes *int  `json:"excel_bps_model_rate_limit_cooldown_minutes" binding:"omitempty,min=1,max=43200"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
 	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"`      // 省略=保持现值
@@ -2279,12 +2278,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ExcelBPSModelRateLimitCooldownMinutes
 		}(),
-		ExcelBPSModelUnavailableCooldownMinutes: func() int {
-			if req.ExcelBPSModelUnavailableCooldownMinutes != nil {
-				return *req.ExcelBPSModelUnavailableCooldownMinutes
-			}
-			return previousSettings.ExcelBPSModelUnavailableCooldownMinutes
-		}(),
 		ExcelBPSRecoveryEnabled: func() bool {
 			if req.ExcelBPSRecoveryEnabled != nil {
 				return *req.ExcelBPSRecoveryEnabled
@@ -2872,16 +2865,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentAlipayForceQRCode:                               updatedPaymentCfg.AlipayForceQRCode,
 		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
-		ChannelMonitorEnabled:                   updatedSettings.ChannelMonitorEnabled,
-		ExcelBPSEnabled:                         updatedSettings.ExcelBPSEnabled,
-		ExcelBPSRecoveryEnabled:                 updatedSettings.ExcelBPSRecoveryEnabled,
-		ExcelBPSModelRateLimitCooldownMinutes:   updatedSettings.ExcelBPSModelRateLimitCooldownMinutes,
-		ExcelBPSModelUnavailableCooldownMinutes: updatedSettings.ExcelBPSModelUnavailableCooldownMinutes,
-		ChannelMonitorMode:                      updatedSettings.ChannelMonitorMode,
-		ChannelMonitorDefaultIntervalSeconds:    updatedSettings.ChannelMonitorDefaultIntervalSeconds,
-		ChannelMonitorHideThroughput:            updatedSettings.ChannelMonitorHideThroughput,
-		ChannelMonitorShowQuota:                 updatedSettings.ChannelMonitorShowQuota,
-		ChannelMonitorHideUserRanking:           updatedSettings.ChannelMonitorHideUserRanking,
+		ChannelMonitorEnabled:                 updatedSettings.ChannelMonitorEnabled,
+		ExcelBPSEnabled:                       updatedSettings.ExcelBPSEnabled,
+		ExcelBPSRecoveryEnabled:               updatedSettings.ExcelBPSRecoveryEnabled,
+		ExcelBPSModelRateLimitCooldownMinutes: updatedSettings.ExcelBPSModelRateLimitCooldownMinutes,
+		ChannelMonitorMode:                    updatedSettings.ChannelMonitorMode,
+		ChannelMonitorDefaultIntervalSeconds:  updatedSettings.ChannelMonitorDefaultIntervalSeconds,
+		ChannelMonitorHideThroughput:          updatedSettings.ChannelMonitorHideThroughput,
+		ChannelMonitorShowQuota:               updatedSettings.ChannelMonitorShowQuota,
+		ChannelMonitorHideUserRanking:         updatedSettings.ChannelMonitorHideUserRanking,
 
 		GrokDefaultTextModel:           updatedSettings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,

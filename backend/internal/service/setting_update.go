@@ -480,14 +480,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		minutes = DefaultExcelBPSModelRateLimitCooldownMinutes
 	}
 	updates[SettingKeyExcelBPSModelRateLimitCooldownMinutes] = strconv.Itoa(minutes)
-	unavailableMinutes := settings.ExcelBPSModelUnavailableCooldownMinutes
-	if unavailableMinutes < 0 || unavailableMinutes > MaxExcelBPSModelUnavailableCooldownMinutes {
-		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_MODEL_UNAVAILABLE_COOLDOWN", "BPS model-unavailable cooldown must be between 1 and 43200 minutes")
-	}
-	if unavailableMinutes == 0 {
-		unavailableMinutes = DefaultExcelBPSModelUnavailableCooldownMinutes
-	}
-	updates[SettingKeyExcelBPSModelUnavailableCooldownMinutes] = strconv.Itoa(unavailableMinutes)
 	updates[SettingKeyChannelMonitorEnabled] = strconv.FormatBool(settings.ChannelMonitorEnabled)
 	updates[SettingKeyChannelMonitorMode] = normalizeChannelMonitorMode(settings.ChannelMonitorMode)
 	if v := clampChannelMonitorInterval(settings.ChannelMonitorDefaultIntervalSeconds); v > 0 {

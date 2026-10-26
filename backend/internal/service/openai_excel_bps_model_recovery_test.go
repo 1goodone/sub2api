@@ -86,7 +86,7 @@ func TestExcelBPSModelRecoveryFailureKeepsIsolationAndReschedules(t *testing.T) 
 			upstream := &bpsProbeUpstream{mode: mode}
 			s.httpUpstream = upstream
 			entry := dueModelRecovery(t, s, a, "gpt-6-astra")
-			s.settingService.settingRepo.(*excelBPSImageSettingsRepo).values[SettingKeyExcelBPSModelUnavailableCooldownMinutes] = "7"
+			s.settingService.settingRepo.(*excelBPSImageSettingsRepo).values[SettingKeyExcelBPSModelRateLimitCooldownMinutes] = "7"
 			before := time.Now()
 			s.syncExcelBPSModelRecovery(t.Context())
 			require.True(t, s.isExcelBPSModelCoolingDown(t.Context(), a, "gpt-6-astra"))

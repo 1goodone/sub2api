@@ -4702,26 +4702,7 @@
                 />
               </div>
               <p id="excel-bps-model-rate-limit-cooldown-help" class="text-sm text-gray-500 dark:text-gray-400">
-                {{ localText('默认 1440 分钟（24 小时），可设为 1–43200 分钟。仅在开启 BPS 错误自动恢复时生效：模型限流后冷却该账号的对应模型，并按策略尝试其他账号。保存后用于新触发的限流，已有冷却保留原到期时间。', 'Default: 1440 minutes (24 hours); range: 1–43200 minutes. Applies only with BPS error recovery enabled: cool down the affected account/model and try another account within the retry policy. Saved changes apply to new rate limits; existing cooldown deadlines are preserved.') }}
-              </p>
-              <div class="max-w-sm space-y-2">
-                <label for="excel-bps-model-unavailable-cooldown-minutes" class="input-label">
-                  {{ localText('模型不可用探测间隔（分钟）', 'Unavailable model probe interval (minutes)') }}
-                </label>
-                <input
-                  id="excel-bps-model-unavailable-cooldown-minutes"
-                  v-model.number="form.excel_bps_model_unavailable_cooldown_minutes"
-                  class="input"
-                  type="number"
-                  min="1"
-                  :max="excelBPSModelUnavailableCooldownLimits.maxMinutes"
-                  step="1"
-                  required
-                  aria-describedby="excel-bps-model-unavailable-cooldown-help"
-                />
-              </div>
-              <p id="excel-bps-model-unavailable-cooldown-help" class="text-sm text-gray-500 dark:text-gray-400">
-                {{ localText('默认 10 分钟，可设为 1–43200 分钟。仅在开启 BPS 错误自动恢复时生效：模型不可用后隔离该账号的对应模型，并尝试其他账号。到期由后台发送独立测试请求，成功才恢复；失败则按此间隔继续测试。关闭开关后停止新探测并忽略此模型隔离；保存的新间隔用于后续冷却。', 'Default: 10 minutes; range: 1–43200 minutes. With BPS error recovery enabled, isolate the unavailable account/model and try another account. After the interval, a separate background request tests the model; only success restores it. Failed tests repeat after this interval. Turning recovery off stops new probes and bypasses this isolation. Saved changes apply to subsequent cooldowns.') }}
+                {{ localText('默认 10 分钟，可设为 1–43200 分钟。模型限流与模型不可用共用此时长，仅在开启 BPS 错误自动恢复时生效。模型不可用后隔离对应账号和模型，到期由后台测试，成功才恢复，失败则按此间隔重试。保存后用于新触发的冷却及后续失败探测，已有冷却保留原到期时间；升级保留已保存的时长。', 'Default: 10 minutes; range: 1–43200 minutes. Model rate limits and unavailable models share this duration when BPS error recovery is enabled. Unavailable account/model pairs stay isolated until a background test succeeds after the interval; failed tests repeat after the same interval. Saved changes apply to new cooldowns and subsequent failed probes. Existing deadlines and previously saved settings are preserved.') }}
               </p>
               <p class="text-sm text-amber-700 dark:text-amber-400">
                 {{ localText('BPS 凭证失效会暂停整个账号，包括该账号的其他通道。关闭此开关不会自动恢复已暂停账号，修复凭证后需手动恢复。', 'Invalid BPS credentials pause the entire account, including its other routes. Turning this switch off does not resume paused accounts; repair credentials and resume manually.') }}
@@ -10533,14 +10514,12 @@ function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] 
   return listPlatformIds().filter((platform) => !!map?.[platform]);
 }
 
-const excelBPSModelRateLimitCooldownLimits = { defaultMinutes: 1440, maxMinutes: 43200 };
-const excelBPSModelUnavailableCooldownLimits = { defaultMinutes: 10, maxMinutes: 43200 };
+const excelBPSModelRateLimitCooldownLimits = { defaultMinutes: 10, maxMinutes: 43200 };
 
 const form = reactive<SettingsForm>({
   excel_bps_enabled: true,
   excel_bps_recovery_enabled: false,
   excel_bps_model_rate_limit_cooldown_minutes: excelBPSModelRateLimitCooldownLimits.defaultMinutes,
-  excel_bps_model_unavailable_cooldown_minutes: excelBPSModelUnavailableCooldownLimits.defaultMinutes,
   prism_browser_enabled: false,
   prism_browser_base_url: "http://127.0.0.1:8319/v1",
   prism_browser_api_key_configured: false,
@@ -11904,9 +11883,6 @@ async function loadSettings() {
     const bpsCooldown = settings.excel_bps_model_rate_limit_cooldown_minutes;
     form.excel_bps_model_rate_limit_cooldown_minutes = Number.isInteger(bpsCooldown) && bpsCooldown >= 1 && bpsCooldown <= excelBPSModelRateLimitCooldownLimits.maxMinutes
       ? bpsCooldown : excelBPSModelRateLimitCooldownLimits.defaultMinutes;
-    const bpsUnavailableCooldown = settings.excel_bps_model_unavailable_cooldown_minutes;
-    form.excel_bps_model_unavailable_cooldown_minutes = Number.isInteger(bpsUnavailableCooldown) && bpsUnavailableCooldown >= 1 && bpsUnavailableCooldown <= excelBPSModelUnavailableCooldownLimits.maxMinutes
-      ? bpsUnavailableCooldown : excelBPSModelUnavailableCooldownLimits.defaultMinutes;
     form.prism_browser_enabled = Boolean(settings.prism_browser_enabled);
     form.prism_browser_base_url =
       settings.prism_browser_base_url || "http://127.0.0.1:8319/v1";
@@ -12147,10 +12123,7 @@ async function saveSettings() {
       appStore.showError(localText('BPS 模型限流冷却时长须为 1–43200 分钟的整数。', 'BPS model rate-limit cooldown must be a whole number from 1 to 43200 minutes.'));
       return;
     }
-    if (!Number.isInteger(form.excel_bps_model_unavailable_cooldown_minutes) || form.excel_bps_model_unavailable_cooldown_minutes < 1 || form.excel_bps_model_unavailable_cooldown_minutes > excelBPSModelUnavailableCooldownLimits.maxMinutes) {
-      appStore.showError(localText('BPS 模型不可用探测间隔须为 1–43200 分钟的整数。', 'BPS unavailable model probe interval must be a whole number from 1 to 43200 minutes.'));
-      return;
-    }
+
     const imageBaseUrl = form.excel_bps_image_base_url.trim();
     if ((form.excel_bps_image_relay_enabled && form.excel_bps_image_mode === 'relay') || imageBaseUrl) {
       try {
@@ -12355,7 +12328,6 @@ async function saveSettings() {
       excel_bps_enabled: form.excel_bps_enabled,
       excel_bps_recovery_enabled: form.excel_bps_recovery_enabled,
       excel_bps_model_rate_limit_cooldown_minutes: form.excel_bps_model_rate_limit_cooldown_minutes,
-      excel_bps_model_unavailable_cooldown_minutes: form.excel_bps_model_unavailable_cooldown_minutes,
       prism_browser_base_url: form.prism_browser_base_url,
       ...(form.prism_browser_api_key.trim()
         ? { prism_browser_api_key: form.prism_browser_api_key.trim() }

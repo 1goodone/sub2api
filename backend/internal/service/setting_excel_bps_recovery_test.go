@@ -17,13 +17,13 @@ import (
 func TestBPSModelRateLimitSettingsDefaultsAndValidation(t *testing.T) {
 	ctx := context.Background()
 	var missing *SettingService
-	require.Equal(t, 24*time.Hour, missing.GetExcelBPSModelRateLimitCooldown(ctx))
+	require.Equal(t, 10*time.Minute, missing.GetExcelBPSModelRateLimitCooldown(ctx))
 	for _, tc := range []struct {
 		raw     string
 		minutes int
 	}{
-		{"", 1440}, {"1", 1}, {"30", 30}, {"1440", 1440}, {"43200", 43200}, {" 60 ", 60},
-		{"0", 1440}, {"-1", 1440}, {"43201", 1440}, {"1.5", 1440}, {"bad", 1440}, {"9223372036854775807", 1440},
+		{"", 10}, {"1", 1}, {"30", 30}, {"1440", 1440}, {"43200", 43200}, {" 60 ", 60},
+		{"0", 10}, {"-1", 10}, {"43201", 10}, {"1.5", 10}, {"bad", 10}, {"9223372036854775807", 10},
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
 			repo := &excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSModelRateLimitCooldownMinutes: tc.raw}}
@@ -33,7 +33,7 @@ func TestBPSModelRateLimitSettingsDefaultsAndValidation(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.minutes, all.ExcelBPSModelRateLimitCooldownMinutes)
 			repo.err = errors.New("database unavailable")
-			require.Equal(t, 24*time.Hour, settings.GetExcelBPSModelRateLimitCooldown(ctx))
+			require.Equal(t, 10*time.Minute, settings.GetExcelBPSModelRateLimitCooldown(ctx))
 		})
 	}
 }

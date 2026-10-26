@@ -50,7 +50,7 @@ func (s *OpenAIGatewayService) coolDownExcelBPSModel(ctx context.Context, accoun
 		isControlledExperiment(ctx) || !s.excelBPSRecoveryEnabled(ctx) {
 		return
 	}
-	next := time.Now().Add(s.settingService.GetExcelBPSModelUnavailableCooldown(ctx))
+	next := time.Now().Add(s.settingService.GetExcelBPSModelRateLimitCooldown(ctx))
 	key := excelBPSModelKey{account.ID, upstreamModel}
 	cache := &s.excelBPSModelCooldowns
 	cache.mu.Lock()
@@ -179,7 +179,7 @@ func (s *OpenAIGatewayService) recoverExcelBPSModel(ctx context.Context, key exc
 			logger.FromContext(ctx).Error("excel_bps.model_recovery_probe_panicked", zap.Int64("account_id", key.accountID))
 		}
 		cache := &s.excelBPSModelCooldowns
-		next := time.Now().Add(s.settingService.GetExcelBPSModelUnavailableCooldown(ctx))
+		next := time.Now().Add(s.settingService.GetExcelBPSModelRateLimitCooldown(ctx))
 		cache.mu.Lock()
 		defer cache.mu.Unlock()
 		if cache.entries[key] != entry {
