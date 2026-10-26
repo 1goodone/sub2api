@@ -132,7 +132,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
-	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityShed("", responseBody) {
+	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) {
 		pluginRouted := s != nil && s.pluginManager != nil && s.pluginManager.ShouldRouteOpenAIOAuth(account)
 		IncOpenAICodexCapacityShed("server_is_overloaded", pluginRouted)
 		return false
