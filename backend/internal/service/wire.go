@@ -1375,7 +1375,9 @@ func ProvideAccountOpsService(settings SettingRepository, repo AccountOpsReposit
 	svc.SetNotificationQuotaReaders(usageLogs, geminiQuota)
 	svc.autoAccounts, _ = accounts.(AccountConcurrencyRepository)
 	svc.autoGroups = groups
-	svc.Start()
+	// Gateways reload settings and persist local events, but must not hydrate
+	// every account to reconcile shared manual groups.
+	svc.start(cfg.RunsBackgroundJobs())
 	return svc
 }
 
