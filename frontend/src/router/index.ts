@@ -1119,11 +1119,11 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  // 小羊咩咩桌面端是 opt-out 开关：只有显式 false 才拦截下载页和授权页。
+  // 小羊咩咩桌面端是 opt-in 开关：设置已加载且不是显式 true 时拦截下载页和授权页。
   if (
     to.meta.requiresDesktop &&
     appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.desktop_enabled === false
+    appStore.cachedPublicSettings?.desktop_enabled !== true
   ) {
     if (!authStore.isAuthenticated) {
       next('/home')

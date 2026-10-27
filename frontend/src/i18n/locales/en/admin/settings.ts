@@ -84,7 +84,7 @@ export default {
         },
         desktop: {
           title: 'Xiaoyang desktop',
-          description: 'Controls the download page, the connect page, sidebar entries and homepage download links. Enabled by default.',
+          description: 'Controls the download page, the connect page, sidebar entries and homepage download links. Disabled by default.',
           enabled: 'Enable Xiaoyang desktop',
           enabledHint: 'When off, the download page, connect page and every desktop entry are hidden.',
         },

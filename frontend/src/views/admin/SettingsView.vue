@@ -10858,7 +10858,7 @@ const form = reactive<SettingsForm>({
   pelican_showcase_config: defaultPelicanShowcaseConfig(),
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: true,
-  desktop_enabled: true,
+  desktop_enabled: false,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11914,7 +11914,7 @@ async function loadSettings() {
     form.channel_monitor_hide_user_ranking = Boolean(
       settings.channel_monitor_hide_user_ranking
     );
-    form.desktop_enabled = settings.desktop_enabled !== false;
+    form.desktop_enabled = settings.desktop_enabled === true;
     form.excel_bps_enabled = settings.excel_bps_enabled !== false;
     form.excel_bps_recovery_enabled = settings.excel_bps_recovery_enabled === true;
     const bpsCooldown = settings.excel_bps_model_rate_limit_cooldown_minutes;

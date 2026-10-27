@@ -573,7 +573,7 @@ const (
 	// SettingKeyDesktopEnabled is a DB-backed soft switch for the 小羊咩咩 desktop
 	// pages: the download page, the connect page, sidebar entries and homepage
 	// links. When false those pages are hidden. The desktop protocol itself is
-	// unchanged. Defaults to true (opt-out feature).
+	// unchanged. Defaults to false (opt-in feature).
 	SettingKeyDesktopEnabled = "desktop_enabled"
 
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page

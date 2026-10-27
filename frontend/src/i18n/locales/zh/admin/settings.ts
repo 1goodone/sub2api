@@ -84,7 +84,7 @@ export default {
         },
         desktop: {
           title: '小羊咩咩桌面端',
-          description: '控制下载页、授权页、侧边栏入口和首页下载链接。默认开启。',
+          description: '控制下载页、授权页、侧边栏入口和首页下载链接。默认关闭。',
           enabled: '启用小羊咩咩桌面端',
           enabledHint: '关闭后，下载页、授权页和所有桌面端入口都不再显示。',
         },

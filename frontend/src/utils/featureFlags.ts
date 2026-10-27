@@ -118,7 +118,7 @@ export const FeatureFlags = {
   }),
   desktop: defineFlag({
     key: 'desktop_enabled',
-    mode: 'opt-out',
+    mode: 'opt-in',
     label: 'Xiaoyang desktop',
   }),
   modelPlaza: defineFlag({
