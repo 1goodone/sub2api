@@ -1,13 +1,36 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+// Local port does not include upstream's simple-mode billing test file, which
+// owns this stub. The group-scope test only needs request-id idempotency.
+type simpleModeUsageBillingRepoStub struct {
+	UsageBillingRepository
+	seen map[string]struct{}
+	cmds []*UsageBillingCommand
+}
+
+func (s *simpleModeUsageBillingRepoStub) Apply(_ context.Context, cmd *UsageBillingCommand) (*UsageBillingApplyResult, error) {
+	s.cmds = append(s.cmds, cmd)
+	if s.seen == nil {
+		s.seen = make(map[string]struct{})
+	}
+	key := cmd.RequestID + ":" + strconv.FormatInt(cmd.APIKeyID, 10)
+	if _, ok := s.seen[key]; ok {
+		return &UsageBillingApplyResult{Applied: false}, nil
+	}
+	s.seen[key] = struct{}{}
+	return &UsageBillingApplyResult{Applied: true}, nil
+}
 
 func TestModelBillingGroupScopeMatching(t *testing.T) {
 	c := ModelBillingConfig{Enabled: true, Rules: []ModelBillingRule{
@@ -112,9 +135,10 @@ func TestModelBillingGroupOpenAIRecordUsage(t *testing.T) {
 				group.SubscriptionType = SubscriptionTypeSubscription
 				input.Subscription = &UserSubscription{ID: 8}
 			}
-			rate := .2 * accountGroupRate
+			// Local OpenAI usage billing does not fold account.GroupRateMultiplier into the user rate.
+			rate := .2
 			if groupID == 0 {
-				rate = svc.cfg.Default.RateMultiplier * accountGroupRate
+				rate = svc.cfg.Default.RateMultiplier
 			}
 			base := expectedOpenAICost(t, svc, "gpt-6-luna", input.Result.Usage, rate)
 			search := svc.billingService.CalculateSearchCost(2, nil, rate)
@@ -206,7 +230,8 @@ func TestModelBillingGroupGenericRecordUsageCostsAndIdempotency(t *testing.T) {
 			APIKey: key, User: &User{ID: 2}, Account: &Account{ID: 3, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, GroupIDs: []int64{5, 6}, RateMultiplier: &accountRate, GroupRateMultiplier: &accountGroupRate, Extra: map[string]any{"quota_limit": 100.0}},
 			Subscription: &UserSubscription{ID: 8}, APIKeyService: &openAIRecordUsageAPIKeyQuotaStub{}, PricingAt: at(15, 30),
 		}
-		rate := .2 * accountGroupRate * 3
+		// Local generic RecordUsage applies the peak factor but not account.GroupRateMultiplier.
+		rate := .2 * 3
 		base, err := svc.billingService.CalculateCost(input.Result.Model, UsageTokens{InputTokens: 1000, OutputTokens: 100}, rate)
 		require.NoError(t, err)
 		search := svc.billingService.CalculateSearchCost(2, nil, rate)
