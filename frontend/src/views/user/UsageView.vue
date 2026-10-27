@@ -1,7 +1,7 @@
 <template>
   <AppLayout class="personal-usage-layout">
     <div class="personal-usage">
-      <div class="usage-toolbar">
+      <div v-if="activeTab !== 'traffic'" class="usage-toolbar">
         <div v-if="activeTab !== 'errors'" class="usage-group-tabs" role="group" :aria-label="t('usage.personal.modelProvider')">
           <button type="button" :aria-pressed="!filters.model_provider" :class="{ selected: !filters.model_provider }" @click="selectProvider(undefined)">{{ t('common.all') }}</button>
           <button
@@ -29,7 +29,7 @@
         </div>
       </div>
 
-      <div class="usage-summary" :aria-busy="statsLoading">
+      <div v-if="activeTab !== 'traffic'" class="usage-summary" :aria-busy="statsLoading">
         <div v-for="metric in summaryMetrics" :key="metric.label" class="usage-stat" :title="`${startDate ? `${startDate} ~ ${endDate}` : t('common.all')}${statsLoading ? '' : `: ${metric.exactValue ?? metric.value}`}`">
           <div class="usage-stat-label" :title="metric.hint">
             {{ metric.label }}
@@ -96,7 +96,7 @@
         </div>
       </div>
 
-      <div v-show="showAdvancedFilters" id="usage-advanced-filters" class="usage-advanced-filters">
+      <div v-if="activeTab !== 'traffic'" v-show="showAdvancedFilters" id="usage-advanced-filters" class="usage-advanced-filters">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[200px]">
@@ -227,6 +227,7 @@
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
+      <TrafficPanel v-else-if="activeTab === 'traffic'" :api-key-options="apiKeyOptions" />
       </div>
     </div>
   </AppLayout>
@@ -246,6 +247,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import UsageHeatmap from '@/components/user/UsageHeatmap.vue'
+import TrafficPanel from '@/components/usage/TrafficPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -287,7 +289,7 @@ const appStore = useAppStore()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
-type UsageTab = 'usage' | 'errors' | 'models' | 'groups' | 'analysis'
+type UsageTab = 'usage' | 'errors' | 'models' | 'groups' | 'analysis' | 'traffic'
 
 const usageStats = ref<UsageStatsResponse | null>(null)
 const usageLogs = ref<UsageLog[]>([])
@@ -415,6 +417,7 @@ const usageTabs = computed<{ value: UsageTab; label: string }[]>(() => [
   { value: 'models', label: t('usage.model') },
   { value: 'analysis', label: t('usage.personal.analysis') },
   ...(errorViewEnabled.value ? [{ value: 'errors' as const, label: t('usage.tabs.errors') }] : []),
+  { value: 'traffic', label: t('traffic.title') },
 ])
 const includeCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, 'user'))
 const includeUpstreamResponseModel = computed(() => showUpstreamResponseModelToUsers(appStore.cachedPublicSettings))

@@ -1,4 +1,5 @@
 import ipAudit from './ipAudit'
+import traffic from './traffic'
 import connections from './connections'
 import securityRecords from './securityRecords'
 import siwc from './siwc'
@@ -25,6 +26,7 @@ import misc from './misc'
 import autoConfig from './autoConfig'
 
 export default {
+  traffic,
   ipAudit,
   connections,
   securityRecords,

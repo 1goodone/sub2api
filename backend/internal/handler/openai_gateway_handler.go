@@ -4098,7 +4098,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		if status <= 0 {
 			status = http.StatusServiceUnavailable
 		}
-		h.handleStreamingAwareError(c, status, "server_error", service.OpenAICapacityShedClientMessage, streamStarted)
+		h.handleStreamingAwareErrorWithCode(c, status, "server_error", service.OpenAIUpstreamCapacityCode, failoverErr.ClientMessage, streamStarted, false)
 		return
 	}
 	statusCode := failoverErr.StatusCode

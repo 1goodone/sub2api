@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/serverless"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/setup"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
@@ -102,6 +104,16 @@ func ProvideRouter(
 	if handlers.Admin != nil && handlers.Admin.Setting != nil {
 		if handlers.Admin.PromptAudit != nil {
 			handlers.Admin.Setting.ConfigureIPAudit(handlers.Admin.AuditLog, handlers.Admin.PromptAudit.IPAuditPenaltySummary, handlers.Admin.PromptAudit.ReleaseIPAuditPenalty)
+		}
+	}
+	if handlers.Admin != nil && handlers.Admin.Usage != nil {
+		stop, err := handlers.Admin.Usage.ConfigureTrafficDelivery(func() string {
+			return filepath.Join(setup.GetDataDir(), "user-traffic-pending")
+		})
+		if err != nil {
+			log.Printf("Traffic statistics disabled: %v", err)
+		} else if lifecycle != nil {
+			lifecycle.onDrain = append(lifecycle.onDrain, stop)
 		}
 	}
 	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
