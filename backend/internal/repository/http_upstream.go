@@ -376,6 +376,7 @@ func doUpstreamRequest(client *http.Client, req *http.Request) (result *http.Res
 		cancel()
 		return resp, err
 	}
+	timingTrace.Headers(resp)
 	requesttiming.Encoding(req.Context(), resp)
 	if !resp.Uncompressed {
 		resp.Body = requesttiming.WrapStage(req.Context(), resp.Body, "raw_body_first")

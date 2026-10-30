@@ -1,3 +1,4 @@
+import accountTestTiming from './accountTestTiming'
 import bills from './bills'
 import openaiAuth from './openaiAuth'
 import upstreamEntities from './upstreamEntities'
@@ -33,6 +34,7 @@ import misc from './misc'
 import autoConfig from './autoConfig'
 
 export default {
+  accountTestTiming,
   bills,
   openaiAuth,
   upstreamEntities,
