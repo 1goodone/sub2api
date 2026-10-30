@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -45,7 +46,7 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
 	if qualityModel == "" {
 		qualityModel = query.Model
 	}
-	rows, err := r.sql.QueryContext(ctx, `
+	querySQL := `
  WITH base_usage AS (
   SELECT id, account_id, created_at, stream, first_token_ms, actual_cost,
    COALESCE(account_stats_cost,total_cost) AS base_cost
@@ -191,7 +192,15 @@ func (r *usageLogRepository) ReadPrioritySchedulingSignals(ctx context.Context, 
  LEFT JOIN quality q ON q.account_id=ids.id
  LEFT JOIN latest_quality lq ON lq.account_id=ids.id
  LEFT JOIN teams_usage t ON t.account_id=ids.id
- `, pq.Array(query.AccountIDs), query.Model, query.UsageSince, query.QualitySince, query.GroupID, query.LatencyPercentile, query.LatencyMeasurement, query.TargetTTFTMs, query.UsageUntil, string(rawWindows), query.TeamsWindowHours, qualityModel)
+ `
+	args := []any{pq.Array(query.AccountIDs), query.Model, query.UsageSince, query.QualitySince, query.GroupID, query.LatencyPercentile, query.LatencyMeasurement, query.TargetTTFTMs, query.UsageUntil, string(rawWindows), query.TeamsWindowHours, qualityModel}
+	if query.ObservationEffort != nil {
+		// Exact effort population; no max/xhigh inference or cross-effort fallback.
+		// $11 and $12 are the local Teams window and quality model.
+		querySQL = strings.Replace(querySQL, "AND group_id IS NOT DISTINCT FROM $5::bigint", "AND group_id IS NOT DISTINCT FROM $5::bigint AND COALESCE(reasoning_effort,'')=$13", 1)
+		args = append(args, *query.ObservationEffort)
+	}
+	rows, err := r.sql.QueryContext(ctx, querySQL, args...)
 	if err != nil {
 		return nil, err
 	}

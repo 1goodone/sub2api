@@ -66,6 +66,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, admissionErr
 	}
 	ctx = admittedCtx
+	ctx = WithObservationRequestEffort(ctx, body)
 	ctx, errorScope := withPriorityAttemptScope(ctx, gjson.GetBytes(body, "model").String(), "/v1/chat/completions")
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil && slotResult.SucceededForScheduling()) }()

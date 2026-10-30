@@ -78,6 +78,8 @@ func (t *Trace) clientTrace() *httptrace.ClientTrace {
 		WroteHeaders: func() { t.mark("headers_written") }, WroteRequest: func(i httptrace.WroteRequestInfo) {
 			if i.Err == nil {
 				t.mark("request_written")
+			} else {
+				t.mark("request_write_failed")
 			}
 		},
 		GotFirstResponseByte: func() { t.mark("first_byte") },

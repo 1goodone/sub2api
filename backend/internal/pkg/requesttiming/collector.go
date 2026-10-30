@@ -40,6 +40,7 @@ type Attempt struct {
 	Events           map[string]float64  `json:"events"`
 }
 type Snapshot struct {
+	Latency           *LatencySummary    `json:"latency,omitempty"`
 	IdentitySource    string             `json:"identity_source,omitempty"`
 	AuthRejection     string             `json:"auth_rejection,omitempty"`
 	Routes            []RouteObservation `json:"routes,omitempty"`
@@ -198,6 +199,8 @@ func (c *Collector) snapshot() Snapshot {
 	for i := range d.Attempts {
 		d.Attempts[i].Events = cloneEvents(d.Attempts[i].Events)
 	}
+	latency := DeriveLatency(d)
+	d.Latency = &latency
 	return d
 }
 func cloneEvents(src map[string]float64) map[string]float64 {

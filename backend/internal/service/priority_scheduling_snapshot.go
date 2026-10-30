@@ -19,6 +19,8 @@ type prioritySnapshotInput struct {
 
 func newPrioritySnapshotInput(req OpenAIAccountScheduleRequest, c PrioritySchedulingConfig, pool []openAIAccountCandidateScore, at time.Time) *prioritySnapshotInput {
 	input := &prioritySnapshotInput{limited: len(pool) > priorityHistoryMaxAccounts, at: at, request: OpenAIAccountScheduleRequest{RequestedModel: req.RequestedModel, HistoryModel: req.HistoryModel, InboundEndpoint: req.InboundEndpoint, RequiredCapability: req.RequiredCapability, RequireCompact: req.RequireCompact}, config: c, quota: make(map[int64]float64)}
+	input.request.ObservationEffort = req.ObservationEffort
+	input.request.ObservationEffortScoped = req.ObservationEffortScoped
 	if req.GroupID != nil {
 		id := *req.GroupID
 		input.request.GroupID = &id

@@ -31,6 +31,7 @@ import keyPackages from './keyPackages'
 import admin from './admin'
 import misc from './misc'
 
+import latencyObservability from './latencyObservability'
 import autoConfig from './autoConfig'
 
 export default {
@@ -56,6 +57,7 @@ export default {
   pelicanTests,
   modelTrace,
   requestTiming,
+  latencyObservability,
   adminAccessKeys,
   ...landing,
   ...common,

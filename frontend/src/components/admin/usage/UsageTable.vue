@@ -249,42 +249,49 @@
 
         <!-- 状态列：首字/总耗时/TPS 用左侧色条表示健康度。缓存率百分数为绿色，色条延伸到这一行，但不改变上面三段的健康色。 -->
         <template #cell-latency="{ row }">
+          <div data-testid="typed-content-timing" class="mb-2 grid grid-cols-3 gap-x-3 text-xs" :title="t('latencyObservability.typedScope')">
+            <div v-for="metric in ['reasoning_first_ms', 'visible_text_first_ms', 'response_byte_first_ms'] as const" :key="metric">
+              <span class="block text-gray-400">{{ t(`latencyObservability.${metric}`) }}</span>
+              <strong class="tabular-nums">{{ row.content_timing?.[metric] == null ? '—' : formatDuration(row.content_timing[metric]) }}</strong>
+            </div>
+          </div>
           <component :is="enableTimingDetails ? 'button' : 'div'" :type="enableTimingDetails ? 'button' : undefined" class="grid grid-cols-[0.25rem_max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-left text-xs" :class="enableTimingDetails ? 'hover:opacity-80 focus-visible:outline focus-visible:outline-primary-500' : ''" :aria-label="enableTimingDetails ? t('requestTiming.title') : undefined" @click="enableTimingDetails && (timingRecord = row)">
             <span
               data-testid="latency-bar"
               class="col-start-1 row-start-1 w-1 self-stretch rounded-full"
-              :class="[showCacheRate ? 'row-span-4' : 'row-span-3', latencyBarClasses(row)]"
+              :class="[(showAverageTps && !compact && showCacheRate) ? 'row-span-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-span-4' : 'row-span-3', latencyBarClasses(row)]"
               :style="cacheRateBarStyle(row)"
               aria-hidden="true"
             ></span>
-            <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
-              <span v-if="row.first_token_ms != null" class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
-              <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
-              <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
-              <template v-if="showAverageTps && !compact">
-                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
-                <span
-                  v-if="formatUsageOutputTps(row)"
-                  data-testid="latency-tps"
-                  class="font-medium tabular-nums"
-                  :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
-                  :title="t('usage.latencyTpsHint')"
-                >{{ formatUsageOutputTps(row) }}</span>
-                <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
-              </template>
-              <template v-if="showCacheRate">
-                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyCacheRate') }}</span>
-                <span
-                  v-if="formatUsageCacheRate(row)"
-                  data-testid="latency-cache-rate"
-                  class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
-                  :title="cacheRateTitle(row)"
-                >{{ formatUsageCacheRate(row) }}</span>
-                <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              </template>
-            </div>
+            <span class="col-start-2 row-start-1 text-gray-400 dark:text-gray-500" :title="t('requestTiming.legacyFirst')">{{ t('usage.latencyFirstToken') }}</span>
+            <span v-if="row.first_token_ms != null" class="col-start-3 row-start-1 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
+            <span v-else class="col-start-3 row-start-1 text-gray-400 dark:text-gray-500">-</span>
+            <span class="col-start-2 row-start-2 text-gray-400 dark:text-gray-500" :title="t('requestTiming.legacyTotal')">{{ t('usage.latencyDuration') }}</span>
+            <span class="col-start-3 row-start-2 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+            <template v-if="showAverageTps && !compact">
+              <span class="col-start-2 row-start-3 text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
+              <span
+                v-if="formatUsageOutputTps(row)"
+                data-testid="latency-tps"
+                class="col-start-3 row-start-3 font-medium tabular-nums"
+                :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
+                :title="t('usage.latencyTpsHint')"
+              >{{ formatUsageOutputTps(row) }}</span>
+              <span v-else data-testid="latency-tps" class="col-start-3 row-start-3 text-gray-400 dark:text-gray-500">-</span>
+            </template>
+            <template v-if="showCacheRate">
+              <span class="col-start-2 text-gray-400 dark:text-gray-500" :class="showAverageTps && !compact ? 'row-start-4' : 'row-start-3'">{{ t('usage.latencyCacheRate') }}</span>
+              <span
+                v-if="formatUsageCacheRate(row)"
+                data-testid="latency-cache-rate"
+                class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+                :class="['col-start-3', showAverageTps && !compact ? 'row-start-4' : 'row-start-3']"
+                :title="cacheRateTitle(row)"
+              >{{ formatUsageCacheRate(row) }}</span>
+              <span v-else data-testid="latency-cache-rate" class="col-start-3 text-gray-400 dark:text-gray-500" :class="showAverageTps && !compact ? 'row-start-4' : 'row-start-3'">-</span>
+            </template>
+            <span class="col-start-2 text-gray-400 dark:text-gray-500" :class="(showAverageTps && !compact && showCacheRate) ? 'row-start-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-start-4' : 'row-start-3'">{{ t('latencyObservability.e2e') }}</span>
+            <span data-testid="latency-e2e-uncollected" class="col-start-3 text-gray-400 dark:text-gray-500" :class="(showAverageTps && !compact && showCacheRate) ? 'row-start-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-start-4' : 'row-start-3'" :title="t('latencyObservability.sourceNone')">{{ t('latencyObservability.notCollected') }}</span>
           </component>
         </template>
 

@@ -21,14 +21,32 @@ import { i18n } from '@/i18n'
 import en from '@/i18n/locales/en/admin/resources'
 import zh from '@/i18n/locales/zh/admin/resources'
 import UsageTable from '../UsageTable.vue'
+import enLatency from '@/i18n/locales/en/latencyObservability'
+import zhLatency from '@/i18n/locales/zh/latencyObservability'
+import enDashboard from '@/i18n/locales/en/dashboard'
+import zhDashboard from '@/i18n/locales/zh/dashboard'
 
 let locale: 'en' | 'zh' = 'en'
 const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
   en: {
+    'latencyObservability.reasoning_first_ms': enLatency.reasoning_first_ms,
+    'latencyObservability.visible_text_first_ms': enLatency.visible_text_first_ms,
+    'latencyObservability.response_byte_first_ms': enLatency.response_byte_first_ms,
+    'latencyObservability.notCollected': enLatency.notCollected,
+    'latencyObservability.sourceNone': enLatency.sourceNone,
+    'usage.latencyFirstToken': enDashboard.usage.latencyFirstToken,
+    'usage.latencyDuration': enDashboard.usage.latencyDuration,
     'admin.usage.longContext': en.usage.longContext,
     'admin.usage.longContextPricingTooltip': en.usage.longContextPricingTooltip,
   },
   zh: {
+    'latencyObservability.reasoning_first_ms': zhLatency.reasoning_first_ms,
+    'latencyObservability.visible_text_first_ms': zhLatency.visible_text_first_ms,
+    'latencyObservability.response_byte_first_ms': zhLatency.response_byte_first_ms,
+    'latencyObservability.notCollected': zhLatency.notCollected,
+    'latencyObservability.sourceNone': zhLatency.sourceNone,
+    'usage.latencyFirstToken': zhDashboard.usage.latencyFirstToken,
+    'usage.latencyDuration': zhDashboard.usage.latencyDuration,
     'admin.usage.longContext': zh.usage.longContext,
     'admin.usage.longContextPricingTooltip': zh.usage.longContextPricingTooltip,
   },
@@ -1194,3 +1212,38 @@ describe('admin UsageTable latency TPS', () => {
     )
   })
 })
+
+for (const [language, first, total] of [['en', 'Server TTFT', 'Server total'], ['zh', '服务端首字', '服务端总耗时']] as const) {
+  it(`Issue603 labels real usage table server timing explicitly in ${language}`, () => {
+    locale = language
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ ...baseImageRow, duration_ms: 1000, first_token_ms: 200 }], loading: false, columns: [{ key: 'latency', label: 'Latency' }] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain(first)
+    expect(wrapper.text()).toContain(total)
+    expect(wrapper.get('[data-testid="latency-e2e-uncollected"]').text()).toBe(language === 'en' ? enLatency.notCollected : zhLatency.notCollected)
+    expect(wrapper.get('[data-testid="latency-e2e-uncollected"]').attributes('title')).toBe(language === 'en' ? enLatency.sourceNone : zhLatency.sourceNone)
+    wrapper.unmount()
+    locale = 'en'
+  })
+}
+
+for (const language of ['en', 'zh'] as const) {
+  it(`Issue605 displays typed reasoning visible text and response byte in ${language}`, () => {
+    locale = language
+    const messages = language === 'en' ? enLatency : zhLatency
+    const row = { ...baseImageRow, content_timing: { reasoning_first_ms: 120, visible_text_first_ms: 450, response_byte_first_ms: 30, status: 'observed', source: 'httptrace_and_typed_sse', scope: 'final_http', reasoning_streaming_capability: 'unknown', capability_source: 'none' } }
+    const w = mount(UsageTable, { props: { data: [row, { ...baseImageRow, request_id: 'legacy' }], loading: false, columns: [{ key: 'latency', label: 'Latency' }] }, global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } } })
+    const cells = w.findAll('[data-testid="typed-content-timing"]')
+    expect(cells).toHaveLength(2)
+    expect(cells[0]!.text()).toContain(messages.reasoning_first_ms)
+    expect(cells[0]!.text()).toContain(messages.visible_text_first_ms)
+    expect(cells[0]!.text()).toContain(messages.response_byte_first_ms)
+    expect(cells[0]!.text()).toContain('120ms')
+    expect(cells[0]!.text()).toContain('450ms')
+    expect(cells[0]!.text()).toContain('30ms')
+    expect(cells[1]!.findAll('strong').map(n => n.text())).toEqual(['—', '—', '—'])
+    w.unmount(); locale = 'en'
+  })
+}

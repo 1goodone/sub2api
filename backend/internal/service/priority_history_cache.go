@@ -141,6 +141,10 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 			group = &value
 		}
 		query := PrioritySchedulingQuery{LatencyPercentile: c.LatencyPercentile, LatencyMeasurement: c.LatencyMeasurement, TargetTTFTMs: c.TargetTTFTMs, AccountIDs: ids, Model: priorityHistoryModel(req), QualityModel: strings.TrimSpace(req.RequestedModel), GroupID: group, UsageUntil: now, UsageSince: now.Add(-time.Duration(c.WindowMinutes) * time.Minute), QualitySince: now.Add(-time.Duration(c.QualityMaxAgeHours) * time.Hour), TeamsWindows: priorityTeamsWindows(c.Teams, accounts), TeamsWindowHours: c.Teams.WindowHours}
+		if req.ObservationEffortScoped {
+			value := req.ObservationEffort
+			query.ObservationEffort = &value
+		}
 		state.launches[state.launchIndex] = now
 		state.launchIndex = (state.launchIndex + 1) % len(state.launches)
 		entry.refreshing = true

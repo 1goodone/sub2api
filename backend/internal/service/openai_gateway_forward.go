@@ -107,6 +107,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if IsOpenAIResponsesCompactPath(c) {
 		endpoint += "/compact"
 	}
+	ctx = WithObservationRequestEffort(ctx, body)
 	ctx, errorScope := withPriorityAttemptScope(ctx, gjson.GetBytes(body, "model").String(), endpoint)
 	defer func() { errorScope.finish(result) }()
 	ctx = s.withOpenAIHTTPBudget(ctx, c)
