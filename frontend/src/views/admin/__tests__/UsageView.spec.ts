@@ -3,7 +3,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
-vi.mock('@/api/admin/latencyObservability', () => ({ getLatencyReport: vi.fn().mockResolvedValue({ groups: [] }) }))
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
@@ -213,11 +212,10 @@ describe('admin UsageView route filters', () => {
     vi.useRealTimers()
   })
 
-  it('Issue603 embeds latency observations in the real admin usage page', async () => {
+  it('keeps the standalone latency report out of the admin usage page', async () => {
     const wrapper = mountRouteFilteredUsageView()
     await flushPromises()
-    expect(wrapper.find('[data-testid="latency-observability"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('latencyObservability.sourceNone')
+    expect(wrapper.find('[data-testid="latency-observability"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

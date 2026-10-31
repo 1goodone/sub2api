@@ -249,12 +249,6 @@
 
         <!-- 状态列：首字/总耗时/TPS 用左侧色条表示健康度。缓存率百分数为绿色，色条延伸到这一行，但不改变上面三段的健康色。 -->
         <template #cell-latency="{ row }">
-          <div data-testid="typed-content-timing" class="mb-2 grid grid-cols-3 gap-x-3 text-xs" :title="t('latencyObservability.typedScope')">
-            <div v-for="metric in ['reasoning_first_ms', 'visible_text_first_ms', 'response_byte_first_ms'] as const" :key="metric">
-              <span class="block text-gray-400">{{ t(`latencyObservability.${metric}`) }}</span>
-              <strong class="tabular-nums">{{ row.content_timing?.[metric] == null ? '—' : formatDuration(row.content_timing[metric]) }}</strong>
-            </div>
-          </div>
           <component :is="enableTimingDetails ? 'button' : 'div'" :type="enableTimingDetails ? 'button' : undefined" class="grid grid-cols-[0.25rem_max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-left text-xs" :class="enableTimingDetails ? 'hover:opacity-80 focus-visible:outline focus-visible:outline-primary-500' : ''" :aria-label="enableTimingDetails ? t('requestTiming.title') : undefined" @click="enableTimingDetails && (timingRecord = row)">
             <span
               data-testid="latency-bar"
@@ -296,8 +290,7 @@
               >{{ formatUsageCacheRate(row) }}</span>
               <span v-else data-testid="latency-cache-rate" class="col-start-3 text-gray-400 dark:text-gray-500" :class="showAverageTps && !compact ? 'row-start-4' : 'row-start-3'">-</span>
             </template>
-            <span class="col-start-2 text-gray-400 dark:text-gray-500" :class="(showAverageTps && !compact && showCacheRate) ? 'row-start-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-start-4' : 'row-start-3'">{{ t('latencyObservability.e2e') }}</span>
-            <span data-testid="latency-e2e-uncollected" class="col-start-3 text-gray-400 dark:text-gray-500" :class="(showAverageTps && !compact && showCacheRate) ? 'row-start-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-start-4' : 'row-start-3'" :title="t('latencyObservability.sourceNone')">{{ t('latencyObservability.notCollected') }}</span>
+
           </component>
         </template>
 

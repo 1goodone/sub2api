@@ -1,8 +1,6 @@
 export default {
   "title": "HTTP attempt 延迟分组",
   "scope": "应用侧观测。上传为 headers-written 到成功 request-written；semantic 内容可包含推理，visible 为可见输出。上传后等待包含网络和上游工作，不代表 prefill。额外成本为首个 send 之后各 attempt 的上传/等待组件，不是墙钟总时长或反事实节省量；历史缺失保持未采集。",
-  "e2e": "客户端端到端耗时",
-  "clientUpload": "进入应用前的客户端上传",
   "notCollected": "未采集",
   "sourceNone": "来源：无",
   "error": "延迟观测加载失败",
@@ -29,8 +27,6 @@ export default {
   "visible_text_first_ms": "首个可见文本",
   "response_byte_first_ms": "首个响应字节",
   "typedScope": "服务端从应用入口起算，仅对应最终物理 HTTP attempt。typed reasoning 与 semantic/工具事件不同；观察到推理事件不证明已拆分排队和计算。历史缺失为 —。",
-  "reasoningCapability": "推理流式输出能力",
-  "unknown": "未知",
   "socketScope": "客户端 ↔ 服务端 socket min RTT / 重传数：未采集（来源无；反代可能是应用直接对端）。服务端 ↔ 上游 socket min RTT / 重传数：未采集（来源无；代理可能遮蔽上游 socket）。主机计数不代表逐请求 socket 证据。",
   "accountModel": "账号 · 公开模型",
   "textQuantiles": "可见文本 p50 / p90 / p99"
