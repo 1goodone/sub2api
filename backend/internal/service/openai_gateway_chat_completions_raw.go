@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -61,7 +62,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	body []byte,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	return s.forwardAsRawChatCompletionsWithStartTime(ctx, c, account, body, defaultMappedModel, time.Now())
+	return s.forwardAsRawChatCompletionsWithStartTime(ctx, c, account, body, defaultMappedModel, requesttiming.Now(ctx))
 }
 
 func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
@@ -71,7 +72,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	body []byte,
 	defaultMappedModel string,
 	startTime time.Time,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, resultErr error) {
 
 	// 1. Parse minimal fields needed for routing/billing
 	originalModel := gjson.GetBytes(body, "model").String()
@@ -213,6 +214,16 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	if customUA == "" && account.IsGrokOAuth() {
 		customUA = defaultGrokUpstreamUserAgent()
 	}
+	// Record the final provider-normalized effort, so usage and pricing match
+	// the outbound request (for example GLM xhigh is forwarded as max).
+	reasoningEffort = extractOpenAIReasoningEffortFromBody(upstreamBody, upstreamModel, billingModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, upstreamBody, upstreamModel)
+	forwardBoundary := requesttiming.Now(ctx)
+	defer func() {
+		if result != nil {
+			applyOpenAIQueueTiming(result, openAIIngressStart(ctx), forwardBoundary, startTime, "http_ingress_raw_chat", "first_forward_including_admission")
+		}
+	}()
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
@@ -266,7 +277,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	}
 
 	// 8. Forward response
-	var result *OpenAIForwardResult
 	var forwardErr error
 	if clientStream {
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
@@ -379,7 +389,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					usage = *u
 				}
 				if !firstResponseEnabled && firstTokenMs == nil && !usageOnlyChunk {
-					elapsed := int(time.Since(startTime).Milliseconds())
+					elapsed := int(requesttiming.Now(c.Request.Context()).Sub(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
 			}
@@ -414,7 +424,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			ReasoningEffort:               reasoningEffort,
 			ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 			Stream:                        true,
-			Duration:                      time.Since(startTime),
+			Duration:                      requesttiming.Now(c.Request.Context()).Sub(startTime),
 			FirstTokenMs:                  firstTokenMs,
 		}
 	}
@@ -592,7 +602,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ReasoningEffort:               reasoningEffort,
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                        false,
-		Duration:                      time.Since(startTime),
+		Duration:                      requesttiming.Now(c.Request.Context()).Sub(startTime),
 	}, nil
 }
 

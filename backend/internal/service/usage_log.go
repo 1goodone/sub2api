@@ -182,8 +182,12 @@ type UsageLog struct {
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
-	UserAgent          *string
-	IPAddress          *string
+	// QueueWaitMs is nullable pre-forward elapsed time; QueueTiming carries the
+	// measured source and separate server/forward scopes.
+	QueueWaitMs *int
+	QueueTiming *QueueTiming
+	UserAgent   *string
+	IPAddress   *string
 	// SessionID is the explicit client-provided request correlation identifier
 	// (e.g. the session_id / X-Session-Id headers). Nil when the client sent no
 	// valid session header. It is never derived from prompt_cache_key or content.

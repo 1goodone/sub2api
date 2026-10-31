@@ -668,6 +668,10 @@ type UsageLog struct {
 	NativeCompactionV2 bool `json:"native_compaction_v2"`
 	DurationMs         *int `json:"duration_ms"`
 	FirstTokenMs       *int `json:"first_token_ms"`
+	// QueueWaitMs is pre-forward elapsed time, not client E2E. Legacy timers
+	// can overlap it; QueueTiming carries explicit measured server/forward scopes.
+	QueueWaitMs *int                 `json:"queue_wait_ms"`
+	QueueTiming *service.QueueTiming `json:"queue_timing"`
 
 	// 图片生成字段
 	ImageCount         int            `json:"image_count"`

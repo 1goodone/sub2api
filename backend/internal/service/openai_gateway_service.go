@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -284,8 +285,16 @@ type OpenAIForwardResult struct {
 	ResponseHeaders       http.Header
 	Duration              time.Duration
 	FirstTokenMs          *int
-	ClientDisconnect      bool
-	ImageCount            int
+	// QueueWait records pre-forward elapsed time. Legacy timers have protocol-specific
+	// overlap; consumers use QueueTiming instead of blindly adding it.
+	QueueWait time.Duration
+	// QueueWaitMeasured distinguishes a measured zero wait from a path without
+	// an ingress clock (historical/other endpoints), so usage rows can record
+	// 0 for new non-queued requests and NULL for unknown.
+	QueueTiming       *QueueTiming
+	QueueWaitMeasured bool
+	ClientDisconnect  bool
+	ImageCount        int
 	// ImageEndpoint 标记请求来自专用图片端点；分组 image_count_billing 开关
 	// 只对这类请求生效，混合 Responses/Chat/WS 请求仍按 token 计费。
 	ImageEndpoint      bool
@@ -312,6 +321,28 @@ type OpenAIForwardResult struct {
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool
 	wsAccountFailoverReplayInput []json.RawMessage
+}
+
+const maxOpenAIQueueWait = time.Hour
+
+// openAIQueueWait returns the wait between request arrival and the start of the
+// upstream forward attempt, plus whether an ingress clock was actually present.
+// The logger middleware stores request arrival in ctxkey.RequestStartTime;
+// callers that do not have it (tests, internal jobs) report unmeasured rather
+// than guessing a zero.
+func openAIQueueWait(ctx context.Context, forwardStart time.Time) (time.Duration, bool) {
+	if ctx == nil || forwardStart.IsZero() {
+		return 0, false
+	}
+	requestStart, ok := ctx.Value(ctxkey.RequestStartTime).(time.Time)
+	if !ok || requestStart.IsZero() || forwardStart.Before(requestStart) {
+		return 0, false
+	}
+	wait := forwardStart.Sub(requestStart)
+	if wait > maxOpenAIQueueWait {
+		wait = maxOpenAIQueueWait
+	}
+	return wait, true
 }
 
 // SucceededForScheduling reports whether this result is an upstream success

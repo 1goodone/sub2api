@@ -2904,7 +2904,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
-	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
+	msgType, firstMessage, firstFrameArrivedAt, err := service.ReadOpenAIWSClientMessageWithArrival(
 		ctx,
 		wsConn,
 		firstMessageTimeout,
@@ -2928,7 +2928,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "missing first response.create message")
 		return
 	}
-	firstTurnStartedAt := time.Now()
+	firstTurnStartedAt := requesttiming.Now(ctx)
 	if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
 		return
@@ -3437,6 +3437,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
+			InitialFrameArrivedAt:       firstFrameArrivedAt,
 			MaxReasoningEffort:          maxReasoningEffort,
 			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
 			ReasoningEffortMappings:     reasoningEffortMappings,
@@ -3633,6 +3634,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				service.BeginAccountSlotReservation(ctx, account, c)(turnErr, result != nil && result.SucceededForScheduling())
 				turnStart := getTurnStart(turn)
+				// Each ingress samples its own forward boundary. Callback cleanup is
+				// never queue time. Preserve the current frame across account failover.
+				if turnErr != nil && turn > 1 && !turnStart.IsZero() {
+					firstTurnStartedAt = turnStart
+					firstFrameArrivedAt = turnStart
+				}
 				cyberTurnContext := takeCyberTurnBody(turn)
 				cyberBlockBody := cyberTurnContext.body
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
@@ -3772,6 +3779,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			if !service.OpenAIWSIngressCanFailover(ctx, c) {
 				return
 			}
+			// A later turn can retry on this same account without rebuilding hooks.
+			// Carry that frame's timestamps into the new ingress attempt too.
+			hooks.InitialTurnStartedAt = firstTurnStartedAt
+			hooks.InitialFrameArrivedAt = firstFrameArrivedAt
 			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))

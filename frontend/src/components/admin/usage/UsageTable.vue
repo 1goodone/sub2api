@@ -263,11 +263,17 @@
               :style="cacheRateBarStyle(row)"
               aria-hidden="true"
             ></span>
-            <span class="col-start-2 row-start-1 text-gray-400 dark:text-gray-500" :title="t('requestTiming.legacyFirst')">{{ t('usage.latencyFirstToken') }}</span>
-            <span v-if="row.first_token_ms != null" class="col-start-3 row-start-1 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
+            <span class="col-start-2 row-start-1 text-gray-400 dark:text-gray-500">{{ t(row.queue_timing?.status === 'measured' ? 'usage.latencyFirstToken' : 'requestTiming.legacyFirst') }}</span>
+            <span v-if="firstTokenQueueInclusive(row) != null" class="col-start-3 row-start-1 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(firstTokenQueueInclusive(row) ?? 0)]" :title="row.queue_timing?.status === 'measured' ? firstTokenQueueTitle(row) : undefined">
+              {{ formatDuration(firstTokenQueueInclusive(row)) }}
+              <span v-if="row.queue_timing?.status === 'measured' && row.queue_wait_ms" class="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">{{ t('usage.queuePortion') }} {{ row.queue_timing.queue_clamped ? '≥' : '' }}{{ formatDuration(row.queue_wait_ms) }}</span>
+            </span>
             <span v-else class="col-start-3 row-start-1 text-gray-400 dark:text-gray-500">-</span>
-            <span class="col-start-2 row-start-2 text-gray-400 dark:text-gray-500" :title="t('requestTiming.legacyTotal')">{{ t('usage.latencyDuration') }}</span>
-            <span class="col-start-3 row-start-2 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+            <span class="col-start-2 row-start-2 text-gray-400 dark:text-gray-500">{{ t(row.queue_timing?.status === 'measured' ? 'usage.latencyDuration' : 'requestTiming.legacyTotal') }}</span>
+            <span class="col-start-3 row-start-2 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(durationQueueInclusive(row) ?? 0)]" :title="row.queue_timing?.status === 'measured' ? t('usage.latencyDurationHint', { forward: formatDuration(row.queue_timing?.forward_duration_ms), queue: formatDuration(row.queue_wait_ms ?? 0) }) : undefined">
+              {{ formatDuration(durationQueueInclusive(row)) }}
+              <span v-if="row.queue_timing?.status === 'measured' && row.queue_wait_ms" class="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">{{ t('usage.queuePortion') }} {{ row.queue_timing.queue_clamped ? '≥' : '' }}{{ formatDuration(row.queue_wait_ms) }}</span>
+            </span>
             <template v-if="showAverageTps && !compact">
               <span class="col-start-2 row-start-3 text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
               <span
@@ -804,11 +810,27 @@ const LATENCY_BAR_COLORS: Record<LatencySeverity, string> = {
   critical: '#ef4444',
 }
 
+// Persisted boundary observations account for protocol-specific legacy overlap.
+// Historical rows retain their legacy values and are not claimed as measured.
+const firstTokenQueueInclusive = (row: AdminUsageLog): number | null =>
+  row.queue_timing?.status === 'measured' ? row.queue_timing.server_first_token_ms : row.first_token_ms
+const firstTokenQueueTitle = (row: AdminUsageLog): string =>
+  t('usage.latencyFirstTokenHint', {
+    first: formatDuration(row.queue_timing?.forward_first_token_ms),
+    queue: formatDuration(row.queue_wait_ms),
+  })
+const durationQueueInclusive = (row: AdminUsageLog): number | null =>
+  row.queue_timing?.status === 'measured' ? row.queue_timing.server_duration_ms : row.duration_ms
+
 function latencySeverities(row: AdminUsageLog) {
-  const duration = durationSeverity(row.duration_ms ?? 0)
-  const first = row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration
+  const duration = durationSeverity(durationQueueInclusive(row) ?? 0)
+  const firstToken = firstTokenQueueInclusive(row)
   const outputTps = usageOutputTps(row)
-  return { first, duration, tps: showAverageTps.value && outputTps != null ? tpsSeverity(outputTps) : duration }
+  return {
+    first: firstToken != null ? firstTokenSeverity(firstToken) : duration,
+    duration,
+    tps: showAverageTps.value && outputTps != null ? tpsSeverity(outputTps) : duration,
+  }
 }
 
 function cacheRateTitle(row: AdminUsageLog): string {

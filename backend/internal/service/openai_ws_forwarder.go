@@ -253,6 +253,8 @@ type OpenAIWSIngressHooks struct {
 	InitialRequestModel string
 	// InitialTurnStartedAt freezes when the first response.create was accepted.
 	InitialTurnStartedAt time.Time
+	// InitialFrameArrivedAt precedes capture/preflight; separate from the legacy baseline.
+	InitialFrameArrivedAt time.Time
 	// MaxReasoningEffort limits explicit reasoning effort values for this WS session.
 	MaxReasoningEffort string
 	// MaxReasoningEffortOverLimit is the access control when an explicit effort

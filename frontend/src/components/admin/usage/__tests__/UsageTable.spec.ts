@@ -25,10 +25,14 @@ import enLatency from '@/i18n/locales/en/latencyObservability'
 import zhLatency from '@/i18n/locales/zh/latencyObservability'
 import enDashboard from '@/i18n/locales/en/dashboard'
 import zhDashboard from '@/i18n/locales/zh/dashboard'
+import enTiming from '@/i18n/locales/en/requestTiming'
+import zhTiming from '@/i18n/locales/zh/requestTiming'
 
 let locale: 'en' | 'zh' = 'en'
 const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
   en: {
+    'requestTiming.legacyFirst': enTiming.legacyFirst,
+    'requestTiming.legacyTotal': enTiming.legacyTotal,
     'latencyObservability.reasoning_first_ms': enLatency.reasoning_first_ms,
     'latencyObservability.visible_text_first_ms': enLatency.visible_text_first_ms,
     'latencyObservability.response_byte_first_ms': enLatency.response_byte_first_ms,
@@ -40,6 +44,8 @@ const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
     'admin.usage.longContextPricingTooltip': en.usage.longContextPricingTooltip,
   },
   zh: {
+    'requestTiming.legacyFirst': zhTiming.legacyFirst,
+    'requestTiming.legacyTotal': zhTiming.legacyTotal,
     'latencyObservability.reasoning_first_ms': zhLatency.reasoning_first_ms,
     'latencyObservability.visible_text_first_ms': zhLatency.visible_text_first_ms,
     'latencyObservability.response_byte_first_ms': zhLatency.response_byte_first_ms,
@@ -179,6 +185,32 @@ describe('admin UsageTable tooltip', () => {
     })
     expect(wrapper.findAll('[data-testid="latency-tps"]').map(cell => cell.text())).toEqual(['50.0 t/s', '-', '-'])
     expect(wrapper.text()).toContain('Avg TPS')
+  })
+
+  it('shows queue-inclusive first token and labels the queue portion', () => {
+    const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 100, duration_ms: 20_000, first_token_ms: 2_000, queue_wait_ms: 30_000,
+      queue_timing: { status: 'measured', source: 'ws_frame_ctx_pool', scope: 'pre_final_forward', queue_clamped: false,
+        server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 } }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [{ key: 'latency', label: 'Latency' }] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain('32.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.text()).toContain('30.00s')
+  })
+
+  it('PR610 keeps passthrough overlap out of the server total and retains legacy TPS', () => {
+    const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 100, first_token_ms: 32_000, duration_ms: 50_000, queue_wait_ms: 30_000,
+      queue_timing: { status: 'measured', source: 'ws_frame_passthrough', scope: 'accepted_frame_including_admission', queue_clamped: false,
+        server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 } }
+    const wrapper = mount(UsageTable, { props: { data: [row], loading: false, columns: [{ key: 'latency', label: 'Latency' }] }, global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } } })
+    expect(wrapper.text()).toContain('32.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.text()).not.toContain('62.00s')
+    expect(wrapper.get('[data-testid="latency-tps"]').text()).toBe('2.0 t/s')
+    expect(wrapper.get('[data-testid="latency-e2e-uncollected"]').attributes('title')).toBe(enLatency.sourceNone)
+    wrapper.unmount()
   })
 
   beforeEach(() => {

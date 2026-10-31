@@ -72,6 +72,7 @@ type RelayExit struct {
 
 type RelayOptions struct {
 	FirstResponseEnabled            bool
+	BeforeUpstreamWrite             func(msgType coderws.MessageType, payload []byte)
 	WriteTimeout                    time.Duration
 	IdleTimeout                     time.Duration
 	UpstreamDrainTimeout            time.Duration
@@ -223,6 +224,9 @@ func Relay(
 			// Reset before the write so an immediate upstream response cannot race
 			// with the transport returning from WriteFrame.
 			state.turnWroteDownstream.Store(false)
+		}
+		if options.BeforeUpstreamWrite != nil {
+			options.BeforeUpstreamWrite(msgType, payload)
 		}
 		err := writeUpstream(msgType, payload)
 		if err != nil && isResponseCreate {
