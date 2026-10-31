@@ -655,6 +655,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
 		payloadBytes = stripAnthropicClaudeCodeIdentityFromBody(payloadBytes)
 	}
+	if account.IsAnthropicMimicClaudeCodeEnabled() {
+		payloadBytes, _ = mimicAnthropicClaudeCodeBody(payloadBytes, account, 0, claude.DefaultUserAgent(), testModelID)
+	}
 
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -689,6 +692,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
 		stripAnthropicClaudeCodeIdentityFromHeaders(req.Header)
+	}
+	if account.IsAnthropicMimicClaudeCodeEnabled() {
+		applyAnthropicClaudeCodeMimicHeaders(req.Header, claude.DefaultUserAgent())
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头

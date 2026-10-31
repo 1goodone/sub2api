@@ -2697,6 +2697,34 @@ func (a *Account) IsAnthropicStripClaudeCodeIdentityEnabled() bool {
 	return ok && enabled
 }
 
+const anthropicMimicClaudeCodeExtraKey = "anthropic_mimic_claude_code"
+
+// IsAnthropicMimicClaudeCodeEnabled 返回 Anthropic API Key 账号是否启用
+// "模拟 Claude Code 客户端"（上游只放行 Claude Code 时，给普通客户端的请求补齐
+// Claude Code 请求头、身份句和 metadata.user_id）。
+// 字段：accounts.extra.anthropic_mimic_claude_code。
+// 与"抹除 Claude Code 身份"互斥：两者同时开启时以抹除为准，本开关视为关闭。
+func (a *Account) IsAnthropicMimicClaudeCodeEnabled() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+		return false
+	}
+	if a.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		return false
+	}
+	enabled, ok := a.Extra[anthropicMimicClaudeCodeExtraKey].(bool)
+	return ok && enabled
+}
+
+// IsAnthropicMimicClaudeCodeDeductTokensEnabled controls the optional estimate
+// for gateway-injected identity tokens. Missing or false preserves normal billing.
+func (a *Account) IsAnthropicMimicClaudeCodeDeductTokensEnabled() bool {
+	if !a.IsAnthropicMimicClaudeCodeEnabled() {
+		return false
+	}
+	enabled, ok := a.Extra["anthropic_mimic_claude_code_deduct_tokens"].(bool)
+	return ok && enabled
+}
+
 // WebSearch 模拟三态常量
 const (
 	WebSearchModeDefault  = "default"  // 跟随渠道配置

@@ -2837,4 +2837,89 @@ describe('OpenAI connection account type boundary in the actual editor', () => {
     expect(wrapper.find('[data-testid="auth-connections"]').exists()).toBe(false)
     expect(connectionRequests).toHaveLength(1)
   })
+
+  it('keeps the Anthropic API key Claude Code mimic switch exclusive with strip identity', async () => {
+    const account = {
+      ...buildAccount(),
+      id: 21,
+      name: 'Claude Code only relay',
+      platform: 'anthropic',
+      type: 'apikey',
+      credentials: { api_key: 'sk-relay', base_url: 'https://relay.example.com' },
+      extra: { anthropic_mimic_claude_code: true, anthropic_mimic_claude_code_deduct_tokens: true, unrelated: 'preserve' }
+    } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const mimicToggle = () => wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]')
+    const stripToggle = () => wrapper.findAll('div.flex.items-center.justify-between')
+      .find(row => row.text().includes('admin.accounts.anthropic.stripClaudeCodeIdentityDesc'))!
+      .get('button')
+    expect(mimicToggle().classes()).toContain('bg-primary-600')
+    expect(stripToggle().classes()).not.toContain('bg-primary-600')
+
+    await stripToggle().trigger('click')
+    await flushPromises()
+    expect(stripToggle().classes()).toContain('bg-primary-600')
+    expect(mimicToggle().classes()).not.toContain('bg-primary-600')
+    await wrapper.get('#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const stripExtra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(stripExtra).toMatchObject({ anthropic_strip_claude_code_identity: true, unrelated: 'preserve' })
+    expect(stripExtra).not.toHaveProperty('anthropic_mimic_claude_code')
+    expect(stripExtra).not.toHaveProperty('anthropic_mimic_claude_code_deduct_tokens')
+
+    await mimicToggle().trigger('click')
+    await flushPromises()
+    expect(stripToggle().classes()).not.toContain('bg-primary-600')
+    await wrapper.get('#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const mimicExtra = updateAccountMock.mock.calls[1]?.[1]?.extra
+    expect(mimicExtra).toMatchObject({ anthropic_mimic_claude_code: true, unrelated: 'preserve' })
+    expect(mimicExtra).not.toHaveProperty('anthropic_strip_claude_code_identity')
+    expect(mimicExtra).not.toHaveProperty('anthropic_mimic_claude_code_deduct_tokens')
+  })
+
+  it.each([false, true])('restores and changes Anthropic estimated deduction from %s', async (deduct) => {
+    const account = {
+      ...buildAccount(),
+      id: 23,
+      platform: 'anthropic',
+      type: 'apikey',
+      credentials: { api_key: 'fixture-key', base_url: 'https://relay.example.com' },
+      extra: { anthropic_mimic_claude_code: true, anthropic_mimic_claude_code_deduct_tokens: deduct, unrelated: 'preserve' }
+    } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const toggle = wrapper.get('[data-testid="anthropic-mimic-claude-code-deduct-tokens-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe(String(deduct))
+    await toggle.trigger('click')
+    await wrapper.get('#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).toMatchObject({ anthropic_mimic_claude_code: true, unrelated: 'preserve' })
+    if (deduct) {
+      expect(extra).not.toHaveProperty('anthropic_mimic_claude_code_deduct_tokens')
+    } else {
+      expect(extra.anthropic_mimic_claude_code_deduct_tokens).toBe(true)
+    }
+  })
+
+  it('does not restore the Claude Code mimic switch when strip identity is also stored', async () => {
+    const account = {
+      ...buildAccount(),
+      id: 22,
+      platform: 'anthropic',
+      type: 'apikey',
+      credentials: { api_key: 'sk-relay', base_url: 'https://relay.example.com' },
+      extra: { anthropic_mimic_claude_code: true, anthropic_strip_claude_code_identity: true }
+    } as any
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]').classes()).not.toContain('bg-primary-600')
+  })
 })

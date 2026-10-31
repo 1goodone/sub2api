@@ -1184,6 +1184,56 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
   })
 
+  it.each([false, true])('saves Anthropic mimic with estimated deduction=%s and clears strip identity', async (deduct) => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-testid="anthropic-mimic-claude-code-toggle"]').exists()).toBe(false)
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Claude Code relay')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-only-key')
+
+    const mimic = wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]')
+    const strip = wrapper.findAll('div.flex.items-center.justify-between')
+      .find(row => row.text().includes('admin.accounts.anthropic.stripClaudeCodeIdentityDesc'))!
+      .get('button')
+    expect(mimic.classes()).not.toContain('bg-primary-600')
+    await strip.trigger('click')
+    await mimic.trigger('click')
+    await flushPromises()
+    expect(strip.classes()).not.toContain('bg-primary-600')
+    const deduction = wrapper.get('[data-testid="anthropic-mimic-claude-code-deduct-tokens-toggle"]')
+    expect(deduction.attributes('aria-checked')).toBe('false')
+    if (deduct) {
+      await deduction.trigger('click')
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({
+      platform: 'anthropic', type: 'apikey', extra: { anthropic_mimic_claude_code: true },
+    })
+    expect(payload.extra).not.toHaveProperty('anthropic_strip_claude_code_identity')
+    if (deduct) {
+      expect(payload.extra.anthropic_mimic_claude_code_deduct_tokens).toBe(true)
+    } else {
+      expect(payload.extra).not.toHaveProperty('anthropic_mimic_claude_code_deduct_tokens')
+    }
+  })
+
+  it('clears the Anthropic mimic switch when changing the account platform', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    await wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="anthropic-mimic-claude-code-deduct-tokens-toggle"]').trigger('click')
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="anthropic-mimic-claude-code-toggle"]').exists()).toBe(false)
+    await selectButtonByText(wrapper, 'Anthropic')
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    expect(wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]').classes()).not.toContain('bg-primary-600')
+    await wrapper.get('[data-testid="anthropic-mimic-claude-code-toggle"]').trigger('click')
+    expect(wrapper.get('[data-testid="anthropic-mimic-claude-code-deduct-tokens-toggle"]').attributes('aria-checked')).toBe('false')
+  })
+
   it('sends an explicit disabled state when the non-OpenAI create toggle is turned off', async () => {
     await submitApiKeyAccount('anthropic', false, true)
 
