@@ -101,6 +101,8 @@ export interface PriorityCandidate {
   quality_samples: number
 }
 export interface PrioritySnapshot {
+  latency_penalty_mode?: 'deprioritize' | 'stop'
+  latency_fallback?: boolean
   evaluated_at?: string
   history_status?: 'ready' | 'stale' | 'partial' | 'loading' | 'error' | 'limited' | 'unavailable'
   history_observed_at?: string

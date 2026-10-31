@@ -326,6 +326,8 @@ type PrioritySchedulingScore struct {
 	PrioritySchedulingSignal
 }
 type PrioritySchedulingSnapshot struct {
+	LatencyPenaltyMode string                    `json:"latency_penalty_mode"`
+	LatencyFallback    bool                      `json:"latency_fallback"`
 	EvaluatedAt        time.Time                 `json:"evaluated_at"`
 	HistoryStatus      string                    `json:"history_status"`
 	HistoryObservedAt  *time.Time                `json:"history_observed_at,omitempty"`
@@ -526,16 +528,38 @@ func (s *defaultOpenAIAccountScheduler) applyPriorityScheduling(req OpenAIAccoun
 
 func (s *defaultOpenAIAccountScheduler) recordPrioritySnapshot(req OpenAIAccountScheduleRequest, c PrioritySchedulingConfig, pool []openAIAccountCandidateScore, now time.Time) {
 	input := newPrioritySnapshotInput(req, c, pool, now)
+	if req.priorityLatencyPool != nil && req.priorityLatencyPool.fallbackActive() {
+		input.fallback = true
+	} else {
+		input.fallback = priorityPoolNeedsFallback(pool)
+	}
 	state := &s.service.priorityScheduling
 	state.mu.Lock()
 	state.latestInput = input
 	state.mu.Unlock()
 }
 
+// A pool needs an explicit fallback when it contains no normal candidate at
+// all. Recovery and actively penalized accounts remain selectable, but only
+// after every normal candidate has lost its slot race. The dashboard must say
+// so: otherwise a recovery-period account looks like ordinary capacity.
+func priorityPoolNeedsFallback(pool []openAIAccountCandidateScore) bool {
+	if len(pool) == 0 {
+		return false
+	}
+	for _, item := range pool {
+		if !item.priorityUnhealthy && !item.priorityLatencyPenalty && !item.priorityLatencyRecovery {
+			return false
+		}
+	}
+	return true
+}
+
 func applyPriorityCandidate(c PrioritySchedulingConfig, item *openAIAccountCandidateScore, signal PrioritySchedulingSignal, now time.Time) PrioritySchedulingScore {
 	score := scorePriorityCandidate(c, *item, signal, now)
 	item.priorityUnhealthy = slices.Contains(score.Reasons, "quality_below_target") ||
 		slices.Contains(score.Reasons, "recent_errors") || slices.Contains(score.Reasons, "historical_loss")
+	item.priorityLatencyPenalty = slices.Contains(score.Reasons, "latency_above_target")
 	item.priorityLatencyFactor = 1
 	if score.Samples >= c.MinSamples && score.SelectedTTFTMs != nil && *score.SelectedTTFTMs > 0 {
 		ratio := *score.SelectedTTFTMs / float64(c.TargetTTFTMs)
@@ -550,7 +574,12 @@ func applyPriorityCandidate(c PrioritySchedulingConfig, item *openAIAccountCandi
 	case "eligible":
 		offset = 400
 	case "insufficient":
-		offset = 200
+		// Recovery is still latency-limited; keep it in the same internal
+		// cohort as an active penalty so weighted diversity can choose the
+		// least slow fallback instead of promoting every recovery account.
+		if !score.LatencyRecovery {
+			offset = 200
+		}
 	}
 	item.score = offset + score.Score
 	item.priorityRecovery = false

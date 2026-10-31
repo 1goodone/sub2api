@@ -870,6 +870,7 @@ type openAIAccountCandidateScore struct {
 	priorityAPIStandby                 bool
 	priorityLatencyFactor              float64
 	priorityUnhealthy                  bool
+	priorityLatencyPenalty             bool
 	priorityExploration                bool
 	account                            *Account
 	loadInfo                           *AccountLoadInfo
