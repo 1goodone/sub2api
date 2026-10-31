@@ -584,6 +584,17 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
+			var phaseTimeout *openAIHTTPPhaseTimeout
+			if errors.As(err, &phaseTimeout) {
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID,
+					UpstreamStatusCode: http.StatusGatewayTimeout, Kind: phaseTimeout.phase, Message: phaseTimeout.Error()})
+				setOpsUpstreamError(c, http.StatusGatewayTimeout, phaseTimeout.Error(), "")
+				clientError := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusGatewayTimeout, phaseTimeout.Error())
+				if writeErr := writeClientMessage(clientError); writeErr == nil {
+					markOpenAIWSClientVisibleFailure(c, "error", clientError)
+				}
+				return nil, err
+			}
 			if upstreamCtx.Err() != nil {
 				return nil, context.Cause(upstreamCtx)
 			}

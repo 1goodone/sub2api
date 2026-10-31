@@ -749,6 +749,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
+		// OpenAI/Codex 响应头超时配置
+		adminSettings.GET("/openai-response-header-timeout", h.Admin.Setting.GetOpenAIResponseHeaderTimeoutSettings)
+		adminSettings.PUT("/openai-response-header-timeout", h.Admin.Setting.UpdateOpenAIResponseHeaderTimeoutSettings)
 		// 请求整流器配置
 		adminSettings.GET("/rectifier", h.Admin.Setting.GetRectifierSettings)
 		adminSettings.PUT("/rectifier", h.Admin.Setting.UpdateRectifierSettings)
