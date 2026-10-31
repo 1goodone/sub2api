@@ -1433,6 +1433,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					ResponseHeaders:               cloneHeader(handshakeHeaders),
 					Duration:                      turn.Duration,
 					FirstTokenMs:                  turn.FirstTokenMs,
+					FirstUpstreamEventMs:          turn.FirstUpstreamEventMs,
+					FirstActualContentMs:          turn.FirstActualContentMs,
+					FirstActualContentKind:        turn.FirstActualContentKind,
+					UpstreamProtocol:              "ws",
+					UsageUnavailable:              smartProtocolStrict(ctx) && !turn.UsageObserved,
 				}
 				if forward := acceptedTurnForwardAt.Swap(nil); forward != nil {
 					arrival := time.Time{}
@@ -1543,13 +1548,41 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			},
 		},
 	})
+	// Relay has joined both directions. Only this unfinished turn may settle
+	// here: completed terminal callbacks already consumed activeTurn. Never use
+	// relayResult.Usage, which aggregates earlier completed turns.
+	var unfinishedResult *OpenAIForwardResult
+	if smartProtocolStrict(ctx) && !pendingUpstreamTurn.Load() && relayResult.UnfinishedTurn != nil {
+		turn := relayResult.UnfinishedTurn
+		requestModel, upstreamModel := usageMeta.turnModels(turn.RequestModel)
+		unfinishedResult = &OpenAIForwardResult{
+			RequestID: turn.RequestID, Usage: OpenAIUsage{
+				InputTokens: turn.Usage.InputTokens, ImageInputTokens: turn.Usage.ImageInputTokens,
+				OutputTokens: turn.Usage.OutputTokens, CacheCreationInputTokens: turn.Usage.CacheCreationInputTokens,
+				CacheReadInputTokens: turn.Usage.CacheReadInputTokens, ImageOutputTokens: turn.Usage.ImageOutputTokens,
+			},
+			UsageUnavailable: !turn.UsageObserved, ObservedUsageOnError: turn.UsageObserved,
+			Model: requestModel, UpstreamModel: openAIWSDifferentModel(requestModel, upstreamModel),
+			UpstreamResponseModel: turn.ResponseModel, UpstreamResponseModelConflict: turn.ResponseModelConflict,
+			UpstreamResponseServiceTier: normalizeObservedOpenAIServiceTier(turn.ResponseServiceTier),
+			ServiceTier:                 usageMeta.serviceTier.Load(), ReasoningEffort: usageMeta.reasoningEffort.Load(),
+			RequestedReasoningEffort: usageMeta.requestedReasoningEffort.Load(),
+			Stream:                   true, OpenAIWSMode: true, UpstreamProtocol: "ws", ResponseHeaders: cloneHeader(handshakeHeaders),
+			Duration: turn.Duration, FirstTokenMs: turn.FirstTokenMs, FirstUpstreamEventMs: turn.FirstUpstreamEventMs,
+			FirstActualContentMs: turn.FirstActualContentMs, FirstActualContentKind: turn.FirstActualContentKind,
+			streamReadIncomplete: true,
+		}
+	}
 	if cause := context.Cause(ctx); cause != nil {
 		if isOpenAIWSSessionPreempted(ctx) {
+			if turn := activeTurn.Swap(0); turn != 0 && hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(int(turn), unfinishedResult, errOpenAIWSSessionPreempted)
+			}
 			return errOpenAIWSSessionPreempted
 		}
 		controlErr := clientFrameConn.reader.closeForControl(ctx)
 		if turn := activeTurn.Swap(0); turn != 0 && hooks != nil && hooks.AfterTurn != nil {
-			hooks.AfterTurn(int(turn), nil, controlErr)
+			hooks.AfterTurn(int(turn), unfinishedResult, controlErr)
 		}
 		return controlErr
 	}
@@ -1579,6 +1612,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		ResponseHeaders:               cloneHeader(handshakeHeaders),
 		Duration:                      relayResult.Duration,
 		FirstTokenMs:                  relayResult.FirstTokenMs,
+		FirstUpstreamEventMs:          relayResult.FirstUpstreamEventMs,
+		FirstActualContentMs:          relayResult.FirstActualContentMs,
+		FirstActualContentKind:        relayResult.FirstActualContentKind,
+		UpstreamProtocol:              "ws",
 	}
 
 	turnCount := int(completedTurns.Load())
@@ -1596,7 +1633,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		)
 		if clientFrameConn.reader.disconnected() {
 			if turn := activeTurn.Swap(0); turn != 0 && hooks != nil && hooks.AfterTurn != nil {
-				hooks.AfterTurn(int(turn), nil, nil)
+				if unfinishedResult != nil {
+					hooks.AfterTurn(int(turn), unfinishedResult, errors.New("upstream turn ended without terminal"))
+				} else {
+					hooks.AfterTurn(int(turn), nil, nil)
+				}
 			}
 		}
 		return nil
@@ -1668,7 +1709,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayExit.WroteDownstream,
 	)
 	if turn := activeTurn.Swap(0); turn != 0 && hooks != nil && hooks.AfterTurn != nil {
-		hooks.AfterTurn(int(turn), nil, turnErr)
+		hooks.AfterTurn(int(turn), unfinishedResult, turnErr)
 	}
 	return turnErr
 }
