@@ -1113,7 +1113,8 @@ var ProviderSet = wire.NewSet(
 	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
-	NewRedeemService,
+	NewLotteryService,
+	ProvideRedeemService,
 	NewPromoService,
 	NewUsageService,
 	NewMonthlyBillService,
@@ -1122,7 +1123,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
-	NewAdminService,
+	ProvideAdminService,
 	NewGatewayService,
 	ProvideOpenAIGatewayService,
 	NewSafetyPromptStore,
@@ -1269,8 +1270,9 @@ func ProvideBalanceNotifyService(emailService *EmailService, settingRepo Setting
 }
 
 // ProvidePaymentService creates PaymentService and attaches notification email delivery.
-func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService, notificationEmailService *NotificationEmailService, verificationCooldown PaymentVerificationCooldown) *PaymentService {
+func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService, notificationEmailService *NotificationEmailService, verificationCooldown PaymentVerificationCooldown, lottery *LotteryService) *PaymentService {
 	svc := NewPaymentService(entClient, registry, loadBalancer, redeemService, subscriptionSvc, configService, userRepo, groupRepo, affiliateService)
+	svc.lottery = lottery
 	svc.SetNotificationEmailService(notificationEmailService)
 	svc.SetPaymentVerificationCooldown(verificationCooldown)
 	return svc

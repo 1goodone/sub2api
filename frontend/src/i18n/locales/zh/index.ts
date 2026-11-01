@@ -1,3 +1,4 @@
+import lottery from './lottery'
 import accountTestTiming from './accountTestTiming'
 import bills from './bills'
 import openaiAuth from './openaiAuth'
@@ -35,6 +36,7 @@ import latencyObservability from './latencyObservability'
 import autoConfig from './autoConfig'
 
 export default {
+	lottery,
   accountTestTiming,
   bills,
   openaiAuth,

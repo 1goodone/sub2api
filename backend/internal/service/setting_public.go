@@ -245,6 +245,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyPluginManagementEnabled,
 		SettingKeySupportTicketEnabled,
+		SettingKeyLotteryEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
@@ -388,6 +389,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
 		PluginManagementEnabled: settings[SettingKeyPluginManagementEnabled] == "true",
 		SupportTicketEnabled:    settings[SettingKeySupportTicketEnabled] == "true",
+		LotteryEnabled:          settings[SettingKeyLotteryEnabled] == "true",
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
@@ -714,6 +716,7 @@ type PublicSettingsInjectionPayload struct {
 	ModelPlazaRequireAuth                 bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled               bool `json:"plugin_management_enabled"`
 	SupportTicketEnabled                  bool `json:"support_ticket_enabled"`
+	LotteryEnabled                        bool `json:"lottery_enabled"`
 	AffiliateEnabled                      bool `json:"affiliate_enabled"`
 	RiskControlEnabled                    bool `json:"risk_control_enabled"`
 	AllowUserViewErrorRequests            bool `json:"allow_user_view_error_requests"`
@@ -809,6 +812,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ModelPlazaRequireAuth:                 settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled:               settings.PluginManagementEnabled,
 		SupportTicketEnabled:                  settings.SupportTicketEnabled,
+		LotteryEnabled:                        settings.LotteryEnabled,
 		AffiliateEnabled:                      settings.AffiliateEnabled,
 		RiskControlEnabled:                    settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:            settings.AllowUserViewErrorRequests,
