@@ -1,6 +1,6 @@
 <template>
-  <section class="card space-y-3 p-4" data-testid="latency-observability">
-    <h3 class="font-semibold">{{ t('latencyObservability.title') }}</h3>
+  <section :class="flat ? 'space-y-3 p-4' : 'card space-y-3 p-4'" data-testid="latency-observability">
+    <h3 v-if="!hideTitle" class="font-semibold">{{ t('latencyObservability.title') }}</h3>
     <p class="text-xs text-gray-500">{{ t('latencyObservability.scope') }}</p>
     <p class="text-xs text-gray-500">{{ t('latencyObservability.typedScope') }}</p>
     <p v-if="ops" data-testid="socket-evidence" class="text-xs text-gray-500">{{ t('latencyObservability.socketScope') }}</p>
@@ -33,7 +33,10 @@
 import { ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getLatencyReport, type LatencyReport } from '@/api/admin/latencyObservability'
-const props = defineProps<{ ops?: boolean; startDate?: string; endDate?: string; model?: string; platform?: string; userId?: number; apiKeyId?: number; accountId?: number; groupId?: number; refreshToken?: number }>()
+const props = withDefaults(defineProps<{ ops?: boolean; startDate?: string; endDate?: string; model?: string; platform?: string; userId?: number; apiKeyId?: number; accountId?: number; groupId?: number; refreshToken?: number; flat?: boolean; hideTitle?: boolean }>(), {
+  flat: false,
+  hideTitle: false,
+})
 const { t } = useI18n()
 const report = ref<LatencyReport | null>(null), loading = ref(false), error = ref(false)
 const columns = ['accountModel', 'body', 'cache', 'effort', 'reasoning_first_ms', 'visible_text_first_ms', 'response_byte_first_ms', 'textQuantiles', 'samples', 'upload', 'semantic', 'visible', 'switches', 'extra']

@@ -51,3 +51,15 @@ it('omits unavailable reasoning capability and retains per-hop socket evidence s
   expect(w.text()).toContain(en.typedScope)
   w.unmount()
 })
+
+it('supports flat embedding without a duplicate title inside the latency tab', async () => {
+  mocks.read.mockResolvedValue({ ...result, groups: [] })
+  const w = mount(LatencyObservabilityPanel, {
+    props: { flat: true, hideTitle: true },
+    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en: { latencyObservability: en } } })] },
+  })
+  await flushPromises()
+  expect(w.get('[data-testid="latency-observability"]').classes()).not.toContain('card')
+  expect(w.find('h3').exists()).toBe(false)
+  w.unmount()
+})
