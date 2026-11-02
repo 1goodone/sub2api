@@ -199,6 +199,7 @@ type PaymentVerificationCooldown interface {
 // --- Service ---
 
 type PaymentService struct {
+	lottery                  *LotteryService
 	providerMu               sync.Mutex
 	verificationFlight       singleflight.Group
 	verificationCooldown     PaymentVerificationCooldown

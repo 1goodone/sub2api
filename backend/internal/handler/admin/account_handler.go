@@ -49,6 +49,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	performance             *service.AccountPerformanceService
 	upstreamChannels        *service.ChannelService
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
@@ -530,7 +531,7 @@ func (h *AccountHandler) fetchOpenAIAccountLoadMap(ctx context.Context, openAIAc
 		seen[account.ID] = struct{}{}
 		loadReq = append(loadReq, service.AccountWithConcurrency{
 			ID:             account.ID,
-			MaxConcurrency: account.EffectiveLoadFactor(),
+			MaxConcurrency: account.Concurrency,
 		})
 	}
 	if batchLoad, err := h.concurrencyService.GetAccountsLoadBatch(ctx, loadReq); err != nil {
@@ -1466,6 +1467,7 @@ type PreviewFromCRSRequest struct {
 // Test handles testing account connectivity with SSE streaming
 // POST /api/v1/admin/accounts/:id/test
 func (h *AccountHandler) Test(c *gin.Context) {
+	c.Request = c.Request.WithContext(service.WithAccountTestTimingStart(c.Request.Context(), time.Now()))
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")

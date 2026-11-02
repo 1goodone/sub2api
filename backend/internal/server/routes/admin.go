@@ -39,6 +39,20 @@ func RegisterAdminRoutes(
 	admin.Use(middleware.AdminComplianceGuard(settingService))
 	// 受限密钥的账户操作走独立资源校验，普通管理员保持原处理器。
 	admin.Use(h.Admin.Account.ScopedAdminKeyAccounts)
+	if h.Lottery != nil {
+		lottery := admin.Group("/lottery")
+		lottery.GET("/settings", h.Lottery.Settings)
+		lottery.PUT("/settings", h.Lottery.SaveSettings)
+		lottery.DELETE("/pools/:id", h.Lottery.DeletePool)
+		lottery.DELETE("/pools/:id/prizes/:prize_id", h.Lottery.DeletePrize)
+		lottery.GET("/pools", h.Lottery.AdminPools)
+		lottery.POST("/pools", h.Lottery.SavePool)
+		lottery.PUT("/pools/:id", h.Lottery.SavePool)
+		lottery.POST("/pools/:id/prizes", h.Lottery.SavePrize)
+		lottery.PUT("/pools/:id/prizes/:prize_id", h.Lottery.SavePrize)
+		lottery.GET("/records", h.Lottery.AdminRecords)
+		lottery.GET("/ledger", h.Lottery.AdminLedger)
+	}
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
@@ -315,6 +329,8 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// Dashboard (vNext - raw path for MVP)
 		ops.GET("/dashboard/snapshot-v2", h.Admin.Ops.GetDashboardSnapshotV2)
 		ops.GET("/dashboard/overview", h.Admin.Ops.GetDashboardOverview)
+		ops.GET("/dashboard/latency-report", h.Admin.Ops.LatencyReport)
+		ops.GET("/dashboard/network-series", h.Admin.Ops.NetworkSeries)
 		ops.GET("/dashboard/throughput-trend", h.Admin.Ops.GetDashboardThroughputTrend)
 		ops.GET("/dashboard/latency-histogram", h.Admin.Ops.GetDashboardLatencyHistogram)
 		ops.GET("/dashboard/error-trend", h.Admin.Ops.GetDashboardErrorTrend)
@@ -460,6 +476,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/import/codex-session", h.Admin.Account.ImportCodexSession)
 		accounts.POST("/sync/crs", h.Admin.Account.SyncFromCRS)
 		accounts.POST("/sync/crs/preview", h.Admin.Account.PreviewFromCRS)
+		accounts.POST("/performance", h.Admin.Account.AccountPerformanceBatch)
+		accounts.PUT("/:id/performance", h.Admin.Account.SaveAccountPerformance)
+		accounts.POST("/:id/performance/release", h.Admin.Account.ReleaseAccountPerformance)
+		accounts.GET("/:id/performance/events", h.Admin.Account.AccountPerformanceEvents)
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.PUT("/:id/codex-quota-overdraft", h.Admin.Account.SetCodexQuotaOverdraft)
 		accounts.GET("/:id/grok-media-eligibility", h.Admin.Account.GetGrokMediaEligibility)
@@ -747,6 +767,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
+		// OpenAI/Codex 响应头超时配置
+		adminSettings.GET("/openai-response-header-timeout", h.Admin.Setting.GetOpenAIResponseHeaderTimeoutSettings)
+		adminSettings.PUT("/openai-response-header-timeout", h.Admin.Setting.UpdateOpenAIResponseHeaderTimeoutSettings)
 		// 请求整流器配置
 		adminSettings.GET("/rectifier", h.Admin.Setting.GetRectifierSettings)
 		adminSettings.PUT("/rectifier", h.Admin.Setting.UpdateRectifierSettings)
@@ -864,6 +887,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("/traffic/keys", h.Admin.Usage.TrafficKeys)
 		usage.GET("/traffic/health", h.Admin.Usage.TrafficHealth)
 		usage.GET("/stats", h.Admin.Usage.Stats)
+		usage.GET("/latency-report", h.Admin.Usage.LatencyReport)
 		usage.GET("/connections", h.Admin.Usage.Connections)
 		usage.POST("/connections/edge", h.Admin.Usage.ImportEdgeConnections)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)

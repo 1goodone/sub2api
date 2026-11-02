@@ -2608,8 +2608,6 @@ packages:
   follow-redirects@1.16.2:
     resolution: {integrity: sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==}
     engines: {node: '>=4.0'}
-    peerDependencies:
-      debug: '*'
     peerDependenciesMeta:
       debug:
         optional: true

@@ -207,6 +207,8 @@ Community projects that extend or integrate with Sub2API:
 
 账号检测、失败处置和自动恢复，请阅读[质量运维](docs/account-quality-operations.md)；BPS OAuth 登录、工具兼容和 403 恢复配置，请阅读[Excel / BPS 协议](docs/excel-bps.md)。
 
+2.19.2 新增默认关闭的账号性能监控，支持指标阈值和独立暂停；启用、人工解除与区域传播边界见[账号性能监控](docs/account-performance-monitor.md)。
+
 已经托管账号或完成部署，想在 Codex 中使用？请阅读[新人入门：使用 Sub2API 接入 Codex](docs/新人入门-使用Sub2API.md)，按步骤创建 API Key、配置 Cockpit Tools 并验证调用。
 
 
@@ -221,6 +223,14 @@ underscores_in_headers on;
 ```
 
 Nginx drops headers containing underscores by default (e.g. `session_id`), which breaks sticky session routing in multi-account setups.
+
+### Anthropic API Key 客户端模拟与计费
+
+创建或编辑 Anthropic API Key 账号时，可开启“模拟 Claude Code 客户端”，为要求 Claude Code 客户端的上游补齐缺失的请求头、system 身份句和会话信息。原有 system 指令及缓存断点会保留，count_tokens 仅补请求头。此选项与“抹除 Claude Code 身份”互斥，同时存储为开启时以抹除身份为准。身份句可能影响模型自述。
+
+管理员可单独选择“按模型估算扣除身份句 token”。默认关闭，按上游用量正常计费。开启后，仅在网关实际补入身份句时估算扣除约 14-24 个输入或缓存 token，不修改返回客户端的 usage。型号别名、上游分词器和混合缓存会影响估算准确度；需要按上游原始用量结算时，保持此开关关闭。
+
+对应账号 extra 配置为 `anthropic_mimic_claude_code` 和 `anthropic_mimic_claude_code_deduct_tokens`，均默认 `false`。关闭模拟或开启抹除身份时，页面同时清除估算扣减设置。
 
 ### 中转 API Key 的上游 429
 

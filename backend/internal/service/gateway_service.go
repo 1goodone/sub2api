@@ -666,6 +666,10 @@ type ForwardResult struct {
 	// CacheStorageTokenHours 显式上下文缓存的存储量（缓存 token 数 × 存储小时数），按计费模型的
 	// 存储单价折算为费用后叠加在 token 费用之上。
 	CacheStorageTokenHours float64
+
+	// claudeCodeMimic 记录 Anthropic API Key「模拟 Claude Code」在 system 前补的身份句，
+	// 记账时从用量里扣回（见 deductClaudeCodeMimicUsage）。
+	claudeCodeMimic claudeCodeMimicInjection
 }
 
 // GatewayFailureStage identifies which request stage failed. The zero value is
@@ -716,6 +720,10 @@ type UpstreamFailoverError struct {
 	SuppressScheduleFailure   bool          // 独立子协议已有专用冷却时，不得污染通用账号健康评分
 	SkipOAuth429AttemptLimit  bool          // 独立子协议已逐账号冷却时，可使用 handler 的完整切号预算
 	SafeToFailoverAfterWrite  bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	// HeaderTimeoutSubmitted marks a failover caused by an OpenAI response-header
+	// timeout after the request was written. The upstream may have billed the
+	// attempt; the successful usage record adds one retry surcharge unit.
+	HeaderTimeoutSubmitted    bool
 	BoundUpstreamPassthrough  bool          // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
 	Stage                     GatewayFailureStage
 	Scope                     GatewayFailureScope

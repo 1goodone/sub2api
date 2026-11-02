@@ -1140,6 +1140,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	if len(eligible) == 0 {
 		return nil, compactBlocked, filterStats
 	}
+	feedback := s.defaultFeedbackPenalties(ctx, groupID, requestedModel, eligible)
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
 		rateOrder = newOpenAILegacyUpstreamRateOrder(eligible, time.Now(), s.openAIOAuthSchedulingRateMultiplier(ctx))
@@ -1162,6 +1163,13 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		}
 		if rateCmp := rateOrder.compare(a, b); rateCmp != 0 {
 			return rateCmp < 0
+		}
+		if a.Priority == b.Priority {
+			aRPM := feedback[a.ID]
+			bRPM := feedback[b.ID]
+			if aRPM != bRPM {
+				return aRPM < bRPM
+			}
 		}
 		return s.isBetterAccount(a, b)
 	})
@@ -1420,6 +1428,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if len(candidates) == 0 {
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
 	}
+	feedback := s.defaultFeedbackPenalties(ctx, groupID, requestedModel, candidates)
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
 		rateOrder = newOpenAILegacyUpstreamRateOrder(candidates, time.Now(), s.openAIOAuthSchedulingRateMultiplier(ctx))
@@ -1429,7 +1438,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	for _, acc := range candidates {
 		accountLoads = append(accountLoads, AccountWithConcurrency{
 			ID:             acc.ID,
-			MaxConcurrency: acc.EffectiveLoadFactor(),
+			MaxConcurrency: acc.Concurrency,
 		})
 	}
 
@@ -1460,8 +1469,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			if a.account.Priority != b.account.Priority {
 				return a.account.Priority < b.account.Priority
 			}
-			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+			aLoad := accountLoadPreferenceRate(a.account, a.loadInfo.LoadRate)
+			bLoad := accountLoadPreferenceRate(b.account, b.loadInfo.LoadRate)
+			if aLoad != bLoad {
+				return aLoad < bLoad
 			}
 			switch {
 			case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
@@ -1475,6 +1486,17 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			}
 		})
 		shuffleWithinSortGroups(available)
+		// RPM is a capacity signal alongside concurrency. Keep the configured
+		// priority, and prefer accounts with lower combined utilization.
+		sort.SliceStable(available, func(i, j int) bool {
+			a, b := available[i], available[j]
+			if a.account.Priority != b.account.Priority {
+				return a.account.Priority < b.account.Priority
+			}
+			aLoad := float64(accountLoadPreferenceRate(a.account, a.loadInfo.LoadRate)) + feedback[a.account.ID]
+			bLoad := float64(accountLoadPreferenceRate(b.account, b.loadInfo.LoadRate)) + feedback[b.account.ID]
+			return aLoad < bLoad
+		})
 		if rateOrder.enabled {
 			sort.SliceStable(available, func(i, j int) bool {
 				return rateOrder.compare(available[i].account, available[j].account) < 0
@@ -1535,6 +1557,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if err != nil {
 		ordered := append([]*Account(nil), candidates...)
 		sortAccountsByPriorityAndLastUsed(ordered, false)
+		orderDefaultFeedback(ordered, feedback)
 		if rateOrder.enabled {
 			sort.SliceStable(ordered, func(i, j int) bool {
 				return rateOrder.compare(ordered[i], ordered[j]) < 0
@@ -1586,6 +1609,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	// ============ Layer 3: Fallback wait ============
 	sortAccountsByPriorityAndLastUsed(candidates, false)
+	orderDefaultFeedback(candidates, feedback)
 	if rateOrder.enabled {
 		sort.SliceStable(candidates, func(i, j int) bool {
 			return rateOrder.compare(candidates[i], candidates[j]) < 0

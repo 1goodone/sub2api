@@ -253,39 +253,72 @@
             <span
               data-testid="latency-bar"
               class="col-start-1 row-start-1 w-1 self-stretch rounded-full"
-              :class="[showCacheRate ? 'row-span-4' : 'row-span-3', latencyBarClasses(row)]"
+              :class="[(showAverageTps && !compact && showCacheRate) ? 'row-span-5' : ((showAverageTps && !compact) || showCacheRate) ? 'row-span-4' : 'row-span-3', latencyBarClasses(row)]"
               :style="cacheRateBarStyle(row)"
               aria-hidden="true"
             ></span>
-            <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
-              <span v-if="row.first_token_ms != null" class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
-              <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
-              <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
-              <template v-if="showAverageTps && !compact">
-                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
-                <span
-                  v-if="formatUsageOutputTps(row)"
-                  data-testid="latency-tps"
-                  class="font-medium tabular-nums"
-                  :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
-                  :title="t('usage.latencyTpsHint')"
-                >{{ formatUsageOutputTps(row) }}</span>
-                <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
-              </template>
-              <template v-if="showCacheRate">
-                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyCacheRate') }}</span>
-                <span
-                  v-if="formatUsageCacheRate(row)"
-                  data-testid="latency-cache-rate"
-                  class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
-                  :title="cacheRateTitle(row)"
-                >{{ formatUsageCacheRate(row) }}</span>
-                <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              </template>
-            </div>
+            <span class="col-start-2 row-start-1 text-gray-400 dark:text-gray-500">{{ t(enableTimingDetails ? 'usage.latencyFirstTokenShort' : row.queue_timing?.status === 'measured' ? 'usage.latencyFirstToken' : 'requestTiming.legacyFirst') }}</span>
+            <span v-if="firstTokenQueueInclusive(row) != null" class="col-start-3 row-start-1 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(firstTokenQueueInclusive(row) ?? 0)]" :title="row.queue_timing?.status === 'measured' ? firstTokenQueueTitle(row) : enableTimingDetails ? t('requestTiming.legacyFirst') : undefined">
+              {{ formatDuration(firstTokenQueueInclusive(row)) }}
+              <span v-if="!enableTimingDetails && row.queue_timing?.status === 'measured' && row.queue_wait_ms" class="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">{{ t('usage.queuePortion') }} {{ row.queue_timing.queue_clamped ? '≥' : '' }}{{ formatDuration(row.queue_wait_ms) }}</span>
+            </span>
+            <span v-else class="col-start-3 row-start-1 text-gray-400 dark:text-gray-500" :title="enableTimingDetails ? t('requestTiming.legacyFirst') : undefined">-</span>
+            <span class="col-start-2 row-start-2 text-gray-400 dark:text-gray-500">{{ t(enableTimingDetails ? 'usage.latencyDurationShort' : row.queue_timing?.status === 'measured' ? 'usage.latencyDuration' : 'requestTiming.legacyTotal') }}</span>
+            <span class="col-start-3 row-start-2 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(durationQueueInclusive(row) ?? 0)]" :title="row.queue_timing?.status === 'measured' ? t('usage.latencyDurationHint', { forward: formatDuration(row.queue_timing?.forward_duration_ms), queue: formatDuration(row.queue_wait_ms ?? 0) }) : enableTimingDetails ? t('requestTiming.legacyTotal') : undefined">
+              {{ formatDuration(durationQueueInclusive(row)) }}
+              <span v-if="!enableTimingDetails && row.queue_timing?.status === 'measured' && row.queue_wait_ms" class="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">{{ t('usage.queuePortion') }} {{ row.queue_timing.queue_clamped ? '≥' : '' }}{{ formatDuration(row.queue_wait_ms) }}</span>
+            </span>
+            <template v-if="showAverageTps && !compact">
+              <span class="col-start-2 row-start-3 text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
+              <span
+                v-if="formatUsageOutputTps(row)"
+                data-testid="latency-tps"
+                class="col-start-3 row-start-3 font-medium tabular-nums"
+                :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
+                :title="t('usage.latencyTpsHint')"
+              >{{ formatUsageOutputTps(row) }}</span>
+              <span v-else data-testid="latency-tps" class="col-start-3 row-start-3 text-gray-400 dark:text-gray-500">-</span>
+            </template>
+            <template v-if="showCacheRate">
+              <span class="col-start-2 text-gray-400 dark:text-gray-500" :class="showAverageTps && !compact ? 'row-start-4' : 'row-start-3'">{{ t('usage.latencyCacheRate') }}</span>
+              <span
+                v-if="formatUsageCacheRate(row)"
+                data-testid="latency-cache-rate"
+                class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+                :class="['col-start-3', showAverageTps && !compact ? 'row-start-4' : 'row-start-3']"
+                :title="cacheRateTitle(row)"
+              >{{ formatUsageCacheRate(row) }}</span>
+              <span v-else data-testid="latency-cache-rate" class="col-start-3 text-gray-400 dark:text-gray-500" :class="showAverageTps && !compact ? 'row-start-4' : 'row-start-3'">-</span>
+            </template>
+
           </component>
+        </template>
+
+        <template #cell-content_reasoning_first_ms="{ row }">
+          <span
+            data-testid="content-timing-reasoning-first"
+            class="tabular-nums"
+            :class="row.content_timing?.reasoning_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
+            :title="t('latencyObservability.typedScope')"
+          >{{ formatContentTiming(row, 'reasoning_first_ms') }}</span>
+        </template>
+
+        <template #cell-content_visible_text_first_ms="{ row }">
+          <span
+            data-testid="content-timing-visible-text-first"
+            class="tabular-nums"
+            :class="row.content_timing?.visible_text_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
+            :title="t('latencyObservability.typedScope')"
+          >{{ formatContentTiming(row, 'visible_text_first_ms') }}</span>
+        </template>
+
+        <template #cell-content_response_byte_first_ms="{ row }">
+          <span
+            data-testid="content-timing-response-byte-first"
+            class="tabular-nums"
+            :class="row.content_timing?.response_byte_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
+            :title="t('latencyObservability.typedScope')"
+          >{{ formatContentTiming(row, 'response_byte_first_ms') }}</span>
         </template>
 
         <template #cell-created_at="{ value }">
@@ -790,6 +823,12 @@ const formatDuration = (ms: number | null | undefined): string => {
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
 
+type ContentTimingField = 'reasoning_first_ms' | 'visible_text_first_ms' | 'response_byte_first_ms'
+const formatContentTiming = (row: AdminUsageLog, field: ContentTimingField): string => {
+  const value = row.content_timing?.[field]
+  return value == null ? '—' : formatDuration(value)
+}
+
 const LATENCY_BAR_COLORS: Record<LatencySeverity, string> = {
   good: '#10b981',
   warn: '#fbbf24',
@@ -797,11 +836,27 @@ const LATENCY_BAR_COLORS: Record<LatencySeverity, string> = {
   critical: '#ef4444',
 }
 
+// Persisted boundary observations account for protocol-specific legacy overlap.
+// Historical rows retain their legacy values and are not claimed as measured.
+const firstTokenQueueInclusive = (row: AdminUsageLog): number | null =>
+  row.queue_timing?.status === 'measured' ? row.queue_timing.server_first_token_ms : row.first_token_ms
+const firstTokenQueueTitle = (row: AdminUsageLog): string =>
+  t('usage.latencyFirstTokenHint', {
+    first: formatDuration(row.queue_timing?.forward_first_token_ms),
+    queue: formatDuration(row.queue_wait_ms),
+  })
+const durationQueueInclusive = (row: AdminUsageLog): number | null =>
+  row.queue_timing?.status === 'measured' ? row.queue_timing.server_duration_ms : row.duration_ms
+
 function latencySeverities(row: AdminUsageLog) {
-  const duration = durationSeverity(row.duration_ms ?? 0)
-  const first = row.first_token_ms != null ? firstTokenSeverity(row.first_token_ms) : duration
+  const duration = durationSeverity(durationQueueInclusive(row) ?? 0)
+  const firstToken = firstTokenQueueInclusive(row)
   const outputTps = usageOutputTps(row)
-  return { first, duration, tps: showAverageTps.value && outputTps != null ? tpsSeverity(outputTps) : duration }
+  return {
+    first: firstToken != null ? firstTokenSeverity(firstToken) : duration,
+    duration,
+    tps: showAverageTps.value && outputTps != null ? tpsSeverity(outputTps) : duration,
+  }
 }
 
 function cacheRateTitle(row: AdminUsageLog): string {

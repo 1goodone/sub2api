@@ -23,7 +23,7 @@ func TestConcurrencyStartupPreservesOtherProcessSlotsDuringRollingDeployment(t *
 		cache := &startupCleanupCache{}
 		cfg := &config.Config{}
 		cfg.Gateway.Scheduling.PreserveProcessSlotsOnStartup = preserve
-		ProvideConcurrencyService(cache, nil, cfg)
+		ProvideConcurrencyService(cache, nil, cfg, nil)
 		if preserve {
 			require.Empty(t, cache.prefixes, "a new instance must not remove live slots owned by the draining instance")
 		} else {

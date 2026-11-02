@@ -1,4 +1,5 @@
 import { excelBPSImageLimits } from "@/utils/excelBPSImageLimits";
+import { createPinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, reactive } from "vue";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
@@ -29,6 +30,8 @@ beforeEach(() => {
   settingsRoute.hash = "";
   routerReplace.mockClear();
   Element.prototype.scrollIntoView = vi.fn();
+  getOpenAIResponseHeaderTimeoutSettings.mockReset().mockResolvedValue({ enabled: false, seconds: 20 });
+  updateOpenAIResponseHeaderTimeoutSettings.mockReset().mockImplementation(async (payload) => payload);
 });
 
 const {
@@ -44,6 +47,8 @@ const {
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,
+  getOpenAIResponseHeaderTimeoutSettings,
+  updateOpenAIResponseHeaderTimeoutSettings,
   getRectifierSettings,
   getBetaPolicySettings,
   getUpstreamBillingProbeSettings,
@@ -79,6 +84,8 @@ const {
   }),
   updatePanelRateLimitSettings: vi.fn().mockImplementation(async (payload) => payload),
   getStreamTimeoutSettings: vi.fn(),
+  getOpenAIResponseHeaderTimeoutSettings: vi.fn(),
+  updateOpenAIResponseHeaderTimeoutSettings: vi.fn(),
   getRectifierSettings: vi.fn(),
   getBetaPolicySettings: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({
@@ -121,6 +128,8 @@ vi.mock("@/api", () => ({
       getPanelRateLimitSettings,
       updatePanelRateLimitSettings,
       getStreamTimeoutSettings,
+      getOpenAIResponseHeaderTimeoutSettings,
+      updateOpenAIResponseHeaderTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
     },
@@ -146,6 +155,7 @@ vi.mock("@/api", () => ({
 }));
 
 vi.mock("@/stores", () => ({
+  useAuthStore: () => ({ user: { id: 41 }, isAdmin: true }),
   useAppStore: () => ({
     showError,
     showSuccess,
@@ -624,6 +634,7 @@ function mountView(attachTo?: HTMLElement) {
         MihomoProxySelector: true,
         EmailTemplateEditor: true,
       },
+      plugins: [createPinia()],
     },
   });
 }
@@ -729,6 +740,7 @@ describe("admin SettingsView payment visible method controls", () => {
     showError.mockReset();
     showSuccess.mockReset();
     localeRef.value = "zh-CN";
+    localStorage.removeItem("sub2api:new-feature-notices:v1:41");
 
     getSettings.mockResolvedValue({ ...baseSettingsResponse });
     updateSettings.mockImplementation(async (payload) => ({
@@ -798,6 +810,19 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("shares one dismissible notice between the feature tab and its settings section", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const badges = wrapper.findAll('[data-testid="new-feature-badge"]');
+    expect(badges).toHaveLength(2);
+    await badges[0]!.trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0);
+    expect(wrapper.get("#settings-tab-features").attributes("aria-selected")).toBe("false");
+    expect(updateSettings).not.toHaveBeenCalled();
   });
 
   it("keeps the IP risk form on IP Audit without loading or saving it from Settings", async () => {
@@ -1439,6 +1464,81 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
     );
+  });
+
+  it("starts with the OpenAI header timeout disabled and retains seconds for manual enabling", async () => {
+    const wrapper = mountView();
+    const vm = wrapper.vm as unknown as {
+      openAIResponseHeaderTimeoutForm: { enabled: boolean; seconds: number };
+    };
+    expect(vm.openAIResponseHeaderTimeoutForm).toEqual({ enabled: false, seconds: 20 });
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    expect((wrapper.get('[data-testid="openai-header-timeout-enabled"]').element as HTMLInputElement).checked).toBe(false);
+    expect(wrapper.find('[data-testid="openai-header-timeout-seconds"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(updateOpenAIResponseHeaderTimeoutSettings).toHaveBeenLastCalledWith({ enabled: false, seconds: 20 });
+
+    await wrapper.get('[data-testid="openai-header-timeout-enabled"]').setValue(true);
+    expect((wrapper.get('[data-testid="openai-header-timeout-seconds"]').element as HTMLInputElement).value).toBe('20');
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(updateOpenAIResponseHeaderTimeoutSettings).toHaveBeenLastCalledWith({ enabled: true, seconds: 20 });
+  });
+
+  it("loads, disables, enables and saves the OpenAI header timeout with server readback", async () => {
+    getOpenAIResponseHeaderTimeoutSettings.mockResolvedValueOnce({ enabled: false, seconds: 45 });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    expect(wrapper.find('[data-testid="openai-header-timeout-seconds"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="openai-header-timeout-enabled"]').setValue(true);
+    await wrapper.get('[data-testid="openai-header-timeout-seconds"]').setValue('60');
+    updateOpenAIResponseHeaderTimeoutSettings.mockResolvedValueOnce({ enabled: true, seconds: 61 });
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(updateOpenAIResponseHeaderTimeoutSettings).toHaveBeenLastCalledWith({ enabled: true, seconds: 60 });
+    expect((wrapper.get('[data-testid="openai-header-timeout-seconds"]').element as HTMLInputElement).value).toBe('61');
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.openaiResponseHeaderTimeout.saved');
+    await wrapper.get('[data-testid="openai-header-timeout-enabled"]').setValue(false);
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(updateOpenAIResponseHeaderTimeoutSettings).toHaveBeenLastCalledWith({ enabled: false, seconds: 61 });
+  });
+
+  it("keeps the edited timeout after a save error and allows retry", async () => {
+    getOpenAIResponseHeaderTimeoutSettings.mockResolvedValueOnce({ enabled: true, seconds: 20 });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    await wrapper.get('[data-testid="openai-header-timeout-seconds"]').setValue('42');
+    updateOpenAIResponseHeaderTimeoutSettings.mockRejectedValueOnce(new Error('synthetic save failure'));
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(showError).toHaveBeenCalledWith('error');
+    expect((wrapper.get('[data-testid="openai-header-timeout-seconds"]').element as HTMLInputElement).value).toBe('42');
+    expect(wrapper.get('[data-testid="openai-header-timeout-save"]').attributes('disabled')).toBeUndefined();
+    await wrapper.get('[data-testid="openai-header-timeout-save"]').trigger('click');
+    await flushPromises();
+    expect(updateOpenAIResponseHeaderTimeoutSettings).toHaveBeenLastCalledWith({ enabled: true, seconds: 42 });
+  });
+
+  it("requires a successful reload after a timeout settings load failure", async () => {
+    getOpenAIResponseHeaderTimeoutSettings.mockRejectedValueOnce(new Error('synthetic load failure'));
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const card = wrapper.get('#settings-section-openai-response-header-timeout').element.closest('.card')!;
+    expect(card.textContent).toContain('admin.settings.openaiResponseHeaderTimeout.loadFailed');
+    expect(wrapper.find('[data-testid="openai-header-timeout-save"]').exists()).toBe(false);
+    const retry = card.querySelector('button')!;
+    retry.click();
+    await flushPromises();
+    expect(getOpenAIResponseHeaderTimeoutSettings).toHaveBeenCalledTimes(2);
+    expect(wrapper.find('[data-testid="openai-header-timeout-save"]').exists()).toBe(true);
+    expect(updateOpenAIResponseHeaderTimeoutSettings).not.toHaveBeenCalled();
   });
 
   it("renders panel rate limit card and saves settings", async () => {
@@ -2140,6 +2240,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
         },
+        plugins: [createPinia()],
       },
     });
 
@@ -2495,6 +2596,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
         },
+        plugins: [createPinia()],
       },
     });
 

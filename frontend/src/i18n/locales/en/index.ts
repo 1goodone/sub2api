@@ -1,3 +1,6 @@
+import accountPerformance from './accountPerformance'
+import lottery from './lottery'
+import accountTestTiming from './accountTestTiming'
 import bills from './bills'
 import openaiAuth from './openaiAuth'
 import upstreamEntities from './upstreamEntities'
@@ -30,9 +33,13 @@ import keyPackages from './keyPackages'
 import admin from './admin'
 import misc from './misc'
 
+import latencyObservability from './latencyObservability'
 import autoConfig from './autoConfig'
 
 export default {
+ accountPerformance,
+	lottery,
+  accountTestTiming,
   bills,
   openaiAuth,
   upstreamEntities,
@@ -54,6 +61,7 @@ export default {
   pelicanTests,
   modelTrace,
   requestTiming,
+  latencyObservability,
   adminAccessKeys,
   ...landing,
   ...common,

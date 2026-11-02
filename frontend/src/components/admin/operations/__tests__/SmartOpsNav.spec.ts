@@ -18,6 +18,7 @@ describe('SmartOpsNav', () => {
   it('keeps existing operations links when priority scheduling is added', () => {
     const wrapper = mount(SmartOpsNav)
     expect(wrapper.findAll('a').map((link) => link.attributes('href'))).toEqual([
+      '/admin/lottery',
       '/admin/auto-config',
       '/admin/priority-scheduling',
       '/admin/channel-operations',

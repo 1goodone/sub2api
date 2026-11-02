@@ -6,6 +6,7 @@
     @close="handleClose"
   >
     <div class="space-y-4">
+      <AccountTestTiming :timing="connectionTiming.timing.value" :delivery="connectionTiming.delivery.value" />
       <div v-if="account?.extra?.openai_excel_bps_authorization_pending === true" role="status" class="text-sm text-amber-700 dark:text-amber-300">
         {{ t('admin.accounts.bpsAuthorizing') }}
         <a href="/admin/token-guard-v2" target="_blank" rel="noopener noreferrer" class="ml-2 underline">{{ t('admin.accounts.openCredentialOperations') }}</a>
@@ -376,8 +377,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AccountTestTiming from '@/components/account/AccountTestTiming.vue'
+import { useAccountTestTiming, type AccountTestTiming as TimingPayload } from '@/composables/useAccountTestTiming'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
@@ -388,6 +391,8 @@ import type { AccountTestEvent } from '@/api/admin/accounts'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
+const connectionTiming = useAccountTestTiming()
+let streamGeneration = 0
 const { copyToClipboard } = useClipboard()
 
 interface OutputLine {
@@ -817,6 +822,7 @@ const loadAvailableModels = async () => {
 }
 
 const resetState = () => {
+  connectionTiming.reset()
   status.value = 'idle'
   outputLines.value = []
   streamingContent.value = ''
@@ -833,7 +839,10 @@ const handleClose = () => {
 }
 
 const abortStream = () => {
+  streamGeneration++
   if (abortController) {
+    connectionTiming.cancel()
+    status.value = 'idle'
     abortController.abort()
     abortController = null
   }
@@ -854,7 +863,9 @@ const scrollToBottom = async () => {
 const startTest = async () => {
   if (!props.account || !canStartTest.value) return
 
+  abortStream()
   resetState()
+  connectionTiming.begin()
   status.value = 'connecting'
   addLine(t('admin.accounts.startingTestForAccount', { name: props.account.name }), 'text-blue-400')
   addLine(t('admin.accounts.testAccountTypeLabel', { type: props.account.type }), 'text-gray-400')
@@ -865,9 +876,9 @@ const startTest = async () => {
   }
   addLine('', 'text-gray-300')
 
-  abortStream()
-
-  abortController = new AbortController()
+  const generation = ++streamGeneration
+  const controller = new AbortController()
+  abortController = controller
 
   try {
     const requestBody: {
@@ -904,25 +915,38 @@ const startTest = async () => {
     }
 
     await adminAPI.accounts.testAccount(props.account.id, requestBody, {
-      signal: abortController.signal,
-      onEvent: handleEvent
+      signal: controller.signal,
+      onEvent: (event) => {
+        if (generation === streamGeneration) handleEvent(event)
+      }
     })
+    if (generation !== streamGeneration) return
+    connectionTiming.finish()
+    if (status.value === 'connecting') {
+      status.value = 'error'
+      errorMessage.value = t('accountTestTiming.delivery.incomplete')
+    }
   } catch (error: unknown) {
+    if (generation !== streamGeneration) return
     if (error instanceof DOMException && error.name === 'AbortError') {
+      connectionTiming.cancel()
       status.value = 'idle'
       return
     }
+    connectionTiming.fail()
     status.value = 'error'
     const msg = error instanceof Error ? error.message : t('common.unknownError')
     errorMessage.value = msg
     addLine(t('admin.accounts.errorPrefix', { message: msg }), 'text-red-400')
   }
+  finally { if (generation === streamGeneration) abortController = null }
 }
 
-const handleEvent = (event: AccountTestEvent) => {
+const handleEvent = (event: AccountTestEvent & { timing?: TimingPayload }) => {
+  connectionTiming.accept(event)
   switch (event.type) {
     case 'test_start':
-      addLine(t('admin.accounts.connectedToApi'), 'text-green-400')
+      addLine(t('admin.accounts.testRequestStarted'), 'text-gray-400')
       if (event.model) {
         addLine(t('admin.accounts.usingModel', { model: event.model }), 'text-cyan-400')
       }
@@ -1017,6 +1041,9 @@ const handleEvent = (event: AccountTestEvent) => {
       break
   }
 }
+
+onBeforeUnmount(abortStream)
+watch(() => props.account?.id, () => { abortStream(); resetState() })
 
 const copyOutput = () => {
   const text = outputLines.value.map((l) => l.text).join('\n')
