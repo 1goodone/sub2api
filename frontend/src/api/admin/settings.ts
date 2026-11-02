@@ -1608,6 +1608,27 @@ export async function updateOpenAIResponseHeaderTimeoutSettings(
   return data;
 }
 
+export interface AccountPerformanceSettings {
+  window_minutes: number;
+}
+
+export async function getAccountPerformanceSettings(): Promise<AccountPerformanceSettings> {
+  const { data } = await apiClient.get<AccountPerformanceSettings>(
+    "/admin/settings/account-performance",
+  );
+  return data;
+}
+
+export async function updateAccountPerformanceSettings(
+  settings: AccountPerformanceSettings,
+): Promise<AccountPerformanceSettings> {
+  const { data } = await apiClient.put<AccountPerformanceSettings>(
+    "/admin/settings/account-performance",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Rectifier Settings ====================
 
 /**
@@ -1804,6 +1825,8 @@ export const settingsAPI = {
   updateStreamTimeoutSettings,
   getOpenAIResponseHeaderTimeoutSettings,
   updateOpenAIResponseHeaderTimeoutSettings,
+  getAccountPerformanceSettings,
+  updateAccountPerformanceSettings,
   getRectifierSettings,
   updateRectifierSettings,
   getBetaPolicySettings,
