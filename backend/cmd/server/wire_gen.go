@@ -77,6 +77,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	concurrencyService := service.ProvideConcurrencyService(concurrencyCache, accountRepository, configConfig, schedulerSnapshotService)
+	scopedAdminKeyRepository := repository.NewScopedAdminKeyRepository(db)
+	proxyRepository := repository.NewProxyRepository(client, db)
+	settingService := service.ProvideSettingService(scopedAdminKeyRepository, settingRepository, groupRepository, proxyRepository, configConfig)
 	channelMonitorRepository := repository.NewChannelMonitorRepository(client, db)
 	secretEncryptor, err := repository.NewAESEncryptor(configConfig)
 	if err != nil {
@@ -89,9 +92,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	apiKeyAuthCacheInvalidator := service.ProvideAPIKeyAuthCacheInvalidator(apiKeyService)
-	scopedAdminKeyRepository := repository.NewScopedAdminKeyRepository(db)
-	proxyRepository := repository.NewProxyRepository(client, db)
-	settingService := service.ProvideSettingService(scopedAdminKeyRepository, settingRepository, groupRepository, proxyRepository, configConfig)
 	lotteryService := service.NewLotteryService(client, userRepository, subscriptionService, billingCacheService, apiKeyAuthCacheInvalidator, settingService)
 	lotteryHandler := handler.NewLotteryHandler(lotteryService)
 	redeemCodeRepository := repository.NewRedeemCodeRepository(client)

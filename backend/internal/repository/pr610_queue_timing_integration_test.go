@@ -98,7 +98,7 @@ func TestPR610MeasuredCohortPreservesLegacyOperations(t *testing.T) {
 
 func TestPR610Migrations320321322JointUpgradeIdempotencyAndLegacyRead(t *testing.T) {
 	ctx := context.Background()
-	for _, first := range []string{"fresh", "320_ops_network_minutes.sql", "321_usage_log_queue_wait.sql"} {
+	for _, first := range []string{"fresh", "326_ops_network_minutes.sql", "327_usage_log_queue_wait.sql"} {
 		t.Run(first, func(t *testing.T) {
 			database := fmt.Sprintf("pr610_%d", time.Now().UnixNano())
 			_, err := integrationDB.Exec(`CREATE DATABASE ` + database)
@@ -113,7 +113,7 @@ func TestPR610Migrations320321322JointUpgradeIdempotencyAndLegacyRead(t *testing
 			_, err = db.Exec(`CREATE TABLE usage_logs(id bigserial PRIMARY KEY, first_token_ms integer, duration_ms integer); INSERT INTO usage_logs(first_token_ms,duration_ms)VALUES(2000,5000)`)
 			require.NoError(t, err)
 			files := fstest.MapFS{}
-			for _, name := range []string{"320_ops_network_minutes.sql", "321_usage_log_queue_wait.sql", "322_usage_log_queue_timing.sql"} {
+			for _, name := range []string{"322_usage_log_queue_timing.sql", "326_ops_network_minutes.sql", "327_usage_log_queue_wait.sql"} {
 				raw, err := migrations.FS.ReadFile(name)
 				require.NoError(t, err)
 				files[name] = &fstest.MapFile{Data: raw}
@@ -125,7 +125,7 @@ func TestPR610Migrations320321322JointUpgradeIdempotencyAndLegacyRead(t *testing
 			require.NoError(t, applyMigrationsFS(ctx, db, files))
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&count))
-			require.Equal(t, 3, count, "321 already applied must not prevent later insertion of missing 320")
+			require.Equal(t, 3, count, "327 already applied must not prevent later insertion of missing 326")
 			var queue sql.NullInt64
 			var timing []byte
 			var legacyFirst, legacyDuration int
