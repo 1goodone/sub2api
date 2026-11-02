@@ -113,7 +113,8 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		"AuthConnectionID": {}, "AuthConnectionRevision": {},
 		"Proxy": {}, "ProxyID": {}, "ProxyFallbackOriginID": {}, "ProxyFallbackOriginName": {},
 		"Concurrency": {}, "Priority": {}, "RateMultiplier": {}, "LoadFactor": {},
-		"Status": {}, "ErrorMessage": {}, "LastUsedAt": {}, "ExpiresAt": {},
+		"GroupRateMultiplier": {},
+		"Status":              {}, "ErrorMessage": {}, "LastUsedAt": {}, "ExpiresAt": {}, "PerformancePaused": {},
 		"AutoPauseOnExpired": {}, "CreatedAt": {}, "UpdatedAt": {}, "Schedulable": {},
 		"RateLimitedAt": {}, "RateLimitResetAt": {}, "OverloadUntil": {},
 		"TempUnschedulableUntil": {}, "TempUnschedulableReason": {},
@@ -139,12 +140,15 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// Extra secrets and Proxy.Password are not.
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
-		Credentials: map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
+		PerformancePaused:  true,
+		InitialQualityPlan: &ScheduledTestPlan{PelicanConfig: &PelicanTestConfig{Prompt: "PRIVATE-INITIAL-QUALITY-PROMPT"}},
+		Credentials:        map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
 		Extra: map[string]any{
 			"opaque":                        "extra-released",
 			OllamaCloudUsageSessionExtraKey: "ciphertext-secret",
 			"codex_harvest_proxy_url":       "http://user:legacy-proxy-secret@proxy.example.com:8080",
 			codexFingerprintSeedExtraKey:    "22222222-2222-4222-8222-222222222222",
+			"codex_turn_ticket:gpt-6-astra": map[string]any{"state": "private-ticket-state"},
 		},
 		Proxy: &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
 	}
@@ -152,11 +156,14 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	require.NotNil(t, snap)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(snap, &m))
+	assert.Equal(t, true, m["PerformancePaused"])
 	assert.NotContains(t, string(snap), "LEAK-REFRESH", "raw Credentials must never appear in metadata")
 	assert.Contains(t, string(snap), "extra-released", "non-secret Extra is released")
 	assert.NotContains(t, string(snap), "ciphertext-secret")
 	assert.NotContains(t, string(snap), "legacy-proxy-secret")
 	assert.NotContains(t, string(snap), "22222222-2222-4222-8222-222222222222")
+	assert.NotContains(t, string(snap), "private-ticket-state")
+	assert.NotContains(t, string(snap), "PRIVATE-INITIAL-QUALITY-PROMPT")
 	assert.NotContains(t, string(snap), "pw-released", "proxy password belongs on ResolveOutboundIdentity, not ListAccounts")
 	if proxy, ok := m["Proxy"].(map[string]any); ok {
 		assert.Equal(t, "user", proxy["Username"])
