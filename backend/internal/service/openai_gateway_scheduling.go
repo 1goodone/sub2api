@@ -1165,8 +1165,8 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			return rateCmp < 0
 		}
 		if a.Priority == b.Priority {
-			aRPM := float64(openAIRPMEffectiveLoad(ctx, a, 0)) + feedback[a.ID]
-			bRPM := float64(openAIRPMEffectiveLoad(ctx, b, 0)) + feedback[b.ID]
+			aRPM := feedback[a.ID]
+			bRPM := feedback[b.ID]
 			if aRPM != bRPM {
 				return aRPM < bRPM
 			}
@@ -1493,8 +1493,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			if a.account.Priority != b.account.Priority {
 				return a.account.Priority < b.account.Priority
 			}
-			aLoad := float64(openAIRPMEffectiveLoad(ctx, a.account, accountLoadPreferenceRate(a.account, a.loadInfo.LoadRate))) + feedback[a.account.ID]
-			bLoad := float64(openAIRPMEffectiveLoad(ctx, b.account, accountLoadPreferenceRate(b.account, b.loadInfo.LoadRate))) + feedback[b.account.ID]
+			aLoad := float64(accountLoadPreferenceRate(a.account, a.loadInfo.LoadRate)) + feedback[a.account.ID]
+			bLoad := float64(accountLoadPreferenceRate(b.account, b.loadInfo.LoadRate)) + feedback[b.account.ID]
 			return aLoad < bLoad
 		})
 		if rateOrder.enabled {

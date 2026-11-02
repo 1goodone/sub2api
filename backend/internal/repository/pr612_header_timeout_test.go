@@ -228,3 +228,12 @@ func TestPR612RuntimeDisableRebuildsPoolAndPreservesActiveStream(t *testing.T) {
 	static := pr612NativeTransport(t, NewHTTPUpstream(cfg))
 	require.Zero(t, static.applyProfilePoolSettings(poolSettings{}, service.HTTPUpstreamProfileOpenAI).responseHeaderTimeout)
 }
+
+func requireNoUpstreamInFlight(t *testing.T, s *httpUpstreamService) {
+	t.Helper()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, entry := range s.clients {
+		require.Zero(t, atomic.LoadInt64(&entry.inFlight))
+	}
+}

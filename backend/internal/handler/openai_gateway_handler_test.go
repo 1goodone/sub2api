@@ -3419,3 +3419,9 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
 }
+
+type compositeWSHTTPUpstream struct{ service.HTTPUpstream }
+
+func (*compositeWSHTTPUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	return http.DefaultClient.Do(req)
+}

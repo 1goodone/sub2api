@@ -138,6 +138,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 
 	// Anthropic API Key「模拟 Claude Code」：只补缺的特征，记录身份句供可选估算扣减使用。
+	mimicUserAgent := claude.DefaultUserAgent()
 	mimicAPIKeyClaudeCode := account != nil && account.IsAnthropicMimicClaudeCodeEnabled()
 	var mimicInjection claudeCodeMimicInjection
 	if mimicAPIKeyClaudeCode {
