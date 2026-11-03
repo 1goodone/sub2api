@@ -294,33 +294,6 @@
           </component>
         </template>
 
-        <template #cell-content_reasoning_first_ms="{ row }">
-          <span
-            data-testid="content-timing-reasoning-first"
-            class="tabular-nums"
-            :class="row.content_timing?.reasoning_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
-            :title="t('latencyObservability.typedScope')"
-          >{{ formatContentTiming(row, 'reasoning_first_ms') }}</span>
-        </template>
-
-        <template #cell-content_visible_text_first_ms="{ row }">
-          <span
-            data-testid="content-timing-visible-text-first"
-            class="tabular-nums"
-            :class="row.content_timing?.visible_text_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
-            :title="t('latencyObservability.typedScope')"
-          >{{ formatContentTiming(row, 'visible_text_first_ms') }}</span>
-        </template>
-
-        <template #cell-content_response_byte_first_ms="{ row }">
-          <span
-            data-testid="content-timing-response-byte-first"
-            class="tabular-nums"
-            :class="row.content_timing?.response_byte_first_ms == null ? 'text-gray-400 dark:text-gray-500' : 'font-medium text-gray-700 dark:text-gray-200'"
-            :title="t('latencyObservability.typedScope')"
-          >{{ formatContentTiming(row, 'response_byte_first_ms') }}</span>
-        </template>
-
         <template #cell-created_at="{ value }">
           <span class="text-sm text-gray-600 dark:text-gray-400" :title="compact ? formatDateTime(value) : undefined">{{ compact ? formatDateTime(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : formatDateTime(value) }}</span>
         </template>
@@ -823,11 +796,7 @@ const formatDuration = (ms: number | null | undefined): string => {
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
 
-type ContentTimingField = 'reasoning_first_ms' | 'visible_text_first_ms' | 'response_byte_first_ms'
-const formatContentTiming = (row: AdminUsageLog, field: ContentTimingField): string => {
-  const value = row.content_timing?.[field]
-  return value == null ? '—' : formatDuration(value)
-}
+
 
 const LATENCY_BAR_COLORS: Record<LatencySeverity, string> = {
   good: '#10b981',
