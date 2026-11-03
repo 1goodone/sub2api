@@ -106,9 +106,6 @@ func TestSchedulableAccountQueryScopesCodexQuotaOverdraftToMarkedContext(t *test
 	require.NotContains(t, ordinarySQL, `"temp_unschedulable_reason" LIKE`)
 
 	overdraftSQL := buildQuery(service.WithCodexQuotaOverdraftScheduling(context.Background()))
-	require.Contains(t, overdraftSQL, `"temp_unschedulable_reason" LIKE`)
-	require.Contains(t, overdraftSQL, `"platform" =`)
-	require.Contains(t, overdraftSQL, `"type" =`)
-	require.Contains(t, overdraftSQL, `"parent_account_id" IS NULL`)
-	require.Contains(t, overdraftSQL, service.CodexQuotaOverdraftEnabledExtraKey)
+	require.NotContains(t, overdraftSQL, `"temp_unschedulable_reason" LIKE`)
+	require.Equal(t, ordinarySQL, overdraftSQL)
 }

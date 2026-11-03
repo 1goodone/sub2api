@@ -26,21 +26,18 @@ const (
 var codexQuotaOverdraftEnabled atomic.Bool
 
 func init() {
-	// Account-level opt-in is the normal control surface. Start the legacy
-	// process-wide switch enabled so direct service construction and deployments
-	// without an explicit config value do not silently disable account toggles.
-	codexQuotaOverdraftEnabled.Store(true)
+	codexQuotaOverdraftEnabled.Store(false)
 }
 
-// SetCodexQuotaOverdraftEnabled publishes the process-wide scheduling switch.
-// Request mutation still reads the gateway instance config directly.
+// SetCodexQuotaOverdraftEnabled is retained for existing call sites. The local
+// fork does not offer Codex quota overdraft, so the switch cannot be turned on.
 func SetCodexQuotaOverdraftEnabled(enabled bool) {
-	codexQuotaOverdraftEnabled.Store(enabled)
+	codexQuotaOverdraftEnabled.Store(false)
 }
 
 // CodexQuotaOverdraftEnabled is exported for repository scheduling predicates.
 func CodexQuotaOverdraftEnabled() bool {
-	return codexQuotaOverdraftEnabled.Load()
+	return false
 }
 
 func isCodexQuotaOverdraftAccount(account *Account) bool {
@@ -50,38 +47,21 @@ func isCodexQuotaOverdraftAccount(account *Account) bool {
 		!account.IsShadow()
 }
 
-// PrepareCodexQuotaOverdraftForCreate normalizes system-managed overdraft
-// state for newly persisted accounts. Existing accounts are never affected.
+// PrepareCodexQuotaOverdraftForCreate strips overdraft flags from new accounts.
+// Existing stored accounts are not rewritten here.
 func PrepareCodexQuotaOverdraftForCreate(account *Account) {
-	if account == nil {
+	if account == nil || account.Extra == nil {
 		return
 	}
-	if account.Extra != nil {
-		delete(account.Extra, CodexQuotaOverdraftProbeExtraKey)
-	}
-	if !isCodexQuotaOverdraftAccount(account) {
-		if account.Extra != nil {
-			delete(account.Extra, CodexQuotaOverdraftEnabledExtraKey)
-		}
-		return
-	}
-	if account.Extra == nil {
-		account.Extra = make(map[string]any, 1)
-	}
-	account.Extra[CodexQuotaOverdraftEnabledExtraKey] = true
+	delete(account.Extra, CodexQuotaOverdraftProbeExtraKey)
+	delete(account.Extra, CodexQuotaOverdraftEnabledExtraKey)
 }
 
-// CodexQuotaOverdraftEnabledForAccount is the single runtime gate for the
-// experimental behavior. The global switch remains an emergency kill switch;
-// a legacy account must also be explicitly enabled in Extra. Managed grants
-// cannot use the parent credential or account-wide probe state.
+// CodexQuotaOverdraftEnabledForAccount is the single runtime gate. This fork
+// never enables Codex quota overdraft, including accounts that already have
+// the extra flag.
 func CodexQuotaOverdraftEnabledForAccount(account *Account) bool {
-	if !CodexQuotaOverdraftEnabled() || !isCodexQuotaOverdraftAccount(account) ||
-		account.HasManagedOpenAIConnections() || account.AuthConnectionID != "" || account.Extra == nil {
-		return false
-	}
-	enabled, ok := account.Extra[CodexQuotaOverdraftEnabledExtraKey].(bool)
-	return ok && enabled
+	return false
 }
 
 type codexQuotaOverdraftSchedulingCtxKey struct{}

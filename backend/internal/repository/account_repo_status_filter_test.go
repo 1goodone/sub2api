@@ -25,7 +25,7 @@ func TestAccountRateLimitedStatusIncludesCodexQuotaPause(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectQuery("rate limited status").
-		WithArgs(service.StatusActive, sqlmock.AnyArg(), `%"source":"codex\_quota\_overdraft"%`).
+		WithArgs(service.StatusActive, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	_, err = client.Account.Query().Where(accountStatusPredicate("rate_limited")).Count(context.Background())
@@ -34,6 +34,5 @@ func TestAccountRateLimitedStatusIncludesCodexQuotaPause(t *testing.T) {
 
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	require.Contains(t, normalized, `"rate_limit_reset_at" >`)
-	require.Contains(t, normalized, `"temp_unschedulable_until" > NOW()`)
-	require.Contains(t, normalized, `"temp_unschedulable_reason" LIKE`)
+	require.NotContains(t, normalized, `"temp_unschedulable_reason" LIKE`)
 }

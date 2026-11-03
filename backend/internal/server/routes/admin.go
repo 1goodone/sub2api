@@ -482,7 +482,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/performance/release", h.Admin.Account.ReleaseAccountPerformance)
 		accounts.GET("/:id/performance/events", h.Admin.Account.AccountPerformanceEvents)
 		accounts.PUT("/:id", h.Admin.Account.Update)
-		accounts.PUT("/:id/codex-quota-overdraft", h.Admin.Account.SetCodexQuotaOverdraft)
 		accounts.GET("/:id/grok-media-eligibility", h.Admin.Account.GetGrokMediaEligibility)
 		accounts.PUT("/:id/grok-media-eligibility", h.Admin.Account.UpdateGrokMediaEligibility)
 		accounts.GET("/:id/upstream-billing-probe/config", h.Admin.Account.GetNewAPIConfig)

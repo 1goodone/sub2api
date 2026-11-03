@@ -210,13 +210,9 @@ func TestAccountTestService_OpenAIOAuthOverdraftTestInjectsAndObservesSnapshot(t
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
 	require.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
-	require.Equal(t, "custom_tool_call", gjson.GetBytes(body, "input.1.type").String())
-	require.Equal(t, "custom_tool_call_output", gjson.GetBytes(body, "input.2.type").String())
-	require.Equal(t, gjson.GetBytes(body, "input.1.call_id").String(), gjson.GetBytes(body, "input.2.call_id").String())
+	require.False(t, gjson.GetBytes(body, "input.1").Exists())
 	require.Zero(t, coordinator.observeCalls)
-	require.Equal(t, 1, coordinator.businessCalls)
-	require.Same(t, account, coordinator.observedAccount)
-	require.Equal(t, "gpt-5.4", coordinator.observedModel)
+	require.Zero(t, coordinator.businessCalls)
 	require.Equal(t, 100.0, account.Extra["codex_5h_used_percent"])
 }
 
@@ -514,12 +510,10 @@ func TestAccountTestService_OpenAIQuota429UsesOverdraftCoordinatorWithoutRateLim
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
 	require.Error(t, err)
-	require.Equal(t, 1, coordinator.handleCalls)
-	require.Same(t, account, coordinator.handledAccount)
-	require.Equal(t, "gpt-5.4", coordinator.handledModel)
-	require.Zero(t, repo.rateLimitedID)
-	require.Nil(t, repo.rateLimitedAt)
-	require.Nil(t, account.RateLimitResetAt)
+	require.Zero(t, coordinator.handleCalls)
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.NotNil(t, repo.rateLimitedAt)
+	require.NotNil(t, account.RateLimitResetAt)
 }
 
 func TestAccountTestService_OpenAI429FallsBackWhenOverdraftDoesNotHandle(t *testing.T) {
@@ -547,7 +541,7 @@ func TestAccountTestService_OpenAI429FallsBackWhenOverdraftDoesNotHandle(t *test
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
 	require.Error(t, err)
-	require.Equal(t, 1, coordinator.handleCalls)
+	require.Zero(t, coordinator.handleCalls)
 	require.Equal(t, account.ID, repo.rateLimitedID)
 	require.NotNil(t, repo.rateLimitedAt)
 	require.NotNil(t, account.RateLimitResetAt)

@@ -40,12 +40,12 @@ func TestCreateAccountRecordEnablesCodexQuotaOverdraftForOpenAIOAuth(t *testing.
 	}
 
 	require.NoError(t, createAccountRecord(ctx, client, account))
-	require.Equal(t, true, account.Extra[service.CodexQuotaOverdraftEnabledExtraKey])
+	require.NotContains(t, account.Extra, service.CodexQuotaOverdraftEnabledExtraKey)
 	require.NotContains(t, account.Extra, service.CodexQuotaOverdraftProbeExtraKey)
 
 	created, err := client.Account.Get(ctx, account.ID)
 	require.NoError(t, err)
-	require.Equal(t, true, created.Extra[service.CodexQuotaOverdraftEnabledExtraKey])
+	require.NotContains(t, created.Extra, service.CodexQuotaOverdraftEnabledExtraKey)
 	require.NotContains(t, created.Extra, service.CodexQuotaOverdraftProbeExtraKey)
 	require.Equal(t, "keep", created.Extra["custom"])
 }

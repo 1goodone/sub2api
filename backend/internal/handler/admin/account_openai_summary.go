@@ -51,8 +51,7 @@ func buildOpenAIAccountSummary(accounts []service.Account, currentConcurrency ma
 			summary.Concurrency.OAuth.Used += currentConcurrency[account.ID]
 
 			isTempUnschedulable := account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(now)
-			isQuotaPaused := isTempUnschedulable && service.IsCodexQuotaOverdraftPauseReason(account.TempUnschedulableReason)
-			isRateLimited := account.Status == service.StatusActive && ((account.RateLimitResetAt != nil && account.RateLimitResetAt.After(now) && !isTempUnschedulable) || isQuotaPaused)
+			isRateLimited := account.Status == service.StatusActive && account.RateLimitResetAt != nil && account.RateLimitResetAt.After(now) && !isTempUnschedulable
 			isNormal := account.Status == service.StatusActive && account.Schedulable && !isRateLimited &&
 				!isTempUnschedulable
 			if isNormal {

@@ -77,7 +77,7 @@ func TestCodexQuotaOverdraftSilentEligibility(t *testing.T) {
 		ctx     context.Context
 		want    bool
 	}{
-		{name: "passed current cycle at 100 percent", account: newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, reset), stream: true, ctx: ctx, want: true},
+		{name: "passed current cycle at 100 percent", account: newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, reset), stream: true, ctx: ctx, want: false},
 		{name: "pending", account: newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePending, 100, reset), stream: true, ctx: ctx},
 		{name: "recovered", account: newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbeRecovered, 100, reset), stream: true, ctx: ctx},
 		{name: "below 100 percent", account: newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 99.99, reset), stream: true, ctx: ctx},
@@ -108,7 +108,15 @@ func TestCodexQuotaOverdraftSilentEligibility(t *testing.T) {
 	}
 }
 
+func TestCodexQuotaOverdraftSilentSessionDoesNotStart(t *testing.T) {
+	svc := newCodexQuotaOverdraftSilentTestService(t)
+	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
+	c, _ := newCodexQuotaOverdraftSilentTestContext(t, WithCodexQuotaOverdraftScheduling(context.Background()))
+	require.Nil(t, svc.StartCodexQuotaOverdraftSilentResponse(c, account, true))
+}
+
 func TestCodexQuotaOverdraftSilentConvertedStreamDropsFailedPartialAttempt(t *testing.T) {
+	t.Skip("Codex quota overdraft silent staging is disabled")
 	svc := newCodexQuotaOverdraftSilentTestService(t)
 	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
 	ctx := WithCodexQuotaOverdraftScheduling(context.Background())
@@ -163,6 +171,7 @@ func TestCodexQuotaOverdraftSilentConvertedStreamDropsFailedPartialAttempt(t *te
 }
 
 func TestCodexQuotaOverdraftSilentPassthroughDropsFailedPartialAttempt(t *testing.T) {
+	t.Skip("Codex quota overdraft silent staging is disabled")
 	svc := newCodexQuotaOverdraftSilentTestService(t)
 	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
 	ctx := WithCodexQuotaOverdraftScheduling(context.Background())
@@ -211,6 +220,7 @@ func TestCodexQuotaOverdraftSilentPassthroughDropsFailedPartialAttempt(t *testin
 }
 
 func TestCodexQuotaOverdraftSilentKeepaliveIsNonSemantic(t *testing.T) {
+	t.Skip("Codex quota overdraft silent staging is disabled")
 	svc := newCodexQuotaOverdraftSilentTestService(t)
 	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
 	ctx := WithCodexQuotaOverdraftScheduling(context.Background())
@@ -234,6 +244,7 @@ func TestCodexQuotaOverdraftSilentKeepaliveIsNonSemantic(t *testing.T) {
 }
 
 func TestCodexQuotaOverdraftSilentConcurrentBeatWriteAndReset(t *testing.T) {
+	t.Skip("Codex quota overdraft silent staging is disabled")
 	svc := newCodexQuotaOverdraftSilentTestService(t)
 	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
 	ctx := WithCodexQuotaOverdraftScheduling(context.Background())
@@ -275,6 +286,7 @@ func TestCodexQuotaOverdraftSilentConcurrentBeatWriteAndReset(t *testing.T) {
 }
 
 func TestCodexQuotaOverdraftSilentStageLimitDiscardsEverything(t *testing.T) {
+	t.Skip("Codex quota overdraft silent staging is disabled")
 	svc := newCodexQuotaOverdraftSilentTestService(t)
 	account := newCodexQuotaOverdraftSilentTestAccount(codexQuotaOverdraftProbePassed, 100, time.Now().Add(4*time.Hour))
 	ctx := WithCodexQuotaOverdraftScheduling(context.Background())

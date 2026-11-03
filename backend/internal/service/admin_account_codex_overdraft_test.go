@@ -26,7 +26,7 @@ func TestBuildAccountForCreateEnablesCodexQuotaOverdraftForOpenAIOAuth(t *testin
 			}, extra)
 
 			require.NoError(t, err)
-			require.Equal(t, true, account.Extra[CodexQuotaOverdraftEnabledExtraKey])
+			require.NotContains(t, account.Extra, CodexQuotaOverdraftEnabledExtraKey)
 			require.NotContains(t, account.Extra, CodexQuotaOverdraftProbeExtraKey)
 			require.Equal(t, "keep", account.Extra["custom"])
 		})

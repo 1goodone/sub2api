@@ -207,7 +207,7 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.status.tempUnschedulable')
   })
 
-  it('Codex 透支确认失败时优先显示额度暂停', () => {
+  it('历史透支暂停不再单独显示额度暂停', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
@@ -229,9 +229,8 @@ describe('AccountStatusIndicator', () => {
       }
     })
 
-    expect(wrapper.find('.badge-warning').text()).toBe('admin.accounts.status.codexQuotaPaused')
-    expect(wrapper.text()).toContain('admin.accounts.status.tempUnschedulableUntil')
-    expect(wrapper.text()).not.toContain('admin.accounts.status.rateLimitedAutoResume')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.codexQuotaPaused')
+    expect(wrapper.find('.badge-warning').text()).toBe('admin.accounts.status.rateLimited')
   })
 
   it('模型限流 + overages 启用 + 无 AICredits key → 显示 ⚡ (credits_active)', () => {

@@ -31,7 +31,7 @@ func TestBuildOpenAIAccountSummary(t *testing.T) {
 	}
 	summary := buildOpenAIAccountSummary(accounts, map[int64]int{1: 1, 2: 2, 6: 3}, quotaCosts, now)
 	require.Equal(t, openAIAccountTypeCounts{OAuth: 5, APIKey: 1}, summary.Accounts)
-	require.Equal(t, openAIOAuthStatusCounts{Normal: 1, RateLimited: 2, Error: 1}, summary.OAuthStatus)
+	require.Equal(t, openAIOAuthStatusCounts{Normal: 1, RateLimited: 1, Error: 1}, summary.OAuthStatus)
 	require.Equal(t, quotaCosts, summary.OAuthQuota)
 	require.Equal(t, openAIConcurrencyCount{Used: 3, Total: 6}, summary.Concurrency.OAuth)
 	require.Equal(t, openAIConcurrencyCount{Used: 3, Total: 4}, summary.Concurrency.APIKey)

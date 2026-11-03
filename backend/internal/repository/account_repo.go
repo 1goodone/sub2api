@@ -1367,13 +1367,8 @@ func accountStatusPredicate(status string) dbpredicate.Account {
 	case "rate_limited":
 		return dbaccount.And(
 			dbaccount.StatusEQ(service.StatusActive),
-			dbaccount.Or(
-				dbaccount.And(dbaccount.RateLimitResetAtGT(time.Now()), notTempUnschedulable),
-				dbaccount.And(
-					tempUnschedulable,
-					dbaccount.TempUnschedulableReasonContains(`"source":`+strconv.Quote(service.CodexQuotaOverdraftPauseSource)),
-				),
-			),
+			dbaccount.RateLimitResetAtGT(time.Now()),
+			notTempUnschedulable,
 		)
 	case "temp_unschedulable":
 		return dbaccount.And(

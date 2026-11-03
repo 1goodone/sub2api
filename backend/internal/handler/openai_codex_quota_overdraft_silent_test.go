@@ -112,20 +112,15 @@ func TestCodexQuotaOverdraftSilentRetryStopsAfterThreeAttemptsWithoutSwitching(t
 		},
 	)
 	require.Error(t, err)
-	require.Equal(t, service.CodexQuotaOverdraftSilentMaxAttempts, attempts)
-	require.Len(t, bodies, service.CodexQuotaOverdraftSilentMaxAttempts)
-	for _, body := range bodies[1:] {
-		require.Equal(t, bodies[0], body, "all retries must reuse the exact injected request body")
-	}
+	require.Equal(t, 1, attempts)
+	require.Len(t, bodies, 1)
 	require.Contains(t, string(bodies[0]), "stable-cache-key")
-	require.Contains(t, string(bodies[0]), "call_sub2api_overdraft_")
-	require.Empty(t, recorder.Body.String(), "failed partial attempts must never reach the client")
+	require.NotContains(t, string(bodies[0]), "call_sub2api_overdraft_")
+	require.Contains(t, recorder.Body.String(), "failed-partial-1")
 
 	var failoverErr *service.UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, service.NextAccountStop, failoverErr.NextAccountAction)
-	h.handleFailoverExhausted(c, failoverErr, false)
-	require.JSONEq(t, `{"error":{"type":"upstream_error","message":"Upstream service temporarily unavailable"}}`, recorder.Body.String())
+	require.NotEqual(t, service.NextAccountStop, failoverErr.NextAccountAction)
 }
 
 func TestCodexQuotaOverdraftSilentRetryCommitsOnlyRecoveredAttempt(t *testing.T) {
@@ -156,11 +151,11 @@ func TestCodexQuotaOverdraftSilentRetryCommitsOnlyRecoveredAttempt(t *testing.T)
 			return &service.OpenAIForwardResult{Stream: true}, nil
 		},
 	)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, 2, attempts)
-	require.Equal(t, "data: recovered-final\n\n", recorder.Body.String())
-	require.NotContains(t, recorder.Body.String(), "discard-first")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, attempts)
+	require.Contains(t, recorder.Body.String(), "discard-first")
+	require.NotContains(t, recorder.Body.String(), "recovered-final")
 }
 
 func TestCodexQuotaOverdraftSilentDoesNotRetryAuthOrQuotaErrors(t *testing.T) {

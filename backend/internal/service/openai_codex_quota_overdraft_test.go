@@ -4,8 +4,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,22 +29,8 @@ func TestCodexQuotaOverdraftInjection(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.4","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
 
 	updated := svc.prepareCodexQuotaOverdraftBody(ctx, oauth, false, body)
-	require.NotEqual(t, string(body), string(updated))
-	require.True(t, codexQuotaOverdraftWasInjected(ctx, oauth.ID))
-
-	var document codexQuotaOverdraftDocument
-	require.NoError(t, json.Unmarshal(updated, &document))
-	require.Len(t, document.Input, 3)
-	var call, output codexQuotaOverdraftInputItem
-	require.NoError(t, json.Unmarshal(document.Input[1], &call))
-	require.NoError(t, json.Unmarshal(document.Input[2], &output))
-	require.Equal(t, "custom_tool_call", call.Type)
-	require.Equal(t, "custom_tool_call_output", output.Type)
-	require.True(t, strings.HasPrefix(call.CallID, codexQuotaOverdraftCallIDPrefix))
-	require.Equal(t, call.CallID, output.CallID)
-
-	again := svc.prepareCodexQuotaOverdraftBody(ctx, oauth, false, updated)
-	require.Equal(t, string(updated), string(again), "重复处理不能再次注入")
+	require.Equal(t, string(body), string(updated))
+	require.False(t, codexQuotaOverdraftWasInjected(ctx, oauth.ID))
 }
 
 func TestCodexQuotaOverdraftRequiresPerAccountOptIn(t *testing.T) {
@@ -71,7 +55,7 @@ func TestCodexQuotaOverdraftRequiresPerAccountOptIn(t *testing.T) {
 	require.Equal(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, account(1, nil), false, body)))
 	require.Equal(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, account(2, false), false, body)))
 	require.Equal(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, account(3, "true"), false, body)))
-	require.NotEqual(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, account(4, true), false, body)))
+	require.Equal(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, account(4, true), false, body)))
 }
 
 func TestCodexQuotaOverdraftEnabledForAccountIsStrictAndParentOnly(t *testing.T) {
@@ -93,7 +77,7 @@ func TestCodexQuotaOverdraftEnabledForAccountIsStrictAndParentOnly(t *testing.T)
 		{"shadow is rejected", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, ParentAccountID: &parentID, Extra: map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}}, false},
 		{"managed parent is rejected", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{CodexQuotaOverdraftEnabledExtraKey: true, "openai_connections_managed": true}}, false},
 		{"bound connection is rejected", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, AuthConnectionID: "synthetic-connection", Extra: map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}}, false},
-		{"explicit parent opt in", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}}, true},
+		{"explicit parent opt in stays off", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}}, false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,7 +128,7 @@ func TestCodexQuotaOverdraftInjectionGuards(t *testing.T) {
 			"codex_7d_reset_at":                time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 		},
 	}
-	require.NotEqual(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, agentIdentity, false, body)), "Agent Identity 必须支持透支请求注入")
+	require.Equal(t, string(body), string(svc.prepareCodexQuotaOverdraftBody(ctx, agentIdentity, false, body)))
 
 	notUserLast := []byte(`{"input":[{"type":"message","role":"assistant"}]}`)
 	require.Equal(t, string(notUserLast), string(svc.prepareCodexQuotaOverdraftBody(ctx, oauth, false, notUserLast)))
@@ -191,21 +175,19 @@ func TestCodexQuotaOverdraftSchedulingOnlyBypassesQuotaThresholds(t *testing.T) 
 	}
 	quotaCtx := withOpenAIQuotaAutoPauseSettings(ctx, OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.8})
 	paused, _ := shouldAutoPauseOpenAIAccountByQuota(quotaCtx, account)
-	require.False(t, paused)
+	require.True(t, paused)
 
 	account.RateLimitResetAt = &reset
 	require.False(t, account.IsSchedulableForModelWithContext(quotaCtx, "gpt-5.4"), "真实 429 限流仍必须生效")
 	account.RateLimitResetAt = nil
 	account.TempUnschedulableUntil = &reset
 	account.TempUnschedulableReason = BuildTempUnschedReasonPayload("oauth_401", "unauthorized")
-	require.Same(t, account, normalizeCodexQuotaOverdraftAccountForScheduling(quotaCtx, account), "其他临时暂停不能绕过")
+	require.Same(t, account, normalizeCodexQuotaOverdraftAccountForScheduling(quotaCtx, account))
 
 	account.TempUnschedulableReason = BuildAccountSchedulingThresholdReason("")
 	normalized := normalizeCodexQuotaOverdraftAccountForScheduling(quotaCtx, account)
-	require.NotSame(t, account, normalized)
-	require.Nil(t, normalized.TempUnschedulableUntil)
-	require.Empty(t, normalized.TempUnschedulableReason)
-	require.NotNil(t, account.TempUnschedulableUntil, "不能修改缓存或数据库账号原对象")
+	require.Same(t, account, normalized)
+	require.NotNil(t, account.TempUnschedulableUntil)
 }
 
 func TestRateLimitServiceCodexQuotaOverdraftDoesNotCreateRuntimeThresholdBlock(t *testing.T) {

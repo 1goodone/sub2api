@@ -14,7 +14,7 @@
     </div>
 
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-else-if="isRateLimited && !isCodexQuotaOverdraftPause" class="flex flex-col items-center gap-1">
+    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -332,21 +332,6 @@ const isTempUnschedulable = computed(() => {
   return new Date(props.account.temp_unschedulable_until) > new Date()
 })
 
-const tempUnschedulableSource = computed(() => {
-  const reason = props.account.temp_unschedulable_reason
-  if (!reason) return ''
-  try {
-    const parsed = JSON.parse(reason) as { source?: unknown }
-    return typeof parsed.source === 'string' ? parsed.source : ''
-  } catch {
-    return ''
-  }
-})
-
-const isCodexQuotaOverdraftPause = computed(() => {
-  return isTempUnschedulable.value && tempUnschedulableSource.value === 'codex_quota_overdraft'
-})
-
 // Computed: has error status
 const hasError = computed(() => {
   return props.account.status === 'error'
@@ -410,9 +395,6 @@ const statusText = computed(() => {
     return t('admin.accounts.status.error')
   }
   if (isTempUnschedulable.value) {
-    if (isCodexQuotaOverdraftPause.value) {
-      return t('admin.accounts.status.codexQuotaPaused')
-    }
     return t('admin.accounts.status.tempUnschedulable')
   }
   if (props.account.status !== 'active') {

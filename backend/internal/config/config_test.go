@@ -676,7 +676,7 @@ func TestLoadCodexQuotaOverdraftSwitch(t *testing.T) {
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.True(t, cfg.Gateway.CodexQuotaOverdraftEnabled)
+	require.False(t, cfg.Gateway.CodexQuotaOverdraftEnabled)
 
 	resetViperWithJWTSecret(t)
 	t.Setenv("GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED", "true")

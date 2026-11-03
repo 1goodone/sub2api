@@ -552,7 +552,7 @@
 
     <IQTestModal :show="showIQTest" :account="iqTestingAcc" :accounts="accounts" @close="closeIQTestModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" :codex-overdraft-loading="togglingCodexOverdraft === menu.acc?.id" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-codex-overdraft="handleToggleCodexOverdraft" @credential-ops="credentialOpsAccount = $event" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @credential-ops="credentialOpsAccount = $event" />
     <OpenAISessionExportDialog :account="sessionExportAccount" :auto-export="sessionAutoExport" @close="sessionExportAccount = null" />
     <SyncFromCrsModal v-if="authStore.isAdmin" :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
@@ -761,7 +761,6 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
-const togglingCodexOverdraft = ref<number | null>(null)
 const updatingRoutingGroupId = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null}>({ show: false, acc: null, anchorRect: null })
 const exportingData = ref(false)
@@ -2687,19 +2686,11 @@ const accountMatchesCurrentFilters = (account: Account) => {
     const isRateLimited = Number.isFinite(rateLimitResetAt) && rateLimitResetAt > now
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
-    let isQuotaPaused = false
-    if (isTempUnschedulable && account.temp_unschedulable_reason) {
-      try {
-        isQuotaPaused = JSON.parse(account.temp_unschedulable_reason)?.source === 'codex_quota_overdraft'
-      } catch {
-        // Non-JSON reasons are ordinary temporary scheduling blocks.
-      }
-    }
 
     if (filters.status === 'active') {
       if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable) return false
     } else if (filters.status === 'rate_limited') {
-      if (account.status !== 'active' || (!isQuotaPaused && (!isRateLimited || isTempUnschedulable))) return false
+      if (account.status !== 'active' || !isRateLimited || isTempUnschedulable) return false
     } else if (filters.status === 'temp_unschedulable') {
       if (account.status !== 'active' || !isTempUnschedulable) return false
     } else if (filters.status === 'unschedulable') {
@@ -3074,24 +3065,6 @@ const handleToggleSchedulable = async (a: Account) => {
     appStore.showError(t('admin.accounts.failedToToggleSchedulable'))
   } finally {
     togglingSchedulable.value = null
-  }
-}
-const handleToggleCodexOverdraft = async (a: Account) => {
-  if (togglingCodexOverdraft.value === a.id) return
-  const enabled = a.extra?.codex_quota_overdraft_enabled !== true
-  togglingCodexOverdraft.value = a.id
-  try {
-    const updated = await adminAPI.accounts.setCodexQuotaOverdraftEnabled(a.id, enabled)
-    patchAccountInList(updated)
-    enterAutoRefreshSilentWindow()
-    appStore.showSuccess(t(enabled
-      ? 'admin.accounts.codexQuotaOverdraftEnabled'
-      : 'admin.accounts.codexQuotaOverdraftDisabled'))
-  } catch (error) {
-    console.error('Failed to toggle Codex quota overdraft:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.codexQuotaOverdraftToggleFailed')))
-  } finally {
-    togglingCodexOverdraft.value = null
   }
 }
 const handleShowTempUnsched = (a: Account) => { tempUnschedAcc.value = a; showTempUnsched.value = true }
