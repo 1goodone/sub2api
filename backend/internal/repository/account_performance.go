@@ -57,8 +57,12 @@ WITH source AS (
  FROM successful GROUP BY account_id
 ), rounds AS (
  SELECT p.account_id,p.id,r.quality_round_id,
- bool_or(r.quality_judgment->>'verdict'='incorrect' AND r.status='failed' AND r.error_message IN ('answer_mismatch','state_degraded')) AS failed,
- bool_and(COALESCE(r.quality_judgment->>'verdict'='correct' AND r.status='success',false)) AS passed
+ bool_or(r.quality_judgment->>'verdict'='incorrect' AND r.status='failed' AND r.error_message IN ('answer_mismatch','state_degraded')
+    AND (COALESCE(r.pelican_config->>'question_kind','')<>'random_reasoning'
+      OR r.pelican_config->'quality_batch'->>'decision'='peer_passed')) AS failed,
+ bool_and(COALESCE(r.quality_judgment->>'verdict'='correct' AND r.status='success'
+    AND (COALESCE(r.pelican_config->>'question_kind','')<>'random_reasoning'
+      OR r.pelican_config->'quality_batch'->>'decision'='passed'),false)) AS passed
  FROM scheduled_test_plans p JOIN scheduled_test_results r ON r.plan_id=p.id
  WHERE p.account_id=ANY($1) AND p.enabled AND jsonb_typeof(p.pelican_config->'quality')='object'
  -- Probe records are created after execution. The indexed completion-time
@@ -68,7 +72,7 @@ WITH source AS (
  GROUP BY p.account_id,p.id,r.quality_round_id
  HAVING MIN(r.started_at)>=$2 AND MAX(r.finished_at)<=$3 AND MIN(r.started_at)>=MAX(p.updated_at)
  AND bool_and(r.finished_at IS NOT NULL AND r.finished_at>=r.started_at)
- AND bool_and(r.quality_action<>'' AND r.quality_action<>'stale_run')
+ AND bool_and(r.quality_action NOT IN ('','stale_run','comparison_pending'))
  AND bool_and(COALESCE(r.pelican_config->>'parallel_count','1') ~ '^[1-8]$')
  AND bool_and(r.pelican_config->'model_ids' IS NULL OR
   (jsonb_typeof(r.pelican_config->'model_ids')='array'
@@ -88,6 +92,24 @@ LEFT JOIN usage u ON u.account_id=ids.id LEFT JOIN quality q ON q.account_id=ids
 LEFT JOIN account_performance_monitors m ON m.account_id=ids.id
 `
 
+func readAccountPerformanceWindowMinutes(ctx context.Context, db sqlExecutor) (int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT value FROM settings WHERE key=$1`, service.SettingKeyAccountPerformanceWindowMinutes)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var value string
+	if rows.Next() {
+		if err := rows.Scan(&value); err != nil {
+			return 0, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	return service.ParseAccountPerformanceWindowMinutes(value)
+}
+
 func readAccountPerformance(ctx context.Context, db sqlExecutor, ids []int64, now time.Time) (map[int64]service.AccountPerformance, error) {
 	out := make(map[int64]service.AccountPerformance, len(ids))
 	if len(ids) == 0 {
@@ -95,7 +117,11 @@ func readAccountPerformance(ctx context.Context, db sqlExecutor, ids []int64, no
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	since := now.Add(-15 * time.Minute)
+	minutes, err := readAccountPerformanceWindowMinutes(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	since := now.Add(-time.Duration(minutes) * time.Minute)
 	rows, err := db.QueryContext(ctx, performanceMetricsSQL, pq.Array(ids), since, now)
 	if err != nil {
 		return nil, err

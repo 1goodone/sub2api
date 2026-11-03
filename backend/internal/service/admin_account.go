@@ -478,6 +478,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	}
 	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
 	StripRetiredCodexTurnStateExtra(accountExtra)
+	if (input.Platform == PlatformTypeSafe || input.Platform == PlatformMistral) && input.Type != AccountTypeAPIKey {
+		return nil, fmt.Errorf("%s accounts only support apikey credentials", input.Platform)
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -691,6 +694,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if (account.Platform == PlatformTypeSafe || account.Platform == PlatformMistral) && input.Type != "" && input.Type != AccountTypeAPIKey {
+		return nil, fmt.Errorf("%s accounts only support apikey credentials", account.Platform)
 	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {

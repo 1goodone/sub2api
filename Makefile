@@ -64,6 +64,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/traffic.spec.ts \
 	src/views/user/__tests__/UsageEntryView.spec.ts \
 	src/components/admin/usage/__tests__/UsageFilters.spec.ts \
+	src/components/admin/usage/__tests__/LatencyObservabilityPanel.spec.ts \
 	src/components/admin/usage/__tests__/UsageTimingDialog.spec.ts \
 	src/components/admin/usage/__tests__/UsageTable.spec.ts \
 	src/views/user/__tests__/PelicanShowcaseView.spec.ts \
@@ -107,6 +108,9 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/PaymentResultView.spec.ts \
 	src/views/user/__tests__/ChannelStatusView.mode.spec.ts \
 	src/components/user/profile/__tests__/ProfileInfoCard.spec.ts \
+	src/components/settings/AccountPerformanceSettings.spec.ts \
+	src/components/account/__tests__/AccountPerformanceCell.spec.ts \
+	src/components/account/__tests__/AccountPerformanceDialog.spec.ts \
 	src/views/admin/__tests__/SettingsView.spec.ts \
 	src/features/channel-monitor-v2/__tests__/designSystem.structure.spec.ts \
 	src/features/channel-monitor-v2/__tests__/monitorFormat.spec.ts \

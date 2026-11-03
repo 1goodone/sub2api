@@ -634,7 +634,7 @@ import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import SchedulableTimerControl from '@/components/account/SchedulableTimerControl.vue'
 import AccountPerformanceCell from '@/components/account/AccountPerformanceCell.vue'
 import AccountPerformanceDialog from '@/components/account/AccountPerformanceDialog.vue'
-import type { AccountPerformance } from '@/types/accountPerformance'
+import { performanceWindowMinutes, type AccountPerformance } from '@/types/accountPerformance'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import ExcelBPS403Badge from '@/components/account/ExcelBPS403Badge.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -1477,6 +1477,7 @@ const resetAutoRefreshCache = () => {
 
 // Performance is one bounded batch per visible page, independent of account ETags.
 const performanceMetrics = ref<Record<number, AccountPerformance>>({})
+const performanceMinutes = computed(() => performanceWindowMinutes(Object.values(performanceMetrics.value)[0]))
 const performanceUnavailable = ref(false)
 const performanceAccount = ref<Account | null>(null)
 let performanceAbort: AbortController | null = null
@@ -2253,7 +2254,7 @@ const allColumns = computed(() => {
     { key: 'login_credential', label: t('admin.accounts.columns.loginCredential'), sortable: false },
     { key: 'image_capacity', label: t('admin.accounts.columns.imageCapacity'), sortable: false },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'performance', label: t('accountPerformance.column'), sortable: false },
+    { key: 'performance', label: t('accountPerformance.column', { minutes: performanceMinutes.value }), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
