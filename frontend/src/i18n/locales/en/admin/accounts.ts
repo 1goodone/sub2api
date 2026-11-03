@@ -1063,6 +1063,9 @@ export default {
         longContextBilling: 'API long-context pricing',
         longContextBillingDesc:
           'Disabled by default. Enable only when this account\'s upstream charges OpenAI API long-context rates above the model threshold.',
+        ultrafastBilling: 'UltraFast tier billing',
+        ultrafastBillingDesc:
+          'Disabled by default. When enabled, read service_tier from upstream responses and bill that tier. Ultrafast keeps the existing model rate: gpt-6-astra is standard price ×6 and other models stay ×2, including cache reads and writes, then account/group multipliers. It does not become a universal 6×. If the response omits the tier, bill the requested tier. Explicit ultrafast requests still use that model rate with this switch off. This does not force UltraFast upstream.',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
