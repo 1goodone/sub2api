@@ -679,10 +679,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				}
-				// 首响模式会把当前 JSON 事件记成首包。过载事件本身不是语义输出，
-				// 不能因此跳过同账号重试；已经刷出的前序事件仍然不能重放。
+				// 首条明确拒绝不是已经提交的输出，仍可进入已有重试判断；
+				// 首响模式下已经刷出的前序事件仍然不能重放。
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
-				if isOpenAIUpstreamCapacityShedEvent(dataBytes) && !hadFirstResponse {
+				if !hadFirstResponse && (isOpenAIUpstreamCapacityShedEvent(dataBytes) ||
+					isNativeOAuthFirstResponseRateLimit(account, dataBytes) ||
+					isOpenAIRelayFirstResponseConcurrency(account, dataBytes)) {
 					outputStarted = openAIStreamClientOutputStarted(c, clientOutputStarted)
 				}
 				if stageFirstOutput && !outputStarted && !responsesSemanticOutputSeen && !eventStartsClientOutput &&

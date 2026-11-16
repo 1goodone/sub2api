@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -442,4 +443,121 @@ func TestStreamFirstResponseSettingsRoundTrip(t *testing.T) {
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
 		require.Equal(t, enabled, svc.IsStreamFirstResponseEnabled(context.Background()), "reload after cache expiry")
 	}
+}
+
+func TestNativeOAuthFirstRateLimitMayFailover(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, passthrough := range []bool{false, true} {
+			for _, accountType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
+				for _, prefix := range []string{"", ": ping\n\n", "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n", "data: {\"type\":\"response.function_call_arguments.delta\",\"delta\":\"{}\"}\n\n"} {
+					t.Run(fmt.Sprintf("enabled=%t/pass=%t/type=%s/prefix=%d", enabled, passthrough, accountType, len(prefix)), func(t *testing.T) {
+						setStreamFirstResponseForTest(t, enabled)
+						rec := httptest.NewRecorder()
+						c, _ := gin.CreateTestContext(rec)
+						c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+						body := prefix + "data: " + `{"type":"response.failed","response":{"id":"r","status":"failed","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"rate limited"}}}` + "\n\n"
+						resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+						svc := &OpenAIGatewayService{cfg: &config.Config{}}
+						account := &Account{ID: 1, Platform: PlatformOpenAI, Type: accountType}
+						var err error
+						if passthrough {
+							_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "test", "test")
+						} else {
+							_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "test", "test")
+						}
+						require.Error(t, err)
+						var failover *UpstreamFailoverError
+						want := (!enabled && (prefix == "" || prefix == ": ping\n\n" || strings.Contains(prefix, "response.created"))) || (enabled && !passthrough && accountType == AccountTypeOAuth && (prefix == "" || prefix == ": ping\n\n"))
+						require.Equal(t, want, errors.As(err, &failover), err.Error())
+						if want {
+							require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+							require.Empty(t, rec.Body.String(), "rate limit must be classified before writing the error")
+							require.False(t, failover.RequestRejected, "do not expand encrypted tool-result replay policy")
+						} else {
+							require.Contains(t, rec.Body.String(), "response.failed")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestNativeOAuthFirstRateLimitRequiresStructuredEvidence(t *testing.T) {
+	a := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	for _, payload := range []string{
+		`{"response":{"error":{"code":"rate_limit_exceeded"}}}`,
+		`{"error":{"type":"rate_limit_error"}}`,
+		`{"response":{"error":{"status_code":429}}}`,
+	} {
+		require.True(t, isNativeOAuthFirstResponseRateLimit(a, []byte(payload)))
+	}
+	for _, payload := range []string{
+		`{"response":{"error":{"message":"rate_limit_exceeded"}}}`,
+		`{"response":{"error":{"code":"gateway_concurrency_limit"}}}`,
+		`{"response":{"output":[{"text":"rate_limit_exceeded"}]}}`,
+		`{"error":{"code":"server_error"}}`,
+	} {
+		require.False(t, isNativeOAuthFirstResponseRateLimit(a, []byte(payload)))
+	}
+	require.False(t, isNativeOAuthFirstResponseRateLimit(nil, []byte(`{"error":{"type":"rate_limit_error"}}`)))
+}
+
+func TestRelayFirstConcurrencyMayFailover(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, passthrough := range []bool{false, true} {
+			for _, terminal := range []string{
+				`{"type":"response.failed","response":{"error":{"code":"gateway_concurrency_limit","message":"Concurrency limit exceeded for account, please retry later"}}}`,
+				`{"type":"error","error":{"code":"gateway_concurrency_limit","message":"Concurrency limit exceeded for account, please retry later"}}`,
+			} {
+				for _, prefix := range []string{"", ": ping\n\n", "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n", "data: {\"type\":\"response.function_call_arguments.delta\",\"delta\":\"{}\"}\n\n"} {
+					t.Run(fmt.Sprintf("enabled=%t/pass=%t/terminal=%d/prefix=%d", enabled, passthrough, len(terminal), len(prefix)), func(t *testing.T) {
+						setStreamFirstResponseForTest(t, enabled)
+						rec := httptest.NewRecorder()
+						c, _ := gin.CreateTestContext(rec)
+						c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+						resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(prefix + "data: " + terminal + "\n\n"))}
+						svc := &OpenAIGatewayService{cfg: &config.Config{}}
+						account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+						var err error
+						if passthrough {
+							_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "test", "test")
+						} else {
+							_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "test", "test")
+						}
+						require.Error(t, err)
+						var failover *UpstreamFailoverError
+						want := prefix == "" || prefix == ": ping\n\n" || (!enabled && strings.Contains(prefix, "response.created"))
+						require.Equal(t, want, errors.As(err, &failover), err.Error())
+						if want {
+							require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+							require.True(t, failover.ShouldRetryNextAccount())
+							require.False(t, failover.RetryableOnSameAccount)
+							require.False(t, failover.ShouldReportAccountScheduleFailure())
+							require.False(t, failover.RequestRejected, "do not expand encrypted tool-result replay policy")
+							require.Empty(t, rec.Body.String())
+						} else {
+							require.Contains(t, rec.Body.String(), "gateway_concurrency_limit")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestRelayConcurrencyRequiresStructuredCode(t *testing.T) {
+	a := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	for _, payload := range []string{
+		`{"response":{"error":{"message":"gateway_concurrency_limit"}}}`,
+		`{"response":{"error":{"code":"rate_limit_exceeded"}}}`,
+		`{"response":{"error":{"code":"server_error"}}}`,
+	} {
+		require.False(t, isOpenAIRelayFirstResponseConcurrency(a, []byte(payload)))
+	}
+	payload := []byte(`{"response":{"error":{"code":"gateway_concurrency_limit"}}}`)
+	require.True(t, isOpenAIRelayFirstResponseConcurrency(a, payload))
+	a.Type = AccountTypeOAuth
+	require.False(t, isOpenAIRelayFirstResponseConcurrency(a, payload))
+	require.False(t, isOpenAIRelayFirstResponseConcurrency(nil, payload))
 }
