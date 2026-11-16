@@ -58,6 +58,10 @@ func (s *AccountOpsService) SaveGroups(ctx context.Context, groups []AccountOpsG
 			if err != nil {
 				return err
 			}
+			reconcileAccountOpsProviderGroups(c, accounts)
+			if err := s.validateAccountOpsProviderGroups(ctx, *c, accounts); err != nil {
+				return err
+			}
 			byID := make(map[int64]*Account, len(accounts))
 			for i := range accounts {
 				byID[accounts[i].ID] = &accounts[i]
@@ -264,6 +268,7 @@ func (s *AccountOpsService) SaveRuleGroupsBatch(ctx context.Context, groups []Ac
 		}
 	}
 	return s.updateConfig(ctx, func(c *AccountOpsConfig) error {
+		ctx = s.withAccountOpsProviderSnapshots(ctx, *c)
 		for _, group := range groups {
 			for _, id := range group.AccountIDs {
 				if err := s.applyRule(ctx, c, id, group.Rule, true); err != nil {
@@ -335,7 +340,7 @@ func (s *AccountOpsService) applyRule(ctx context.Context, c *AccountOpsConfig, 
 		if err != nil {
 			return err
 		}
-		if requireCurrentUnit && opsBalanceAccount(account, time.Now()).Unit != r.Unit {
+		if requireCurrentUnit && s.opsBalanceAccount(ctx, account, *c, time.Now()).Unit != r.Unit {
 			return accountOpsConfigValidation("batch balance rules require the same current account unit")
 		}
 		if index < 0 {

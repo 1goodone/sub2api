@@ -276,6 +276,7 @@ type UsageLogFilters struct {
 	RequestID     string
 	Model         string
 	ModelProvider string
+	Platform      string // Persisted provider platform; empty selects all.
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource     string
 	RequestType           *int16

@@ -113,7 +113,7 @@ func TestIssue715FlexibleAffinityPreservesMixedProducerRecords(t *testing.T) {
 }
 
 func TestIssue715ToolResultFailoverRequiresExplicitRejection(t *testing.T) {
-	r := &openAIAgentRecoveryRequest{owner: &openAIAgentRecoveryBinding{accountID: 1}, toolResult: true}
+	r := &openAIAgentRecoveryRequest{owner: &openAIAgentRecoveryBinding{accountID: 1}, toolResult: true, disableOwnerBinding: true}
 	ctx := context.WithValue(context.Background(), openAIAgentRecoveryContextKey{}, r)
 	require.True(t, OpenAIAgentToolResultCanFailover(ctx, &UpstreamFailoverError{StatusCode: 429, RequestRejected: true}))
 	for _, status := range []int{0, 401, 403, 429, 500, 520} {

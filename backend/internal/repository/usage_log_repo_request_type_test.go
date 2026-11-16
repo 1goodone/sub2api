@@ -6,6 +6,8 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -107,6 +109,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.CacheCreation12hTokens,
 			createdAt,
 			sqlmock.AnyArg(), // queue_timing
+			sql.NullString{}, // platform
+			nil,              // customer_cost_details
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
 
@@ -206,6 +210,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.CacheCreation12hTokens,
 			createdAt,
 			sqlmock.AnyArg(), // queue_timing
+			sql.NullString{}, // platform
+			nil,              // customer_cost_details
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
 
@@ -286,8 +292,8 @@ func TestPrepareUsageLogInsert_PersistsNativeCompactionV2WithoutChangingRequestT
 	prepared := prepareUsageLogInsert(log)
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-5])
-	require.Equal(t, true, prepared.args[len(prepared.args)-5])
+	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-7])
+	require.Equal(t, true, prepared.args[len(prepared.args)-7])
 	require.Equal(t, int16(service.RequestTypeStream), prepared.args[30])
 	require.Equal(t, service.RequestTypeStream, log.RequestType)
 	require.True(t, log.Stream)
@@ -526,6 +532,24 @@ func TestUsageLogRepositoryPersonalTrendUsesSelectedTimezone(t *testing.T) {
 				WithArgs(start, end, zone, int64(7), "gpt-5").
 				WillReturnRows(sqlmock.NewRows([]string{"date", "requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost", "actual_cost"}).AddRow("2026-10-13 00:00", 1, 2, 3, 4, 5, 14, 0.5, 0.4))
 			trend, err := repo.GetUsageTrendWithUsageFilters(context.Background(), start, end, "hour", usagestats.UsageLogFilters{UserID: 7, Model: "gpt-5", ModelFilterSource: usagestats.ModelSourceRequested})
+			require.NoError(t, err)
+			require.Equal(t, "2026-10-13 00:00", trend[0].Date)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestUsageLogRepositoryPersonalTrendUsesFixedOffset(t *testing.T) {
+	for _, offset := range []int{9 * 3600, -4*3600 - 30*60} {
+		t.Run(strconv.Itoa(offset), func(t *testing.T) {
+			start := time.Date(2026, 10, 13, 0, 0, 0, 0, time.FixedZone("", offset))
+			end := start.Add(24 * time.Hour)
+			db, mock := newSQLMock(t)
+			repo := &usageLogRepository{sql: db}
+			mock.ExpectQuery(regexp.QuoteMeta("TO_CHAR(created_at AT TIME ZONE ($3 * INTERVAL '1 second'), 'YYYY-MM-DD HH24:00')")).
+				WithArgs(start, end, offset, int64(7)).
+				WillReturnRows(sqlmock.NewRows([]string{"date", "requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost", "actual_cost"}).AddRow("2026-10-13 00:00", 1, 2, 3, 4, 5, 14, 0.5, 0.4))
+			trend, err := repo.GetUsageTrendWithUsageFilters(context.Background(), start, end, "hour", usagestats.UsageLogFilters{UserID: 7})
 			require.NoError(t, err)
 			require.Equal(t, "2026-10-13 00:00", trend[0].Date)
 			require.NoError(t, mock.ExpectationsWereMet())
@@ -993,6 +1017,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,     // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // queue_timing
+			sql.NullString{}, // platform
+			sql.NullString{}, // customer_cost_details
 		}})
 		require.NoError(t, err)
 		require.Equal(t, 2, log.ImageCount)
@@ -1077,6 +1103,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // queue_timing
+			sql.NullString{}, // platform
+			sql.NullString{}, // customer_cost_details
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
@@ -1144,6 +1172,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // queue_timing
+			sql.NullString{}, // platform
+			sql.NullString{}, // customer_cost_details
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
@@ -1212,6 +1242,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // queue_timing
+			sql.NullString{}, // platform
+			sql.NullString{}, // customer_cost_details
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)

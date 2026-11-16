@@ -7,7 +7,7 @@ import type { InternalAxiosRequestConfig } from 'axios'
 import { getAutoConfig } from '@/api/admin/autoConfig'
 import { defaultExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 vi.mock('@/api/admin/autoConfig', () => ({ getAutoConfig: vi.fn() }))
-beforeEach(() => { vi.mocked(getAutoConfig).mockResolvedValue({ excel_bps: defaultExcelBPSDefaults() } as Awaited<ReturnType<typeof getAutoConfig>>) })
+beforeEach(() => { setActivePinia(createPinia()); vi.mocked(getAutoConfig).mockResolvedValue({ excel_bps: defaultExcelBPSDefaults() } as Awaited<ReturnType<typeof getAutoConfig>>) })
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
@@ -3043,7 +3043,7 @@ describe('Excel BPS default template integration', () => {
     account.extra = { unrelated: 'keep' }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
-    vi.mocked(getAutoConfig).mockResolvedValueOnce({ excel_bps: { ...defaultExcelBPSDefaults(), models: ['my-bps-model'] } } as Awaited<ReturnType<typeof getAutoConfig>>)
+    vi.mocked(getAutoConfig).mockResolvedValueOnce({ excel_bps: { ...defaultExcelBPSDefaults(), models: ['my-bps-model'], web_search: true, web_search_auto: true } } as Awaited<ReturnType<typeof getAutoConfig>>)
     const wrapper = mountModal(account)
     await wrapper.get('[data-testid="excel-bps-defaults-toggle"]').trigger('click')
     await flushPromises()
@@ -3053,6 +3053,7 @@ describe('Excel BPS default template integration', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
       unrelated: 'keep', openai_excel_bps: true, openai_excel_bps_config_mode: 'defaults', openai_excel_bps_models: ['my-bps-model'],
+      openai_excel_bps_web_search: true, openai_excel_bps_web_search_auto: true,
       openai_excel_bps_ignore_encrypted_content: true, openai_excel_bps_auto_disable_on_403: true,
       openai_excel_bps_cache_creation_as_input: true
     })
@@ -3078,6 +3079,77 @@ describe('Excel BPS default template integration', () => {
 
 })
 
+describe('EditAccountModal gemini explicit cache upstream switch', () => {
+  function buildGeminiApiKeyAccount(credentials: Record<string, unknown>) {
+    return {
+      id: 21,
+      name: 'Gemini upstream gateway',
+      notes: '',
+      platform: 'gemini',
+      type: 'apikey',
+      credentials: { api_key: 'sk-upstream', ...credentials },
+      credentials_status: { has_api_key: true },
+      extra: {},
+      proxy_id: null,
+      concurrency: 1,
+      priority: 1,
+      rate_multiplier: 1,
+      status: 'active',
+      group_ids: [],
+      expires_at: null,
+      auto_pause_on_expired: false
+    } as any
+  }
+
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('hides the switch for the official AI Studio address', () => {
+    const wrapper = mountModal(buildGeminiApiKeyAccount({ base_url: 'https://generativelanguage.googleapis.com' }))
+    expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(false)
+  })
+
+  it('loads and saves the switch and ttl limit for a custom upstream', async () => {
+    const account = buildGeminiApiKeyAccount({
+      base_url: 'https://upstream.example.com',
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 1800
+    })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').attributes('aria-checked')).toBe('true')
+    const ttlInput = wrapper.get('[data-testid="explicit-cache-upstream-max-ttl"]')
+    expect((ttlInput.element as HTMLInputElement).value).toBe('1800')
+
+    await ttlInput.setValue('3600')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 3600
+    })
+  })
+
+  it('removes both fields when the switch is turned off', async () => {
+    const account = buildGeminiApiKeyAccount({
+      base_url: 'https://upstream.example.com',
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 1800
+    })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).not.toHaveProperty('explicit_cache_upstream')
+    expect(credentials).not.toHaveProperty('explicit_cache_upstream_max_ttl_seconds')
+  })
+})
 
 describe('OAuth slot reservation settings', () => {
   beforeEach(() => {
@@ -3108,6 +3180,156 @@ describe('OAuth slot reservation settings', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
     expect(updateAccountMock).not.toHaveBeenCalled()
     expect(showErrorMock).toHaveBeenCalled()
+  })
+
+})
+
+describe('EditAccountModal temp-unschedulable rule scope', () => {
+  beforeEach(() => {
+    updateAccountMock.mockReset()
+    setActivePinia(createPinia())
+  })
+
+  function buildAccountWithTempUnschedRules(rules: Array<Record<string, unknown>>) {
+    const account = buildAccount()
+    return {
+      ...account,
+      credentials: {
+        ...account.credentials,
+        temp_unschedulable_enabled: true,
+        temp_unschedulable_rules: rules
+      }
+    } as any
+  }
+
+  const checkedScopes = (wrapper: ReturnType<typeof mountModal>) =>
+    wrapper
+      .findAll('[data-testid^="temp-unsched-scope-"][aria-checked="true"]')
+      .map((radio) => radio.attributes('data-testid'))
+
+  const savedRules = () =>
+    updateAccountMock.mock.calls[0]?.[1]?.credentials?.temp_unschedulable_rules
+
+
+  const checkedStreamTimings = (wrapper: ReturnType<typeof mountModal>) =>
+    wrapper
+      .findAll('[data-testid^="temp-unsched-stream-"][aria-checked="true"]')
+      .map((radio) => radio.attributes('data-testid'))
+
+  it('shows a timing choice and count for saved rules that omit the new fields', async () => {
+    const account = buildAccountWithTempUnschedRules([
+      { error_code: 429, keywords: ['rate limit'], duration_minutes: 10 },
+      { error_code: 502, keywords: ['bad gateway'], duration_minutes: 5 }
+    ])
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(checkedStreamTimings(wrapper)).toEqual([
+      'temp-unsched-stream-after_stream',
+      'temp-unsched-stream-before_stream'
+    ])
+    const announcements = wrapper.findAllComponents(NewFeatureBadge).filter(
+      (badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.tempUnschedStreamCountWindow
+    )
+    expect(announcements).toHaveLength(2)
+    expect(announcements.every((badge) => badge.props('userId') === 41)).toBe(true)
+    await announcements[0].get('button').trigger('click')
+    expect(
+      wrapper.findAllComponents(NewFeatureBadge).filter(
+        (badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.tempUnschedStreamCountWindow && badge.find('button').exists()
+      )
+    ).toHaveLength(0)
+    const counts = wrapper.findAll('[data-testid="temp-unsched-trigger-count"]')
+    expect(counts).toHaveLength(2)
+    expect((counts[0].element as HTMLInputElement).value).toBe('1')
+    expect((counts[1].element as HTMLInputElement).value).toBe('1')
+    const windows = wrapper.findAll('[data-testid="temp-unsched-trigger-window"]')
+    expect(windows).toHaveLength(2)
+    expect((windows[0].element as HTMLInputElement).value).toBe('1')
+    expect((windows[1].element as HTMLInputElement).value).toBe('1')
+
+    await counts[1].setValue('3')
+    await windows[1].setValue('8')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(savedRules()).toMatchObject([
+      { error_code: 429, trigger_count: 1, trigger_window_minutes: 1 },
+      { error_code: 502, trigger_count: 3, trigger_window_minutes: 8 }
+    ])
+    expect(savedRules()[0]).not.toHaveProperty('stream_timing')
+    expect(savedRules()[1]).not.toHaveProperty('stream_timing')
+    wrapper.unmount()
+  })
+
+  it('keeps an omitted legacy 529 timing when only another account field is saved', async () => {
+    const account = buildAccountWithTempUnschedRules([
+      {
+        error_code: 529,
+        keywords: ['Overloaded'],
+        duration_minutes: 15,
+        description: 'legacy overload',
+        scope: 'model'
+      }
+    ])
+    account.platform = 'anthropic'
+    account.name = 'Claude relay'
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(checkedStreamTimings(wrapper)).toEqual(['temp-unsched-stream-after_stream'])
+    await wrapper.get('[data-tour="edit-account-form-name"]').setValue('Claude relay renamed')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledWith(
+      account.id,
+      expect.objectContaining({ name: 'Claude relay renamed' })
+    )
+    expect(savedRules()).toHaveLength(1)
+    expect(savedRules()[0]).toMatchObject({
+      error_code: 529,
+      keywords: ['Overloaded'],
+      duration_minutes: 15,
+      description: 'legacy overload',
+      scope: 'model'
+    })
+    expect(savedRules()[0]).not.toHaveProperty('stream_timing')
+    wrapper.unmount()
+  })
+
+  it('writes stream_timing only after the operator changes that control', async () => {
+    const account = buildAccountWithTempUnschedRules([
+      { error_code: 529, keywords: ['Overloaded'], duration_minutes: 15, scope: 'model' }
+    ])
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="temp-unsched-stream-before_stream"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(savedRules()[0]).toMatchObject({ error_code: 529, stream_timing: 'before_stream' })
+    wrapper.unmount()
+  })
+
+  it('defaults a custom rule to before-stream and count 1, and presets to after-stream', async () => {
+    const wrapper = mountModal(buildAccountWithTempUnschedRules([]))
+
+    const addRule = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.accounts.tempUnschedulable.addRule'))
+    await addRule!.trigger('click')
+    expect(checkedStreamTimings(wrapper)).toEqual(['temp-unsched-stream-before_stream'])
+    expect((wrapper.get('[data-testid="temp-unsched-trigger-count"]').element as HTMLInputElement).value).toBe('1')
+    expect((wrapper.get('[data-testid="temp-unsched-trigger-window"]').element as HTMLInputElement).value).toBe('5')
+
+    const preset = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.accounts.tempUnschedulable.presets.overloadLabel'))
+    await preset!.trigger('click')
+    expect(checkedStreamTimings(wrapper)).toEqual([
+      'temp-unsched-stream-before_stream',
+      'temp-unsched-stream-after_stream'
+    ])
+    wrapper.unmount()
   })
 })
 

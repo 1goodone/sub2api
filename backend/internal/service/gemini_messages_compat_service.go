@@ -693,6 +693,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil) }()
 
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
+
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -1278,6 +1282,9 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (slotResult *ForwardResult, slotErr error) {
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil) }()
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
 
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)

@@ -26,19 +26,23 @@ type AccountOpsRoutingGroup struct {
 	Name string `json:"name"`
 }
 type AccountOpsBalanceAccount struct {
-	AccountID     int64                    `json:"account_id"`
-	AccountName   string                   `json:"account_name"`
-	GroupID       string                   `json:"group_id"`
-	GroupName     string                   `json:"group_name"`
-	GroupMode     string                   `json:"group_mode"`
-	RoutingGroups []AccountOpsRoutingGroup `json:"routing_groups"`
-	Platform      string                   `json:"platform"`
-	Type          string                   `json:"type"`
-	Balance       *float64                 `json:"balance"`
-	Unit          string                   `json:"unit"`
-	BalanceStatus string                   `json:"balance_status"`
-	ReceivedAt    *time.Time               `json:"received_at"`
-	UsageWindows  []AccountOpsUsageWindow  `json:"usage_windows"`
+	ProviderID       int64                    `json:"provider_id,omitempty"`
+	OAuthLifecycle   string                   `json:"oauth_lifecycle,omitempty"`
+	AccountID        int64                    `json:"account_id"`
+	AccountName      string                   `json:"account_name"`
+	GroupID          string                   `json:"group_id"`
+	GroupName        string                   `json:"group_name"`
+	GroupMode        string                   `json:"group_mode"`
+	Platform         string                   `json:"platform"`
+	Type             string                   `json:"type"`
+	Balance          *float64                 `json:"balance"`
+	Unit             string                   `json:"unit"`
+	BalanceStatus    string                   `json:"balance_status"`
+	ProbeEnabled     bool                     `json:"probe_enabled"`
+	LastKnownBalance *float64                 `json:"last_known_balance,omitempty"`
+	ReceivedAt       *time.Time               `json:"received_at"`
+	UsageWindows     []AccountOpsUsageWindow  `json:"usage_windows"`
+	RoutingGroups    []AccountOpsRoutingGroup `json:"routing_groups"`
 }
 
 func opsNumber(v any) (float64, bool) {
@@ -118,6 +122,7 @@ func opsBalanceAccount(a *Account, now time.Time) AccountOpsBalanceAccount {
 		item.Unit = "%"
 		return item
 	}
+	item.ProbeEnabled = upstreamBillingProbeEnabled(a)
 	snap := decodeUpstreamBillingProbeSnapshot(a.Extra)
 	if snap == nil || snap.Balance == nil {
 		return item
@@ -131,12 +136,15 @@ func opsBalanceAccount(a *Account, now time.Time) AccountOpsBalanceAccount {
 	if b.Status != "ok" {
 		return item
 	}
-	if !opsFresh(b.ReceivedAt, b.FreshUntil, now) {
-		item.BalanceStatus = "stale"
-		return item
-	}
 	if unlimited, ok := b.Data["unlimited"].(bool); ok && unlimited {
 		item.BalanceStatus = "unsupported"
+		return item
+	}
+	if !opsFresh(b.ReceivedAt, b.FreshUntil, now) {
+		if n, ok := opsNumber(b.Data["remaining"]); ok && b.ReceivedAt != nil && !b.ReceivedAt.After(now) {
+			item.LastKnownBalance = &n
+		}
+		item.BalanceStatus = "stale"
 		return item
 	}
 	n, ok := opsNumber(b.Data["remaining"])
@@ -281,7 +289,7 @@ func (s *AccountOpsService) ThresholdGroups(ctx context.Context) ([]AccountOpsGr
 		// Keep the collection JSON-shaped even for an empty group. A nil slice
 		// becomes `null`, while the frontend treats account_ids as an array.
 		accountIDs := append([]int64{}, group.AccountIDs...)
-		out = append(out, AccountOpsGroupView{ID: group.ID, Name: name, DefaultName: name, Provider: provider, Site: site, Mode: "manual", AccountIDs: accountIDs})
+		out = append(out, AccountOpsGroupView{ProviderID: group.ProviderID, ID: group.ID, Name: name, DefaultName: name, Provider: provider, Site: site, Mode: "manual", AccountIDs: accountIDs})
 	}
 	return out, nil
 }
@@ -298,13 +306,17 @@ func (s *AccountOpsService) thresholdAccounts(ctx context.Context, apiOnly bool)
 	if err != nil {
 		return nil, err
 	}
+	ctx = s.withAccountOpsProviderSnapshots(ctx, c)
 	now := time.Now()
 	for i := range accounts {
 		a := &accounts[i]
 		if a.Type != AccountTypeAPIKey && (apiOnly || a.Type != AccountTypeOAuth) {
 			continue
 		}
-		item := opsBalanceAccount(a, now)
+		item := s.opsBalanceAccount(ctx, a, c, now)
+		if a.Type == AccountTypeOAuth {
+			item.OAuthLifecycle = accountOpsOAuthLifecycle(a)
+		}
 		item.RoutingGroups = opsRoutingGroups(a)
 		group := accountOpsGroupAssignment(a, c)
 		item.GroupID, item.GroupName, item.GroupMode = group.ID, group.Name, group.Mode
@@ -386,7 +398,7 @@ func (s *AccountOpsService) assessThreshold(ctx context.Context, a *Account, kin
 	if kind == "balance_threshold" && a.Type == AccountTypeAPIKey {
 		for _, r := range c.BalanceThresholds {
 			if r.AccountID == a.ID && r.Enabled {
-				item := opsBalanceAccount(a, now)
+				item := s.opsBalanceAccount(ctx, a, c, now)
 				if item.Balance == nil || item.Unit != r.Unit {
 					return nil, "suppressed"
 				}
@@ -459,8 +471,9 @@ func thresholdRuleIDs(c AccountOpsConfig, kind string) []int64 {
 
 func accountOpsGroupCriteria(c AccountOpsConfig, kind string, members []accountOpsThresholdMember) (string, bool, bool, bool) {
 	type part struct {
-		ID       int64  `json:"id"`
-		Criteria string `json:"criteria"`
+		ProviderID int64  `json:"provider_id,omitempty"`
+		ID         int64  `json:"id"`
+		Criteria   string `json:"criteria"`
 	}
 	parts := make([]part, 0, len(members))
 	alert, recovery := false, true
@@ -469,15 +482,39 @@ func accountOpsGroupCriteria(c AccountOpsConfig, kind string, members []accountO
 		if !enabled || criteria == "" {
 			continue
 		}
-		parts = append(parts, part{ID: member.id, Criteria: criteria})
+		parts = append(parts, part{ProviderID: accountOpsProviderID(c, member.id), ID: member.id, Criteria: criteria})
 		alert = alert || notifyAlert
 		recovery = recovery && notifyRecovery
 	}
 	if len(parts) == 0 {
 		return "", false, alert, recovery
 	}
+	// A provider wallet keeps its episode when keys are added or reordered.
+	// Only a different provider or a changed set of thresholds invalidates it.
+	if kind == "balance_threshold" && parts[0].ProviderID > 0 {
+		providerID := parts[0].ProviderID
+		criteria := []string{}
+		seen := map[string]bool{}
+		shared := true
+		for _, p := range parts {
+			if p.ProviderID != providerID {
+				shared = false
+				break
+			}
+			if !seen[p.Criteria] {
+				criteria = append(criteria, p.Criteria)
+				seen[p.Criteria] = true
+			}
+		}
+		if shared {
+			sort.Strings(criteria)
+			raw, _ := json.Marshal([]any{providerID, criteria})
+			sum := sha256.Sum256(raw)
+			return hex.EncodeToString(sum[:]), true, alert, recovery
+		}
+	}
 	sort.Slice(parts, func(i, j int) bool { return parts[i].ID < parts[j].ID })
-	if len(parts) == 1 {
+	if len(parts) == 1 && parts[0].ProviderID == 0 {
 		return parts[0].Criteria, true, alert, recovery
 	}
 	raw, _ := json.Marshal(parts)
@@ -571,6 +608,7 @@ func (s *AccountOpsService) scanBalances(ctx context.Context) {
 	if !c.Enabled || s.accounts == nil {
 		return
 	}
+	ctx = s.withAccountOpsProviderSnapshots(ctx, c)
 	ids := append(thresholdRuleIDs(c, "balance_threshold"), thresholdRuleIDs(c, "quota_threshold")...)
 	accounts := s.loadThresholdAccounts(ctx, ids)
 
@@ -602,6 +640,7 @@ func (s *AccountOpsService) scanBalances(ctx context.Context) {
 	}
 }
 func (s *AccountOpsService) recheckThreshold(ctx context.Context, e *AccountOpsEvent, c AccountOpsConfig) (string, error) {
+	ctx = s.withAccountOpsProviderSnapshots(ctx, c)
 	if s.accounts == nil {
 		return "failed", errors.New("account repository unavailable")
 	}
@@ -650,6 +689,13 @@ func (s *AccountOpsService) recheckThreshold(ctx context.Context, e *AccountOpsE
 				}
 			}
 			if e.Phase == "recovery" {
+				if accountOpsProviderID(c, e.AccountID) > 0 {
+					fresh, state := s.assessThresholdGroup(query, group, members, e.Kind, c, time.Now())
+					if state != "resolved" || fresh == nil {
+						return "deferred", nil
+					}
+					e.Details = fresh.Details
+				}
 				return "active", nil
 			}
 			fresh, state := s.assessThresholdGroup(query, group, members, e.Kind, c, time.Now())

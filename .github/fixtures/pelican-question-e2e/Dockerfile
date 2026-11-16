@@ -11,6 +11,9 @@ RUN mkdir -p /opt/fixture/tls && \
       -keyout /opt/fixture/tls/key.pem -out /opt/fixture/tls/cert.pem && \
     chmod 644 /opt/fixture/tls/key.pem
 COPY scripts/pelican-question-e2e.mjs /opt/fixture/pelican-question-e2e.mjs
+COPY scripts/pelican-detail-identity.mjs /opt/fixture/pelican-detail-identity.mjs
+COPY scripts/pelican-nominal-round.mjs /opt/fixture/pelican-nominal-round.mjs
+COPY scripts/pelican-complete-rounds.mjs /opt/fixture/pelican-complete-rounds.mjs
 ENV NODE_EXTRA_CA_CERTS=/opt/fixture/tls/cert.pem
 ENTRYPOINT ["node", "/opt/fixture/pelican-question-e2e.mjs"]
 

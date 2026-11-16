@@ -22,10 +22,10 @@ func TestBPSModelSharedCooldownSettingHotReload(t *testing.T) {
 	require.WithinDuration(t, before.Add(25*time.Minute), entry.nextProbeAt, time.Second)
 	s.coolDownExcelBPSAttempt(ctx, a, "gpt-6-astra", nil, nil, nil, 429)
 	require.WithinDuration(t, entry.nextProbeAt, bpsRateLimitState(t, s, a, "gpt-6-astra").until, time.Second, "both policies use the existing saved value")
-	deadline := entry.nextProbeAt
+	deadline := s.excelBPSModelCooldowns.entries[excelBPSModelKey{a.ID, "gpt-6-astra"}].nextProbeAt
 	settings.ExcelBPSModelRateLimitCooldownMinutes = 5
 	require.NoError(t, s.settingService.UpdateSettings(t.Context(), settings))
-	require.Equal(t, deadline, entry.nextProbeAt, "saving does not rewrite existing cooldowns")
+	require.Equal(t, deadline, s.excelBPSModelCooldowns.entries[excelBPSModelKey{a.ID, "gpt-6-astra"}].nextProbeAt, "saving does not rewrite existing cooldowns")
 	s.coolDownExcelBPSModel(ctx, a, "gpt-6-astra")
 	require.Equal(t, deadline, s.excelBPSModelCooldowns.entries[excelBPSModelKey{a.ID, "gpt-6-astra"}].nextProbeAt, "concurrent errors cannot shorten a later deadline")
 	before = time.Now()

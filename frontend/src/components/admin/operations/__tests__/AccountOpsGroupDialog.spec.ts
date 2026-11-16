@@ -5,7 +5,7 @@ import { saveAccountOpsGroups } from '@/api/admin/accountOps'
 import type { AccountOpsConfig, AccountOpsGroup, AccountOpsThresholdAccount } from '@/api/admin/accountOps'
 
 vi.mock('@/api/admin/accountOps', () => ({ saveAccountOpsGroups: vi.fn() }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 
 const config: AccountOpsConfig = {
   enabled: false,
@@ -50,13 +50,13 @@ describe('account group editing', () => {
 
   it('filters the member list by routing group without changing membership', async () => {
     const wrapper = create()
-    expect(wrapper.find('[data-testid="account-group-member-manual-primary-2"]').exists()).toBe(true)
+    expect(wrapper.find('[data-account-id="2"]').exists()).toBe(true)
     await wrapper.get('[data-testid="account-group-routing-filter"]').setValue('7')
-    expect(wrapper.find('[data-testid="account-group-member-manual-primary-1"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="account-group-member-manual-primary-2"]').exists()).toBe(false)
+    expect(wrapper.find('[data-account-id="1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-account-id="2"]').exists()).toBe(false)
     await wrapper.get('[data-testid="account-group-routing-filter"]').setValue('ungrouped')
-    expect(wrapper.find('[data-testid="account-group-member-manual-primary-3"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="account-group-member-manual-primary-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-account-id="3"]').exists()).toBe(true)
+    expect(wrapper.find('[data-account-id="1"]').exists()).toBe(false)
     await wrapper.get('[data-testid="save-account-groups"]').trigger('click')
     await flushPromises()
     expect(saveAccountOpsGroups).toHaveBeenCalledWith(expect.arrayContaining([

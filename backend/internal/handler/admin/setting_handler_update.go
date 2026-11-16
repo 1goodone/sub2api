@@ -318,9 +318,6 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerWeightSessionSticky         *string  `json:"openai_advanced_scheduler_weight_session_sticky"`
 
 	// 余额不足提醒
-	BalanceForecastEnabled          *bool                   `json:"balance_forecast_enabled"`
-	BalanceForecastThresholdHours   *float64                `json:"balance_forecast_threshold_hours" binding:"omitempty,gt=0"`
-	BalanceForecastMaxNotifications *int                    `json:"balance_forecast_max_notifications" binding:"omitempty,gt=0"`
 	BalanceLowNotifyEnabled         *bool                   `json:"balance_low_notify_enabled"`
 	BalanceLowNotifyThreshold       *float64                `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
@@ -376,6 +373,7 @@ type UpdateSettingsRequest struct {
 	GrokDefaultBaseURLMode               *string `json:"grok_default_base_url_mode"`
 	GrokVideoSourceURLEnabled            *bool   `json:"grok_video_source_url_enabled"`
 	OpenAI409OmitEncryptedHistoryEnabled *bool   `json:"openai_409_omit_encrypted_history_enabled"`
+	OpenAI400OmitEncryptedHistoryEnabled *bool   `json:"openai_400_omit_encrypted_history_enabled"`
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
@@ -2260,9 +2258,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerWeightUpstreamCost:     stringSetting(req.OpenAIAdvancedSchedulerWeightUpstreamCost, previousSettings.OpenAIAdvancedSchedulerWeightUpstreamCost),
 		OpenAIAdvancedSchedulerWeightPreviousResponse: stringSetting(req.OpenAIAdvancedSchedulerWeightPreviousResponse, previousSettings.OpenAIAdvancedSchedulerWeightPreviousResponse),
 		OpenAIAdvancedSchedulerWeightSessionSticky:    stringSetting(req.OpenAIAdvancedSchedulerWeightSessionSticky, previousSettings.OpenAIAdvancedSchedulerWeightSessionSticky),
-		BalanceForecastEnabled:                        boolValueOrDefault(req.BalanceForecastEnabled, previousSettings.BalanceForecastEnabled),
-		BalanceForecastThresholdHours:                 float64ValueOrDefault(req.BalanceForecastThresholdHours, previousSettings.BalanceForecastThresholdHours),
-		BalanceForecastMaxNotifications:               intValueOrDefault(req.BalanceForecastMaxNotifications, previousSettings.BalanceForecastMaxNotifications),
 		BalanceLowNotifyEnabled: func() bool {
 			if req.BalanceLowNotifyEnabled != nil {
 				return *req.BalanceLowNotifyEnabled
@@ -2382,6 +2377,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAI409OmitEncryptedHistoryEnabled
 			}
 			return previousSettings.OpenAI409OmitEncryptedHistoryEnabled
+		}(),
+		OpenAI400OmitEncryptedHistoryEnabled: func() bool {
+			if req.OpenAI400OmitEncryptedHistoryEnabled != nil {
+				return *req.OpenAI400OmitEncryptedHistoryEnabled
+			}
+			return previousSettings.OpenAI400OmitEncryptedHistoryEnabled
 		}(),
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
@@ -2865,9 +2866,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
-		BalanceForecastEnabled:                                 updatedSettings.BalanceForecastEnabled,
-		BalanceForecastThresholdHours:                          updatedSettings.BalanceForecastThresholdHours,
-		BalanceForecastMaxNotifications:                        updatedSettings.BalanceForecastMaxNotifications,
 		BalanceLowNotifyEnabled:                                updatedSettings.BalanceLowNotifyEnabled,
 		BalanceLowNotifyThreshold:                              updatedSettings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:                            updatedSettings.BalanceLowNotifyRechargeURL,
@@ -2916,6 +2914,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:               updatedSettings.GrokDefaultBaseURLMode,
 		GrokVideoSourceURLEnabled:            updatedSettings.GrokVideoSourceURLEnabled,
 		OpenAI409OmitEncryptedHistoryEnabled: updatedSettings.OpenAI409OmitEncryptedHistoryEnabled,
+		OpenAI400OmitEncryptedHistoryEnabled: updatedSettings.OpenAI400OmitEncryptedHistoryEnabled,
 
 		AvailableChannelsEnabled:  updatedSettings.AvailableChannelsEnabled,
 		PelicanShowcaseEnabled:    updatedSettings.PelicanShowcaseEnabled,

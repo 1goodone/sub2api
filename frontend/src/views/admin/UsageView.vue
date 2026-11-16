@@ -42,7 +42,7 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
-            :enable-breakdown="!props.observerMode"
+            :enable-breakdown="!props.observerMode && !filters.platform"
           />
           <GroupDistributionChart
             v-model:metric="groupDistributionMetric"
@@ -52,7 +52,7 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
-            :enable-breakdown="!props.observerMode"
+            :enable-breakdown="!props.observerMode && !filters.platform"
           />
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -69,9 +69,15 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
-            :enable-breakdown="!props.observerMode"
+            :enable-breakdown="!props.observerMode && !filters.platform"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend
+            :trend-data="trendData"
+            :loading="chartsLoading"
+            show-rate
+            :rate-context="trendRateContext"
+            :notice-user-id="props.observerMode ? undefined : authStore.user?.id"
+          />
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
@@ -93,7 +99,7 @@
           </button>
         </div>
 
-        <UsageFilters v-if="activeTab !== 'traffic'" v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+        <UsageFilters v-if="activeTab !== 'traffic'" v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" :notice-user-id="props.observerMode ? undefined : authStore.user?.id" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
             <div v-if="activeTab === 'usage' || activeTab === 'errors'" class="relative" ref="columnDropdownRef">
               <button
@@ -230,7 +236,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
 import { formatUsageCacheRate, showUsageCacheRate } from '@/utils/usageCacheRate'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
-import { resolveUsageStatsWindow, type UsageRateWindow } from '@/utils/usageRate'
+import { resolveUsageStatsWindow, type UsageRateWindow, type UsageTrendRateContext } from '@/utils/usageRate'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
@@ -259,7 +265,14 @@ type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
 const route = useRoute()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageStatsWindow = ref<UsageRateWindow | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
-const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
+const trendData = ref<TrendDataPoint[]>([]); const trendRateRequest = ref<Pick<UsageTrendRateContext, 'window' | 'granularity'> | null>(null); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
+// Bucket labels are in the server zone. Public settings can load after the trend,
+// so read them live; until then the tooltip shows the rates as unknown.
+const trendRateContext = computed<UsageTrendRateContext | null>(() => trendRateRequest.value && {
+  ...trendRateRequest.value,
+  serverTimezone: appStore.cachedPublicSettings?.server_timezone ?? null,
+  serverUTCOffset: appStore.cachedPublicSettings?.server_utc_offset ?? null,
+})
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const modelDistributionSource = ref<ModelDistributionSource>('requested')
 const loadedModelSources = reactive<Record<ModelDistributionSource, boolean>>({
@@ -286,6 +299,8 @@ const balanceHistoryUser = ref<AdminUser | null>(null)
 
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
+  if (filters.value.model) f.model = filters.value.model
+  if (filters.value.platform) f.platform = filters.value.platform
   if (filters.value.user_id) f.user_id = filters.value.user_id
   if (filters.value.api_key_id) f.api_key_id = filters.value.api_key_id
   if (filters.value.account_id) f.account_id = filters.value.account_id
@@ -463,7 +478,7 @@ const loadLogs = async () => {
   abortController?.abort(); const c = new AbortController(); abortController = c; loading.value = true
   try {
     const res = await (props.observerMode ? observerUsageAPI.list : adminAPI.usage.list)(
-      buildUsageListParams(pagination.page, pagination.page_size, false),
+      buildUsageListParams(pagination.page, pagination.page_size, !props.observerMode && !!filters.value.platform),
       { signal: c.signal }
     )
     if(!c.signal.aborted) { usageLogs.value = res.items; pagination.total = res.total }
@@ -529,6 +544,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
       api_key_id: filters.value.api_key_id,
       account_id: filters.value.account_id,
       group_id: filters.value.group_id,
+      platform: filters.value.platform,
       request_type: requestType,
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
@@ -571,15 +587,20 @@ const loadChartData = async () => {
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+    const trendStart = filters.value.start_date || startDate.value
+    const trendEnd = filters.value.end_date || endDate.value
+    // Pair the trend with the range, granularity and time it was requested for (tooltip RPM/TPM).
+    const rateRequest = { window: { start: trendStart, end: trendEnd, now: Date.now() }, granularity: granularity.value }
     const snapshot = await (props.observerMode ? observerUsageAPI.getSnapshotV2 : adminAPI.dashboard.getSnapshotV2)({
-      start_date: filters.value.start_date || startDate.value,
-      end_date: filters.value.end_date || endDate.value,
+      start_date: trendStart,
+      end_date: trendEnd,
       granularity: granularity.value,
       user_id: filters.value.user_id,
       model: filters.value.model,
       api_key_id: filters.value.api_key_id,
       account_id: filters.value.account_id,
       group_id: filters.value.group_id,
+      platform: filters.value.platform,
       request_type: requestType,
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
@@ -593,6 +614,7 @@ const loadChartData = async () => {
     })
     if (seq !== chartReqSeq) return
     trendData.value = snapshot.trend || []
+    trendRateRequest.value = rateRequest
     groupStats.value = snapshot.groups || []
   } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
@@ -646,6 +668,10 @@ const handleIpGeoBatchFailed = () => {
 const cancelExport = () => exportAbortController?.abort()
 const openCleanupDialog = () => {
   if (props.observerMode) return
+  if (filters.value.platform) {
+    appStore.showWarning(t('admin.usage.platformCleanupUnavailable'))
+    return
+  }
   if (!cleanupUsesCalendarDates.value) {
     appStore.showWarning(t('admin.usage.cleanup.calendarRangeRequired'))
     return
@@ -665,6 +691,7 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
 const exportToExcel = async () => {
   if (exporting.value) return; exporting.value = true; exportProgress.show = true
   const c = new AbortController(); exportAbortController = c
+  const exportParams = buildUsageListParams(1, 100, true)
   try {
     let p = 1; let total = pagination.total; let exportedCount = 0
     const XLSX = await import('xlsx')
@@ -685,7 +712,7 @@ const exportToExcel = async () => {
     const ws = XLSX.utils.aoa_to_sheet([headers])
     while (true) {
       const res = await (props.observerMode ? observerUsageAPI.list : adminUsageAPI.list)(
-        buildUsageListParams(p, 100, true),
+        { ...exportParams, page: p },
         { signal: c.signal }
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
@@ -713,7 +740,7 @@ const exportToExcel = async () => {
     if(!c.signal.aborted) {
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Usage')
-      saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `usage_${filters.value.start_date}_to_${filters.value.end_date}.xlsx`)
+      saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `usage_${exportParams.start_date}_to_${exportParams.end_date}.xlsx`)
       appStore.showSuccess(t('usage.exportSuccess'))
     }
   } catch (error) { console.error('Failed to export:', error); appStore.showError('Export Failed') }
@@ -902,7 +929,10 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   if (!detailTabs.value.some(item => item.key === tab)) return
+  const clearPlatform = tab !== 'usage' && !!filters.value.platform
+  if (clearPlatform) filters.value.platform = undefined
   activeTab.value = tab
+  if (clearPlatform) applyFilters()
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }

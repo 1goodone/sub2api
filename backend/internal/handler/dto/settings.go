@@ -321,9 +321,6 @@ type SystemSettings struct {
 	PaymentAlipayMobilePrecreateDeepLink bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// 余额、订阅到期与账号限额通知
-	BalanceForecastEnabled          bool               `json:"balance_forecast_enabled"`
-	BalanceForecastThresholdHours   float64            `json:"balance_forecast_threshold_hours"`
-	BalanceForecastMaxNotifications int                `json:"balance_forecast_max_notifications"`
 	BalanceLowNotifyEnabled         bool               `json:"balance_low_notify_enabled"`
 	BalanceLowNotifyThreshold       float64            `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL     string             `json:"balance_low_notify_recharge_url"`
@@ -351,6 +348,7 @@ type SystemSettings struct {
 	GrokDefaultBaseURLMode               string `json:"grok_default_base_url_mode"`
 	GrokVideoSourceURLEnabled            bool   `json:"grok_video_source_url_enabled"`
 	OpenAI409OmitEncryptedHistoryEnabled bool   `json:"openai_409_omit_encrypted_history_enabled"`
+	OpenAI400OmitEncryptedHistoryEnabled bool   `json:"openai_400_omit_encrypted_history_enabled"`
 
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`

@@ -369,9 +369,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     settings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: settings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    settings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
-		BalanceForecastEnabled:                                 settings.BalanceForecastEnabled,
-		BalanceForecastThresholdHours:                          settings.BalanceForecastThresholdHours,
-		BalanceForecastMaxNotifications:                        settings.BalanceForecastMaxNotifications,
 		BalanceLowNotifyEnabled:                                settings.BalanceLowNotifyEnabled,
 		BalanceLowNotifyThreshold:                              settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:                            settings.BalanceLowNotifyRechargeURL,
@@ -423,6 +420,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:               settings.GrokDefaultBaseURLMode,
 		GrokVideoSourceURLEnabled:            settings.GrokVideoSourceURLEnabled,
 		OpenAI409OmitEncryptedHistoryEnabled: settings.OpenAI409OmitEncryptedHistoryEnabled,
+		OpenAI400OmitEncryptedHistoryEnabled: settings.OpenAI400OmitEncryptedHistoryEnabled,
 
 		AvailableChannelsEnabled:  settings.AvailableChannelsEnabled,
 		PelicanShowcaseEnabled:    settings.PelicanShowcaseEnabled,

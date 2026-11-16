@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,8 +51,14 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	if sessionID := service.ExtractClientSessionID(c); sessionID != "" {
 		req.SessionID = &sessionID
 	}
+	req.BeforeGeneration = func(ctx context.Context, account *service.Account) error {
+		return service.CheckUpstreamModeration(ctx, c, account)
+	}
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {
+		if c.IsAborted() {
+			return
+		}
 		batchImageError(c, err)
 		return
 	}

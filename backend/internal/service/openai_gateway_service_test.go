@@ -1686,6 +1686,61 @@ func TestOpenAIStreamingReadErrorBeforeOutputReturnsFailover(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
+func TestOpenAIStreamingReadErrorAfterOutputUsesResponsesErrorSchema(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name  string
+		cause error
+		code  string
+	}{
+		{"reset", errors.New("read tcp 192.0.2.1:1234->192.0.2.2:443: connection reset by peer"), OpenAIUpstreamStreamReadErrorCode},
+		{"http2", errors.New("stream error: stream ID 3; INTERNAL_ERROR; received from peer"), OpenAIUpstreamHTTP2StreamErrorCode},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: &openAIStreamReadThenErrorCloser{
+				reader: strings.NewReader("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"),
+				err:    tc.cause,
+			}}
+			_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "model", "model")
+			require.ErrorIs(t, err, tc.cause)
+			body := rec.Body.String()
+			require.Contains(t, body, "partial")
+			require.NotContains(t, body, "192.0.2.")
+			require.NotContains(t, body, "stream ID")
+			require.NotContains(t, body, "response.completed")
+			require.NotContains(t, body, "[DONE]")
+			if tc.code == OpenAIUpstreamHTTP2StreamErrorCode {
+				require.Equal(t, 1, strings.Count(body, "event: response.failed\n"))
+				require.Contains(t, body, "INTERNAL_ERROR")
+				require.Contains(t, body, "Do not automatically retry")
+				require.NotContains(t, body, "event: error\n")
+				require.True(t, IsResponseCommitted(c))
+				return
+			}
+			require.Equal(t, 1, strings.Count(body, "event: error\n"))
+			require.True(t, IsResponseCommitted(c), "the handler must not append another failure")
+			var events []gjson.Result
+			for _, line := range strings.Split(body, "\n") {
+				if strings.HasPrefix(line, "data: ") {
+					event := gjson.Parse(strings.TrimPrefix(line, "data: "))
+					if event.Get("type").String() == "error" {
+						events = append(events, event)
+					}
+				}
+			}
+			require.Len(t, events, 1)
+			require.Equal(t, tc.code, events[0].Get("code").String())
+			require.NotEmpty(t, events[0].Get("message").String())
+			require.False(t, events[0].Get("error").Exists(), "Responses errors have top-level fields")
+			require.True(t, events[0].Get("param").Exists())
+		})
+	}
+}
+
 func TestOpenAIStreamingPostOutputDisconnectQuarantinesSharedProxyWithoutSameStreamFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	proxyID := int64(4698)

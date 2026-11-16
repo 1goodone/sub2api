@@ -650,6 +650,7 @@ export interface SystemSettings {
   grok_default_base_url_mode: string;
   grok_video_source_url_enabled: boolean;
   openai_409_omit_encrypted_history_enabled: boolean;
+  openai_400_omit_encrypted_history_enabled: boolean;
 
   // Per-platform account auto-pause thresholds (100 = disabled)
   account_scheduling_thresholds: AccountSchedulingThresholdsMap;
@@ -780,9 +781,6 @@ export interface SystemSettings {
   openai_advanced_scheduler_effective_weight_session_sticky?: string;
 
   // 余额、订阅到期与账号限额通知
-  balance_forecast_enabled: boolean;
-  balance_forecast_threshold_hours: number;
-  balance_forecast_max_notifications: number;
   balance_low_notify_enabled: boolean;
   balance_low_notify_threshold: number;
   balance_low_notify_recharge_url: string;
@@ -1057,6 +1055,7 @@ export interface UpdateSettingsRequest {
   grok_default_base_url_mode?: string;
   grok_video_source_url_enabled?: boolean;
   openai_409_omit_encrypted_history_enabled?: boolean;
+  openai_400_omit_encrypted_history_enabled?: boolean;
   account_scheduling_thresholds?: AccountSchedulingThresholdsMap;
   enable_identity_patch?: boolean;
   identity_patch_prompt?: string;
@@ -1157,9 +1156,6 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
   // 余额、订阅到期与账号限额通知
-  balance_forecast_enabled?: boolean;
-  balance_forecast_threshold_hours?: number;
-  balance_forecast_max_notifications?: number;
   balance_low_notify_enabled?: boolean;
   balance_low_notify_threshold?: number;
   balance_low_notify_recharge_url?: string;

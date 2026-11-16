@@ -765,7 +765,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	if e.SuppressScheduleFailure {
+	if e.SuppressScheduleFailure || e.IsExcelBPSImageAdmissionRejection() {
 		return false
 	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount

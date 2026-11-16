@@ -27,6 +27,20 @@ type UsageLogCreate struct {
 	conflict []sql.ConflictOption
 }
 
+// SetPlatform sets the "platform" field.
+func (_c *UsageLogCreate) SetPlatform(v string) *UsageLogCreate {
+	_c.mutation.SetPlatform(v)
+	return _c
+}
+
+// SetNillablePlatform sets the "platform" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillablePlatform(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetPlatform(*v)
+	}
+	return _c
+}
+
 // SetUserID sets the "user_id" field.
 func (_c *UsageLogCreate) SetUserID(v int64) *UsageLogCreate {
 	_c.mutation.SetUserID(v)
@@ -665,6 +679,12 @@ func (_c *UsageLogCreate) SetNillableCacheTTLOverridden(v *bool) *UsageLogCreate
 	return _c
 }
 
+// SetCustomerCostDetails sets the "customer_cost_details" field.
+func (_c *UsageLogCreate) SetCustomerCostDetails(v map[string]interface{}) *UsageLogCreate {
+	_c.mutation.SetCustomerCostDetails(v)
+	return _c
+}
+
 // SetQueueTiming sets the "queue_timing" field.
 func (_c *UsageLogCreate) SetQueueTiming(v map[string]interface{}) *UsageLogCreate {
 	_c.mutation.SetQueueTiming(v)
@@ -837,6 +857,11 @@ func (_c *UsageLogCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *UsageLogCreate) check() error {
+	if v, ok := _c.mutation.Platform(); ok {
+		if err := usagelog.PlatformValidator(v); err != nil {
+			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UsageLog.platform": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "UsageLog.user_id"`)}
 	}
@@ -1029,6 +1054,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec = sqlgraph.NewCreateSpec(usagelog.Table, sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64))
 	)
 	_spec.OnConflict = _c.conflict
+	if value, ok := _c.mutation.Platform(); ok {
+		_spec.SetField(usagelog.FieldPlatform, field.TypeString, value)
+		_node.Platform = &value
+	}
 	if value, ok := _c.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
 		_node.RequestID = value
@@ -1205,6 +1234,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldCacheTTLOverridden, field.TypeBool, value)
 		_node.CacheTTLOverridden = value
 	}
+	if value, ok := _c.mutation.CustomerCostDetails(); ok {
+		_spec.SetField(usagelog.FieldCustomerCostDetails, field.TypeJSON, value)
+		_node.CustomerCostDetails = value
+	}
 	if value, ok := _c.mutation.QueueTiming(); ok {
 		_spec.SetField(usagelog.FieldQueueTiming, field.TypeJSON, value)
 		_node.QueueTiming = value
@@ -1305,7 +1338,7 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.UsageLog.Create().
-//		SetUserID(v).
+//		SetPlatform(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -1314,7 +1347,7 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.UsageLogUpsert) {
-//			SetUserID(v+v).
+//			SetPlatform(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *UsageLogCreate) OnConflict(opts ...sql.ConflictOption) *UsageLogUpsertOne {
@@ -1349,6 +1382,24 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetPlatform sets the "platform" field.
+func (u *UsageLogUpsert) SetPlatform(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldPlatform, v)
+	return u
+}
+
+// UpdatePlatform sets the "platform" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdatePlatform() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldPlatform)
+	return u
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (u *UsageLogUpsert) ClearPlatform() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldPlatform)
+	return u
+}
 
 // SetUserID sets the "user_id" field.
 func (u *UsageLogUpsert) SetUserID(v int64) *UsageLogUpsert {
@@ -2249,6 +2300,9 @@ func (u *UsageLogUpsert) ClearQueueTiming() *UsageLogUpsert {
 func (u *UsageLogUpsertOne) UpdateNewValues() *UsageLogUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CustomerCostDetails(); exists {
+			s.SetIgnore(usagelog.FieldCustomerCostDetails)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(usagelog.FieldCreatedAt)
 		}
@@ -2281,6 +2335,27 @@ func (u *UsageLogUpsertOne) Update(set func(*UsageLogUpsert)) *UsageLogUpsertOne
 		set(&UsageLogUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetPlatform sets the "platform" field.
+func (u *UsageLogUpsertOne) SetPlatform(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPlatform(v)
+	})
+}
+
+// UpdatePlatform sets the "platform" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdatePlatform() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePlatform()
+	})
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (u *UsageLogUpsertOne) ClearPlatform() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPlatform()
+	})
 }
 
 // SetUserID sets the "user_id" field.
@@ -3454,7 +3529,7 @@ func (_c *UsageLogCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.UsageLogUpsert) {
-//			SetUserID(v+v).
+//			SetPlatform(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *UsageLogCreateBulk) OnConflict(opts ...sql.ConflictOption) *UsageLogUpsertBulk {
@@ -3495,6 +3570,9 @@ func (u *UsageLogUpsertBulk) UpdateNewValues() *UsageLogUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CustomerCostDetails(); exists {
+				s.SetIgnore(usagelog.FieldCustomerCostDetails)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(usagelog.FieldCreatedAt)
 			}
@@ -3528,6 +3606,27 @@ func (u *UsageLogUpsertBulk) Update(set func(*UsageLogUpsert)) *UsageLogUpsertBu
 		set(&UsageLogUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetPlatform sets the "platform" field.
+func (u *UsageLogUpsertBulk) SetPlatform(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPlatform(v)
+	})
+}
+
+// UpdatePlatform sets the "platform" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdatePlatform() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePlatform()
+	})
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (u *UsageLogUpsertBulk) ClearPlatform() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPlatform()
+	})
 }
 
 // SetUserID sets the "user_id" field.

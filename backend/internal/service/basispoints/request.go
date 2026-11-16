@@ -37,6 +37,8 @@ type Bridge struct {
 	completedToolHistory map[string]bool
 	disallowParallel     bool
 	clientStream         bool
+	toolChoice           string
+	selectedTool         *tool
 }
 
 func decode(raw []byte, target any) error {
@@ -107,19 +109,15 @@ func prepareWithInheritedCatalog(raw []byte, scope string, replay *ReplayCache, 
 	if text(source["previous_response_id"]) != "" {
 		return nil, nil, fmt.Errorf("basispoints requires expanded history instead of previous_response_id")
 	}
-	// Preserve explicit processing tier instead of silently dropping the client's
-	// selection. BPS supports this narrower set; do not invent an upgrade.
-	serviceTier := ""
+	// Validate client compatibility values, but do not send service_tier to BPS:
+	// the current endpoint rejects this field, including auto and priority.
 	if value, exists := source["service_tier"]; exists && value != nil {
 		tier, ok := value.(string)
 		if !ok {
 			return nil, nil, fmt.Errorf("basispoints service_tier must be a string")
 		}
 		switch strings.ToLower(strings.TrimSpace(tier)) {
-		case "auto", "default", "priority":
-			serviceTier = strings.ToLower(strings.TrimSpace(tier))
-		case "fast":
-			serviceTier = "priority"
+		case "auto", "default", "priority", "fast":
 		default:
 			return nil, nil, fmt.Errorf("basispoints service_tier must be auto, default or priority")
 		}
@@ -141,10 +139,11 @@ func prepareWithInheritedCatalog(raw []byte, scope string, replay *ReplayCache, 
 	}
 	b := &Bridge{nativeToolImages: nativeToolImages, RequestedEffort: requested, Effort: effort, tools: make(map[string]tool), unsupportedTools: make(map[string]bool), structured: structured, replay: replay, scope: scope}
 	b.clientStream, _ = source["stream"].(bool)
-	choice := source["tool_choice"]
-	if choice != nil && text(choice) != "auto" && text(choice) != "none" {
-		return nil, nil, fmt.Errorf("basispoints supports tool_choice auto or none only")
+	choice, named, err := parseToolChoice(source["tool_choice"])
+	if err != nil {
+		return nil, nil, err
 	}
+	b.toolChoice = choice
 	if parallel, exists := source["parallel_tool_calls"]; exists {
 		enabled, ok := parallel.(bool)
 		if !ok {
@@ -164,11 +163,14 @@ func prepareWithInheritedCatalog(raw []byte, scope string, replay *ReplayCache, 
 		}
 	}
 	var catalog []any
-	if text(choice) != "none" {
+	if choice != "none" {
 		catalog, err = b.collectClientCatalog(source, inherited)
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+	if err := b.resolveToolChoice(named); err != nil {
+		return nil, nil, err
 	}
 	var input []any
 	switch v := source["input"].(type) {
@@ -221,6 +223,7 @@ func prepareWithInheritedCatalog(raw []byte, scope string, replay *ReplayCache, 
 		b.Warnings = append(b.Warnings, warning)
 		protocol += "\n" + warning + ". These declarations were omitted. Do not claim to have used them. If the task requires one, explain the limitation or use a suitable declared client tool."
 	}
+	protocol += b.toolChoiceInstructions()
 	if structured != nil {
 		protocol += "\n" + structured.instructions()
 	}
@@ -248,14 +251,10 @@ func prepareWithInheritedCatalog(raw []byte, scope string, replay *ReplayCache, 
 	output := object{
 		"model": model, "model_selection": "explicit", "stream": true, "store": false,
 		"input": append(prologue, translated...), "reasoning_effort": effort,
-		"context_management": []any{object{"type": "compaction", "compact_threshold": 920000}},
 		"metadata": object{
 			"task_id": fingerprint([]any{scope, conversation}),
 			"turn_id": fingerprint([]any{scope, input[:turnEnd]}), "agent_iteration": fmt.Sprint(iteration),
 		},
-	}
-	if serviceTier != "" {
-		output["service_tier"] = serviceTier
 	}
 	if cacheKey != "" {
 		output["prompt_cache_key"] = "bps-" + fingerprint([]any{scope, cacheKey})

@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -50,6 +51,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	providerCatalog         *ChannelHandler
 	performance             *service.AccountPerformanceService
 	upstreamChannels        *service.ChannelService
 	adminService            service.AdminService
@@ -149,6 +151,8 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
+	ProviderID              int64          `json:"provider_id"`
+	ProviderKeyID           string         `json:"provider_key_id"`
 	UpstreamChannelID       int64          `json:"upstream_channel_id"`
 	ConfirmUpstreamChannel  bool           `json:"confirm_upstream_channel_binding"`
 	Name                    string         `json:"name" binding:"required"`
@@ -230,6 +234,7 @@ type CheckMixedChannelRequest struct {
 
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
+	ModerationScopeEligible bool `json:"moderation_scope_eligible"`
 	*dto.Account
 	simpleMode            bool                         `json:"-"`
 	CurrentConcurrency    int                          `json:"current_concurrency"`
@@ -246,6 +251,7 @@ type AccountWithConcurrency struct {
 // for lite=1. It embeds dto.AccountListItem instead of the full dto.Account,
 // so groups/account_groups never appear in the list payload.
 type AccountListItemWithConcurrency struct {
+	ModerationScopeEligible bool `json:"moderation_scope_eligible"`
 	*dto.AccountListItem
 	CurrentConcurrency    int                          `json:"current_concurrency"`
 	ReservedSlotExpiresAt []int64                      `json:"reserved_slot_expires_at,omitempty"`
@@ -414,9 +420,10 @@ func (h *AccountHandler) isSimpleMode() bool {
 
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
-		Account:            dto.AccountForObserver(ctx, h.accountResponseFromService(account)),
-		simpleMode:         h.isSimpleMode(),
-		CurrentConcurrency: 0,
+		Account:                 dto.AccountForObserver(ctx, h.accountResponseFromService(account)),
+		ModerationScopeEligible: service.ModerationUpstreamAccountEligible(account),
+		simpleMode:              h.isSimpleMode(),
+		CurrentConcurrency:      0,
 	}
 	if account == nil {
 		return item
@@ -901,12 +908,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 		}
 		item := AccountWithConcurrency{
-			Account:               accountResponse,
-			simpleMode:            h.isSimpleMode(),
-			CurrentConcurrency:    concurrencyCounts[acc.ID],
-			ReservedSlotExpiresAt: reservations[acc.ID],
-			SchedulerScore:        schedulerScores[acc.ID],
-			SchedulerScores:       schedulerGroupScores[acc.ID],
+			Account:                 accountResponse,
+			ModerationScopeEligible: service.ModerationUpstreamAccountEligible(acc),
+			simpleMode:              h.isSimpleMode(),
+			CurrentConcurrency:      concurrencyCounts[acc.ID],
+			SchedulerScore:          schedulerScores[acc.ID],
+			SchedulerScores:         schedulerGroupScores[acc.ID],
+			ReservedSlotExpiresAt:   reservations[acc.ID],
 		}
 
 		// 添加窗口费用（仅当启用时）
@@ -944,14 +952,15 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for i := range result {
 			item := result[i]
 			compact[i] = AccountListItemWithConcurrency{
-				AccountListItem:       dto.AccountListItemFromAccount(item.Account),
-				CurrentConcurrency:    item.CurrentConcurrency,
-				ReservedSlotExpiresAt: item.ReservedSlotExpiresAt,
-				SchedulerScore:        item.SchedulerScore,
-				SchedulerScores:       item.SchedulerScores,
-				CurrentWindowCost:     item.CurrentWindowCost,
-				ActiveSessions:        item.ActiveSessions,
-				CurrentRPM:            item.CurrentRPM,
+				AccountListItem:         dto.AccountListItemFromAccount(item.Account),
+				ModerationScopeEligible: item.ModerationScopeEligible,
+				CurrentConcurrency:      item.CurrentConcurrency,
+				SchedulerScore:          item.SchedulerScore,
+				SchedulerScores:         item.SchedulerScores,
+				CurrentWindowCost:       item.CurrentWindowCost,
+				ActiveSessions:          item.ActiveSessions,
+				CurrentRPM:              item.CurrentRPM,
+				ReservedSlotExpiresAt:   item.ReservedSlotExpiresAt,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)
@@ -1121,6 +1130,18 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	providerImport := req.ProviderID != 0 || req.ProviderKeyID != ""
+	if providerImport {
+		if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer || adminaccess.FromContext(c.Request.Context()) != nil {
+			response.Forbidden(c, "Provider imports require an unrestricted administrator")
+			return
+		}
+		manual, _ := req.Credentials["api_key"].(string)
+		if req.ProviderID < 1 || !validProviderKeyID(req.ProviderKeyID) || req.Type != service.AccountTypeAPIKey || strings.TrimSpace(manual) != "" {
+			response.BadRequest(c, "Choose a provider key without a manual credential")
+			return
+		}
+	}
 	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer && req.UpstreamChannelID > 0 {
 		response.ErrorFrom(c, service.ErrObserverScope)
 		return
@@ -1152,6 +1173,29 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var createdAccount *service.Account
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		if providerImport {
+			if h.providerCatalog == nil {
+				return nil, infraerrors.ServiceUnavailable("PROVIDER_UNAVAILABLE", "Provider catalog unavailable")
+			}
+			credentials, binding, e := h.providerCatalog.resolveMatureProviderKey(ctx, req.ProviderID, req.ProviderKeyID, req.Platform)
+			if e != nil {
+				return nil, providerKeyError(e)
+			}
+			if req.Credentials == nil {
+				req.Credentials = map[string]any{}
+			}
+			for k, v := range credentials {
+				req.Credentials[k] = v
+			}
+			if req.Extra == nil {
+				req.Extra = map[string]any{}
+			}
+			req.Extra[providerKeyBindingExtraKey] = binding
+			// Import is metadata-only; activation must not initiate an implicit
+			// generation or account capability probe.
+			probe := false
+			req.ProbeEnabled = &probe
+		}
 		if req.UpstreamChannelID > 0 {
 			ctx = service.WithInitialUpstreamChannel(ctx, req.UpstreamChannelID)
 		}
@@ -1207,8 +1251,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
-	h.scheduleOpenAIResponsesProbe(createdAccount)
-	h.scheduleGrokImportProbe(createdAccount)
+	if !providerImport {
+		h.scheduleOpenAIResponsesProbe(createdAccount)
+		h.scheduleGrokImportProbe(createdAccount)
+	}
 	response.Success(c, result.Data)
 }
 

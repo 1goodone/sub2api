@@ -27,6 +27,8 @@ type QualityBPSPolicy struct {
 	Models                  []string `json:"models"`
 	OmitUnsupportedTools    bool     `json:"omit_unsupported_tools"`
 	IgnoreImages            bool     `json:"ignore_images"`
+	WebSearch               bool     `json:"web_search"`
+	WebSearchAuto           bool     `json:"web_search_auto"`
 	IgnoreEncryptedContent  bool     `json:"ignore_encrypted_content"`
 	AutoDisableOn403        bool     `json:"auto_disable_on_403"`
 	AutoRecoverOn403        bool     `json:"auto_recover_on_403"`
@@ -46,6 +48,8 @@ var QualityBPSManagedKeys = []string{
 	ExcelBPSOmitUnsupportedToolsKey,
 	ExcelBPSIgnoreImagesKey,
 	ExcelBPSIgnoreEncryptedContentKey,
+	ExcelBPSWebSearchKey,
+	ExcelBPSWebSearchAutoKey,
 	"openai_excel_bps_auto_disable_on_403",
 	ExcelBPSAutoRecoverOn403Key,
 	ExcelBPS403RecoveryIntervalMinutesKey,
@@ -129,6 +133,8 @@ func QualityBPSExtra(b *QualityBPSPolicy) map[string]any {
 		interval = *b.RecoveryIntervalMinutes
 	}
 	extra := map[string]any{
+		ExcelBPSWebSearchKey:                       b.WebSearch,
+		ExcelBPSWebSearchAutoKey:                   b.WebSearch && b.WebSearchAuto,
 		ExcelBPS403RecoveryIntervalMinutesKey:      interval,
 		"openai_excel_bps":                         true,
 		"openai_excel_bps_models":                  nil,

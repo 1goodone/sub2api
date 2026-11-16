@@ -1536,6 +1536,13 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+        <div v-if="!authStore.isObserver" class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn btn-secondary" :aria-pressed="!providerImportMode" @click="providerImportMode = false">{{ t('matureProviders.manual') }}</button>
+          <button type="button" data-testid="provider-import-mode" class="btn btn-secondary" :aria-pressed="providerImportMode" @click="providerImportMode = true; apiKeyValue = ''; upstreamBillingAutoProbeEnabled = false">{{ t('matureProviders.useProvider') }}</button>
+          <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.matureProviderImport" :user-id="authStore.user?.id" />
+        </div>
+        <MatureProviderImport v-if="providerImportMode && !authStore.isObserver" :platform="form.platform" @select="providerSelection = $event" />
+        <template v-if="!providerImportMode">
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1597,6 +1604,7 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
+        </template>
         <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型） -->
         <div
           class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -1609,6 +1617,7 @@
           </div>
           <Toggle
             v-model="upstreamBillingAutoProbeEnabled"
+            :disabled="providerImportMode"
             data-testid="upstream-billing-auto-probe"
             :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
           />
@@ -2770,6 +2779,7 @@
                     class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.durationPlaceholder')"
                   />
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.durationHint') }}</p>
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.scope') }}</label>
@@ -2808,6 +2818,72 @@
                     </button>
                   </div>
                   <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.scopeHint') }}</p>
+                </div>
+                <div class="sm:col-span-2">
+                  <div class="flex items-center gap-2">
+                    <label class="input-label">{{ t('admin.accounts.tempUnschedulable.streamTiming') }}</label>
+                    <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.tempUnschedStreamCountWindow" :user-id="authStore.user?.id" />
+                  </div>
+                  <div
+                    class="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                    role="radiogroup"
+                    :aria-label="t('admin.accounts.tempUnschedulable.streamTiming')"
+                  >
+                    <button
+                      v-for="option in tempUnschedStreamTimingOptions"
+                      :key="option.value"
+                      type="button"
+                      role="radio"
+                      :aria-checked="rule.stream_timing === option.value"
+                      :data-testid="`temp-unsched-stream-${option.value}`"
+                      @click="rule.stream_timing = option.value"
+                      :class="[
+                        'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                        rule.stream_timing === option.value
+                          ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                          : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                      ]"
+                    >
+                      <span
+                        :class="[
+                          'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
+                          rule.stream_timing === option.value ? 'border-primary-500' : 'border-gray-300 dark:border-dark-500'
+                        ]"
+                      >
+                        <span v-if="rule.stream_timing === option.value" class="h-1.5 w-1.5 rounded-full bg-primary-500" />
+                      </span>
+                      <span>
+                        <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ option.description }}</span>
+                      </span>
+                    </button>
+                  </div>
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.streamTimingHint') }}</p>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.triggerCount') }}</label>
+                  <input
+                    v-model.number="rule.trigger_count"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    class="input"
+                    data-testid="temp-unsched-trigger-count"
+                    :placeholder="t('admin.accounts.tempUnschedulable.triggerCountPlaceholder')"
+                  />
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.triggerCountHint') }}</p>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.triggerWindowMinutes') }}</label>
+                  <input
+                    v-model.number="rule.trigger_window_minutes"
+                    type="number"
+                    min="1"
+                    class="input"
+                    data-testid="temp-unsched-trigger-window"
+                    :placeholder="t('admin.accounts.tempUnschedulable.triggerWindowPlaceholder')"
+                  />
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.triggerWindowHint') }}</p>
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.keywords') }}</label>
@@ -4360,7 +4436,8 @@ import type {
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability,
-  TempUnschedulableScope
+  TempUnschedulableScope,
+  TempUnschedulableStreamTiming
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import UpstreamChannelSelector from './UpstreamChannelSelector.vue'
@@ -4369,6 +4446,9 @@ import type { CodexSessionImportRequest as UpstreamImportRequest, OpenAICodexPAT
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import MatureProviderImport, { type ProviderSelection } from './MatureProviderImport.vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -4617,6 +4697,9 @@ interface TempUnschedRuleForm {
   description: string
   // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型。
   scope: TempUnschedulableScope
+  stream_timing: TempUnschedulableStreamTiming
+  trigger_count: number
+  trigger_window_minutes: number
 }
 
 // State
@@ -4636,6 +4719,7 @@ const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
+const providerImportMode = ref(false), providerSelection = ref<ProviderSelection | null>(null)
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
 
@@ -5260,6 +5344,18 @@ const tempUnschedScopeOptions = computed<Array<{ value: TempUnschedulableScope; 
     description: t('admin.accounts.tempUnschedulable.scopeAccountDesc')
   }
 ])
+const tempUnschedStreamTimingOptions = computed<Array<{ value: TempUnschedulableStreamTiming; label: string; description: string }>>(() => [
+  {
+    value: 'before_stream',
+    label: t('admin.accounts.tempUnschedulable.streamTimingBefore'),
+    description: t('admin.accounts.tempUnschedulable.streamTimingBeforeDesc')
+  },
+  {
+    value: 'after_stream',
+    label: t('admin.accounts.tempUnschedulable.streamTimingAfter'),
+    description: t('admin.accounts.tempUnschedulable.streamTimingAfterDesc')
+  }
+])
 
 const tempUnschedPresets = computed(() => [
   {
@@ -5269,7 +5365,10 @@ const tempUnschedPresets = computed(() => [
       keywords: 'overloaded, too many',
       duration_minutes: 60,
       description: t('admin.accounts.tempUnschedulable.presets.overloadDesc'),
-      scope: 'model' as const
+      scope: 'model' as const,
+      stream_timing: 'after_stream' as const,
+      trigger_count: 1,
+      trigger_window_minutes: 5
     }
   },
   {
@@ -5279,7 +5378,10 @@ const tempUnschedPresets = computed(() => [
       keywords: 'rate limit, too many requests',
       duration_minutes: 10,
       description: t('admin.accounts.tempUnschedulable.presets.rateLimitDesc'),
-      scope: 'model' as const
+      scope: 'model' as const,
+      stream_timing: 'after_stream' as const,
+      trigger_count: 1,
+      trigger_window_minutes: 5
     }
   },
   {
@@ -5289,7 +5391,10 @@ const tempUnschedPresets = computed(() => [
       keywords: 'unavailable, maintenance',
       duration_minutes: 30,
       description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc'),
-      scope: 'model' as const
+      scope: 'model' as const,
+      stream_timing: 'after_stream' as const,
+      trigger_count: 1,
+      trigger_window_minutes: 5
     }
   }
 ])
@@ -5678,7 +5783,10 @@ const addTempUnschedRule = (preset?: TempUnschedRuleForm) => {
     keywords: '',
     duration_minutes: 30,
     description: '',
-    scope: 'model'
+    scope: 'model',
+    stream_timing: 'before_stream',
+    trigger_count: 1,
+    trigger_window_minutes: 5
   })
 }
 
@@ -5702,6 +5810,9 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
     duration_minutes: number
     description: string
     scope: TempUnschedulableScope
+    stream_timing: TempUnschedulableStreamTiming
+    trigger_count: number
+    trigger_window_minutes: number
   }> = []
 
   for (const rule of rules) {
@@ -5722,7 +5833,10 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
       keywords,
       duration_minutes: Math.trunc(duration),
       description: rule.description.trim(),
-      scope: rule.scope
+      scope: rule.scope,
+      stream_timing: rule.stream_timing === 'after_stream' ? 'after_stream' : 'before_stream',
+      trigger_count: resolveTempUnschedTriggerCount(rule.trigger_count),
+      trigger_window_minutes: resolveTempUnschedTriggerWindow(rule.trigger_window_minutes)
     })
   }
 
@@ -5752,6 +5866,22 @@ const splitTempUnschedKeywords = (value: string) => {
     .split(/[,;]/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
+}
+
+function resolveTempUnschedTriggerCount(value: unknown): number {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 1) {
+    return 1
+  }
+  return Math.min(1000, Math.trunc(num))
+}
+
+function resolveTempUnschedTriggerWindow(value: unknown): number {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 1) {
+    return 1
+  }
+  return Math.trunc(num)
 }
 
 const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
@@ -5861,6 +5991,12 @@ async function runChannelCreation<T>(kind: string, payload: unknown, operation: 
  return result
 }
 function createAccountWithUpstream(payload: CreateAccountRequest) {
+ if (providerImportMode.value && payload.type === 'apikey' && providerSelection.value) {
+   const credentials = { ...payload.credentials }
+   delete credentials.api_key
+   delete credentials.base_url
+   payload = { ...payload, credentials, ...providerSelection.value, upstream_billing_probe_enabled: false }
+ }
  const selected = initialChannelId.value > 0 ? { upstream_channel_id: initialChannelId.value, confirm_upstream_channel_binding: initialChannelConfirmed.value } : {}
  return runChannelCreation('account', payload, () => adminAPI.accounts.create({ ...payload, ...selected }), a => [a.id], true)
 }
@@ -5974,6 +6110,8 @@ const resetForm = () => {
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
+  providerImportMode.value = false
+  providerSelection.value = null
   apiKeyValue.value = ''
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
@@ -6500,7 +6638,8 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
+  if (providerImportMode.value && !providerSelection.value) { appStore.showError(t('matureProviders.selectKeyRequired')); return }
+  if (!providerImportMode.value && !apiKeyValue.value.trim()) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -7975,4 +8114,5 @@ const handleCookieAuth = async (sessionKey: string) => {
     oauth.loading.value = false
   }
 }
+watch(() => [form.platform, form.type], () => { providerSelection.value = null; if (form.type !== 'apikey') providerImportMode.value = false })
 </script>

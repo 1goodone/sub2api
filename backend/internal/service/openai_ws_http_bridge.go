@@ -31,6 +31,7 @@ const openAIWSHTTPBridgeToolStateContextKey = "openai_ws_http_bridge_tool_state"
 
 type openAIWSHTTPBridgeToolState struct {
 	ClientMapping apicompat.ResponsesClientToolMapping
+	ClientTools   json.RawMessage // declarations before lowering; inherited by an omitted-tools turn
 	LoweredTools  json.RawMessage
 }
 
@@ -48,6 +49,7 @@ func setOpenAIWSHTTPBridgeToolState(c *gin.Context, state openAIWSHTTPBridgeTool
 		return
 	}
 	state.LoweredTools = append(json.RawMessage(nil), state.LoweredTools...)
+	state.ClientTools = append(json.RawMessage(nil), state.ClientTools...)
 	c.Set(openAIWSHTTPBridgeToolStateContextKey, state)
 }
 
@@ -364,12 +366,16 @@ func buildOpenAIWSHTTPBridgeErrorEvent(statusCode int, message string, source ..
 	}
 	errorBody := map[string]any{"type": "upstream_error", "message": message}
 	if len(source) > 0 {
-		// Preserve only the standard error identity fields, not an arbitrary
-		// upstream envelope. The caller already sanitized the message.
-		for _, field := range []string{"code", "type", "param"} {
-			value := gjson.GetBytes(source[0], "error."+field)
-			if value.Type == gjson.String && value.String() != "" {
-				errorBody[field] = value.String()
+		if code, safeMessage, ok := OpenAIUpstreamRecoveryRateLimit(statusCode, source[0]); ok {
+			errorBody = map[string]any{"type": "rate_limit_error", "code": code, "message": safeMessage}
+		} else {
+			// Preserve only the standard error identity fields, not an arbitrary
+			// upstream envelope. The caller already sanitized the message.
+			for _, field := range []string{"code", "type", "param"} {
+				value := gjson.GetBytes(source[0], "error."+field)
+				if value.Type == gjson.String && value.String() != "" {
+					errorBody[field] = value.String()
+				}
 			}
 		}
 	}
@@ -490,6 +496,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 		}
 		inheritedState, _ := openAIWSHTTPBridgeToolStateFromContext(c)
+		clientTools := inheritedState.ClientTools
+		if currentTools, present := openAIWSHTTPBridgeRawField(body, "tools"); present {
+			clientTools = currentTools
+		}
 		inheritedLoweredTools := decodeOpenAIWSHTTPBridgeLoweredTools(inheritedState.LoweredTools)
 		body, clientToolMapping, err = adaptResponsesClientToolsForFunctionUpstreamWithMapping(
 			body,
@@ -514,6 +524,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		setOpenAIWSHTTPBridgeToolState(c, openAIWSHTTPBridgeToolState{
 			ClientMapping: clientToolMapping,
+			ClientTools:   clientTools,
 			LoweredTools:  loweredTools,
 		})
 	}
@@ -604,18 +615,25 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				account.ID,
 				admissionErr,
 			)
+			if forwardStart.IsZero() {
+				source, _ := ctx.Value(openAIWSAgentSourceKey{}).([]byte)
+				admissionErr = openAIWSUnsentTurn(admissionErr, source, originalModel, turn)
+			}
 			return nil, admissionErr
-		}
-		// Freeze the first-send boundary. Rejected-field network attempts remain
-		// in forwarding and in the compatible helper-entry legacy timer.
-		if forwardStart.IsZero() {
-			forwardStart = requesttiming.Now(ctx)
 		}
 		if recovery := openAIWSAgentRecoveryFromContext(ctx); recovery != nil {
 			source, _ := ctx.Value(openAIWSAgentSourceKey{}).([]byte)
 			if err := recovery.begin(latest, source, body, upstreamReq, "http_bridge"); err != nil {
+				if forwardStart.IsZero() {
+					return nil, openAIWSUnsentAgentTurn(err, source, originalModel, turn)
+				}
 				return nil, openAIWSAgentRecoveryClose(err)
 			}
+		}
+		// Only crossing the physical send boundary makes this turn ineligible
+		// for unsent recovery, including any later rejected-field attempt.
+		if forwardStart.IsZero() {
+			forwardStart = requesttiming.Now(ctx)
 		}
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
@@ -632,6 +650,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 			if upstreamCtx.Err() != nil {
 				return nil, context.Cause(upstreamCtx)
+			}
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, "", err, writeClientMessage); handled {
+				return nil, resetErr
 			}
 			if turn == 1 && !strictSession {
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
@@ -690,7 +711,8 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, actualModel)
 		}
 		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
-		if preserveAgentHistory {
+		_, _, safeOwnerLimit := OpenAIUpstreamRecoveryRateLimit(resp.StatusCode, respBody)
+		if preserveAgentHistory || safeOwnerLimit {
 			clientError = buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg, respBody)
 		}
 		if writeErr := writeClientMessage(clientError); writeErr == nil {
@@ -698,6 +720,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
 	}
+	ctx = bindOpenAI429ResponseObservation(ctx, resp, c)
 	defer func() { _ = resp.Body.Close() }()
 	// upstreamCtx cancellation interrupts the transport read. Keep Body.Close
 	// on this reader's goroutine: compressed bodies cannot close during Read.
@@ -805,7 +828,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			return nil
 		}
 		if !failureAccountSideEffectsApplied {
-			failureAccountSideEffectsApplied = s.handleOpenAIWSFailureAccountSideEffects(ctx, account, mappedModel, resp.Header, bareErrorPayload)
+			failureAccountSideEffectsApplied = s.handleOpenAIWSFailureAccountSideEffects(openAIWSForwardStreamPhaseContext(ctx, wroteDownstream, bareErrorPayload), account, mappedModel, resp.Header, bareErrorPayload)
 		}
 		upstreamTerminalEvent = "response.failed"
 		if clientDisconnected {
@@ -970,7 +993,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 			if account.Platform != PlatformGrok && !failureAccountSideEffectsApplied {
 				if eventType == "response.failed" || (!officialOpenAIResponses && shouldFailover && !requestScopedCapacity) {
-					failureAccountSideEffectsApplied = s.handleOpenAIWSFailureAccountSideEffects(ctx, account, mappedModel, resp.Header, upstreamMessage)
+					failureAccountSideEffectsApplied = s.handleOpenAIWSFailureAccountSideEffects(openAIWSForwardStreamPhaseContext(ctx, wroteDownstream, upstreamMessage), account, mappedModel, resp.Header, upstreamMessage)
 				}
 			}
 			if wroteDownstream && requestScopedCapacity && !capacityFailoverSuppressedLogged {
@@ -1099,6 +1122,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		streamErr := fmt.Errorf("read upstream http bridge stream: %w", err)
 		if upstreamCtx.Err() != nil {
 			return resultWithUsage(), context.Cause(upstreamCtx)
+		}
+		if !clientDisconnected {
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), err, writeClientMessage); handled {
+				upstreamTerminalEvent = "response.failed"
+				return resultWithUsage(), resetErr
+			}
 		}
 		if !strictSession && turn == 1 && !clientDisconnected && !wroteDownstream {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, streamErr, true)

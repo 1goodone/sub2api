@@ -1,4 +1,30 @@
 export default {
+  "providerBalanceSource": "供应商平台余额",
+  "providerRefreshDisabled": "供应商定时刷新未开启，请在渠道运维中设置。",
+  "manageProviderBalance": "查看／刷新供应商余额",
+  "linkProvider": "关联供应商余额",
+  "providerBalanceHint": "选择渠道运维中的供应商后，整组共用该平台的余额；从供应商导入的 Key 自动归组。提醒阈值与收件人在账号运维中配置。",
+  "memberBalanceSource": "使用组内首个账号余额",
+  "loadProviders": "加载供应商",
+  "providersUnavailable": "供应商目录读取失败，请重试。",
+
+  "oauthLifecycle": "账号用途",
+  "oauthTemporary": "速抛／临时号",
+  "oauthLongTerm": "长期号",
+  "sharedBalanceHint": "共用渠道余额，以首个账号为采集来源；同一次事件只通知一次。",
+
+  "directEditHint": "直接编辑每组规则；勾选多组可批量修改",
+  "manageGroups": "管理分组",
+  "failureSettingsSummary": "请求失败提醒与重复间隔",
+  "lastKnownBalance": "上次余额 {value} {unit}（仅供参考）",
+  "collectionDisabled": "自动采集未开启，提醒规则不会自动获取余额。",
+  "enableCollection": "开启采集并刷新",
+  "refreshBalance": "刷新余额",
+  "balanceUnsupportedHint": "上游未提供可用的余额数据，请检查上游是否支持余额查询。",
+  "balancePendingHint": "当前没有可用于阈值判断的新数据，可尝试刷新余额。",
+  "collectionGloballyDisabled": "全局上游采集已关闭，请到账号管理开启后再试。",
+  "balanceRefreshFailed": "未获取到有效余额，请检查上游支持情况和账号配置。",
+
   "workspaceTitle": "账号提醒与阈值",
   "smartTitle": "智能运维",
   "title": "账号运维",
@@ -9,7 +35,7 @@ export default {
   "enabledHint": "启用已选择的失败提醒和账号阈值规则。",
   "recipient": "收件邮箱",
   "emailRequired": "请输入收件邮箱。",
-  "recipientHint": "账号提醒会发送到此邮箱。",
+  "recipientHint": "最多 10 个邮箱，以换行、逗号或分号分隔。重复地址只发送一次；同一渠道的一次提醒会分别发送给各位收件人。",
   "alertTypes": "请求失败提醒",
   "balance_low": "余额不足",
   "balanceHint": "上游请求明确返回余额或信用余额不足。",
@@ -231,6 +257,10 @@ export default {
   ,"groupLabel": "账号组"
   ,"accountGroup": "账号组"
   ,"groupMemberCount": "{count} 个成员"
+  ,"editGroupMembers": "编辑成员"
+  ,"searchGroupMembers": "按账号名或 ID 搜索成员"
+  ,"groupSelectionHint": "搜索和翻页会保留已选账号。选择其他组的账号将在保存时将其移入本组；取消会放弃未保存的修改。"
+  ,"groupMemberLimit": "每个组最多包含 {count} 个账号，请缩小筛选范围后再选择全部匹配。"
   ,"selectedGroups": "已选 {count} 个账号组"
   ,"selectGroup": "选择 {name}"
   ,"selectVisibleGroups": "全选当前可见账号组"

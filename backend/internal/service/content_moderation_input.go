@@ -14,20 +14,20 @@ func ExtractContentModerationText(protocol string, body []byte) string {
 }
 
 func ExtractContentModerationInput(protocol string, body []byte) ContentModerationInput {
-	return extractContentModerationInput(protocol, body, true)
+	return extractContentModerationInput(protocol, body, true, false)
 }
 
 // Keyword checks share semantic moderation's current-user boundaries, but must
 // inspect client-supplied reminder blocks as ordinary user text.
 func extractContentModerationKeywordText(protocol string, body []byte) string {
-	return extractContentModerationInput(protocol, body, false).Text
+	return extractContentModerationInput(protocol, body, false, false).Text
 }
 
 type moderationTextCollector struct {
 	filterReminders bool
 }
 
-func extractContentModerationInput(protocol string, body []byte, filterReminders bool) ContentModerationInput {
+func extractContentModerationInput(protocol string, body []byte, filterReminders, recovered bool) ContentModerationInput {
 	collector := moderationTextCollector{filterReminders: filterReminders}
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return ContentModerationInput{}
@@ -40,7 +40,14 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 	case ContentModerationProtocolOpenAIChat:
 		collector.collectLastRoleMessage(gjson.GetBytes(body, "messages"), "user", &parts, &images)
 	case ContentModerationProtocolOpenAIResponses:
-		collector.collectLastResponsesInput(gjson.GetBytes(body, "input"), &parts, &images)
+		if recovered {
+			// A rebuilt task can end in a gateway-authored historical user
+			// marker. Audit its recovered context, not only that final marker.
+			collector.collectRecoveredResponsesValue(gjson.GetBytes(body, "instructions"), &parts, &images)
+			collector.collectRecoveredResponsesValue(gjson.GetBytes(body, "input"), &parts, &images)
+		} else {
+			collector.collectLastResponsesInput(gjson.GetBytes(body, "input"), &parts, &images)
+		}
 	case ContentModerationProtocolGemini:
 		collector.collectLastGeminiContent(gjson.GetBytes(body, "contents"), &parts, &images)
 	case ContentModerationProtocolOpenAIImages:
@@ -59,6 +66,96 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 		out.Normalize()
 	}
 	return out
+}
+
+// Only the server-owned recovered-context provenance enables this traversal.
+// Read supported plaintext and images without interpreting opaque fields or
+// changing the request sent to the provider. Ordinary requests retain their
+// current-user boundary.
+func (collector moderationTextCollector) collectRecoveredResponsesValue(value gjson.Result, parts *[]string, images *[]string) {
+	if value.IsArray() {
+		value.ForEach(func(_, item gjson.Result) bool {
+			collector.collectRecoveredResponsesValue(item, parts, images)
+			return true
+		})
+		return
+	}
+	if value.IsObject() {
+		switch value.Get("type").String() {
+		case "function_call_output", "custom_tool_call_output":
+			collector.collectRecoveredResponsesValue(value.Get("output"), parts, images)
+			return
+		case "output_text", "summary_text":
+			collector.addModerationText(parts, value.Get("text").String())
+			return
+		}
+		if content := value.Get("content"); content.Exists() {
+			collector.collectRecoveredResponsesValue(content, parts, images)
+			return
+		}
+	}
+	collector.collectContentValue(value, parts, images)
+}
+
+// collectSystemOneInput moderates every client-controlled text of a System One
+// request: question IDs, every question field except the validated type,
+// unknown top-level extension fields, and the evaluated state. Object keys are
+// sent to Jev as part of the JSON, so they are moderated like values.
+func (collector moderationTextCollector) collectSystemOneInput(body []byte, parts *[]string) {
+	root := gjson.ParseBytes(body)
+	questions := root.Get("questions")
+	if !questions.IsObject() {
+		collector.collectSystemOneText(questions, parts)
+	}
+	questions.ForEach(func(id, question gjson.Result) bool {
+		collector.addModerationText(parts, id.String())
+		if !question.IsObject() {
+			collector.collectSystemOneText(question, parts)
+			return true
+		}
+		question.ForEach(func(field, value gjson.Result) bool {
+			switch field.String() {
+			case "type":
+				return true
+			case "instructions", "criteria":
+			default:
+				collector.addModerationText(parts, field.String())
+			}
+			collector.collectSystemOneText(value, parts)
+			return true
+		})
+		return true
+	})
+	root.ForEach(func(field, value gjson.Result) bool {
+		switch field.String() {
+		case "model", "stream", "state", "questions":
+			return true
+		}
+		collector.addModerationText(parts, field.String())
+		collector.collectSystemOneText(value, parts)
+		return true
+	})
+	collector.collectSystemOneText(root.Get("state"), parts)
+}
+
+func (collector moderationTextCollector) collectSystemOneText(value gjson.Result, parts *[]string) {
+	switch {
+	case !value.Exists():
+		return
+	case value.Type == gjson.String:
+		collector.addModerationText(parts, value.String())
+	case value.IsArray():
+		value.ForEach(func(_, child gjson.Result) bool {
+			collector.collectSystemOneText(child, parts)
+			return true
+		})
+	case value.IsObject():
+		value.ForEach(func(key, child gjson.Result) bool {
+			collector.addModerationText(parts, key.String())
+			collector.collectSystemOneText(child, parts)
+			return true
+		})
+	}
 }
 
 func (collector moderationTextCollector) collectLastRoleMessage(messages gjson.Result, role string, parts *[]string, images *[]string) {
@@ -149,20 +246,35 @@ func (collector moderationTextCollector) collectLastResponsesInput(input gjson.R
 		if len(array) == 0 {
 			return
 		}
-		last := array[len(array)-1]
-		if !collector.isResponsesUserTextItem(last) {
-			return
+		// Agent turns commonly end in a tool result or an assistant item.
+		// Keep the latest readable user input and the tool outputs that follow
+		// it, rather than treating a non-user tail as an empty request. Delta
+		// requests may contain only tool outputs, which still need auditing.
+		start := 0
+		for i := len(array) - 1; i >= 0; i-- {
+			if collector.isResponsesUserTextItem(array[i]) {
+				start = i
+				break
+			}
 		}
-		collector.collectContentValue(last.Get("content"), parts, images)
-		if last.Get("type").String() == "input_text" || last.Get("text").Exists() {
-			collector.collectContentValue(last, parts, images)
+		for _, item := range array[start:] {
+			collector.collectResponsesAuditItem(item, parts, images)
 		}
 	case input.IsObject():
-		if collector.isResponsesUserTextItem(input) {
-			collector.collectContentValue(input.Get("content"), parts, images)
-			if input.Get("type").String() == "input_text" || input.Get("text").Exists() {
-				collector.collectContentValue(input, parts, images)
-			}
+		collector.collectResponsesAuditItem(input, parts, images)
+	}
+}
+
+func (collector moderationTextCollector) collectResponsesAuditItem(item gjson.Result, parts *[]string, images *[]string) {
+	switch item.Get("type").String() {
+	case "function_call_output", "custom_tool_call_output":
+		collector.collectContentValue(item.Get("output"), parts, images)
+		return
+	}
+	if collector.isResponsesUserTextItem(item) {
+		collector.collectContentValue(item.Get("content"), parts, images)
+		if item.Get("type").String() == "input_text" || item.Get("text").Exists() {
+			collector.collectContentValue(item, parts, images)
 		}
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -139,9 +140,9 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
 	if clientStream {
-		return s.handleCCStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage)
+		return s.handleCCStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage, account)
 	}
-	return s.handleCCBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+	return s.handleCCBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, account)
 }
 
 // handleCCBufferedFromNativeAnthropic reads Anthropic SSE events, assembles the
@@ -154,8 +155,14 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	upstreamModel string,
 	reasoningEffort *string,
 	startTime time.Time,
+	accounts ...*Account,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	var account *Account
+	if len(accounts) > 0 {
+		account = accounts[0]
+	}
+	terminalSeen := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -166,6 +173,14 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	resultWithUsage := func() *OpenAIForwardResult {
+		result := &OpenAIForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header,
+			Usage: claudeUsageToOpenAIUsage(&usage), Model: originalModel, BillingModel: billingModel,
+			UpstreamModel: upstreamModel, UpstreamEndpoint: "/v1/messages", ReasoningEffort: reasoningEffort,
+			Stream: false, Duration: time.Since(startTime)}
+		applyObservedUpstreamResponseModel(c, result)
+		return result
+	}
 
 	// 读间隔上限：上游挂住 SSE 时中止组装（缓冲路径尚未提交响应头，可回 502）。
 	streamInterval := anthropicNativeStreamInterval(s.cfg)
@@ -197,6 +212,11 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			if !terminalSeen {
+				if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, rerr); handled {
+					return resultWithUsage(), resetErr
+				}
+			}
 			break
 		}
 		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
@@ -211,6 +231,11 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			if !terminalSeen {
+				if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, rerr); handled {
+					return resultWithUsage(), resetErr
+				}
+			}
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)
@@ -223,6 +248,10 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		if event.Type == "error" {
+			return resultWithUsage(), writeNativeAnthropicSemanticFailure(c, []byte(payload), originalModel)
+		}
+		terminalSeen = terminalSeen || event.Type == "message_stop"
 
 		if event.Type == "message_start" && event.Message != nil {
 			finalResp = event.Message
@@ -311,8 +340,14 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	reasoningEffort *string,
 	startTime time.Time,
 	includeUsage bool,
+	accounts ...*Account,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	var account *Account
+	if len(accounts) > 0 {
+		account = accounts[0]
+	}
+	terminalSeen := false
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -447,6 +482,11 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			if !terminalSeen && !clientDisconnected {
+				if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, rerr); handled {
+					return resultWithUsage(), resetErr
+				}
+			}
 			break
 		}
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
@@ -460,6 +500,11 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			}
 			// EOF / 读错误：事件行后流终止，进入 finalize。
 			logReadErr(rerr)
+			if !terminalSeen && !clientDisconnected {
+				if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, rerr); handled {
+					return resultWithUsage(), resetErr
+				}
+			}
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)
@@ -472,6 +517,13 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		if event.Type == "error" {
+			if clientDisconnected {
+				return resultWithUsage(), errors.New("upstream semantic stream failure")
+			}
+			return resultWithUsage(), writeNativeAnthropicSemanticFailure(c, []byte(payload), originalModel)
+		}
+		terminalSeen = terminalSeen || event.Type == "message_stop"
 
 		if processAnthropicEvent(&event) {
 			return resultWithUsage(), nil
@@ -497,4 +549,60 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	}
 
 	return resultWithUsage(), nil
+}
+
+// Complete upstream error events are terminal semantic failures. The conversion state
+// machines do not consume them, so stop before their successful finalizers.
+func writeNativeAnthropicSemanticFailure(c *gin.Context, payload []byte, model string) error {
+	message := sanitizeUpstreamErrorMessage(extractOpenAISSEErrorMessage(payload))
+	if message == "" {
+		message = "Upstream request failed"
+	}
+	errType := strings.TrimSpace(gjson.GetBytes(payload, "error.type").String())
+	if errType == "" {
+		errType = "upstream_error"
+	}
+	contextRejected := isOpenAIContextWindowError(message, payload)
+	if contextRejected {
+		// Some CC providers supply only the canonical code. Retain request
+		// ownership/SLA exclusion even when error.type is absent or generic.
+		errType = "invalid_request_error"
+	}
+	code := strings.TrimSpace(gjson.GetBytes(payload, "error.code").String())
+	if code == "" {
+		code = errType
+	}
+	status := openAIStreamFailureStatus(payload, message)
+	if contextRejected {
+		status = http.StatusBadRequest
+	}
+	body := gin.H{"error": gin.H{"type": errType, "code": code, "message": message}}
+	if strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/messages") {
+		body["type"] = "error"
+	}
+	safeBody, _ := json.Marshal(body)
+	if c.Writer.Written() {
+		if contextRejected {
+			// The code establishes a request rejection even if the provider's
+			// message is generic. Do not inherit attempt attribution or SLA
+			// ownership from the surrounding HTTP200 stream.
+			MarkOpsStreamErrorValue(c, OpsStreamError{
+				ErrType: errType, Code: code, Message: message, IntendedStatus: status,
+				CountTowardsSLA: true, RequestScoped: true,
+			})
+		} else {
+			MarkOpsStreamFailure(c, errType, code, message, status)
+		}
+		if strings.Contains(c.Request.URL.Path, "/responses") {
+			_, _ = fmt.Fprint(c.Writer, buildOpenAIResponseFailedSSE("", model, time.Now().Unix(), safeBody, message))
+		} else {
+			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", safeBody)
+		}
+		c.Writer.Flush()
+	} else {
+		c.Header("Content-Type", "application/json")
+		c.Data(status, "application/json", safeBody)
+	}
+	MarkResponseCommitted(c)
+	return errors.New("upstream semantic stream failure")
 }

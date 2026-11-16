@@ -11,12 +11,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/internal/testutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -40,11 +40,14 @@ func (s *omit409SettingsRepo) GetMultiple(_ context.Context, _ []string) (map[st
 
 func TestOpenAI409OmitHistoryHTTP(t *testing.T) {
 	for _, stream := range []bool{false, true} {
-		for _, scenario := range []string{"off", "paused", "route_changed", "no_accounts", "current_task", "upstream_rejects"} {
+		for _, scenario := range []string{"off", "paused", "route_changed", "no_accounts", "current_task", "upstream_rejects",
+			"rate_limited", "rate_limited_off", "rate_limited_no_accounts", "rate_limited_current_task",
+			"overloaded", "overloaded_off", "overloaded_no_accounts", "overloaded_current_task"} {
 			t.Run(fmt.Sprintf("%s/stream=%t", scenario, stream), func(t *testing.T) {
 				clients := issue805Redis(t)
 				var mu sync.Mutex
 				var bodies [][]byte
+				var authorizations []string
 				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					body, err := io.ReadAll(r.Body)
 					if err != nil {
@@ -53,6 +56,7 @@ func TestOpenAI409OmitHistoryHTTP(t *testing.T) {
 					}
 					mu.Lock()
 					bodies = append(bodies, body)
+					authorizations = append(authorizations, r.Header.Get("Authorization"))
 					n := len(bodies)
 					mu.Unlock()
 					if n > 1 && scenario == "upstream_rejects" {
@@ -93,32 +97,66 @@ func TestOpenAI409OmitHistoryHTTP(t *testing.T) {
 				originalOwners := issue805Owners(t, clients())
 				require.Len(t, originalOwners, 1)
 				accounts[0].Schedulable = false
+				cooldown := time.Now().Add(7 * 24 * time.Hour)
+				rateLimited := strings.HasPrefix(scenario, "rate_limited")
+				overloaded := strings.HasPrefix(scenario, "overloaded")
+				if rateLimited || overloaded {
+					accounts[0].Schedulable = true
+					if rateLimited {
+						accounts[0].RateLimitResetAt = &cooldown
+					} else {
+						accounts[0].OverloadUntil = &cooldown
+					}
+				}
 				if scenario == "route_changed" {
 					accounts[0].Schedulable = true
 					accounts[0].Credentials["api_key"] = "fixture-rotated"
 				}
-				if scenario == "no_accounts" {
+				if strings.HasSuffix(scenario, "no_accounts") {
 					accounts[1].Schedulable = false
 				}
 				followup := issue715Body(true, stream)
-				if scenario == "current_task" {
+				if strings.HasSuffix(scenario, "current_task") {
 					followup = fmt.Sprintf(`{"model":"gpt-5.1","stream":%t,"input":[%s]}`, stream, issue715Agent)
 				}
-				answer := issue758Request(t, newNode(scenario != "off"), followup)
+				answer := issue758Request(t, newNode(!strings.HasSuffix(scenario, "off")), followup)
 				mu.Lock()
 				defer mu.Unlock()
-				if scenario == "no_accounts" {
+				switch scenario {
+				case "off", "rate_limited_off", "overloaded_off":
+					require.Equal(t, http.StatusOK, answer.Code, answer.Body.String())
+					require.Len(t, bodies, 2, "default policy retains full-history portability")
+					require.JSONEq(t, gjson.Get(followup, "input").Raw, gjson.GetBytes(bodies[1], "input").Raw)
+				case "current_task", "rate_limited_current_task", "overloaded_current_task":
+					require.Equal(t, http.StatusUnprocessableEntity, answer.Code, answer.Body.String())
+					require.Contains(t, answer.Body.String(), "readable_intent_missing")
+					require.Len(t, bodies, 1)
+				case "no_accounts", "rate_limited_no_accounts", "overloaded_no_accounts":
 					require.GreaterOrEqual(t, answer.Code, 400)
 					require.Len(t, bodies, 1)
-				} else {
-					require.Len(t, bodies, 2, "portable full history uses one alternative attempt")
-					require.JSONEq(t, gjson.Get(followup, "input").Raw, gjson.GetBytes(bodies[1], "input").Raw, "the optional omission switch cannot discard sendable full history")
+				default:
+					require.Len(t, bodies, 2, "one original request and exactly one sanitized continuation")
+					if rateLimited || overloaded {
+						require.Equal(t, []string{"Bearer fixture-omit-0", "Bearer fixture-omit-1"}, authorizations,
+							"continuation must use the eligible alternative, not the original owner")
+					}
+					require.NotContains(t, string(bodies[1]), "fixture-task-reference-715")
+					require.Contains(t, string(bodies[1]), "Historical encrypted content omitted")
+					for _, path := range []string{"input.1", "input.2", "input.3", "input.4"} {
+						require.JSONEq(t, gjson.Get(followup, path).Raw, gjson.GetBytes(bodies[1], path).Raw, "readable history and tool results survive")
+					}
 					if scenario == "upstream_rejects" {
 						require.GreaterOrEqual(t, answer.Code, 400)
 					} else {
 						require.Equal(t, http.StatusOK, answer.Code, answer.Body.String())
 						require.Contains(t, answer.Body.String(), "continued from visible history")
 					}
+				}
+				if rateLimited {
+					require.Equal(t, cooldown, *accounts[0].RateLimitResetAt, "rebuild must preserve the owner's cooldown")
+				}
+				if overloaded {
+					require.Equal(t, cooldown, *accounts[0].OverloadUntil, "rebuild must preserve the owner's overload")
 				}
 				require.Equal(t, originalOwners, issue805Owners(t, clients()), "omission must not clear or rewrite the original owner")
 			})
@@ -170,8 +208,13 @@ func TestOpenAI409ReplayMetadataHTTP(t *testing.T) {
 					n := len(bodies)
 					mu.Unlock()
 					if n > 1 {
-						valid := assert.JSONEq(t, gjson.Get(followup, "input").Raw, gjson.GetBytes(body, "input").Raw) &&
-							gjson.GetBytes(body, "input.1.sequence").Raw == "9007199254740993"
+						rule := gjson.GetBytes(body, "input.5")
+						valid := !rule.Get("id").Exists() && !rule.Get("status").Exists() && rule.Get("type").String() == "message" &&
+							!rule.Get("encrypted_content").Exists() &&
+							!gjson.GetBytes(body, "input.1.id").Exists() && !gjson.GetBytes(body, "input.1.call_id").Exists() &&
+							gjson.GetBytes(body, "input.1.sequence").Raw == "9007199254740993" &&
+							strings.Contains(string(body), "Historical encrypted content omitted") &&
+							!strings.Contains(string(body), "fixture-task-reference-715")
 						if !valid || scenario == "upstream_rejects" {
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(http.StatusBadRequest)
@@ -213,7 +256,7 @@ func TestOpenAI409ReplayMetadataHTTP(t *testing.T) {
 				answer := issue758Request(t, newNode(true), followup)
 				mu.Lock()
 				defer mu.Unlock()
-				require.Len(t, bodies, 2, "one producer and exactly one intact continuation; response: %s", answer.Body.String())
+				require.Len(t, bodies, 2, "one producer and exactly one sanitized continuation; response: %s", answer.Body.String())
 				if scenario == "upstream_rejects" {
 					require.Equal(t, http.StatusBadRequest, answer.Code, answer.Body.String())
 					require.Contains(t, answer.Body.String(), "fixture replay metadata rejected")
@@ -221,7 +264,7 @@ func TestOpenAI409ReplayMetadataHTTP(t *testing.T) {
 					require.Equal(t, http.StatusOK, answer.Code, answer.Body.String())
 					issue758CompletedResponse(t, answer.Body.String(), stream)
 				}
-				for _, path := range []string{"input.1.content", "input.1.sequence", "input.2", "input.3", "input.4", "input.5.encrypted_content"} {
+				for _, path := range []string{"input.1.content", "input.1.sequence", "input.2", "input.3", "input.4"} {
 					require.JSONEq(t, gjson.Get(followup, path).Raw, gjson.GetBytes(bodies[1], path).Raw, path)
 				}
 				require.Equal(t, owners, issue805Owners(t, clients()), "old ownership remains intact")

@@ -7,6 +7,8 @@ export interface ExcelBPSDefaults {
   omit_unsupported_tools: boolean
   ignore_images: boolean
   ignore_encrypted_content: boolean
+  web_search: boolean
+  web_search_auto: boolean
   auto_disable_on_403: boolean
   auto_recover_on_403: boolean
   recovery_interval_minutes: number
@@ -20,7 +22,7 @@ export interface ExcelBPSDefaults {
 export function defaultExcelBPSDefaults(): ExcelBPSDefaults {
   return {
     all_models: false, models: [...DEFAULT_EXCEL_BPS_MODELS],
-    omit_unsupported_tools: false, ignore_images: false, ignore_encrypted_content: true,
+    omit_unsupported_tools: false, ignore_images: false, ignore_encrypted_content: true, web_search: false, web_search_auto: false,
     auto_disable_on_403: true, auto_recover_on_403: false,
     recovery_interval_minutes: DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES,
     auto_move_on_403: false, target_group_id: -1, session_proxy: false, proxy_source: 'mihomo',
@@ -43,6 +45,6 @@ export function excelBPSDefaultsError(bps: ExcelBPSDefaults): string {
 }
 
 export function excelBPSDefaultsPayload(bps: ExcelBPSDefaults): ExcelBPSDefaults {
-  return { ...bps, models: [...new Set(bps.models.map(model => model.trim()).filter(Boolean))],
+  return { ...bps, web_search_auto: bps.web_search && bps.web_search_auto, models: [...new Set(bps.models.map(model => model.trim()).filter(Boolean))],
     auto_recover_on_403: bps.auto_disable_on_403 && bps.auto_recover_on_403 }
 }

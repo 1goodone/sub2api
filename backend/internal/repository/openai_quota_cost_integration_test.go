@@ -10,12 +10,16 @@ import (
 )
 
 func (s *AccountRepoSuite) TestUpdateCodexUsageSnapshot_QuotaCostWindowVersions() {
+	// Concurrent snapshot writers need separate connections, not a shared test transaction.
+	s.client = testEntClient(s.T())
+	s.repo = newAccountRepositoryWithSQL(s.client, integrationDB, nil)
 	now := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
 	rate := 2.0
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name: "quota-cost-versioned", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 		Credentials: map[string]any{"plan_type": "Plus"}, RateMultiplier: &rate,
 	})
+	s.T().Cleanup(func() { _, _ = integrationDB.ExecContext(s.ctx, "DELETE FROM accounts WHERE id=$1", account.ID) })
 	s.Require().NoError(s.client.Account.UpdateOneID(account.ID).SetRateMultiplier(rate).Exec(s.ctx))
 	cache := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cache

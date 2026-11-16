@@ -30,6 +30,9 @@ import (
 func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte, isStickySession bool) (slotResult *ForwardResult, slotErr error) {
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil) }()
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
 
 	beginUpstreamResponseModelObservation(c)
 	// 上游透传账号直接转发，不走 OAuth token 刷新

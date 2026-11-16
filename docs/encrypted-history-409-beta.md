@@ -4,19 +4,24 @@
 默认关闭。管理员保存后，对后续触发条件匹配的请求生效，无需重启。
 
 本分支默认允许完整加密历史在合格账号之间原样续接，优先已知生产账号；不因它不可用就删除密文。只有 HTTP `/v1/responses` 在初次选号、尚未发送上游时仍因历史归属或路线校验返回兼容性 409，开启本功能才允许尝试省略旧密文、再按正常账号池规则选号一次。支持 JSON 和 SSE 响应。该开关不会改变完整历史的默认可移植策略。
+HTTP `/v1/responses` 支持 JSON/SSE 有损续接。WebSocket 的 `http_bridge`、`ctx_pool`、`shared`、`dedicated`、`passthrough` 路径可在确认当前轮尚未发送、原账号失去资格时，保持原客户端连接和 session 标识，按正常准入重新选择合格账号。重选受现有账号切换预算限制，无需点击确认、重开会话或重新输入。
 
-这是有损恢复。模型看不到被省略的内容，不能保证任务结论完整或供应商接受。可读消息、工具调用参数、可读工具结果、工具 ID 及顺序继续保留。已省略的 agent 历史转为带原 author/recipient 说明的普通上下文消息；reasoning 密文保持既有处理。
+这是有损恢复。只要现存最新用户请求、原始指令或可信同任务摘要足够，旧不可读 agent 历史可以省略；不要求恢复完整历史。可读消息、已完成工具的调用参数、结果、ID 和顺序保留。旧 agent/reasoning 内容转换为有明确出处的普通上下文，密文用不可用标记替代。`previous_response_id`、`conversation` 及旧账号会话绑定在重建时一起解除，建立新的上游会话。不能保证缺失历史后的结论完整或供应商接受。
+
+HTTP 当前轮尚未发送时，原账号的本地 `owner_rate_limited`（429）和 `owner_overloaded`（503）也进入上述续接流程，无需等待原账号恢复。重新选择的账号仍须通过正常准入；原账号的限流和过载截止时间保持不变。开关关闭时仍返回原错误及 `Retry-After`。实际发到上游后收到的 429/503 不属于这个恢复入口。
 
 以下条件继续返回原错误：
 
-- 最新用户或 agent 任务及其后的工具结果仍含不可读内容。
-- 请求依赖 `previous_response_id`、`conversation`、`item_reference` 或加密压缩状态，无法从本次请求取得完整历史。
-- 交付未确认、owner 冲突、共享存储错误、429 限流或 503 过载。
-- WebSocket、压缩端点、已开始返回下游数据或已尝试过上游发送的请求。
+- 最新请求完全不透明且无可读任务线索，也无匹配的未来 shadow 记录。
+- 只有服务端指针而没有可读当前意图；当前轮工具调用/结果不成对或状态未确认。
+- 交付未确认、owner 冲突、共享存储错误。
+- 压缩端点、当前生成已发送或发送结果不明；已经输出的生成和已完成工具不自动重放。前一轮成功完成不阻止新的未发送轮次恢复。
 
 本功能不针对任意供应商 409 进行删改重试。省略后的实际发送仍检查用户、Key、分组、模型、余额、额度、账号状态和并发；没有可用账号仍会失败。上游拒绝或交付不确定时不自动重新发送。既有 owner 缓存不清空、不改归属；新输出仍通过现有交付屏障登记。
 
-管理 API 字段：`openai_409_omit_encrypted_history_enabled`，沿用管理员系统设置 GET/PUT。旧客户端不发送该字段时保留已保存值。普通用户不能逐请求启用。只在符合条件的本地拒绝路径读取开关，读取失败按关闭处理；日志仅记录发生了省略与上下文损失，不记录密文、正文或摘要。
+管理 API 字段：`openai_409_omit_encrypted_history_enabled`，沿用管理员系统设置 GET/PUT。旧客户端不发送该字段时保留已保存值。普通用户不能逐请求启用。读取失败按关闭处理；日志仅记录省略与上下文损失，不记录密文、正文或摘要。
+
+启用后可为未来请求保存已成功交付、工具关系完整的可读上下文。共享 shadow 按用户/API Key、分组、模型、客户端会话及精确 opaque 任务标识隔离，最长 30 分钟，每个用户/API Key 最多八条、合计 512 KiB。当前首个恢复形态是一个精确 opaque agent 项且没有新意图或未配对工具；已有可读意图优先。原始 owner 不改归属，独立 epoch/CAS 和最终发送前的记录复读防止复用、延迟发布及失效关联。恢复文本仍接受审核，带不保留正文的来源标记。不存在的历史不能回填成 shadow。
 
 关闭后，后续请求禁用有损省略，完整历史仍按本分支默认规则续接。无需数据库迁移或清 Redis；回退旧二进制会忽略此设置。切换不会取消在途请求，已省略的信息无法由关闭开关恢复。
 
@@ -31,3 +36,23 @@
 如果后续一般兼容逻辑会删除整个 reasoning 或可读 reasoning.content，仍会拒绝该输入，而不是静默丢弃。此时服务器记录 `openai.encrypted_history_409_refused`、`stage=input_integrity`，不含正文、凭据或密文摘要，客户端错误码保持 `encrypted_agent_recovery_wire_changed`。并非所有历史形态都保证可恢复，未知供应商接受度需另行验证。
 
 回归使用真实 handler、隔离 Redis 和 localhost HTTP 假上游，验证完整历史与回放元数据原样续接、精确一次发送、真实上游拒绝透传及完整性负例。Beta 实际发生省略时，另有服务层测试验证受限规范化和摘要保护。已删除依赖上游严格默认策略的历史 RED 对照步骤；这些证据不等于真实供应商兼容或生产验收。
+CI 使用真实 handler、隔离 Redis 和 localhost HTTP/WebSocket 假上游。五适配器回归保留同一客户端，执行 A 工具请求、管理员停用 A、B 复用已完成结果、后续工具验证和正常 terminal；另有关闭开关、无意图、B 不可用、交付未确认及 B 发送后断线的边界。远程 RED/GREEN 必须逐叶核验且不能含编译、panic、race、skip 污染；当前源码本身不代表这些检查已通过。真实供应商验收需要另行授权的隔离环境、两个受控账号和预算，不能用合成 CI 冒充。
+
+## 重建后的发送表示
+
+HTTP 重建请求会在原始可读快照验证通过后，按目标账号执行有限的 namespace、工具 schema、Lite 和手动时区转换，并在独立请求上下文中固定结果。OAuth 输出专用消息元数据在 OAuth 快照生成前移除；后续兼容处理不得再改变冻结的任务、工具参数或结果。完整性检查失败时，日志记录固定的 `http_projection_source`、`apikey_projection_source`、`oauth_projection_source`、`input_integrity` 或 `controls_integrity` 阶段，不记录内容或摘要。
+
+API Key 账号开启普通透传时，重建请求使用原生 Responses 构造与交付流程；普通请求仍使用透传。其他尚不支持重建的账号路线在选号时排除，避免先选中再本地拒绝。WS 新连接首帧没有会话指针、但已有可读任务和原 owner 时，初次选号发现 owner 不可用也会进入一次有界重建。
+
+HTTP 投影也在冻结前执行目标 OAuth 的搜索字段清理，以及当前权限和账号策略允许的生图工具参数规范化、桥接或剥离。后续原生构造重复执行这些转换时应保持幂等；可读任务、工具参数与已完成结果仍受保护。源快照不匹配时，拒绝日志增加 `input_changed` / `controls_changed` 布尔值，以区分内容和工具控制字段，不记录内容或摘要。该修复不会自动放开 owner 冲突或不确定交付。
+
+重建或显式完整历史保护请求的正文在物理发送前不再按自动出口时区改写，以免验证后更改用户任务；HTTP 时区请求头仍可按出口更新，普通请求的自动时区行为不变。手动时区在 HTTP 重建投影中处理。缺少可读任务、未完成工具或交付不确定时继续停止，不以重新计算最终摘要掩盖变化。
+
+
+### Issue854 integrated continuation checks
+
+PR855 incorporates the fixed PR860 source (`591bb9b9b917c0df2ae8c59abed672c0cddf5c1c`) by an ordinary source merge. This does not imply a GitHub PR merge or a deployment. It retains the typed WS initial-owner availability check, fresh permission/billing/prompt checks, and terminal error persistence from PR855.
+
+Native HTTP projection also applies the existing empty-base64-image sanitizer before freezing the projected representation. Readable text, tool declarations, completed results, their order, and exact JSON numbers remain protected. Final dispatch does not overwrite the source snapshot or waive integrity checks.
+
+The synthetic acceptance matrix distinguishes configured manual timezone projection, automatic normalization on ordinary requests, and automatic egress headers with unchanged protected recovery bodies. API Key passthrough is a supported native recovery route; genuinely unsupported adapters are checked separately for refusal or selection of an eligible native account. The pre-coordination oracle and raw results are retained as historical evidence; they are not silently relabeled as current acceptance.

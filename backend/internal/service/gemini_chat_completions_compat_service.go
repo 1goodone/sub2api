@@ -30,6 +30,9 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 ) (slotResult *ForwardResult, slotErr error) {
 	finishReservation := BeginAccountSlotReservation(ctx, account, c)
 	defer func() { finishReservation(slotErr, slotResult != nil) }()
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
 
 	startTime := time.Now()
 

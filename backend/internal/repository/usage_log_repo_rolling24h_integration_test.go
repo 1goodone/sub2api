@@ -54,13 +54,24 @@ func TestUsageLogRolling24HoursHalfOpenBoundaries(t *testing.T) {
 	for _, granularity := range []string{"hour", "day"} {
 		trend, err := repo.GetUsageTrendWithUsageFilters(ctx, start, end, granularity, filters)
 		require.NoError(t, err)
+		format := "2006-01-02"
+		if granularity == "hour" {
+			format = "2006-01-02 15:00"
+		}
+		wantBuckets := map[string]int64{}
+		for _, instant := range []time.Time{start, end.Add(-time.Microsecond)} {
+			wantBuckets[instant.Format(format)]++
+		}
+		gotBuckets := map[string]int64{}
 		var requests int64
 		var cost, actualCost float64
 		for _, bucket := range trend {
+			gotBuckets[bucket.Date] += bucket.Requests
 			requests += bucket.Requests
 			cost += bucket.Cost
 			actualCost += bucket.ActualCost
 		}
+		require.Equal(t, wantBuckets, gotBuckets, "buckets use the selected fixed offset")
 		require.EqualValues(t, 2, requests, granularity)
 		require.InDelta(t, 14, cost, 1e-9, granularity)
 		require.InDelta(t, 6, actualCost, 1e-9, granularity)

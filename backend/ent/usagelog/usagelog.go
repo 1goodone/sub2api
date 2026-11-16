@@ -14,6 +14,8 @@ const (
 	Label = "usage_log"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldPlatform holds the string denoting the platform field in the database.
+	FieldPlatform = "platform"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldAPIKeyID holds the string denoting the api_key_id field in the database.
@@ -112,6 +114,8 @@ const (
 	FieldVideoDurationSeconds = "video_duration_seconds"
 	// FieldCacheTTLOverridden holds the string denoting the cache_ttl_overridden field in the database.
 	FieldCacheTTLOverridden = "cache_ttl_overridden"
+	// FieldCustomerCostDetails holds the string denoting the customer_cost_details field in the database.
+	FieldCustomerCostDetails = "customer_cost_details"
 	// FieldQueueTiming holds the string denoting the queue_timing field in the database.
 	FieldQueueTiming = "queue_timing"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
@@ -168,6 +172,7 @@ const (
 // Columns holds all SQL columns for usagelog fields.
 var Columns = []string{
 	FieldID,
+	FieldPlatform,
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
@@ -217,6 +222,7 @@ var Columns = []string{
 	FieldVideoResolution,
 	FieldVideoDurationSeconds,
 	FieldCacheTTLOverridden,
+	FieldCustomerCostDetails,
 	FieldQueueTiming,
 	FieldCreatedAt,
 }
@@ -232,6 +238,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
+	PlatformValidator func(string) error
 	// RequestIDValidator is a validator for the "request_id" field. It is called by the builders before save.
 	RequestIDValidator func(string) error
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
@@ -314,6 +322,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByPlatform orders the results by the platform field.
+func ByPlatform(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlatform, opts...).ToFunc()
 }
 
 // ByUserID orders the results by the user_id field.

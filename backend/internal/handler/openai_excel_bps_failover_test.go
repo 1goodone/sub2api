@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -117,6 +119,51 @@ func TestExcelBPS429RecoveryBoundsHandlerAccountSwitches(t *testing.T) {
 				for _, body := range upstream.bodies {
 					require.Equal(t, "gpt-6-astra", gjson.GetBytes(body, "model").String())
 				}
+			})
+		}
+	}
+}
+
+// Exercise the HTTP handler against the upstream rejection that triggered the
+// regression, including streaming and the production load-aware scheduler.
+func TestOpenAIResponsesExcelBPSServiceTierCompatibility(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tier := range []string{"", "priority", "auto", "fast", "default"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("tier=%s/stream=%t", tier, stream), func(t *testing.T) {
+				upstream := &excelBPSImageAdmissionUpstream{}
+				upstream.answer = func(call int) *http.Response {
+					if gjson.GetBytes(upstream.bodies[call], "service_tier").Exists() {
+						return &http.Response{
+							StatusCode: http.StatusUnprocessableEntity,
+							Header:     http.Header{"Content-Type": {"application/json"}},
+							Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Invalid request body"}}`)),
+						}
+					}
+					return excelBPSCompleted()
+				}
+				handler, _ := newExcelBPSImageAdmissionTestHandler(t, upstream, true, []service.Account{excelBPSImageAdmissionAccount(1, 3131, true, 0)})
+				c, rec := newExcelBPSFailoverTestContext(context.Background(), stream)
+				body := fmt.Sprintf(excelBPSFailoverRequestBody, stream)
+				if tier != "" {
+					body = strings.TrimSuffix(body, "}") + fmt.Sprintf(`,"service_tier":%q}`, tier)
+				}
+				c.Request.Body = io.NopCloser(strings.NewReader(body))
+				c.Request.ContentLength = int64(len(body))
+
+				handler.Responses(c)
+
+				require.Equal(t, http.StatusOK, rec.Code)
+				require.Contains(t, rec.Body.String(), "done")
+				require.NotContains(t, rec.Body.String(), "response.failed")
+				if stream {
+					require.Contains(t, rec.Body.String(), "event: response.completed")
+				} else {
+					require.Equal(t, "completed", gjson.Get(rec.Body.String(), "status").String())
+				}
+				require.Len(t, upstream.calls(), 1, "compatibility input must succeed without account failover")
+				require.Equal(t, basispoints.ResponsesURL, upstream.urls[0])
+				require.False(t, gjson.GetBytes(upstream.bodies[0], "service_tier").Exists())
 			})
 		}
 	}

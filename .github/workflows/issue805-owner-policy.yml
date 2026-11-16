@@ -5,6 +5,8 @@ on:
     branches: [production]
     paths:
       - 'backend/**'
+      - '.github/scripts/prepare-moderation-red-fixtures.sh'
+      - '.github/scripts/prepare-replay-red-fixtures.sh'
       - '.github/workflows/issue805-owner-policy.yml'
   workflow_dispatch:
 
@@ -56,6 +58,9 @@ jobs:
             if git cat-file -e "$baseline:$target" 2>/dev/null; then
               mkdir -p "$(dirname "$target")"
               git show "$baseline:$target" > "$target"
+              # A file removed by the candidate is untracked after restoration.
+              # Include it in the baseline diff without staging different content.
+              git add -N -- "$target"
               expected=$(git rev-parse "$baseline:$target")
               actual=$(git hash-object "$target")
               echo "$target baseline=present expected=$expected actual=$actual" >> "$RUNNER_TEMP/issue805-evidence/red-blobs.txt"
@@ -70,6 +75,8 @@ jobs:
             fi
           done < <(git diff --no-renames --name-only "$baseline" "$EXPECTED_HEAD_SHA" -- 'backend/**/*.go')
           git diff --exit-code "$baseline" -- 'backend/**/*.go' ':!backend/**/*_test.go'
+          git diff --exit-code "$EXPECTED_HEAD_SHA" -- 'backend/**/*_test.go'
+          bash "$GITHUB_WORKSPACE/.github/scripts/exclude-later-http2-red-fixtures.sh" "$baseline" . "$EXPECTED_HEAD_SHA" | tee "$RUNNER_TEMP/issue805-evidence/http2-exclusions.txt"
           # These unrelated context-policy tests require newer production symbols.
           # Use their baseline versions only in this disposable RED checkout so
           # compilation can reach the unchanged Issue805 business assertions.
@@ -80,16 +87,23 @@ jobs:
             echo "$target test=baseline expected=$expected actual=$actual" >> "$RUNNER_TEMP/issue805-evidence/red-blobs.txt"
             test "$expected" = "$actual"
           done
-          # This later Beta test references a setting absent from the old production
-          # baseline. Exclude only this unrelated file in RED; GREEN retains it.
-          omission_test=backend/internal/handler/openai_409_omit_history_test.go
-          git cat-file -e "$EXPECTED_HEAD_SHA:$omission_test"
-          rm -- "$omission_test"
-          test ! -e "$omission_test"
-          echo "$omission_test test=candidate-only actual=absent" >> "$RUNNER_TEMP/issue805-evidence/red-blobs.txt"
+          # The later omission fixtures require a Beta setting absent from this
+          # baseline. The readable/task-rebuild fixtures import its settings and
+          # usage helpers. Exclude this exact dependency set only in the old
+          # Issue805 RED; GREEN and each feature's own TDD job retain them.
+          for omission_test in backend/internal/handler/openai_409_omit_history_test.go backend/internal/handler/openai_409_readable_continuation_test.go backend/internal/handler/openai_409_http_rebuild_test.go backend/internal/handler/openai_409_shadow_http_test.go backend/internal/handler/openai_409_shadow_race_test.go backend/internal/handler/openai_409_ws_rebuild_test.go backend/internal/handler/openai_409_ws_oracle_test.go backend/internal/handler/openai_400_omit_history_test.go backend/internal/handler/openai_issue854_continuation_test.go backend/internal/handler/openai_issue854_upstream_test.go backend/internal/handler/openai_issue854_postgres_test.go; do
+            git cat-file -e "$EXPECTED_HEAD_SHA:$omission_test"
+            rm -- "$omission_test"
+            test ! -e "$omission_test"
+            echo "$omission_test test=candidate-only actual=absent" >> "$RUNNER_TEMP/issue805-evidence/red-blobs.txt"
+          done
+          # The pinned HTTP2 exclusion helper above already handles the handler
+          # fixture absent from this baseline; do not remove it a second time.
+          bash "$GITHUB_WORKSPACE/.github/scripts/prepare-replay-red-fixtures.sh" "$baseline" . "$EXPECTED_HEAD_SHA" | tee "$RUNNER_TEMP/issue805-evidence/replay-fixtures.txt"
+          bash "$GITHUB_WORKSPACE/.github/scripts/prepare-moderation-red-fixtures.sh" "$baseline" . "$EXPECTED_HEAD_SHA" | tee "$RUNNER_TEMP/issue805-evidence/moderation-fixtures.txt"
           # The selected regression and its shared harness must remain exact
           # candidate blobs. The clean GREEN checkout retains all new tests.
-          for target in backend/internal/handler/openai_issue805_delivery_test.go backend/internal/handler/openai_issue805_owner_policy_test.go backend/internal/handler/openai_issue805_ws_test.go backend/internal/handler/openai_issue715_recovery_test.go; do
+          for target in backend/internal/handler/openai_issue805_delivery_test.go backend/internal/handler/openai_issue805_owner_policy_test.go backend/internal/handler/openai_issue805_ws_test.go backend/internal/handler/openai_issue715_recovery_test.go backend/internal/handler/openai_responses_failover_cancel_test.go; do
             expected=$(git rev-parse "$EXPECTED_HEAD_SHA:$target")
             actual=$(git hash-object "$target")
             echo "$target test=candidate expected=$expected actual=$actual" >> "$RUNNER_TEMP/issue805-evidence/red-blobs.txt"
@@ -109,7 +123,7 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/issue805-evidence/red.log"
           test "$result" -ne 0
-          ! grep -Eiq 'build failed|no tests to run|undefined:|panic:|--- SKIP:' "$RUNNER_TEMP/issue805-evidence/red.log"
+          if grep -Eiq 'build failed|no tests to run|undefined:|panic:|panic_recovered|fatal error:|runtime error:|WARNING: DATA RACE|--- SKIP:' "$RUNNER_TEMP/issue805-evidence/red.log"; then exit 1; fi
           grep -q -- '--- FAIL: TestIssue805HTTPCompletedHistorySelectsAlternative/stream=false' "$RUNNER_TEMP/issue805-evidence/red.log"
           grep -q -- '--- FAIL: TestIssue805HTTPCompletedHistorySelectsAlternative/stream=true' "$RUNNER_TEMP/issue805-evidence/red.log"
           grep -q 'opt-out must dispatch complete A history to eligible B without clearing Redis' "$RUNNER_TEMP/issue805-evidence/red.log"
@@ -119,9 +133,14 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           test -z "$(git status --porcelain)"
+          for target in backend/internal/handler/http2_peer_reset_test.go backend/internal/service/http2_gateway_test_support.go; do
+            if git cat-file -e "$EXPECTED_HEAD_SHA:$target" 2>/dev/null; then
+              test "$(git hash-object "$target")" = "$(git rev-parse "$EXPECTED_HEAD_SHA:$target")"
+            fi
+          done
           cd backend
           go test -race -tags=unit ./internal/handler ./internal/service ./internal/config -run '^TestIssue805' -count=1 -v -timeout=10m 2>&1 | tee "$RUNNER_TEMP/issue805-evidence/green.log"
-          ! grep -Eiq 'no tests to run|--- SKIP:' "$RUNNER_TEMP/issue805-evidence/green.log"
+          if grep -Eiq 'no tests to run|--- SKIP:|panic:|panic_recovered|fatal error:|runtime error:|WARNING: DATA RACE' "$RUNNER_TEMP/issue805-evidence/green.log"; then exit 1; fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:

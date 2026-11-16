@@ -348,6 +348,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Free Fast changes only the customer charge. Keep priority TotalCost and
 	// service_tier for upstream accounting, but evaluate ActualCost once more at
 	// the Standard tier using the same channel, peak, and long-context policy.
+	var customerCostDetails *CustomerCostDetails
 	if groupBillsOpenAIFastAtStandard(apiKey, billingAccount, serviceTier) {
 		standardCost, standardErr := s.calculateOpenAIRecordUsageCost(
 			ctx,
@@ -371,6 +372,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// usage row instead of dropping it on the Standard re-evaluation.
 		if standardErr == nil && cost != nil && standardCost != nil {
 			cost.ActualCost = standardCost.ActualCost
+			customerCostDetails = newFreeFastCustomerCostDetails(standardCost, multiplier*costModelBillingMultiplier(standardCost))
 		}
 	}
 
@@ -436,6 +438,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		s.excelOAuthReauth.recordConnectionUsage(ctx, account.ID, apiKey.ID, result.AuthConnectionID, requestID)
 	}
 	usageLog := &UsageLog{
+		CustomerCostDetails:      customerCostDetails,
+		Platform:                 account.Platform,
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,
@@ -484,6 +488,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		factor := float64(1 + result.HeaderTimeoutRetries)
 		cost.TotalCost *= factor
 		cost.ActualCost *= factor
+		if customerCostDetails != nil {
+			customerCostDetails.Multiplier *= factor
+			customerCostDetails.ActualCost *= factor
+		}
 	}
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost
@@ -1091,7 +1099,7 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	// Helper to parse float64 from header
 	parseFloat := func(key string) *float64 {
 		if v := headers.Get(key); v != "" {
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
 				return &f
 			}
 		}
@@ -1142,7 +1150,9 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		hasData = true
 	}
 
-	if !hasData {
+	_, weeklyPresent, weeklyValid := openAI429WeeklyParsedHeaderUsage(headers, snapshot)
+	snapshot.invalidWeekly429 = weeklyPresent && !weeklyValid
+	if !hasData && !snapshot.invalidWeekly429 {
 		return nil
 	}
 
@@ -1183,6 +1193,11 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 
 	baseTime := codexSnapshotBaseTime(snapshot, fallbackNow)
 	updates := make(map[string]any)
+	if snapshot.invalidWeekly429 {
+		updates[openAI429WeeklyInvalidAtKey] = baseTime.Format(time.RFC3339Nano)
+	} else if evidence := openAI429SnapshotWeeklyEvidence(snapshot, baseTime); evidence != nil {
+		updates[openAI429WeeklyEvidenceKey] = evidence
+	}
 
 	// 保存原始 primary/secondary 字段，便于排查问题
 	if snapshot.PrimaryUsedPercent != nil {

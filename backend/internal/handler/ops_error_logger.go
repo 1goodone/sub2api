@@ -1149,8 +1149,20 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		// Trust only the forwarding boundary's local marker. The captured SSE
 		// parser cannot distinguish a bridge failure from an upstream failure and
 		// otherwise overwrites real HTTP 200 evidence with a synthetic 502.
-		if marked, ok := service.GetOpsStreamError(c); ok && marked.BridgeFailure != nil {
-			logOpsStreamErrorValue(c, ops, status, marked)
+		if marked, ok := service.GetOpsStreamError(c); ok && (marked.BridgeFailure != nil || marked.TransportFailure != nil || marked.RecoveryFailure != nil) {
+			// A trusted final marker must not erase failures from earlier WS turns.
+			logOpsStreamError(c, ops, status)
+			return
+		}
+		// A complete context rejection has already been classified at the
+		// semantic boundary. The captured terminal's generic message cannot
+		// discard its request ownership or SLA exclusion.
+		if marked, ok := service.GetOpsStreamError(c); ok && marked.RequestScoped &&
+			service.IsOpsContextLimitRejection(marked.IntendedStatus, 0, marked.Code+" "+marked.Message) {
+			logOpsStreamError(c, ops, status)
+			if opsStreamErrorsAllRequestScoped(service.GetOpsStreamErrors(c)) {
+				logOpsRecoveredUpstream(c, ops, status)
+			}
 			return
 		}
 		body := w.capturedBytes()
@@ -1530,8 +1542,25 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 			errorBody = string(payload)
 		}
 	}
+	if failure := streamErr.RecoveryFailure; failure != nil {
+		fields := gin.H{"type": normalizedType, "code": streamErr.Code, "message": streamErr.Message,
+			"protocol": failure.Protocol, "turn": streamErr.Turn, "phase": failure.Phase, "outcome": "failed",
+			"subreason":   service.OpenAIRecoverySubreason(failure.Subreason),
+			"wire_status": wireStatus, "status": streamErr.IntendedStatus}
+		if failure.RequestWritten != nil {
+			fields["request_written"] = *failure.RequestWritten
+		}
+		if payload, err := json.Marshal(gin.H{"error": fields}); err == nil {
+			errorBody = string(payload)
+		}
+	}
 	if streamErr.BridgeFailure != nil {
 		if payload, err := json.Marshal(gin.H{"error": streamErr.BridgeFailure.Details()}); err == nil {
+			errorBody = string(payload)
+		}
+	}
+	if streamErr.TransportFailure != nil {
+		if payload, err := json.Marshal(gin.H{"error": streamErr.TransportFailure.ErrorFields()}); err == nil {
 			errorBody = string(payload)
 		}
 	}
@@ -1633,6 +1662,19 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 			entry.UpstreamStatusCode = &status
 		}
 		entry.UpstreamErrorMessage, entry.UpstreamErrorDetail = nil, nil
+	}
+	if streamErr.RecoveryFailure != nil {
+		entry.ErrorPhase, entry.ErrorOwner, entry.ErrorSource = "internal", "platform", "gateway"
+		entry.IsBusinessLimited = false
+		entry.UpstreamStatusCode, entry.UpstreamErrorMessage, entry.UpstreamErrorDetail = nil, nil, nil
+		entry.UpstreamErrors = nil
+	}
+	if streamErr.TransportFailure != nil {
+		entry.ErrorPhase, entry.ErrorType = "network", "transport_error"
+		entry.ErrorOwner, entry.ErrorSource, entry.Severity = "provider", "upstream_transport", "error"
+		entry.StatusCode, entry.UpstreamStatusCode = wireStatus, nil
+		entry.IsBusinessLimited = false
+		entry.UpstreamErrorDetail = nil
 	}
 	suppressOpsUpstreamAttributionForClientRejection(entry)
 

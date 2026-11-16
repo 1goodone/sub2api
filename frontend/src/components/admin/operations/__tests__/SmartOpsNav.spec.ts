@@ -11,7 +11,7 @@ import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import type { User } from '@/types'
 
 const smartOpsPaths = ['/admin/lottery', '/admin/auto-config', '/admin/priority-scheduling',
-  '/admin/channel-operations', '/admin/profit-operations', '/admin/account-quality', '/admin/controlled-experiments', '/admin/account-ops', '/admin/token-guard', '/admin/token-guard-v2', '/admin/pelican-tests', '/admin/group-cache-tests']
+  '/admin/qqbot/overview', '/admin/channel-operations', '/admin/profit-operations', '/admin/account-quality', '/admin/controlled-experiments', '/admin/account-ops', '/admin/token-guard', '/admin/token-guard-v2', '/admin/pelican-tests', '/admin/group-cache-tests']
 
 async function mountAt(path: string) {
   const router = createRouter({
@@ -52,6 +52,7 @@ describe('SmartOpsNav', () => {
     const wrapper = await mountAt('/admin/pelican-tests')
     expect(hrefs(wrapper)).not.toContain('/admin/ai-ops')
     expect(hrefs(wrapper)).toContain('/admin/gateway-borrow')
+    expect(hrefs(wrapper)).not.toContain('/admin/qqbot/overview')
   })
 
   it('keeps the AI notice in the normal nav flow so dismissing it reserves no space', async () => {

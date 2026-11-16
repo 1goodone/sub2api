@@ -150,7 +150,7 @@ func TestIssue805WSCompletedHistoryAcrossNodesAndTurns(t *testing.T) {
 					return false
 				}
 				for _, raw := range owners {
-					if gjson.Get(raw, "1").Int() != 1 {
+					if !issue805CompletedOwner(raw, 1) {
 						return false
 					}
 				}
@@ -163,6 +163,7 @@ func TestIssue805WSCompletedHistoryAcrossNodesAndTurns(t *testing.T) {
 			answer := issue715WSRead(t, consumer.clientConn)
 			require.Equal(t, "response.completed", gjson.GetBytes(answer, "type").String(), string(answer))
 			require.Contains(t, string(answer), "existing ledger balance 18")
+			require.Contains(t, string(answer), "fixture-task-produced-by-B", "the ownership assertion requires an actually delivered new B item")
 			require.Eventually(t, func() bool {
 				owners := issue805Owners(t, probe)
 				if len(owners) != 2 {
@@ -173,7 +174,7 @@ func TestIssue805WSCompletedHistoryAcrossNodesAndTurns(t *testing.T) {
 						if raw != old {
 							return false
 						}
-					} else if gjson.Get(raw, "1").Int() != 2 {
+					} else if !issue805CompletedOwner(raw, 2) {
 						return false
 					}
 				}
@@ -292,7 +293,7 @@ func TestIssue805WSRejectsUnsafeHistoryBeforeNetworkSend(t *testing.T) {
 						return false
 					}
 					for _, raw := range owners {
-						if gjson.Get(raw, "1").Int() != 1 {
+						if !issue805CompletedOwner(raw, 1) {
 							return false
 						}
 					}
@@ -373,7 +374,7 @@ func TestIssue805WSNewBOutputWaitsForCrossNodeCommit(t *testing.T) {
 					return false
 				}
 				for _, raw := range owners {
-					if gjson.Get(raw, "1").Int() != 1 {
+					if !issue805CompletedOwner(raw, 1) {
 						return false
 					}
 				}
@@ -388,6 +389,16 @@ func TestIssue805WSNewBOutputWaitsForCrossNodeCommit(t *testing.T) {
 			release := func() { releaseOnce.Do(func() { close(barrier.release) }) }
 			defer release()
 			producer := issue805WSNode(t, mode, srv.URL, barrier, true, true)
+			// Establish the consumer socket before holding the producer commit.
+			// TLS/dial setup under -race must not consume the production 3s
+			// persistence deadline while the fixture deliberately blocks it.
+			readerBase := newCache()
+			readerDelivery, ok := readerBase.(issue715WSDeliveryCache)
+			require.True(t, ok)
+			observed := make(chan struct{})
+			var observeOnce sync.Once
+			reader := &issue805ReadObserver{GatewayCache: readerBase, issue715WSDeliveryCache: readerDelivery, seen: observed, once: &observeOnce}
+			consumer := issue805WSNode(t, mode, srv.URL, reader, true, true)
 			issue715WSSend(t, producer.clientConn, issue715WSCreate("", true))
 			answer := issue715WSRead(t, producer.clientConn)
 			require.Contains(t, string(answer), "fixture-task-produced-by-B")
@@ -402,13 +413,6 @@ func TestIssue805WSNewBOutputWaitsForCrossNodeCommit(t *testing.T) {
 					require.Contains(t, raw, `[1,2,`)
 				}
 			}
-			readerBase := newCache()
-			readerDelivery, ok := readerBase.(issue715WSDeliveryCache)
-			require.True(t, ok)
-			observed := make(chan struct{})
-			var observeOnce sync.Once
-			reader := &issue805ReadObserver{GatewayCache: readerBase, issue715WSDeliveryCache: readerDelivery, seen: observed, once: &observeOnce}
-			consumer := issue805WSNode(t, mode, srv.URL, reader, true, true)
 			mixed := strings.Replace(issue715WSCreate("", true), issue715Agent, issue715Agent+","+issue805AgentB, 1)
 			issue715WSSend(t, consumer.clientConn, mixed)
 			issue715Await(t, observed)
@@ -417,7 +421,8 @@ func TestIssue805WSNewBOutputWaitsForCrossNodeCommit(t *testing.T) {
 			u.mu.Unlock()
 			require.Equal(t, 2, before, "client-visible B output cannot be consumed on another node before commit")
 			release()
-			require.Equal(t, "response.completed", gjson.GetBytes(issue715WSRead(t, consumer.clientConn), "type").String())
+			completed := issue715WSRead(t, consumer.clientConn)
+			require.Equal(t, "response.completed", gjson.GetBytes(completed, "type").String(), "continuation after committed B output: %s", completed)
 			for _, node := range []*openAIWSPassthroughHandlerHarness{consumer, producer, originalNode} {
 				issue600Finish(t, node, http.Header{"Session_id": {"fixture-ws715-session"}, "Thread-Id": {"fixture-ws715-thread"}})
 			}
@@ -429,7 +434,7 @@ func TestIssue805WSNewBOutputWaitsForCrossNodeCommit(t *testing.T) {
 				if old, found := original[key]; found {
 					require.Equal(t, old, raw)
 				} else {
-					require.EqualValues(t, 2, gjson.Get(raw, "1").Int(), "new output must retain real B after commit")
+					require.True(t, issue805CompletedOwner(raw, 2), "new output must retain committed real B after commit: %s", raw)
 				}
 			}
 		})

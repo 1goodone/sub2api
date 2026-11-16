@@ -48,7 +48,7 @@ func TestAnthropicPassthroughNonStreamingAppliesGroupCacheReadReduction(t *testi
 }
 
 func TestCacheReadReductionDynamicAnthropicPartialStream(t *testing.T) {
-	for _, name := range []string{"standard", "passthrough", "native"} {
+	for _, name := range []string{"standard", "passthrough", "native", "native_multiline"} {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			rec := httptest.NewRecorder()
@@ -61,6 +61,9 @@ func TestCacheReadReductionDynamicAnthropicPartialStream(t *testing.T) {
 				"data: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":80,\"output_tokens\":10}}\n\n" +
 				"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":20}}\n\n" +
 				"data: {\"type\":\"message_stop\"}\n\n"
+			if name == "native_multiline" {
+				body = strings.ReplaceAll(body, `,"usage":`, ",\ndata: \"usage\":")
+			}
 			resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
 			svc := &GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}}
 			var result *streamingResult
@@ -68,7 +71,7 @@ func TestCacheReadReductionDynamicAnthropicPartialStream(t *testing.T) {
 			switch name {
 			case "passthrough":
 				result, err = svc.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, &Account{ID: 1}, time.Now(), "requested")
-			case "native":
+			case "native", "native_multiline":
 				native := &OpenAIGatewayService{cfg: &config.Config{}}
 				forward, nativeErr := native.handleNativeAnthropicStreamingResponse(ctx, resp, c, &Account{ID: 1}, "requested", "mapped", "mapped", nil, time.Now())
 				require.NoError(t, nativeErr)

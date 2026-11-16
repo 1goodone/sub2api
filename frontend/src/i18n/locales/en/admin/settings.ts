@@ -592,7 +592,9 @@ export default {
       },
       gatewayForwarding: {
         omitEncryptedHistory409: 'Omit encrypted content on 409',
-        omitEncryptedHistory409Hint: 'Off by default. Complete history normally continues intact across eligible accounts. Only a pre-dispatch HTTP Responses compatibility 409 from a history owner or route check can trigger one omission and reselection. Readable text and tool relationships remain; omitted context is lost and upstream acceptance is not guaranteed. Excludes current encrypted tasks, server-side pointers, WebSockets, uncertain delivery and store failures. Already-sent requests are never replayed.',
+        omitEncryptedHistory409Hint: 'Off by default. HTTP Responses and WebSocket turns proven unsent can automatically continue on an eligible account from the available readable task and completed tool results, starting a new upstream conversation when needed. Old opaque history may be lost; no confirmation or new client session is required. When enabled, successfully delivered tasks may retain readable context in the internal shared store for up to 30 minutes, limited to eight records and 512 KiB per user/API key, solely for the same task. Context bodies are not logged. Requests with no readable clues, uncertain delivery or store failures remain protected. Already-sent generations and completed tools are not automatically replayed; upstream acceptance is not guaranteed.',
+        omitEncryptedHistory400: 'Lossy encrypted history recovery on 400',
+        omitEncryptedHistory400Hint: 'Off by default. After an explicit encrypted-content HTTP 400 on native Responses, if normal recovery cannot succeed, allow one additional same-account attempt, no later than upstream send 3. Omit ciphertext before the current readable task, preserving readable text and tool relationships. Omitted context is lost and continuation is not guaranteed. Eligible requests following 409 omission are supported. Excludes current encrypted tasks, compaction, server-side pointers, WebSockets, HTTP 200 stream errors, existing output and uncertain delivery.',
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',
         grokDefaultTextModel: 'Default Grok text model',
@@ -1145,15 +1147,6 @@ export default {
         refundEnabled: 'Allow Refund',
         allowUserRefund: 'Allow User Refund',
         enableConflict: '{method} already has an enabled provider instance: {provider}. Disable the existing instance before switching.',
-      },
-      balanceForecast: {
-        title: "Balance exhaustion forecast",
-        description: "Estimate time remaining from settled balance spending over the last 24 hours. Off by default; independent of amount alerts.",
-        enabled: "Enable forecast alerts",
-        threshold: "Lead time (hours, up to 168)",
-        cap: "Notifications per warning episode (1–10)",
-        hint: "Defaults: 12 hours, 3 rounds, at most one round per hour. Reuses the recharge link, verified notification emails and unsubscribe preferences. Insufficient samples or settlement coverage suppress delivery. Uncertain delivery consumes an allowance. A new episode requires one continuous hour above 120% of the threshold.",
-        invalid: "Lead time must be positive and at most 168 hours; the notification cap must be an integer from 1 to 10.",
       },
       balanceNotify: {
         title: 'Balance Low Notification',

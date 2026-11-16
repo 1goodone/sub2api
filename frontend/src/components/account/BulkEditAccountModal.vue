@@ -79,6 +79,7 @@
               <p class="input-hint">{{ t('admin.accounts.openai.excelBPSModelsHint') }}</p>
             </div>
             <p class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.excelBPSNotice') }}</p>
+            <ExcelBPSSearchOptions v-model:enabled="excelBPSWebSearch" v-model:automatic="excelBPSWebSearchAuto" />
             <div class="mt-3">
               <label class="flex items-center gap-2">
                 <input v-model="excelBPSOmitUnsupportedTools" type="checkbox"
@@ -1712,6 +1713,7 @@ import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ExcelBPSModeSwitches from './ExcelBPSModeSwitches.vue'
 import SlotReservationSettings from './SlotReservationSettings.vue'
+import ExcelBPSSearchOptions from './ExcelBPSSearchOptions.vue'
 import type { ExcelBPSMode } from '@/utils/excelBPSDefaults'
 import { useExcelBPSDefaults } from '@/composables/useExcelBPSDefaults'
 import { DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES, MAX_BPS_RECOVERY_INTERVAL_MINUTES, isValidBPSRecoveryInterval, bpsRecoveryIntervalOrDefault } from '@/utils/excelBPSRecovery'
@@ -1974,6 +1976,8 @@ const excelBPSRecoveryIntervalMinutes = ref<number | string>(DEFAULT_BPS_RECOVER
 const excelBPSOmitUnsupportedTools = ref(false)
 const excelBPSIgnoreImages = ref(false)
 const excelBPSIgnoreEncryptedContent = ref(false)
+const excelBPSWebSearch = ref(false)
+const excelBPSWebSearchAuto = ref(false)
 const excelBPSAutoMoveOn403 = ref(false)
 const excelBPS403TargetGroupID = ref<number | string>('')
 const bpsDefaults = useExcelBPSDefaults({
@@ -1985,6 +1989,7 @@ const bpsDefaults = useExcelBPSDefaults({
     all_models: excelBPSAllModels, models: excelBPSModels,
     omit_unsupported_tools: excelBPSOmitUnsupportedTools, ignore_images: excelBPSIgnoreImages,
     ignore_encrypted_content: excelBPSIgnoreEncryptedContent,
+    web_search: excelBPSWebSearch, web_search_auto: excelBPSWebSearchAuto,
     auto_disable_on_403: excelBPSAutoDisableOn403, auto_recover_on_403: excelBPSAutoRecoverOn403,
     recovery_interval_minutes: excelBPSRecoveryIntervalMinutes,
     auto_move_on_403: excelBPSAutoMoveOn403, target_group_id: excelBPS403TargetGroupID,
@@ -2322,6 +2327,8 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     extra.openai_excel_bps_omit_unsupported_tools = excelBPSEnabled.value && excelBPSOmitUnsupportedTools.value
     extra.openai_excel_bps_ignore_images = excelBPSEnabled.value && excelBPSIgnoreImages.value
     extra.openai_excel_bps_ignore_encrypted_content = excelBPSEnabled.value && excelBPSIgnoreEncryptedContent.value
+    extra.openai_excel_bps_web_search = excelBPSEnabled.value && excelBPSWebSearch.value
+    extra.openai_excel_bps_web_search_auto = excelBPSEnabled.value && excelBPSWebSearch.value && excelBPSWebSearchAuto.value
     extra.openai_excel_bps_auto_move_on_403 = excelBPSEnabled.value && excelBPSAutoMoveOn403.value
     extra.openai_excel_bps_403_target_group_id = excelBPSEnabled.value && excelBPSAutoMoveOn403.value
       ? Number(excelBPS403TargetGroupID.value)
@@ -2795,6 +2802,8 @@ watch(
       excelBPSOmitUnsupportedTools.value = false
       excelBPSIgnoreImages.value = false
       excelBPSIgnoreEncryptedContent.value = false
+  excelBPSWebSearch.value = false
+  excelBPSWebSearchAuto.value = false
       excelBPSAutoMoveOn403.value = false
       excelBPS403TargetGroupID.value = ''
       openaiPassthroughEnabled.value = false

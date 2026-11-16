@@ -94,14 +94,18 @@
       </section>
       <section v-if="activeTab === 'settings' && remote" id="ops-panel-settings" role="tabpanel" aria-labelledby="ops-tab-settings"
         class="space-y-5">
-        <section class="rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900"
+        <AccountOpsRuleList ref="ruleList" :user-id="auth.user?.id" :accounts="thresholdAccounts" :groups="accountGroups" :config="remote.config" :loading="thresholdLoading"
+          :ready="thresholdReady" :error="thresholdError" :busy="mutating"
+          @batch-edit="batchAccounts = $event" @edit-group="showGroupDialog = true" @toggle="toggleGroup" @refresh="loadAccounts">
+          <template #actions><button type="button" class="btn btn-secondary text-sm" :disabled="thresholdLoading || mutating" data-testid="edit-account-groups" @click="showGroupDialog = true">{{ t('accountOps.manageGroups') }}</button></template>
+          <template #global-settings>
+            <AccountOpsGlobalSettings :config="remote.config" :disabled="mutating" @saving="globalSaving = $event" @saved="acceptConfig"
+              @error="app.showError" />
+          </template>
+        </AccountOpsRuleList>
+        <details :open="!remote.config.recipient && !remote.config.webhooks?.length" class="rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900"
           data-testid="account-ops-channels">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-dark-700">
-            <div>
-              <h2 class="text-sm font-semibold">{{ t('accountOps.notificationChannels') }}</h2>
-              <p class="mt-1 text-xs text-gray-500">{{ t('accountOps.channelSummaryHint') }}</p>
-            </div>
-          </div>
+          <summary class="cursor-pointer px-5 py-4 text-sm font-semibold">{{ t('accountOps.notificationChannels') }}<span class="ml-3 text-xs font-normal text-gray-500">{{ remote.config.email_name || remote.config.recipient || t('accountOps.channelSummaryHint') }}</span></summary>
           <div class="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
             <div v-if="remote.config.recipient" class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
               data-testid="account-ops-email-channel">
@@ -135,24 +139,8 @@
               :disabled="!canAddChannel" data-testid="account-ops-add-channel"
               @click="showAddChannel = true">{{ t('accountOps.addChannel') }}</button>
           </div>
-        </section>
-        <section class="rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900" data-testid="account-ops-groups">
-          <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <h2 class="text-sm font-semibold">{{ t('accountOps.accountGroups') }}</h2>
-              <p class="mt-1 text-xs text-gray-500">{{ t('accountOps.accountGroupsSummary', { count: accountGroups.length }) }}</p>
-            </div>
-            <button type="button" class="btn btn-secondary text-sm" :disabled="thresholdLoading || mutating" data-testid="edit-account-groups" @click="showGroupDialog = true">{{ t('common.edit') }}</button>
-          </div>
-        </section>
-        <AccountOpsRuleList ref="ruleList" :accounts="thresholdAccounts" :groups="accountGroups" :config="remote.config" :loading="thresholdLoading"
-          :ready="thresholdReady" :error="thresholdError" :busy="mutating"
-          @batch-edit="batchAccounts = $event" @edit-group="showGroupDialog = true" @toggle="toggleGroup">
-          <template #global-settings>
-            <AccountOpsGlobalSettings :config="remote.config" :disabled="mutating" @saving="globalSaving = $event" @saved="acceptConfig"
-              @error="app.showError" />
-          </template>
-        </AccountOpsRuleList>
+        </details>
+
       </section>
       <template v-if="remote && auth.user">
         <AccountOpsBatchRuleDialog :show="batchAccounts.length > 0" :accounts="batchAccounts" :config="remote.config" @close="batchAccounts = []"
@@ -162,7 +150,7 @@
           @close="showAddChannel = false" @select="addChannel" />
         <AccountOpsWebhookDialog :show="showWebhook" :hook="editingHook" :encryption-configured="remote.encryption_key_configured === true"
           :testing-id="testingId" @close="showWebhook = false" @saved="acceptConfig" @error="app.showError" @test="testWebhook" />
-        <AccountOpsEmailDialog :show="showEmail" :config="remote.config" :smtp-configured="remote.smtp_configured"
+        <AccountOpsEmailDialog :user-id="auth.user?.id" :show="showEmail" :config="remote.config" :smtp-configured="remote.smtp_configured"
           @close="showEmail = false" @saved="acceptConfig" @error="app.showError" />
         <AccountOpsGroupDialog :show="showGroupDialog" :groups="accountGroups" :accounts="thresholdAccounts"
           @close="showGroupDialog = false" @saved="acceptGroupConfig" @error="app.showError" />
@@ -211,7 +199,7 @@ watch(thresholdAccounts, accounts => {
 const query = ref(''), kind = ref('all'), phase = ref('all'), alertKinds = ['balance_threshold','quota_threshold','balance_low','weekly_quota']
 const editingHook = ref<AccountOpsWebhook|null>(null), showWebhook = ref(false), showEmail = ref(false), testingId = ref<string|null>(null)
 let version = 0, accountsVersion = 0, testSequence = 0, mutationSequence = 0, paginationSequence = 0, alive = true, timer: ReturnType<typeof setInterval>|null = null
-const normalize = (c: AccountOpsConfig): AccountOpsConfig => ({ enabled:c.enabled, recipient:c.recipient,email_name:c.email_name ?? '', balance_low:c.balance_low, weekly_quota:c.weekly_quota, cooldown_minutes:c.cooldown_minutes, error_close_enabled:c.error_close_enabled===true, error_close_consecutive:c.error_close_consecutive||3, error_close_notify_email:c.error_close_notify_email===true, error_close_codes:[...(c.error_close_codes??[])], webhooks:(c.webhooks??[]).map(h=>({id:h.id,name:h.name,provider:h.provider,enabled:h.enabled,url_configured:h.url_configured===true,secret_configured:h.secret_configured===true,message_template:h.message_template})), groups:(c.groups??[]).map(g=>({id:g.id,name:g.name,provider:g.provider,site:g.site,account_ids:g.account_ids ? [...g.account_ids] : []})), balance_thresholds:(c.balance_thresholds??[]).map(r=>({...r,notify_alert:r.notify_alert??true,notify_recovery:r.notify_recovery??true})), quota_thresholds:(c.quota_thresholds??[]).map(r=>({...r,notify_alert:r.notify_alert??true,notify_recovery:r.notify_recovery??true})) })
+const normalize = (c: AccountOpsConfig): AccountOpsConfig => ({ enabled:c.enabled, recipient:c.recipient,email_name:c.email_name ?? '', balance_low:c.balance_low, weekly_quota:c.weekly_quota, cooldown_minutes:c.cooldown_minutes, error_close_enabled:c.error_close_enabled===true, error_close_consecutive:c.error_close_consecutive||3, error_close_notify_email:c.error_close_notify_email===true, error_close_codes:[...(c.error_close_codes??[])], webhooks:(c.webhooks??[]).map(h=>({id:h.id,name:h.name,provider:h.provider,enabled:h.enabled,url_configured:h.url_configured===true,secret_configured:h.secret_configured===true,message_template:h.message_template})), groups:(c.groups??[]).map(g=>({id:g.id,name:g.name,...(g.provider_id ? {provider_id:g.provider_id} : {}),provider:g.provider,site:g.site,account_ids:g.account_ids ? [...g.account_ids] : []})), balance_thresholds:(c.balance_thresholds??[]).map(r=>({...r,notify_alert:r.notify_alert??true,notify_recovery:r.notify_recovery??true})), quota_thresholds:(c.quota_thresholds??[]).map(r=>({...r,notify_alert:r.notify_alert??true,notify_recovery:r.notify_recovery??true})) })
 const eventKey = (e: AccountOpsEvent) => e.id ?? `${e.account_id}:${e.kind}:${e.phase??'legacy'}:${e.first_seen}`
 const filteredEvents = computed(()=>events.value.filter(e=>(kind.value==='all'||kind.value===e.kind)&&(phase.value==='all'||phase.value===(e.phase??'alert'))&&`${e.account_name} ${e.account_id}`.toLowerCase().includes(query.value.toLowerCase().trim())))
 const date = (value: string) => { const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString():'-' }
@@ -239,8 +227,30 @@ async function loadAccounts() {
 function selectTab(tab:'records'|'settings'){activeTab.value=tab;if(tab==='settings'&&!thresholdReady.value&&!thresholdLoading.value)void loadAccounts()}
 function tabKey(event:KeyboardEvent,tab:'records'|'settings'){if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?'settings':event.key==='End'?'records':tab==='records'?'settings':'records';selectTab(next);document.getElementById(`ops-tab-${next}`)?.focus()}
 function acceptConfig(config: AccountOpsConfig){if(!alive||!auth.user||!remote.value)return;version++;loading.value=false;remote.value={...remote.value,config:normalize(config)};app.showSuccess(t('accountOps.settingsSaved'))}
-function acceptGroupConfig(config: AccountOpsConfig){showGroupDialog.value=false;acceptConfig(config);void loadGroups()}
-async function loadGroups(){try{const groups=await getAccountOpsThresholdGroups();if(alive)accountGroups.value=groups}catch(e){if(alive)app.showError(message(e))}}
+function acceptGroupConfig(config: AccountOpsConfig) {
+  if (!alive || !auth.user) return
+  // Publish the committed membership before allowing another editing session.
+  // Invalidate both pending account polls and previous post-save group reads.
+  accountsVersion++
+  thresholdLoading.value = false
+  accountGroups.value = (config.groups ?? []).map(group => ({
+    id: group.id, name: group.name, default_name: group.name,
+    provider: group.provider || 'manual', site: group.site || '', mode: 'manual',
+    account_ids: [...(group.account_ids ?? [])],
+  }))
+  showGroupDialog.value = false
+  acceptConfig(config)
+  void loadGroups()
+}
+async function loadGroups() {
+  const current = ++accountsVersion
+  try {
+    const groups = await getAccountOpsThresholdGroups()
+    if (alive && current === accountsVersion) accountGroups.value = groups
+  } catch (e) {
+    if (alive && current === accountsVersion) app.showError(message(e))
+  }
+}
 function acceptBatchConfig(config: AccountOpsConfig){acceptConfig(config);ruleList.value?.clearSelection()}
 function editWebhook(hook:AccountOpsWebhook|null){editingHook.value=hook;showWebhook.value=true}
 function addChannel(provider: 'email'|'webhook') {

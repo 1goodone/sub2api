@@ -15,6 +15,40 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestOpenAI409WSUnsentTurnBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		turn int
+		want bool
+	}{
+		{"disabled_account", denyOpenAITurn("account_ineligible"), 2, true},
+		{"route_changed", denyOpenAITurn("account_binding_changed"), 3, true},
+		{"initial_warmup", denyOpenAITurn("account_ineligible"), 1, false},
+		{"quota", denyOpenAITurn("account_runtime_blocked"), 2, false},
+		{"model_policy", denyOpenAITurn("model_not_allowed_in_group"), 2, false},
+		{"store_failure", denyOpenAITurn("latest_state_unavailable"), 2, false},
+		{"unknown_write", errors.New("upstream write outcome unknown"), 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"type":"response.create","input":"private-current-task"}`)
+			err := openAIWSUnsentTurn(tc.err, body, "gpt-5.1", tc.turn)
+			body[0] = '!'
+			current, model, turn, ok := OpenAIWSUnsentTurnPayload(err)
+			require.Equal(t, tc.want, ok)
+			require.NotContains(t, err.Error(), "private-current-task")
+			if ok {
+				require.True(t, gjson.ValidBytes(current), "the rejected current frame must be an independent snapshot")
+				require.Equal(t, "gpt-5.1", model)
+				require.Equal(t, tc.turn, turn)
+				current[0] = '!'
+				again, _, _, _ := OpenAIWSUnsentTurnPayload(err)
+				require.True(t, gjson.ValidBytes(again))
+			}
+		})
+	}
+}
+
 func issue715WSManager(t *testing.T, svc *OpenAIGatewayService, parent context.Context) (*openAIWSAgentRecovery, *gin.Context, *Account) {
 	t.Helper()
 	c, _ := newTurnStateTestContext(t, 715, "fixture-session")
@@ -153,4 +187,38 @@ func TestIssue715WSBridgeValidatesBuiltPayload(t *testing.T) {
 	built := strings.Replace(issue715OpaqueBody, "fixture envelope", "fixture rewritten envelope", 1)
 	err := manager.begin(account, []byte(issue715OpaqueBody), []byte(issue715OpaqueBody), newRequest(built), "http_bridge")
 	require.Error(t, err, "bridge must validate actual built HTTP body before granting opaque task admission")
+}
+
+func TestIssue854BeforeSendRecoveryGuards(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		cause       error
+		recoverable bool
+	}{
+		{"owner_unavailable", &openAIWSOwnerRouteError{cause: openAIAgentRecoveryError("owner_unavailable")}, true},
+		{"route_changed", &openAIWSOwnerRouteError{cause: openAIAgentRecoveryError("route_changed")}, true},
+		{"late_owner_fence", openAIAgentRecoveryError("owner_unavailable"), false},
+		{"route_store_failure", &openAIWSOwnerRouteError{cause: openAIAgentRecoveryError("store_unavailable")}, false},
+		{"wire_integrity", openAIAgentRecoveryError("wire_changed"), false},
+		{"conflicting_owners", openAIAgentRecoveryError("owner_conflict"), false},
+		{"delivery_pending", openAIAgentRecoveryError("delivery_pending"), false},
+		{"store_unavailable", openAIAgentRecoveryError("store_unavailable"), false},
+		{"lost_known_owner", &openAIWSLostOwnerEvidenceError{cause: openAIAgentRecoveryError("owner_unavailable")}, false},
+		{"unknown_send", errors.New("upstream write outcome unknown"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"type":"response.create","input":"private-current-task"}`)
+			result := openAIWSUnsentAgentTurn(tc.cause, body, "gpt-5.1", 2)
+			body[0] = '!'
+			payload, model, turn, ok := OpenAIWSUnsentTurnPayload(result)
+			require.Equal(t, tc.recoverable, ok)
+			require.Equal(t, tc.recoverable, OpenAIWSUnsentTurnKeepsAccount(result))
+			require.NotContains(t, result.Error(), "private-current-task")
+			if ok {
+				require.True(t, gjson.ValidBytes(payload))
+				require.Equal(t, "gpt-5.1", model)
+				require.Equal(t, 2, turn)
+			}
+		})
+	}
 }

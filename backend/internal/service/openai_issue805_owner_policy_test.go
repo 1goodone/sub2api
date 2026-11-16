@@ -49,6 +49,27 @@ func TestIssue805PolicySeparatesRoutingFromReplaySafety(t *testing.T) {
 	}
 }
 
+func TestIssue805ReadableRecoveryOptInKeepsDefaultPortability(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "portable_default", true: "readable_opt_in"}[enabled], func(t *testing.T) {
+			svc := &OpenAIGatewayService{cfg: &config.Config{}}
+			account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+			issue715LearnRoute(t, svc, account, issue715OpaqueBody)
+			value := "false"
+			if enabled {
+				value = "true"
+			}
+			svc.settingService = NewSettingService(&codexPolicyMigrationRepoStub{values: map[string]string{SettingKeyOpenAI409OmitEncryptedHistoryEnabled: value}}, svc.cfg)
+			c, _ := newTurnStateTestContext(t, 715, "fixture-session")
+			c.Set("api_key", &APIKey{ID: 715, GroupID: int64Ptr(715)})
+			ctx := svc.WithOpenAIAgentMessageRecovery(context.Background(), c, []byte(issue715OpaqueBody), "fixture-session", "gpt-6-astra")
+			request := openAIAgentRecoveryFromContext(ctx)
+			require.Equal(t, enabled, request.ownerBindingRequired())
+			require.Equal(t, !enabled, request.canSwitchAccount())
+		})
+	}
+}
+
 func TestIssue805AlternativeStillNeedsNormalAdmission(t *testing.T) {
 	for _, restriction := range []string{"none", "group", "model", "group_model", "quota", "disabled", "excluded", "concurrency"} {
 		t.Run(restriction, func(t *testing.T) {

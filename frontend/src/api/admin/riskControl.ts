@@ -20,6 +20,8 @@ export interface ContentModerationModelFilter {
 }
 
 export interface ContentModerationConfig {
+  upstream_account_scope?: 'all' | 'selected'
+  upstream_account_ids?: number[]
   engine?: ModerationEngine
   engine_configs?: Partial<Record<ModerationEngine, ContentModerationConfig>>
   enabled: boolean
@@ -111,6 +113,8 @@ export interface ContentModerationTestAuditResult {
 }
 
 export interface UpdateContentModerationConfig {
+  upstream_account_scope?: 'all' | 'selected'
+  upstream_account_ids?: number[]
   engine?: ModerationEngine
   engine_configs?: Partial<Record<ModerationEngine, UpdateModerationEngineConfig>>
   enabled?: boolean

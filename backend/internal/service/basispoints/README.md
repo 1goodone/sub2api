@@ -222,3 +222,48 @@ configurable in both modes. Both modes retain the 64-megapixel safeguard.
 Relay download concurrency and automatic compaction checkpoint limits are
 unchanged. Large capacity settings require appropriate resource provisioning;
 these ceilings are not throughput or memory-use guarantees.
+
+# In-band upstream failures
+
+- Recognize error, response.failed and response.cancelled as failed terminals.
+  Explicit error status takes precedence over known error codes and types;
+  unknown identifiers use a safe 502 fallback. Never forward upstream free text.
+- Buffered client responses return the classified HTTP status. Started streams
+  retain their HTTP status and carry the classification in the error event.
+  Ops records keep the actual upstream HTTP status separate from the semantic
+  failure status; existing compact keepalives still finish with an SSE failure.
+- A rate-limit terminal cools only the BPS route for subsequent requests, except
+  observation-only quality probes. It never retries the accepted generation,
+  disables an account on an in-band 403, or changes shared Codex account health.
+- Failure/cancellation retains usage and withholds unvalidated tools. Readers
+  stop at cancellation without waiting for EOF, including correction and image
+  compaction readers. This does not add a BPS WebSocket transport.
+
+# Required and named client tools
+
+`tool_choice` accepts `auto`, `none`, `required`, and named `function` or `custom`
+objects. A named selection must identify a declared tool of the same kind. Use
+its full catalog name or `namespace` plus `name`; a short name must be unique.
+Unsupported selection forms (including `allowed_tools`) return a request error.
+
+The constraint belongs to this request and does not prune the inherited catalog.
+The adapter communicates it to BPS, then validates the complete returned batch
+against the selected identity and the original schema before emitting tool calls
+or saving replay entries. A missing call or a different selected target fails;
+it is not silently converted to `auto` or repaired into another operation.
+Upstream constrained decoding is not provided. Normal text can still stream
+before a final tool validation failure, which ends with `response.failed`.
+
+# Context policy and current encrypted input
+
+The bridge forwards an explicitly supplied `context_management` array, including
+an empty array, without injecting a fixed compaction threshold when it is absent.
+Upstream defaults then apply. Clients that require the former 920000 threshold
+can declare it explicitly. This does not extend a model's context window.
+
+The optional encrypted-history omission path never replaces the last meaningful
+message or tool result's encrypted payload with a placeholder. Trailing reasoning,
+additional tool declarations, tool-search output and compaction triggers do not
+make that current input historical. Such requests fail with a safe input path and
+require the original plaintext. Older encrypted history may still use the existing
+explicit omission option; this does not recover or decrypt its missing content.

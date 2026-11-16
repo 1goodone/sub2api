@@ -209,12 +209,17 @@ func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, 
 			}
 		}
 	}
-	c, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusPending)).SetStatus(fs).Save(ctx)
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	c, err := tx.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusPending)).SetStatus(fs).Save(ctx)
 	if err != nil {
 		return "", fmt.Errorf("update order status: %w", err)
 	}
 	if c == 0 {
-		current, err := s.entClient.PaymentOrder.Get(ctx, o.ID)
+		current, err := tx.PaymentOrder.Get(ctx, o.ID)
 		if err != nil {
 			return "", fmt.Errorf("reload order status: %w", err)
 		}
@@ -222,6 +227,14 @@ func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, 
 			return checkPaidResultAlreadyPaid, nil
 		}
 		return checkPaidResultCancelled, nil
+	}
+	if c > 0 && orderHasCoupon(o) {
+		if err = releaseOrderCoupon(ctx, tx.Client(), o.ID); err != nil {
+			return "", err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
 	}
 	if c > 0 {
 		auditAction := "ORDER_CANCELLED"

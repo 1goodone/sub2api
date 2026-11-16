@@ -557,6 +557,7 @@ const (
 	// stays the authenticated Sub2API content proxy. Default false.
 	SettingKeyGrokVideoSourceURLEnabled            = "grok_video_source_url_enabled"
 	SettingKeyOpenAI409OmitEncryptedHistoryEnabled = "openai_409_omit_encrypted_history_enabled"
+	SettingKeyOpenAI400OmitEncryptedHistoryEnabled = "openai_400_omit_encrypted_history_enabled"
 
 	// SettingKeyAvailableChannelsEnabled is a DB-backed soft switch for the "Available Channels"
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
@@ -797,11 +798,6 @@ const (
 	SettingKeyBalanceLowNotifyEnabled     = "balance_low_notify_enabled"      // 全局开关
 	SettingKeyBalanceLowNotifyThreshold   = "balance_low_notify_threshold"    // 默认阈值（USD）
 	SettingKeyBalanceLowNotifyRechargeURL = "balance_low_notify_recharge_url" // 充值页面 URL
-
-	// 余额耗尽预测：独立于金额提醒，默认关闭。
-	SettingKeyBalanceForecastEnabled          = "balance_forecast_enabled"
-	SettingKeyBalanceForecastThresholdHours   = "balance_forecast_threshold_hours"
-	SettingKeyBalanceForecastMaxNotifications = "balance_forecast_max_notifications"
 
 	// 订阅到期提醒
 	SettingKeySubscriptionExpiryNotifyEnabled = "subscription_expiry_notify_enabled" // 订阅到期提醒全局开关，默认开启
