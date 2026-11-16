@@ -92,6 +92,20 @@ type openAINonStreamingDeliveryError struct{ err error }
 func (e *openAINonStreamingDeliveryError) Error() string { return e.err.Error() }
 func (e *openAINonStreamingDeliveryError) Unwrap() error { return e.err }
 
+// openAIAgentUnsentWireError marks only a final route-fingerprint mismatch.
+// Integrity failures and post-submission failures must never opt into omission.
+type openAIAgentUnsentWireError struct {
+	error
+	confirmedHTTP bool
+}
+
+func (e *openAIAgentUnsentWireError) Unwrap() error { return e.error }
+
+func OpenAIAgentUnsentWireRefusal(err error) bool {
+	var refusal *openAIAgentUnsentWireError
+	return errors.As(err, &refusal) && refusal.confirmedHTTP
+}
+
 // InternalSubreason exposes only a fixed diagnostic category for persistence.
 func (e *OpenAIAgentRecoveryError) InternalSubreason() string {
 	if e == nil || e.diagnostic == nil {

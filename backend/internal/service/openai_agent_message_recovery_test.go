@@ -15,6 +15,41 @@ import (
 
 const issue715OpaqueBody = `{"model":"gpt-6-astra","input":[{"type":"agent_message","author":"fixture-parent","recipient":"fixture-child","content":[{"type":"input_text","text":"fixture envelope"},{"type":"encrypted_content","encrypted_content":"fixture-opaque-reference"}]}]}`
 
+func TestAgentWireOmissionRequiresHTTPConfirmation(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	issue715LearnRoute(t, svc, account, issue715OpaqueBody)
+	for _, tamper := range []bool{false, true} {
+		c, _ := newTurnStateTestContext(t, 715, "fixture-session")
+		c.Set("api_key", &APIKey{ID: 715, GroupID: int64Ptr(715)})
+		ctx := svc.WithOpenAIAgentMessageRecovery(context.Background(), c, []byte(issue715OpaqueBody), "fixture-session", "gpt-6-astra")
+		body := issue715OpaqueBody
+		if tamper {
+			body = `{"model":"gpt-6-astra","input":[]}`
+		}
+		req, err := http.NewRequest(http.MethodPost, "https://native.example/v1/responses", bytes.NewBufferString(body))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer fixture")
+		req.Header.Set("OpenAI-Organization", "different-org")
+		_, err = svc.prepareOpenAIAgentRecoveryAttempt(ctx, account, req)
+		require.Error(t, err)
+		require.False(t, OpenAIAgentUnsentWireRefusal(err), "shared HTTP/WS gate alone does not prove an unsent HTTP request")
+		var candidate *openAIAgentUnsentWireError
+		require.Equal(t, !tamper, errors.As(err, &candidate), "input integrity failures are never omission candidates")
+	}
+}
+
+func TestAgentUnsentWireRefusalPreservesPublicError(t *testing.T) {
+	public := &OpenAIAgentRecoveryError{Reason: "wire_changed"}
+	confirmed := &openAIAgentUnsentWireError{error: public, confirmedHTTP: true}
+	require.False(t, OpenAIAgentUnsentWireRefusal(nil))
+	require.False(t, OpenAIAgentUnsentWireRefusal(public))
+	require.True(t, OpenAIAgentUnsentWireRefusal(errors.Join(confirmed)))
+	var recovered *OpenAIAgentRecoveryError
+	require.ErrorAs(t, confirmed, &recovered)
+	require.Same(t, public, recovered, "the marker must preserve the public refusal and diagnostics")
+}
+
 func issue715LearnRoute(t *testing.T, svc *OpenAIGatewayService, account *Account, body string) {
 	t.Helper()
 	c, _ := newTurnStateTestContext(t, 715, "fixture-session")

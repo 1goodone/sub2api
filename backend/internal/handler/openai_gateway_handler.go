@@ -1011,7 +1011,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(requestCtx, apiKey.GroupID)
 	c.Request = c.Request.WithContext(service.WithOpenAIEncryptedReasoningAffinity(pricingCtx, body))
 	c.Request = c.Request.WithContext(h.gatewayService.WithOpenAIAgentMessageRecovery(c.Request.Context(), c, body, sessionHash, forwardModel))
-	applyReadableRebuild := func(next context.Context, clean []byte) error {
+	applyReadableRebuild := func(next context.Context, clean []byte, stage string) error {
 		// Keep the channel model mapping, but detach provider state atomically
 		// from both body copies, the selection argument and recovery context.
 		mapped, err := sjson.SetRawBytes(forwardBody, "input", []byte(gjson.GetBytes(clean, "input").Raw))
@@ -1028,7 +1028,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		previousResponseID = ""
 		omittedEncryptedHistory = true
 		c.Request = c.Request.WithContext(next)
-		reqLog.Info("openai.encrypted_history_409_omitted", zap.Bool("context_loss", true))
+		reqLog.Info("openai.encrypted_history_409_omitted", zap.Bool("context_loss", true), zap.String("stage", stage))
 		return nil
 	}
 	if requestPlatform == service.PlatformOpenAI {
@@ -1046,7 +1046,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id could not be safely detached for this user")
 				return
 			}
-			if err := applyReadableRebuild(next, clean); err != nil {
+			if err := applyReadableRebuild(next, clean, "before_selection"); err != nil {
 				h.handleStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Unable to prepare readable continuation", streamStarted)
 				return
 			}
@@ -1097,7 +1097,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				if next, clean, changed, rebuildErr := h.gatewayService.TryRebuildOpenAI409History(c.Request.Context(), c, body, sessionHash, forwardModel, err); rebuildErr != nil {
 					err = rebuildErr
 				} else if changed {
-					if mapErr := applyReadableRebuild(next, clean); mapErr == nil {
+					if mapErr := applyReadableRebuild(next, clean, "selection"); mapErr == nil {
 						continue
 					}
 				}
@@ -1212,8 +1212,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 
-		// Omission is only allowed before this request has attempted any forward.
+		// Only an explicitly unsent first forward may enter omission below.
+		firstForward := !upstreamAttempted
 		upstreamAttempted = true
+		forwardCalls := 0
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
@@ -1242,10 +1244,24 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				reqStream,
 				reqLog,
 				func(body []byte) (*service.OpenAIForwardResult, error) {
+					forwardCalls++
 					return h.gatewayService.Forward(c.Request.Context(), c, account, body)
 				},
 			)
 		}()
+		if firstForward && forwardCalls == 1 && result == nil && !omittedEncryptedHistory &&
+			!streamStarted && !c.Writer.Written() && requestPlatform == service.PlatformOpenAI &&
+			service.OpenAIAgentUnsentWireRefusal(err) {
+			if next, clean, changed, rebuildErr := h.gatewayService.TryRebuildOpenAI409History(c.Request.Context(), c, body, sessionHash, forwardModel, err); rebuildErr != nil {
+				err = rebuildErr
+			} else if changed {
+				if mapErr := applyReadableRebuild(next, clean, "before_send"); mapErr != nil {
+					h.handleStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Unable to prepare readable continuation", streamStarted)
+					return
+				}
+				continue
+			}
+		}
 		if service.CodexQuotaOverdraftSilentResponseCommitted(c) {
 			streamStarted = true
 		}

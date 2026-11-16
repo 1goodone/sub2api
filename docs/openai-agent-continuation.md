@@ -76,3 +76,11 @@
 不为补证据发送付费请求、切号探测旧密文、清记录或重启服务。拿到真实失败路径后，在隔离 CI 添加该路径的最小合成业务链：首次生成 → 实际消费完整任务与工具结果 → 同节点/跨节点两轮续接；覆盖 pending、交付失败、取消、route/wire 变化及存储丢失，断言不丢任务、不空发、不重复执行。未知旧密文、压缩及 managed 路径须分别建立契约和回归，不能靠放宽现有校验合并验收。
 
 既有测试入口为 `openai_issue715_recovery_test.go`、`openai_issue715_delivery_race_test.go`、`openai_issue715_ws_test.go`、service recovery/delivery tests 和 Redis adapter tests；远程工作流为 `.github/workflows/issue715-agent-recovery.yml`。新增改动默认交 CI，不在生产构建或通过真实任务试错。
+
+## 409 历史密文省略开关的发送前补偿
+
+开启 `openai_409_omit_encrypted_history_enabled` 时，首次原生 HTTP 转发在最终路由指纹检查中被拒绝，且确认尚未提交上游或写出响应，可执行一次既有历史重建流程。该入口先释放账号并发，再按正常权限、模型映射和准入重新选号，保留可读任务及已执行的工具调用与结果；被省略的历史密文不可恢复。
+
+发送前补偿使用与选号阶段相同的重建接口：缺少可读任务或不支持的历史表示返回明确的 422 原因，不被原始 `wire_changed` 覆盖。已知密文可按现有可读历史快照恢复；新的不透明用户任务不能被旧快照替代，也不能因开启省略而空发。
+
+此入口不处理输入完整性失败、WS 或其 HTTP 回退、后续重试、上游错误及已提交请求；已有归属和交付屏障不变。日志 `openai.encrypted_history_409_omitted` 的 `stage=before_send` 标记此入口。开关关闭时保留原行为。
