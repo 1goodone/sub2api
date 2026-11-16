@@ -1456,6 +1456,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if headerGuard != nil {
 				headerGuard.close()
 			}
+			var wireRefusal *openAIAgentUnsentWireError
+			// Count actual HTTP submissions; a WS attempt or its fallback is never eligible.
+			if nativeHTTPAttempts == 0 && wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 && errors.As(recoveryErr, &wireRefusal) {
+				return nil, &openAIAgentUnsentWireError{error: wireRefusal.error, confirmedHTTP: true}
+			}
 			return nil, recoveryErr
 		}
 		defer completeAgentRecovery(false) // revoke pending exposure on every early return

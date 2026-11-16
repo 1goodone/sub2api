@@ -532,7 +532,7 @@ func (s *OpenAIGatewayService) prepareOpenAIAgentRecoveryAttempt(ctx context.Con
 	binding := openAIAgentRecoveryBinding{accountID: account.ID, config: openAIAgentRecoveryConfig(account, request.model), wire: wire, expiresAt: time.Now().Add(s.openAIWSSessionStickyTTL())}
 	if request.owner != nil && !sameOpenAIAgentRecoveryRoute(*request.owner, binding) &&
 		(!request.canSwitchAccount() || (request.owner.accountID == binding.accountID && request.owner.config == binding.config)) {
-		return noop, openAIAgentRecoveryError("wire_changed")
+		return noop, &openAIAgentUnsentWireError{error: openAIAgentRecoveryError("wire_changed")}
 	}
 	if request.omitted400History && (request.retry400Route == nil || !sameOpenAIAgentRecoveryRoute(*request.retry400Route, binding)) {
 		return noop, openAIAgentRecoveryError("wire_changed")

@@ -22,6 +22,96 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// Exercise a refusal after selection but before the HTTP transport is called.
+func TestOpenAI409OmitHistoryFinalWire(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, scenario := range []string{"enabled", "disabled", "known_shadow", "new_opaque_task", "upstream_rejects"} {
+			t.Run(fmt.Sprintf("%s/stream=%t", scenario, stream), func(t *testing.T) {
+				clients := issue805Redis(t)
+				var mu sync.Mutex
+				var bodies [][]byte
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					mu.Lock()
+					bodies = append(bodies, body)
+					n := len(bodies)
+					mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					if n > 1 && scenario == "upstream_rejects" {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"sanitized history rejected"}}`)
+						return
+					}
+					output := "[" + issue715Agent + "]"
+					if n > 1 {
+						output = `[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"continued"}]}]`
+					}
+					payload := fmt.Sprintf(`{"id":"resp_wire_%d","status":"completed","error":null,"model":"gpt-5.1","output":%s,"usage":{"input_tokens":5,"output_tokens":3}}`, n, output)
+					if gjson.GetBytes(body, "stream").Bool() {
+						w.Header().Set("Content-Type", "text/event-stream")
+						_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\ndata: [DONE]\n\n", payload)
+					} else {
+						_, _ = io.WriteString(w, payload)
+					}
+				}))
+				defer srv.Close()
+				accounts := issue715Accounts()[:1]
+				accounts[0].Type = service.AccountTypeAPIKey
+				accounts[0].Credentials = map[string]any{"api_key": "fixture-wire", "base_url": srv.URL, "header_override_enabled": true, "header_overrides": map[string]any{"openai-organization": "org-before"}}
+				cfg := &config.Config{RunMode: config.RunModeSimple}
+				cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+				settings := service.NewSettingService(&omit409SettingsRepo{enabled: scenario != "disabled"}, cfg)
+				h := newOpenAIResponsesFailoverTestHandlerWithSettingsAndCache(t, testutil.NewRealHTTPUpstream(cfg), repository.NewGatewayCache(clients()), settings, accounts...)
+				h.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+				first := issue758Request(t, h, strings.Replace(issue715Body(false, stream), issue715Agent+",", "", 1))
+				require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+				owners := issue805Owners(t, clients())
+				require.Len(t, owners, 1)
+				accounts[0].Credentials["header_overrides"] = map[string]any{"openai-organization": "org-after"}
+				body := issue715Body(true, stream)
+				switch scenario {
+				case "known_shadow":
+					body = fmt.Sprintf(`{"model":"gpt-5.1","stream":%t,"input":[%s]}`, stream, issue715Agent)
+				case "new_opaque_task":
+					body = fmt.Sprintf(`{"model":"gpt-5.1","stream":%t,"input":[%s,{"type":"message","role":"user","content":[{"type":"encrypted_content","encrypted_content":"fixture-new-opaque-task"}]}]}`, stream, issue715Agent)
+				}
+				answer := issue758Request(t, h, body)
+				mu.Lock()
+				defer mu.Unlock()
+				switch scenario {
+				case "disabled", "new_opaque_task":
+					status := http.StatusConflict
+					if scenario == "new_opaque_task" {
+						status = http.StatusUnprocessableEntity
+						require.Equal(t, "encrypted_agent_recovery_readable_intent_missing", gjson.Get(answer.Body.String(), "error.code").String())
+					}
+					require.Equal(t, status, answer.Code, answer.Body.String())
+					require.Len(t, bodies, 1, "refused request never reached transport")
+				default:
+					require.Len(t, bodies, 2, "only one sanitized submission, even after an upstream error")
+					require.NotContains(t, string(bodies[1]), "fixture-task-reference-715")
+					require.Contains(t, string(bodies[1]), "Keep ledger balance 11; add 7 exactly once")
+					if scenario != "known_shadow" {
+						for _, path := range []string{"input.1", "input.2", "input.3", "input.4"} {
+							require.JSONEq(t, gjson.Get(body, path).Raw, gjson.GetBytes(bodies[1], path).Raw, "readable history and executed tool results survive")
+						}
+					}
+					if scenario == "upstream_rejects" {
+						require.GreaterOrEqual(t, answer.Code, http.StatusBadRequest)
+					} else {
+						require.Equal(t, http.StatusOK, answer.Code, answer.Body.String())
+					}
+				}
+				require.Equal(t, owners, issue805Owners(t, clients()), "old owner evidence remains intact")
+			})
+		}
+	}
+}
+
 type omit409SettingsRepo struct {
 	service.SettingRepository
 	enabled bool
