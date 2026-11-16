@@ -76,3 +76,12 @@
 不为补证据发送付费请求、切号探测旧密文、清记录或重启服务。拿到真实失败路径后，在隔离 CI 添加该路径的最小合成业务链：首次生成 → 实际消费完整任务与工具结果 → 同节点/跨节点两轮续接；覆盖 pending、交付失败、取消、route/wire 变化及存储丢失，断言不丢任务、不空发、不重复执行。未知旧密文、压缩及 managed 路径须分别建立契约和回归，不能靠放宽现有校验合并验收。
 
 既有测试入口为 `openai_issue715_recovery_test.go`、`openai_issue715_delivery_race_test.go`、`openai_issue715_ws_test.go`、service recovery/delivery tests 和 Redis adapter tests；远程工作流为 `.github/workflows/issue715-agent-recovery.yml`。新增改动默认交 CI，不在生产构建或通过真实任务试错。
+
+
+## 首条限流与首响模式
+
+原生 OpenAI OAuth 流的第一条真实事件若明确表示限流（结构化 `rate_limit_error`、`rate_limit_exceeded` 或错误对象中的 `status_code=429`），即使开启“首字使用首响口径”，也先进入已有的限流处理和重试/换号判断。错误事件本身不再被当成已经向客户端输出的证据；心跳不改变这个判断。后续能否重试仍受账号可用性、预算和工具结果保护控制。
+
+API Key 中转的普通 Responses 流和透传流也识别首条错误中的明确 `gateway_concurrency_limit`：按 429 记录，允许按原有规则尝试其他账号，包括符合当前分组、模型和路由要求的本地 OAuth 账号。并发占满不当作凭证失效或配额耗尽，不因此暂停账号、触发配额冷却或累计调度失败；也不优先重试同一个中转账号。
+
+开启首响时，此前已经转发过真实事件（包括 `response.created`）的请求仍保留原流的失败终态，不重放。关闭首响时沿用已有的输出提交判断。正常首响转发与首字统计保持不变；WS 和托管 OAuth 连接不在本次首响例外范围内。此修复不授予新的工具结果重放权限，严格归属请求仍可能不能换号；没有其他合格账号或重试预算耗尽时仍会返回错误。

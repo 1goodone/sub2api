@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 
@@ -40,6 +41,38 @@ func observeStreamFirstResponse(firstTokenMs **int, enabled bool, startTime time
 	}
 	ms := max(0, int(time.Since(startTime).Milliseconds()))
 	*firstTokenMs = &ms
+}
+
+// A native OAuth rate-limit rejection is not output. Only structured evidence
+// qualifies; a message containing "rate_limit" is not sufficient. The caller
+// still checks whether an earlier event was committed and applies retry policy.
+func isNativeOAuthFirstResponseRateLimit(account *Account, payload []byte) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth ||
+		account.AuthConnectionID != "" || account.HasManagedOpenAIConnections() {
+		return false
+	}
+	for _, prefix := range []string{"response.error", "error"} {
+		if gjson.GetBytes(payload, prefix+".status_code").Int() == http.StatusTooManyRequests {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(payload, prefix+".type").String()), "rate_limit_error") {
+			return true
+		}
+		switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, prefix+".code").String())) {
+		case "rate_limit_exceeded", "rate_limit_error":
+			return true
+		}
+	}
+	return false
+}
+
+func isOpenAIRelayConcurrencyRejection(payload []byte) bool {
+	return openAIStreamFailedEventErrorCode(payload) == "gateway_concurrency_limit"
+}
+
+func isOpenAIRelayFirstResponseConcurrency(account *Account, payload []byte) bool {
+	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+		isOpenAIRelayConcurrencyRejection(payload)
 }
 
 func upstreamResponseElapsedMs(start time.Time) int {

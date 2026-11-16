@@ -1527,6 +1527,9 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 }
 
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
+	if isOpenAIRelayConcurrencyRejection(payload) {
+		return http.StatusTooManyRequests
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
@@ -1822,6 +1825,10 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffectsWithC
 	headers http.Header,
 	canonicalModel ...string,
 ) (int, bool) {
+	// A relay's occupied slots do not mean its credential or quota is exhausted.
+	if isOpenAIRelayFirstResponseConcurrency(account, payload) {
+		return http.StatusTooManyRequests, false
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1981,6 +1988,21 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 	// 流内 failed 事件承载于 HTTP 200；使用事件的语义状态更新账号健康，
 	// 再由 failover 引擎按 StatusCode/RetryableOnSameAccount 决定恢复策略。
 	message = s.recordOpenAIStreamUpstreamError(c, account, passthrough, upstreamRequestID, "failover", payload, message)
+	if isOpenAIRelayFirstResponseConcurrency(account, payload) {
+		// Skip this busy relay for the current request without penalizing its
+		// credentials. SSE rejection does not grant encrypted tool-result replay.
+		return &UpstreamFailoverError{
+			StatusCode:              http.StatusTooManyRequests,
+			ResponseBody:            append([]byte(nil), payload...),
+			ResponseHeaders:         headers,
+			Scope:                   GatewayFailureScopeProvider,
+			Reason:                  GatewayFailureReason("openai_relay_concurrency"),
+			NextAccountAction:       NextAccountRetry,
+			SuppressScheduleFailure: true,
+			ClientStatusCode:        http.StatusTooManyRequests,
+			ClientMessage:           "Upstream concurrency limit reached, please retry later",
+		}
+	}
 	errType := "upstream_error"
 	if statusCode == http.StatusTooManyRequests {
 		errType = "rate_limit_error"
@@ -2386,10 +2408,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				}
-				// 首响模式会把当前 JSON 事件记成首包。过载事件本身不是语义输出，
-				// 不能因此跳过同账号重试；已经刷出的前序事件仍然不能重放。
+				// 首条过载或中转并发拒绝不是已经提交的输出，仍可进入重试判断；
+				// 已经刷出的前序事件仍然不能重放。
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
-				if isOpenAIUpstreamCapacityShedEvent(dataBytes) && !hadFirstResponse {
+				if !hadFirstResponse && (isOpenAIUpstreamCapacityShedEvent(dataBytes) ||
+					isOpenAIRelayFirstResponseConcurrency(account, dataBytes)) {
 					outputStarted = openAIStreamClientOutputStarted(c, clientOutputStarted)
 				}
 				if !outputStarted && !cyberHit {
