@@ -587,9 +587,11 @@ func prepareOpenAI409APIKeyReplay(ctx context.Context, body []byte, responsesLit
 // The one permitted OAuth adaptation starts by verifying the frozen readable
 // input and controls. It only promotes system guidance without dropping it,
 // flattens native tool declarations, and applies the existing reserved-name
-// mapping jointly to declarations/calls. The general input filter is then
-// disabled for this already-built replay. Final wire checks remain exact.
-func prepareOpenAI409OAuthReplay(ctx context.Context, c *gin.Context, body map[string]any) error {
+// mapping jointly to declarations/calls. Historical search compatibility is
+// included before freezing the OAuth representation, including Lite's input
+// additional_tools. The general input filter is then disabled for this
+// already-built replay. Final wire checks remain exact.
+func prepareOpenAI409OAuthReplay(ctx context.Context, c *gin.Context, body map[string]any, opts codexOAuthTransformOptions) error {
 	r := openAIAgentRecoveryFromContext(ctx)
 	if r == nil || !r.omittedHistory {
 		return nil
@@ -615,6 +617,12 @@ func prepareOpenAI409OAuthReplay(ctx context.Context, c *gin.Context, body map[s
 	}
 	setCodexToolNameReverse(c, reverse)
 	normalizeCodexToolChoice(body)
+	// The ordinary OAuth transform performs this same compatibility step.
+	// Freeze its result now so our own later transform cannot invalidate the
+	// replay. Compact has a separate wire shape and must not inject tools.
+	if !opts.IsCompact {
+		ensureOpenAIOAuthWebSearchToolForHistory(body, opts.ResponsesLite)
+	}
 	prepared, err := json.Marshal(body)
 	if err != nil {
 		return err

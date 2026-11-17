@@ -49,7 +49,7 @@ func TestOpenAI409NativeControlsIntegrity(t *testing.T) {
 			}
 			var decoded map[string]any
 			require.NoError(t, decodeOpenAIJSONUseNumber(clean, &decoded))
-			err = prepareOpenAI409OAuthReplay(projected, c, decoded)
+			err = prepareOpenAI409OAuthReplay(projected, c, decoded, codexOAuthTransformOptions{})
 			if mutation == "none" {
 				require.NoError(t, err)
 				wire, marshalErr := json.Marshal(decoded)
