@@ -1,0 +1,415 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+RELEASE=v2.21.6-issue892-fix-20261117
+VERSION=2.21.6
+IMAGE="sub2api:$RELEASE"
+WORKER_IMAGE="sub2api-openai-reauth-worker:$RELEASE"
+SOURCE="/opt/sub2api-builds/$RELEASE/source"
+BASE=$(tr -d '\r\n' < "$SOURCE/../source-commit")
+BACKUP="/etc/caddy/Caddyfile.bak-$RELEASE"
+BACKUP_DIR="/var/backups/sub2api/$RELEASE"
+OLD=(sub2api-v2.21.5-full-quota-20261117 sub2api-mr-v2.21.5-full-quota-20261117)
+NEW=("sub2api-$RELEASE" "sub2api-mr-$RELEASE")
+PORTS=(18298 18299)
+OLD_PORTS=(18296 18297)
+REFS=(3 2)
+WORKERS=(sub2api-openai-reauth-worker sub2api-openai-reauth-worker-mr)
+NET=sub2api-deploy_sub2api-network
+env_file=''
+trap '[ -z "$env_file" ] || rm -f "$env_file"' EXIT
+
+health() { curl -fsS --max-time 10 "$1" | grep -q '"status":"ok"'; }
+public_health() {
+  for domain in xymm.win ai.xymm.win mr.xymm.win dogmaster.lol; do
+    health "https://$domain/health"
+    printf 'public_health %s ok\n' "$domain"
+  done
+}
+public_version() {
+  for domain in xymm.win ai.xymm.win mr.xymm.win dogmaster.lol; do
+    curl -fsS --max-time 15 "https://$domain/api/v1/settings/public?deployment=$RELEASE" |
+      python3 -c 'import json,sys; actual=json.load(sys.stdin)["data"]["version"]; assert actual == sys.argv[1], actual; print("public_version", sys.argv[2], actual)' "$VERSION" "$domain"
+  done
+}
+idle() {
+  local db count
+  for db in sub2api sub2api_mr; do
+    count=$(sudo -n docker exec sub2api-postgres psql -X -U sub2api -d "$db" -Atc \
+      "SELECT count(*) FROM openai_oauth_reauth_tasks WHERE status IN ('running','callback_processing')")
+    test "$count" = 0 || return 1
+  done
+}
+wait_idle() {
+  local ready=0
+  for _ in $(seq 1 90); do
+    if idle; then ready=1; break; fi
+    sleep 2
+  done
+  test "$ready" = 1
+}
+# Old binaries cannot consume credentials written with the new factor binding.
+# Hash only secret columns and refuse rollback when any TOTP input/state changed.
+totp_compat_snapshot() {
+  sudo -n docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d "$1" -Atc "SELECT 'rotation',task_id::text,md5(ROW(account_id,state,action,candidate_ciphertext,previous_ciphertext,password_ciphertext,config_updated_at,updated_at)::text) FROM openai_totp_rotations UNION ALL SELECT 'config',account_id::text,md5(ROW(login_email,password_ciphertext,totp_secret_ciphertext)::text) FROM openai_oauth_reauth_configs ORDER BY 1,2"
+}
+rollback_compatible() {
+  local db enabled
+  for db in sub2api sub2api_mr; do
+    test -f "$BACKUP_DIR/$db-totp-before" || { echo 'ROLLBACK_BLOCKED: missing pre-upgrade TOTP snapshot'; return 1; }
+    totp_compat_snapshot "$db" > "$BACKUP_DIR/$db-totp-current"
+    cmp --silent "$BACKUP_DIR/$db-totp-before" "$BACKUP_DIR/$db-totp-current" || { echo 'ROLLBACK_BLOCKED: TOTP credentials or recovery state changed; keep the compatible server and worker'; return 1; }
+    enabled=$(sudo -n docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d "$db" -Atc "SELECT count(*) FROM groups WHERE free_openai_ultrafast")
+    test "$enabled" = 0 || { echo 'ROLLBACK_BLOCKED: disable the new UltraFast billing option before rollback'; return 1; }
+  done
+}
+worker_control() {
+  local db value
+  for db in sub2api sub2api_mr; do
+    if test "$1" = pause; then
+      test -f "$BACKUP_DIR/$db-worker-enabled" || sudo -n docker exec sub2api-postgres psql -X -U sub2api -d "$db" -Atc "SELECT enabled FROM openai_oauth_reauth_worker_control WHERE id=1" > "$BACKUP_DIR/$db-worker-enabled"
+      value=false
+    else
+      test -f "$BACKUP_DIR/$db-worker-enabled" || continue
+      value=$(cat "$BACKUP_DIR/$db-worker-enabled")
+      case "$value" in t) value=true ;; f) value=false ;; *) return 1 ;; esac
+    fi
+    sudo -n docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d "$db" -qc "WITH changed AS (UPDATE openai_oauth_reauth_worker_control SET enabled=$value WHERE id=1 AND enabled IS DISTINCT FROM $value RETURNING enabled) INSERT INTO openai_oauth_reauth_events(kind) SELECT CASE WHEN enabled THEN 'resumed' ELSE 'paused' END FROM changed"
+  done
+}
+group_snapshot() {
+  sudo -n docker exec sub2api-postgres psql -X -U sub2api -d "$1" -Atc "SELECT id,cache_read_reduction_percent,cache_read_reduction_rules FROM groups ORDER BY id"
+}
+check_groups() {
+  local db
+  for db in sub2api sub2api_mr; do
+    group_snapshot "$db" > "$BACKUP_DIR/$db-groups-after"
+    cmp "$BACKUP_DIR/$db-groups-before" "$BACKUP_DIR/$db-groups-after"
+    printf 'group_cache_rules_preserved %s\n' "$db"
+  done
+}
+backup() {
+  sudo -n test ! -e "$BACKUP_DIR"
+  sudo -n install -d -m 700 "$BACKUP_DIR"
+  umask 077
+  sudo -n cp /etc/caddy/Caddyfile "$BACKUP_DIR/Caddyfile"
+  sudo -n cp "${BASH_SOURCE[0]}" "$BACKUP_DIR/deploy.sh"
+  sudo -n chmod 700 "$BACKUP_DIR/deploy.sh"
+  for db in sub2api sub2api_mr; do
+    group_snapshot "$db" > "$BACKUP_DIR/$db-groups-before"
+    sudo -n docker exec sub2api-postgres pg_dump -U sub2api -d "$db" -Fc -Z 1 |
+      sudo -n tee "$BACKUP_DIR/$db.dump" >/dev/null
+    sudo -n docker run --rm --network none -v "$BACKUP_DIR:/backup:ro" postgres:18-alpine \
+      pg_restore --file=/dev/null "/backup/$db.dump"
+    sudo -n chmod 600 "$BACKUP_DIR/$db.dump"
+    sudo -n sha256sum "$BACKUP_DIR/$db.dump"
+    printf 'database_backup %s verified\n' "$db"
+  done
+  for i in 0 1; do
+    sudo -n docker inspect "${OLD[$i]}" "${WORKERS[$i]}" |
+      sudo -n tee "$BACKUP_DIR/inspect-$i.json" >/dev/null
+    sudo -n chmod 600 "$BACKUP_DIR/inspect-$i.json"
+    sudo -n docker cp -a "${WORKERS[$i]}:/home/worker/totp-recovery" "$BACKUP_DIR/${WORKERS[$i]}-recovery"
+    sudo -n docker cp -a "${OLD[$i]}:/app/data" - | gzip -1 > "$BACKUP_DIR/app-data-$i.tar.gz"
+    gzip -t "$BACKUP_DIR/app-data-$i.tar.gz"
+  done
+  sudo -n touch "$BACKUP_DIR/BACKUP_COMPLETE"
+  echo BACKUP_COMPLETE
+}
+build() {
+  (cd "$SOURCE/.." && sha256sum -c source.sha256)
+  local -a build_args=(--progress plain --build-arg "VERSION=$VERSION" --build-arg "COMMIT=$BASE"
+    --build-arg "DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org)
+  sudo -n docker build -f "$SOURCE/deploy/40-v2216-release.Dockerfile" "${build_args[@]}" --target backend-builder -t "$IMAGE-builder" "$SOURCE"
+  sudo -n docker build -f "$SOURCE/deploy/40-v2216-release.Dockerfile" "${build_args[@]}" --label "org.opencontainers.image.revision=$BASE" \
+    --label "org.opencontainers.image.version=$VERSION" --label "io.sub2api.source-sha256=$(tr -d '\r\n' < "$SOURCE/../source-fingerprint")" -t "$IMAGE" "$SOURCE"
+  test "$(sudo -n docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")" = "$BASE"
+  sudo -n docker run --rm --network none "$IMAGE" /app/sub2api --version 2>&1 | grep -F "Sub2API $VERSION"
+  sudo -n docker image inspect -f '{{.Id}}' "$IMAGE"
+  sudo -n docker build --progress plain --build-context turb=/home/ubuntu/src/reauth-contexts/turb \
+    --build-context tosub2=/opt/sub2api-builds/v2.21.6-issue892-20261117/tosub2 \
+    --label "org.opencontainers.image.revision=$BASE" \
+    -f "$SOURCE/tools/Dockerfile.openai-oauth-reauth-worker" -t "$WORKER_IMAGE" "$SOURCE"
+  sudo -n docker run --rm --network none --entrypoint python -v "$SOURCE/tools:/validation/tools:ro" \
+    -e TOTP_TEST_PROTOCOL=/opt/tosub2/src/protocol-login.mjs -e EXCEL_TEST_TOSUB2_ROOT=/opt/tosub2 \
+    -w /validation "$WORKER_IMAGE" -m unittest tools.test_openai_oauth_reauth_worker_pool \
+    tools.test_openai_oauth_reauth_runtime_controls tools.test_openai_oauth_reauth_worker \
+    tools.test_openai_oauth_reauth_engines tools.test_reauth_node_resident \
+    tools.test_openai_totp_rotation tools.test_openai_totp_integration \
+    tools.test_openai_excel_oauth_adapter tools.test_openai_siwc_oauth_adapter \
+    tools.test_openai_codex_oauth_adapter -q
+  sudo -n docker run --rm --network none --entrypoint node -v "$SOURCE/tools:/validation/tools:ro" \
+    -e TOTP_TEST_PROTOCOL=/opt/tosub2/src/protocol-login.mjs "$WORKER_IMAGE" \
+    --test /validation/tools/test_openai_totp_journal.mjs /validation/tools/test_openai_totp_protocol.mjs
+}
+
+preserve_assets() {
+  local container
+  container=$(sudo -n docker create sub2api:v2.21.5-full-quota-20261117-builder)
+  sudo -n docker cp "$container:/app/backend/internal/web/dist/assets" "$BACKUP_DIR/blue-assets"
+  sudo -n docker rm "$container" >/dev/null
+  python3 - "$BACKUP_DIR/blue-assets" /srv/sub2api-frontend/first-response-save-20261015-legacy/assets <<'PY'
+from pathlib import Path
+import hashlib, os, shutil, sys
+source, target = map(Path, sys.argv[1:])
+for src in source.rglob('*'):
+    if not src.is_file():
+        continue
+    dst = target / src.relative_to(source)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        assert hashlib.sha256(src.read_bytes()).digest() == hashlib.sha256(dst.read_bytes()).digest(), src.name
+    else:
+        temporary = dst.with_name(dst.name + '.deployment-tmp')
+        shutil.copy2(src, temporary)
+        os.replace(temporary, dst)
+print('blue_frontend_assets_preserved', sum(p.is_file() for p in source.rglob('*')))
+PY
+}
+
+prepare() {
+  local i id ready bind worker_image
+  sudo -n docker image inspect "$IMAGE" >/dev/null
+  sudo -n test -f "$BACKUP_DIR/BACKUP_COMPLETE"
+  for i in 0 1; do
+    test "$(sudo -n docker inspect -f '{{.State.Health.Status}}' "${OLD[$i]}")" = healthy
+    test "$(sudo -n grep -c "127.0.0.1:${OLD_PORTS[$i]}" /etc/caddy/Caddyfile)" = "${REFS[$i]}"
+    if sudo -n ss -ltn | grep -qE ":${PORTS[$i]}\b"; then return 1; fi
+    if sudo -n docker inspect "${NEW[$i]}" >/dev/null 2>&1; then return 1; fi
+    if sudo -n docker inspect "${WORKERS[$i]}-bak-$RELEASE" >/dev/null 2>&1; then return 1; fi
+    test "$(sudo -n docker inspect -f '{{len .Mounts}}' "${WORKERS[$i]}")" = 0
+    test "$(sudo -n docker inspect -f '{{.HostConfig.NetworkMode}}' "${OLD[$i]}")" = "$NET"
+    id=$(sudo -n docker inspect -f '{{.Id}}' "${OLD[$i]}")
+    test "$(sudo -n docker inspect -f '{{.HostConfig.NetworkMode}}' "${WORKERS[$i]}")" = "container:$id"
+  done
+  worker_control pause
+  wait_idle
+  for db in sub2api sub2api_mr; do
+    totp_compat_snapshot "$db" > "$BACKUP_DIR/$db-totp-before"
+  done
+  preserve_assets
+  umask 077
+  for i in 0 1; do
+    env_file=$(mktemp "/tmp/$RELEASE-app.XXXXXX")
+    sudo -n docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${OLD[$i]}" > "$env_file"
+    local -a binds=()
+    while IFS= read -r bind; do [ -z "$bind" ] || binds+=(-v "$bind"); done < <(sudo -n docker inspect -f '{{range .HostConfig.Binds}}{{println .}}{{end}}' "${OLD[$i]}")
+    sudo -n docker run -d --name "${NEW[$i]}" --restart unless-stopped --network "$NET" \
+      --env-file "$env_file" -p "127.0.0.1:${PORTS[$i]}:8080" "${binds[@]}" "$IMAGE"
+    rm -f "$env_file"; env_file=''
+    ready=0
+    for _ in $(seq 1 120); do
+      if test "$(sudo -n docker inspect -f '{{.State.Health.Status}}' "${NEW[$i]}")" = healthy && health "http://127.0.0.1:${PORTS[$i]}/health"; then ready=1; break; fi
+      sleep 2
+    done
+    test "$ready" = 1
+    env_file=$(mktemp "/tmp/$RELEASE-worker.XXXXXX")
+    sudo -n docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${WORKERS[$i]}" > "$env_file"
+    worker_image="$WORKER_IMAGE"
+    id=$(sudo -n docker inspect -f '{{.Id}}' "${NEW[$i]}")
+    sudo -n docker run --rm --network none --env-file "$env_file" "$worker_image" --check
+    sudo -n docker create --name "${WORKERS[$i]}-green-$RELEASE" --restart unless-stopped \
+      --network "container:$id" --env-file "$env_file" "$worker_image"
+    rm -f "$env_file"; env_file=''
+    printf 'green_prepared %s port=%s\n' "${NEW[$i]}" "${PORTS[$i]}"
+  done
+}
+verify() {
+  local i id
+  for i in 0 1; do
+    test "$(sudo -n docker inspect -f '{{.State.Health.Status}}' "${NEW[$i]}")" = healthy
+    test "$(sudo -n docker inspect -f '{{.Config.Image}}' "${NEW[$i]}")" = "$IMAGE"
+    test "$(sudo -n docker inspect -f '{{.RestartCount}}' "${NEW[$i]}")" = 0
+    health "http://127.0.0.1:${PORTS[$i]}/health"
+    sudo -n docker exec "${NEW[$i]}" /app/sub2api --version 2>&1 | grep -F "Sub2API $VERSION"
+    test "$(sudo -n grep -c "127.0.0.1:${PORTS[$i]}" /etc/caddy/Caddyfile)" = "${REFS[$i]}"
+    ! sudo -n grep -q "127.0.0.1:${OLD_PORTS[$i]}" /etc/caddy/Caddyfile
+    id=$(sudo -n docker inspect -f '{{.Id}}' "${NEW[$i]}")
+    test "$(sudo -n docker inspect -f '{{.HostConfig.NetworkMode}}' "${WORKERS[$i]}")" = "container:$id"
+    test "$(sudo -n docker inspect -f '{{.Config.Image}}' "${WORKERS[$i]}")" = "$WORKER_IMAGE"
+    test "$(sudo -n docker inspect -f '{{.State.Running}}' "${WORKERS[$i]}")" = true
+    test "$(sudo -n docker inspect -f '{{.RestartCount}}' "${WORKERS[$i]}")" = 0
+    sudo -n docker logs "${WORKERS[$i]}" 2>&1 | grep -F ' ready' >/dev/null
+    sudo -n docker exec "${WORKERS[$i]}" python -c 'import openai_oauth_reauth_worker as w; print("authenticated_runtime_concurrency", w.WorkerAPI(w.WorkerConfig.from_env()).runtime_concurrency())'
+    sudo -n docker exec "${WORKERS[$i]}" python -c 'import json,urllib.request,openai_oauth_reauth_worker as w; c=w.WorkerConfig.from_env(); v=json.load(urllib.request.urlopen(c.base_url+"/api/v1/settings/public",timeout=15))["data"]["version"]; assert v=="2.21.6",v; print("worker_origin_version",v)'
+    sudo -n docker inspect "${OLD[$i]}" "${NEW[$i]}" "${WORKERS[$i]}-bak-$RELEASE" "${WORKERS[$i]}" | python3 -c 'import json,sys; a,b,c,d=json.load(sys.stdin); env=lambda x:dict(s.split("=",1) for s in x["Config"]["Env"]); assert env(a).items()<=env(b).items(); assert env(c)==env(d); assert a["Mounts"]==b["Mounts"]; assert a["HostConfig"]["RestartPolicy"]==b["HostConfig"]["RestartPolicy"]; assert c["HostConfig"]["RestartPolicy"]==d["HostConfig"]["RestartPolicy"]; print("environment_mounts_restart_preserved")'
+    printf 'verified app=%s port=%s worker=%s target=%s\n' "${NEW[$i]}" "${PORTS[$i]}" "${WORKERS[$i]}" "$id"
+  done
+  check_groups
+  public_health
+  public_version
+  for domain in xymm.win ai.xymm.win mr.xymm.win dogmaster.lol; do
+    test "$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "https://$domain/v1/responses")" = 401
+    printf 'public_unauthenticated_responses %s 401\n' "$domain"
+  done
+  python3 - <<'PY'
+from html.parser import HTMLParser
+from urllib.parse import urljoin
+import subprocess
+def read(url):
+    return subprocess.check_output(["curl", "-fsS", "--max-time", "15", url])
+class Assets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "script" and attrs.get("type") == "module" and attrs.get("src"):
+            self.urls.append(attrs["src"])
+        if tag == "link" and attrs.get("rel") == "stylesheet":
+            self.urls.append(attrs["href"])
+for domain in ("xymm.win", "mr.xymm.win"):
+    origin = "https://" + domain
+    parser = Assets()
+    parser.feed(read(origin).decode())
+    assert parser.urls, domain
+    for asset in parser.urls:
+        data = read(urljoin(origin, asset))
+        assert len(data) > 100 and not data.lstrip().lower().startswith(b"<!doctype html"), asset
+    print("frontend_assets", domain, len(parser.urls), "ok")
+PY
+}
+rollback() {
+  local i archived ready container pid count failed=0
+  set +e
+  echo ROLLBACK_STARTED
+  worker_control pause || failed=1
+  if ! idle; then
+    worker_control resume
+    echo "ROLLBACK_BLOCKED: active re-login tasks; leave current containers running"
+    return 1
+  fi
+  if ! rollback_compatible; then
+    worker_control resume
+    return 1
+  fi
+  sudo -n docker start "${OLD[@]}" >/dev/null || failed=1
+  for i in 0 1; do
+    ready=0
+    for _ in $(seq 1 45); do
+      if test "$(sudo -n docker inspect -f '{{.State.Health.Status}}' "${OLD[$i]}")" = healthy && health "http://127.0.0.1:${OLD_PORTS[$i]}/health"; then ready=1; break; fi
+      sleep 2
+    done
+    if test "$ready" != 1; then
+      echo 'ROLLBACK_BLOCKED: blue is not ready; keep the current routing'
+      return 1
+    fi
+  done
+  if sudo -n test -f "$BACKUP"; then
+    sudo -n cp "$BACKUP" /etc/caddy/Caddyfile || failed=1
+    sudo -n caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 && sudo -n systemctl reload caddy || failed=1
+  fi
+  for i in 0 1; do
+    archived="${WORKERS[$i]}-bak-$RELEASE"
+    if sudo -n docker inspect "$archived" >/dev/null 2>&1; then
+      if sudo -n docker inspect "${WORKERS[$i]}" >/dev/null 2>&1; then
+        sudo -n docker stop --time 60 "${WORKERS[$i]}" >/dev/null || failed=1
+        sudo -n docker cp -a "${WORKERS[$i]}:/home/worker/totp-recovery" - | sudo -n docker cp -a - "$archived:/home/worker/" || failed=1
+        sudo -n docker rename "${WORKERS[$i]}" "${WORKERS[$i]}-failed-$RELEASE" || failed=1
+      fi
+      sudo -n docker rename "$archived" "${WORKERS[$i]}" || failed=1
+    fi
+    sudo -n docker start "${WORKERS[$i]}" >/dev/null || failed=1
+  done
+  worker_control resume || failed=1
+  public_health || failed=1
+  if test "$failed" = 0; then
+    for container in "${NEW[@]}"; do
+      pid=$(sudo -n docker inspect -f '{{.State.Pid}}' "$container")
+      count=$(sudo -n nsenter -t "$pid" -n ss -Hnt state established '( sport = :8080 )' | wc -l)
+      if test "$count" = 0; then
+        sudo -n docker stop --time 60 "$container" >/dev/null || failed=1
+      else
+        printf 'rollback_draining %s connections=%s\n' "$container" "$count"
+      fi
+    done
+  fi
+  printf 'ROLLBACK_FINISHED errors=%s\n' "$failed"
+  return "$failed"
+}
+cutover() {
+  local i ready
+  idle
+  for i in 0 1; do
+    test "$(sudo -n docker inspect -f '{{.State.Health.Status}}' "${NEW[$i]}")" = healthy
+    health "http://127.0.0.1:${PORTS[$i]}/health"
+    test "$(sudo -n grep -c "127.0.0.1:${OLD_PORTS[$i]}" /etc/caddy/Caddyfile)" = "${REFS[$i]}"
+    test "$(sudo -n docker inspect -f '{{.State.Status}}' "${WORKERS[$i]}-green-$RELEASE")" = created
+  done
+  if sudo -n test -e "$BACKUP"; then
+    sudo -n cmp --silent "$BACKUP" /etc/caddy/Caddyfile
+  else
+    sudo -n cp /etc/caddy/Caddyfile "$BACKUP"
+  fi
+  trap 'trap - ERR; rollback; exit 1' ERR
+  worker_control pause
+  ready=0
+  for _ in $(seq 1 90); do
+    if idle; then ready=1; break; fi
+    sleep 2
+  done
+  test "$ready" = 1
+  sudo -n docker stop --time 60 "${WORKERS[@]}" >/dev/null
+  idle
+  sudo -n sed -i 's#127.0.0.1:18296#127.0.0.1:18298#g; s#127.0.0.1:18297#127.0.0.1:18299#g' /etc/caddy/Caddyfile
+  sudo -n caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
+  sudo -n systemctl reload caddy
+  public_health
+  for i in 0 1; do
+    sudo -n docker stop --time 60 "${WORKERS[$i]}" >/dev/null
+    sudo -n docker rename "${WORKERS[$i]}" "${WORKERS[$i]}-bak-$RELEASE"
+    sudo -n docker rename "${WORKERS[$i]}-green-$RELEASE" "${WORKERS[$i]}"
+    sudo -n docker cp -a "${WORKERS[$i]}-bak-$RELEASE:/home/worker/totp-recovery" - | sudo -n docker cp -a - "${WORKERS[$i]}:/home/worker/"
+    python3 - "${WORKERS[$i]}-bak-$RELEASE" "${WORKERS[$i]}" <<'PY'
+import hashlib,io,subprocess,sys,tarfile
+def recovery(container):
+    data = subprocess.check_output(["sudo", "-n", "docker", "cp", container+":/home/worker/totp-recovery", "-"])
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        return {m.name: hashlib.sha256(archive.extractfile(m).read()).hexdigest() for m in archive if m.isfile()}
+before, after = (recovery(container) for container in sys.argv[1:])
+assert before == after, "worker recovery records differ"
+print("worker_recovery_preserved", len(before))
+PY
+    sudo -n docker start "${WORKERS[$i]}" >/dev/null
+    ready=0
+    for _ in $(seq 1 45); do
+      if sudo -n docker logs "${WORKERS[$i]}" 2>&1 | grep -F ' ready' >/dev/null; then ready=1; break; fi
+      sleep 2
+    done
+    test "$ready" = 1
+  done
+  verify
+  worker_control resume
+  echo CUTOVER_VERIFIED
+  trap - ERR
+}
+retire() {
+  verify
+  local container pid count
+  for container in "${OLD[@]}"; do
+    pid=$(sudo -n docker inspect -f '{{.State.Pid}}' "$container")
+    count=$(sudo -n nsenter -t "$pid" -n ss -Hnt state established '( sport = :8080 )' | wc -l)
+    printf 'blue_inbound_connections %s %s\n' "$container" "$count"
+    if test "$count" != 0; then
+      echo 'DRAINING: keep blue running until existing connections finish'
+      return 2
+    fi
+  done
+  sudo -n docker stop --time 90 "${OLD[@]}" >/dev/null
+  printf 'DEPLOYED image=%s rollback=%s\n' "$IMAGE" "$BACKUP"
+}
+case "${1:-}" in
+  backup) backup ;;
+  build) build ;;
+  prepare) prepare ;;
+  cutover) cutover ;;
+  verify) verify ;;
+  retire) retire ;;
+  rollback) rollback ;;
+  pause-workers) worker_control pause ;;
+  resume-workers) worker_control resume ;;
+  idle) idle ;;
+  rollback-compatible) rollback_compatible ;;
+  *) echo 'Expected backup, build, prepare, cutover, verify, retire, or rollback' >&2; exit 2 ;;
+esac
