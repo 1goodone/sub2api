@@ -131,13 +131,20 @@ build() {
 
 preserve_assets() {
   local container
-  container=$(sudo -n docker create sub2api:v2.21.6-pr16-20261117-builder)
+  container=$(sudo -n docker create "$IMAGE-builder")
   sudo -n docker cp "$container:/app/backend/internal/web/dist/assets" "$BACKUP_DIR/blue-assets"
   sudo -n docker rm "$container" >/dev/null
   python3 - "$BACKUP_DIR/blue-assets" /srv/sub2api-frontend/first-response-save-20261015-legacy/assets <<'PY'
 from pathlib import Path
-import hashlib, os, shutil, sys
+import hashlib, os, shutil, sys, urllib.request
 source, target = map(Path, sys.argv[1:])
+# Frontend sources are unchanged; verify every candidate asset against both blue origins.
+for src in source.rglob('*'):
+    if not src.is_file():
+        continue
+    for port in (18301, 18302):
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/assets/{src.relative_to(source)}', timeout=15) as response:
+            assert response.read() == src.read_bytes(), src.name
 for src in source.rglob('*'):
     if not src.is_file():
         continue
