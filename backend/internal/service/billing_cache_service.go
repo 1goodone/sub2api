@@ -893,7 +893,7 @@ func (s *BillingCacheService) checkRPMWithUser(ctx context.Context, user *User, 
 	}
 
 	// ── 第二层：用户级全局硬上限（始终生效） ──
-	if countUserRPM && user.RPMLimit > 0 {
+	if countUserRPM {
 		count, err := s.userRPMCache.IncrementUserRPM(ctx, user.ID)
 		if err != nil {
 			logger.LegacyPrintf(
@@ -903,7 +903,7 @@ func (s *BillingCacheService) checkRPMWithUser(ctx context.Context, user *User, 
 			)
 			return nil // fail-open
 		}
-		if count > user.RPMLimit {
+		if user.RPMLimit > 0 && count > user.RPMLimit {
 			return ErrUserRPMExceeded
 		}
 	}

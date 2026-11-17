@@ -44,7 +44,13 @@ func (s *OpenAIOAuthService) ExportChatGPTSession(ctx context.Context, account *
 		return fail(http.StatusServiceUnavailable, "OPENAI_SESSION_UNAVAILABLE", "Session export is unavailable")
 	}
 	proxyURL := ""
-	if account.ProxyID != nil {
+	if account.OpenAIRequestProxyEnabled() {
+		var err error
+		proxyURL, err = resolveOpenAIMaintenanceProxy(ctx, account, s.proxyRepo)
+		if err != nil {
+			return fail(http.StatusServiceUnavailable, "OPENAI_SESSION_PROXY_UNAVAILABLE", "Account proxy is unavailable")
+		}
+	} else if account.ProxyID != nil {
 		if s.proxyRepo == nil {
 			return fail(http.StatusServiceUnavailable, "OPENAI_SESSION_PROXY_UNAVAILABLE", "Account proxy is unavailable")
 		}

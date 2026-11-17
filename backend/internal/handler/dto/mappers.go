@@ -164,6 +164,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		ForceOpenAIFast:             g.ForceOpenAIFast,
 		DisableNonStreaming:         g.DisableNonStreaming,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
+		FreeOpenAIUltrafast:         g.FreeOpenAIUltrafast,
 		StreamOnly:                  g.DisableNonStreaming,
 		CodexCLIOnly:                g.CodexCLIOnly,
 		BlockSubagents:              g.BlockSubagents,

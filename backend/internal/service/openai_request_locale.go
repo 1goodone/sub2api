@@ -148,10 +148,18 @@ func normalizeOpenAIRequestLocaleTimezone(ctx context.Context, account *Account,
 	input := gjson.GetBytes(body, "input")
 	if input.IsArray() {
 		for inputIndex, item := range input.Array() {
-			if item.Get("role").String() != "user" {
+			kind := item.Get("type").String()
+			if item.Get("role").String() != "user" || (kind != "" && kind != "message") || item.Get("encrypted_content").Exists() {
 				continue
 			}
 			content := item.Get("content")
+			opaque := false
+			for _, part := range content.Array() {
+				opaque = opaque || part.Get("type").String() == "encrypted_content"
+			}
+			if opaque {
+				continue
+			}
 			path := "input." + strconv.Itoa(inputIndex) + ".content"
 			if content.Type == gjson.String {
 				rewriteText(path, content)

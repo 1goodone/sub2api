@@ -149,6 +149,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetCodexCliOnly(groupIn.CodexCLIOnly).
 		SetBlockSubagents(groupIn.BlockSubagents).
 		SetFreeOpenaiFast(groupIn.FreeOpenAIFast).
+		SetFreeOpenaiUltrafast(groupIn.FreeOpenAIUltrafast).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetNillableFocusAccountID(groupIn.FocusAccountID).
@@ -364,6 +365,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetCodexCliOnly(groupIn.CodexCLIOnly).
 		SetBlockSubagents(groupIn.BlockSubagents).
 		SetFreeOpenaiFast(groupIn.FreeOpenAIFast).
+		SetFreeOpenaiUltrafast(groupIn.FreeOpenAIUltrafast).
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetAccountTypePreference(accountTypePreference).

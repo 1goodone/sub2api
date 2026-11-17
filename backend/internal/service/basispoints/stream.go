@@ -280,7 +280,7 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		}
 		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "response.cancelled" || kind == "error"
 		observeUpstreamFailure(ctx, kind, payload)
-		return emit(kind, normalizeFailureEvent(kind, payload))
+		return emit(kind, b.normalizeFailureEvent(kind, payload))
 	}
 	err := readEvents(reader, func(event string, data []byte) error {
 		if terminal {

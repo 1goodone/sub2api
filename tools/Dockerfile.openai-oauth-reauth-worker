@@ -8,7 +8,7 @@ RUN npm install --prefix /opt/tosub2-runtime \
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
+    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 patch \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir curl_cffi==0.16.0
 
@@ -25,6 +25,7 @@ COPY tools/openai_excel_password_flow.mjs tools/openai_protocol_warmup.mjs /app/
 COPY tools/openai_siwc_oauth_adapter.py tools/openai_siwc_password_flow.mjs /app/
 
 # Build with: docker build --build-context turb=/path/to/turb --build-context tosub2=/path/to/toSub2 ...
+# tosub2 must use the same pinned commit as tools/reauth-runtime/Dockerfile.
 COPY --from=turb config /opt/turb/config
 COPY --from=turb core/__init__.py /opt/turb/core/__init__.py
 COPY --from=turb core/codex_oauth.py /opt/turb/core/codex_oauth.py
@@ -38,6 +39,9 @@ COPY --from=turb sentinel /opt/turb/sentinel
 COPY --from=turb LICENSE /opt/turb/LICENSE
 COPY --from=tosub2 src /opt/tosub2/src
 COPY --from=tosub2 LICENSE /opt/tosub2/LICENSE
+COPY tools/reauth-runtime/apply_totp_patch.py tools/reauth-runtime/totp-factor-binding.patch /tmp/totp-patch/
+RUN python /tmp/totp-patch/apply_totp_patch.py /opt/tosub2 \
+    && rm -rf /tmp/totp-patch
 
 RUN node -e "require('/opt/tosub2/node_modules/jsdom')"
 

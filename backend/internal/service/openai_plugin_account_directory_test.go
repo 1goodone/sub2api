@@ -33,11 +33,11 @@ func TestListPluginAccounts_ScopeAndSchedulable(t *testing.T) {
 			Name:        "primary",
 			Credentials: map[string]any{"access_token": "SECRET-TOKEN", "refresh_token": "SECRET-REFRESH"},
 			Extra: map[string]any{
-				"existing_key":                   "ek-value",
-				"openai_compact_mode":            "auto",
-				OllamaCloudUsageSessionExtraKey:  "ciphertext-secret",
-				codexFingerprintSeedExtraKey:     "11111111-1111-4111-8111-111111111111",
-				"codex_harvest_proxy_url":        "http://user:legacy-proxy-secret@proxy.example.com:8080",
+				"existing_key":                  "ek-value",
+				"openai_compact_mode":           "auto",
+				OllamaCloudUsageSessionExtraKey: "ciphertext-secret",
+				codexFingerprintSeedExtraKey:    "11111111-1111-4111-8111-111111111111",
+				"codex_harvest_proxy_url":       "http://user:legacy-proxy-secret@proxy.example.com:8080",
 				"codex_turn_state_probe_cache":  map[string]any{"state": "pool-secret"},
 			}},
 		// active but temp-unschedulable (paused) — status stays active, must still be
@@ -102,7 +102,7 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// (refresh_token) not handed out by ResolveOutboundIdentity. Groups/AccountGroups
 	// = relational graphs with back-references that would cycle under encoding/json.
 	stripped := map[string]struct{}{
-		"Credentials": {}, "Groups": {}, "AccountGroups": {}, "InitialQualityPlan": {}, "InitialAdmissionPlan": {},
+		"Credentials": {}, "Groups": {}, "AccountGroups": {}, "InitialQualityPlan": {}, "InitialAdmissionPlan": {}, "InitialAPIKeyDisposition": {},
 	}
 	// Fields intentionally exposed as readable metadata. Extra and Proxy stay
 	// listed here because the snapshot still serializes them after redacting
@@ -140,9 +140,10 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// Extra secrets and Proxy.Password are not.
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
-		PerformancePaused:  true,
-		InitialQualityPlan: &ScheduledTestPlan{PelicanConfig: &PelicanTestConfig{Prompt: "PRIVATE-INITIAL-QUALITY-PROMPT"}},
-		Credentials:        map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
+		InitialAPIKeyDisposition: &OAuthAPIKeyDispositionConfig{AccountIDs: []int64{71}},
+		PerformancePaused:        true,
+		InitialQualityPlan:       &ScheduledTestPlan{PelicanConfig: &PelicanTestConfig{Prompt: "PRIVATE-INITIAL-QUALITY-PROMPT"}},
+		Credentials:              map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
 		Extra: map[string]any{
 			"opaque":                        "extra-released",
 			OllamaCloudUsageSessionExtraKey: "ciphertext-secret",
@@ -163,6 +164,9 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	assert.NotContains(t, string(snap), "legacy-proxy-secret")
 	assert.NotContains(t, string(snap), "22222222-2222-4222-8222-222222222222")
 	assert.NotContains(t, string(snap), "private-ticket-state")
+	assert.NotContains(t, m, "InitialAPIKeyDisposition")
+	require.Equal(t, []int64{71}, acct.InitialAPIKeyDisposition.AccountIDs, "snapshot must not mutate creation-only policy")
+	assert.NotContains(t, m, "InitialQualityPlan")
 	assert.NotContains(t, string(snap), "PRIVATE-INITIAL-QUALITY-PROMPT")
 	assert.NotContains(t, string(snap), "pw-released", "proxy password belongs on ResolveOutboundIdentity, not ListAccounts")
 	if proxy, ok := m["Proxy"].(map[string]any); ok {

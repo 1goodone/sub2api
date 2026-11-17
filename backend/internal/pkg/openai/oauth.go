@@ -60,6 +60,7 @@ type OAuthSession struct {
 	// A non-zero value must not be exchanged by the generic account-creation flow.
 	ExcelAccountID    int64
 	ExcelExpectedHash string
+	RequestProxy      bool `json:"request_proxy,omitempty"`
 
 	State        string    `json:"state"`
 	CodeVerifier string    `json:"code_verifier"`

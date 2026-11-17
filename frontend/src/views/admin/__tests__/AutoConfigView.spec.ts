@@ -12,6 +12,7 @@ import { getAll, list as listGroups } from '@/api/admin/groups'
 import { getAll as listProxies } from '@/api/admin/proxies'
 import { list as listAccounts } from '@/api/admin/accounts'
 import type { Group } from '@/types'
+import { oauthAPIKeyDispositionPayload } from '@/utils/oauthAPIKeyDisposition'
 import { defaultModelBillingConfig } from '@/utils/modelBilling'
 import { defaultExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import { defaultOAuthModelMappings } from '@/utils/oauthModelMappings'
@@ -33,7 +34,7 @@ vi.mock('@/api/admin/accounts', () => ({ list: vi.fn() }))
 const fallbackPicker = '[data-testid="apikey-fallback-account-picker"]'
 const fallbackAccountInput = (id: number) => `${fallbackPicker} [data-account-id="${id}"] input`
 vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn() }))
-const config: AutoConfig = { openai_apikey_fallback: defaultOpenAIAPIKeyFallbackConfig(), openai_disable_scheduling_on_429_7d_threshold_percent: 98, degradation_action: defaultOAuthDegradationConfig(), openai_ws_mode: 'ctx_pool', openai_ws_sse_acceleration: false, openai_totp_rotate_on_429: false, openai_disable_scheduling_on_429: false, openai_two_fa_admission: defaultOpenAITwoFAAdmissionConfig(), model_mappings: defaultOAuthModelMappings('openai'), model_billing: defaultModelBillingConfig(), excel_bps: defaultExcelBPSDefaults(), enabled: false, platform: 'openai', priority: 50, load_factor: 1, concurrency: 3, group_ids: [], upgrade_enabled: false, upgrade_group_ids: [], successes_per_step: 20, upgrade_step: 1, max_concurrency: 100, cooldown_seconds: 60, revision: '' }
+const config: AutoConfig = { apikey_disposition: oauthAPIKeyDispositionPayload(), openai_apikey_fallback: defaultOpenAIAPIKeyFallbackConfig(), openai_disable_scheduling_on_429_7d_threshold_percent: 98, degradation_action: defaultOAuthDegradationConfig(), openai_ws_mode: 'ctx_pool', openai_ws_sse_acceleration: false, openai_totp_rotate_on_429: false, openai_disable_scheduling_on_429: false, openai_two_fa_admission: defaultOpenAITwoFAAdmissionConfig(), model_mappings: defaultOAuthModelMappings('openai'), model_billing: defaultModelBillingConfig(), excel_bps: defaultExcelBPSDefaults(), enabled: false, platform: 'openai', priority: 50, load_factor: 1, concurrency: 3, group_ids: [], upgrade_enabled: false, upgrade_group_ids: [], successes_per_step: 20, upgrade_step: 1, max_concurrency: 100, cooldown_seconds: 60, revision: '' }
 beforeEach(() => {
  localStorage.clear(); setActivePinia(createPinia())
  vi.resetAllMocks(); vi.mocked(listAccounts).mockResolvedValue({ items: [], page: 1, page_size: 100, pages: 0, total: 0 }); vi.mocked(listQualityPlans).mockResolvedValue([]); state.auth = reactive({ user: { id: 1, role: 'admin' } })

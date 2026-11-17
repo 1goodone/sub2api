@@ -31,8 +31,9 @@ type issue842FaultCache struct {
 }
 
 // Exercise actual account builders after the handler has frozen the complete
-// input. These rewrites have semantics and are outside the metadata allowlist.
-func TestIssue842HTTPBuilderChangesStopBeforeNetwork(t *testing.T) {
+// input. Issue892 permits only the frozen account timezone projection; the
+// namespace and system promotion rewrites must still stop before the network.
+func TestIssue842HTTPBuilderProjectionBoundaries(t *testing.T) {
 	for _, kind := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
 		for _, change := range []string{"namespace", "timezone", "system_promotion"} {
 			if kind == service.AccountTypeAPIKey && change == "system_promotion" {
@@ -49,7 +50,7 @@ func TestIssue842HTTPBuilderChangesStopBeforeNetwork(t *testing.T) {
 					accounts[i].Type = kind
 					accounts[i].Credentials = map[string]any{"api_key": "fixture842", "access_token": "fixture842", "base_url": srv.URL}
 				}
-				body, _ := issue842History(t, false, "reasoning_status")
+				body, want := issue842History(t, false, "reasoning_status")
 				settingsRepo := &issue842Settings{values: map[string]string{}}
 				switch change {
 				case "namespace":
@@ -69,6 +70,16 @@ func TestIssue842HTTPBuilderChangesStopBeforeNetwork(t *testing.T) {
 				h.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 				issue805Policy(t, h.cfg, true)
 				answer := issue758Request(t, h, body)
+				if change == "timezone" {
+					require.Equal(t, http.StatusOK, answer.Code, answer.Body.String())
+					want, err = sjson.Set(want, "input.1.content", "<environment_context>\n<timezone>Asia/Singapore</timezone>\n</environment_context>")
+					require.NoError(t, err)
+					u.mu.Lock()
+					defer u.mu.Unlock()
+					require.Len(t, u.frames, 1)
+					require.JSONEq(t, gjson.Get(want, "input").Raw, gjson.GetBytes(u.frames[0], "input").Raw)
+					return
+				}
 				require.Equal(t, http.StatusConflict, answer.Code, answer.Body.String())
 				require.Contains(t, answer.Body.String(), "encrypted_agent_recovery_wire_changed")
 				u.mu.Lock()

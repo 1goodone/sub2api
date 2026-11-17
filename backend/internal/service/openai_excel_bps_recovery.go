@@ -260,7 +260,7 @@ func (s *OpenAIGatewayService) probeExcelBPSRecoveryModel(ctx context.Context, a
 		proxy = account.Proxy.URL()
 	}
 	var lease excelBPSLease
-	if probe.IsExcelBPSMihomoEnabled() {
+	if probe.IsExcelBPSMihomoEnabled() || probe.ExcelBPSRequestProxyEnabled() {
 		proxy, lease, err = s.excelBPSAcquireFor(&probe)(ctx, "transient:"+purpose+":"+nonce)
 		if err != nil {
 			return err

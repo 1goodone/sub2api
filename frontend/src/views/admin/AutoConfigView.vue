@@ -121,6 +121,7 @@
             </fieldset>
             </div>
           </section>
+          <div class="min-w-0 space-y-5 self-start" data-testid="oauth-initial-right-panels">
           <section class="card space-y-5">
             <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.upgrade') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.upgrade_enabled" data-testid="upgrade-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
             <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.upgradeHint') }}</p>
@@ -128,6 +129,8 @@
             <p class="rounded-xl bg-emerald-50 p-3 text-sm leading-6 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">{{ t('autoConfig.rule', { count: draft.successes_per_step, step: draft.upgrade_step, max: draft.max_concurrency }) }}</p>
             <fieldset><legend class="field-label">{{ t('autoConfig.upgradeGroups') }}</legend><div class="group-list"><label v-for="g in groups" :key="g.id" class="group-option"><input v-model="draft.upgrade_group_ids" :value="g.id" type="checkbox" :data-testid="'upgrade-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">{{ g.platform }} · #{{ g.id }}</small></span></label></div></fieldset>
           </section>
+          <OAuthAPIKeyDispositionCard ref="dispositionCard" v-model="draft.apikey_disposition" :groups="groups" :platform="draft.platform" :initial-enabled="draft.enabled" :user-id="auth.user?.id" />
+          </div>
         </fieldset>
         <div class="flex flex-wrap items-center gap-4"><button type="submit" class="btn btn-primary" :disabled="saving">{{ t(saving ? 'autoConfig.saving' : 'common.save') }}</button><span class="text-xs text-gray-500">{{ t('autoConfig.saveHint') }}</span></div>
       </form>
@@ -144,6 +147,8 @@ import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
 import OAuthDegradationCard from '@/components/admin/operations/OAuthDegradationCard.vue'
+import OAuthAPIKeyDispositionCard from '@/components/admin/operations/OAuthAPIKeyDispositionCard.vue'
+import { oauthAPIKeyDispositionPayload, oauthAPIKeyDispositionError, type OAuthAPIKeyDispositionConfig } from '@/utils/oauthAPIKeyDisposition'
 import OpenAIAPIKeyFallbackCard from '@/components/admin/operations/OpenAIAPIKeyFallbackCard.vue'
 import { openaiAPIKeyFallbackPayload, openaiAPIKeyFallbackError, type OpenAIAPIKeyFallbackConfig, type OpenAIAPIKeyFallbackStatus } from '@/utils/openaiAPIKeyFallback'
 import { oauthDegradationPayload, oauthDegradationError, type OAuthDegradationConfig } from '@/utils/oauthDegradation'
@@ -166,9 +171,10 @@ import type { Group } from '@/types'
 import { defaultModelBillingConfig, modelBillingConfigError, modelBillingPayload, type ModelBillingConfig, type ModelBillingRule } from '@/utils/modelBilling'
 const { t } = useI18n(), auth = useAuthStore()
 const DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT = 98
-const draft = ref<(AutoConfig & { openai_apikey_fallback: OpenAIAPIKeyFallbackConfig; openai_disable_scheduling_on_429_7d_threshold_percent: number; degradation_action: OAuthDegradationConfig; openai_ws_mode: NonNullable<AutoConfig['openai_ws_mode']>; openai_ws_sse_acceleration: boolean; openai_two_fa_admission: OpenAITwoFAAdmissionConfig; excel_bps: ExcelBPSDefaults; model_mappings: OAuthModelMappingRule[]; model_billing: ModelBillingConfig }) | null>(null), groups = ref<Group[]>([])
+const draft = ref<(AutoConfig & { apikey_disposition: OAuthAPIKeyDispositionConfig; openai_apikey_fallback: OpenAIAPIKeyFallbackConfig; openai_disable_scheduling_on_429_7d_threshold_percent: number; degradation_action: OAuthDegradationConfig; openai_ws_mode: NonNullable<AutoConfig['openai_ws_mode']>; openai_ws_sse_acceleration: boolean; openai_two_fa_admission: OpenAITwoFAAdmissionConfig; excel_bps: ExcelBPSDefaults; model_mappings: OAuthModelMappingRule[]; model_billing: ModelBillingConfig }) | null>(null), groups = ref<Group[]>([])
 const modelBillingGroups = ref<Group[]>([]), modelBillingGroupsLoading = ref(true), modelBillingGroupsFailed = ref(false)
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref('')
+const dispositionCard = ref<InstanceType<typeof OAuthAPIKeyDispositionCard> | null>(null)
 const fallbackCard = ref<InstanceType<typeof OpenAIAPIKeyFallbackCard> | null>(null)
 const fallbackStatus = ref<OpenAIAPIKeyFallbackStatus | null>(null), fallbackStatusLoading = ref(false), fallbackStatusFailed = ref(false)
 const qualityPlans = ref<ScheduledTestPlan[]>([]), selectedQualityRule = ref(''), qualityLoadFailed = ref(false)
@@ -222,7 +228,7 @@ function unavailableModelBillingGroups(rule: ModelBillingRule) {
 
 async function load() {
  const v = generation; loading.value = true; error.value = ''
- try { const [config, available] = await Promise.all([getAutoConfig(), getAll()]); if (validGeneration(v)) { draft.value = { ...config, openai_apikey_fallback: openaiAPIKeyFallbackPayload(config.openai_apikey_fallback), openai_disable_scheduling_on_429_7d_threshold_percent: config.openai_disable_scheduling_on_429_7d_threshold_percent ?? DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT, degradation_action: oauthDegradationPayload(config.degradation_action), openai_ws_mode: config.openai_ws_mode ?? OPENAI_WS_MODE_CTX_POOL, openai_ws_sse_acceleration: config.openai_ws_sse_acceleration ?? false, openai_totp_rotate_on_429: config.openai_totp_rotate_on_429 ?? false, openai_disable_scheduling_on_429: config.openai_disable_scheduling_on_429 ?? false, openai_two_fa_admission: config.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: modelBillingPayload(config.model_billing ?? defaultModelBillingConfig()), excel_bps: config.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: config.model_mappings ?? defaultOAuthModelMappings(config.platform) }; fallbackStatus.value = config.openai_apikey_fallback_status ?? null; selectedQualityRule.value = config.quality_rule ? 'saved' : ''; groups.value = available.filter(g => g.status === 'active') } }
+ try { const [config, available] = await Promise.all([getAutoConfig(), getAll()]); if (validGeneration(v)) { draft.value = { ...config, apikey_disposition: oauthAPIKeyDispositionPayload(config.apikey_disposition), openai_apikey_fallback: openaiAPIKeyFallbackPayload(config.openai_apikey_fallback), openai_disable_scheduling_on_429_7d_threshold_percent: config.openai_disable_scheduling_on_429_7d_threshold_percent ?? DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT, degradation_action: oauthDegradationPayload(config.degradation_action), openai_ws_mode: config.openai_ws_mode ?? OPENAI_WS_MODE_CTX_POOL, openai_ws_sse_acceleration: config.openai_ws_sse_acceleration ?? false, openai_totp_rotate_on_429: config.openai_totp_rotate_on_429 ?? false, openai_disable_scheduling_on_429: config.openai_disable_scheduling_on_429 ?? false, openai_two_fa_admission: config.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: modelBillingPayload(config.model_billing ?? defaultModelBillingConfig()), excel_bps: config.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: config.model_mappings ?? defaultOAuthModelMappings(config.platform) }; fallbackStatus.value = config.openai_apikey_fallback_status ?? null; selectedQualityRule.value = config.quality_rule ? 'saved' : ''; groups.value = available.filter(g => g.status === 'active') } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.loadFailed') }
  finally { if (validGeneration(v)) loading.value = false }
 }
@@ -235,6 +241,8 @@ async function refreshFallbackStatus() {
 async function save() {
  if (!draft.value || saving.value) return
  const c = draft.value
+ const dispositionError = oauthAPIKeyDispositionError(c.apikey_disposition) ?? dispositionCard.value?.validationError()
+ if (dispositionError) { error.value = t(dispositionError); return }
  const fallbackError = openaiAPIKeyFallbackError(c.openai_apikey_fallback) ?? fallbackCard.value?.validationError()
  if (fallbackError) { error.value = t(fallbackError); return }
  if (oauthDegradationError(c.degradation_action)) { error.value = t('autoConfig.degradation.invalid'); return }
@@ -250,7 +258,7 @@ async function save() {
  if (!Number.isFinite(shutdownThreshold) || shutdownThreshold < 0 || shutdownThreshold > 100) { error.value = t('autoConfig.disableScheduling429.invalidThreshold'); return }
  if (c.upgrade_enabled && !c.upgrade_group_ids.length || accountSettingsInvalid(c.account_settings) || [...initialFields, ...upgradeFields].some(f => !Number.isInteger(c[f.key]) || c[f.key] < ('min' in f ? f.min : 1) || c[f.key] > ('max' in f ? f.max : 10000))) { error.value = t('autoConfig.invalid'); return }
  const v = generation; saving.value = true; error.value = ''; notice.value = ''
- try { const { runtime_blocked: _blocked, openai_apikey_fallback_status: _fallbackStatus, account_settings, ...payload } = c; const body = account_settings && Object.keys(account_settings).length ? { ...payload, account_settings } : payload; const result = await saveAutoConfig({ ...body, openai_apikey_fallback: openaiAPIKeyFallbackPayload(c.openai_apikey_fallback), model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, openai_apikey_fallback: openaiAPIKeyFallbackPayload(result.openai_apikey_fallback), openai_disable_scheduling_on_429_7d_threshold_percent: result.openai_disable_scheduling_on_429_7d_threshold_percent ?? DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT, degradation_action: oauthDegradationPayload(result.degradation_action), openai_ws_mode: result.openai_ws_mode ?? OPENAI_WS_MODE_CTX_POOL, openai_ws_sse_acceleration: result.openai_ws_sse_acceleration ?? false, openai_totp_rotate_on_429: result.openai_totp_rotate_on_429 ?? false, openai_disable_scheduling_on_429: result.openai_disable_scheduling_on_429 ?? false, openai_two_fa_admission: result.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: modelBillingPayload(result.model_billing ?? defaultModelBillingConfig()), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; if (result.openai_apikey_fallback_status) fallbackStatus.value = result.openai_apikey_fallback_status; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
+ try { const { runtime_blocked: _blocked, openai_apikey_fallback_status: _fallbackStatus, account_settings, ...payload } = c; const body = account_settings && Object.keys(account_settings).length ? { ...payload, account_settings } : payload; const result = await saveAutoConfig({ ...body, openai_apikey_fallback: openaiAPIKeyFallbackPayload(c.openai_apikey_fallback), model_billing: modelBillingPayload(c.model_billing), excel_bps: excelBPSDefaultsPayload(c.excel_bps), model_mappings: oauthModelMappingsPayload(c.model_mappings) }); if (validGeneration(v)) { draft.value = { ...result, apikey_disposition: oauthAPIKeyDispositionPayload(result.apikey_disposition), openai_apikey_fallback: openaiAPIKeyFallbackPayload(result.openai_apikey_fallback), openai_disable_scheduling_on_429_7d_threshold_percent: result.openai_disable_scheduling_on_429_7d_threshold_percent ?? DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT, degradation_action: oauthDegradationPayload(result.degradation_action), openai_ws_mode: result.openai_ws_mode ?? OPENAI_WS_MODE_CTX_POOL, openai_ws_sse_acceleration: result.openai_ws_sse_acceleration ?? false, openai_totp_rotate_on_429: result.openai_totp_rotate_on_429 ?? false, openai_disable_scheduling_on_429: result.openai_disable_scheduling_on_429 ?? false, openai_two_fa_admission: result.openai_two_fa_admission ?? defaultOpenAITwoFAAdmissionConfig(), model_billing: modelBillingPayload(result.model_billing ?? defaultModelBillingConfig()), excel_bps: result.excel_bps ?? defaultExcelBPSDefaults(), model_mappings: result.model_mappings ?? defaultOAuthModelMappings(result.platform) }; if (result.openai_apikey_fallback_status) fallbackStatus.value = result.openai_apikey_fallback_status; selectedQualityRule.value = result.quality_rule ? 'saved' : ''; notice.value = t('autoConfig.saved'); historyRefreshKey.value++ } }
  catch { if (validGeneration(v)) error.value = t('autoConfig.saveFailed') }
  finally { if (validGeneration(v)) saving.value = false }
 }

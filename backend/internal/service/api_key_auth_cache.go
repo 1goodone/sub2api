@@ -128,6 +128,7 @@ type APIKeyAuthGroupSnapshot struct {
 	FocusAccountID              *int64                            `json:"focus_account_id,omitempty"`
 	FocusAccountIDs             []int64                           `json:"focus_account_ids,omitempty"`
 	AccountTypePreference       string                            `json:"account_type_preference,omitempty"`
+	FreeOpenAIUltrafast         bool                              `json:"free_openai_ultrafast"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	ModelAllowlist              GroupModelAllowlist               `json:"model_allowlist,omitempty"`

@@ -247,6 +247,7 @@ type CreateGroupRequest struct {
 	ForceOpenAIFast             bool                                      `json:"force_openai_fast"`
 	DisableNonStreaming         bool                                      `json:"disable_non_streaming"`
 	FreeOpenAIFast              bool                                      `json:"free_openai_fast"`
+	FreeOpenAIUltrafast         bool                                      `json:"free_openai_ultrafast"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	AccountTypePreference       string                                    `json:"account_type_preference" binding:"omitempty,oneof=default auth_first apikey_first"`
@@ -331,6 +332,7 @@ type UpdateGroupRequest struct {
 	ForceOpenAIFast             *bool                                      `json:"force_openai_fast"`
 	DisableNonStreaming         *bool                                      `json:"disable_non_streaming"`
 	FreeOpenAIFast              *bool                                      `json:"free_openai_fast"`
+	FreeOpenAIUltrafast         *bool                                      `json:"free_openai_ultrafast"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	FocusAccountID              *int64                                     `json:"focus_account_id"`
@@ -752,6 +754,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ForceOpenAIFast:                 req.ForceOpenAIFast,
 		DisableNonStreaming:             req.DisableNonStreaming,
 		FreeOpenAIFast:                  req.FreeOpenAIFast,
+		FreeOpenAIUltrafast:             req.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		AccountTypePreference:           req.AccountTypePreference,
@@ -907,6 +910,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ForceOpenAIFast:                 req.ForceOpenAIFast,
 		DisableNonStreaming:             req.DisableNonStreaming,
 		FreeOpenAIFast:                  req.FreeOpenAIFast,
+		FreeOpenAIUltrafast:             req.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		FocusAccountID:                  req.FocusAccountID,

@@ -211,8 +211,9 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 
 	var quotaUsed, usage5h float64
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used, usage_5h FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed, &usage5h))
-	require.InDelta(t, 0, quotaUsed, 0.000001)
-	require.InDelta(t, 0, usage5h, 0.000001)
+	// Accepted requests still bill the retained key row after soft deletion.
+	require.InDelta(t, 1.25, quotaUsed, 0.000001)
+	require.InDelta(t, 1.25, usage5h, 0.000001)
 
 	var dedupCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&dedupCount))

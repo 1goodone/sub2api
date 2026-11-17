@@ -320,6 +320,7 @@ type CreateGroupInput struct {
 	ForceOpenAIFast             bool
 	DisableNonStreaming         bool
 	FreeOpenAIFast              bool
+	FreeOpenAIUltrafast         bool
 	DefaultMappedModel          string
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
@@ -410,6 +411,7 @@ type UpdateGroupInput struct {
 	ForceOpenAIFast             *bool
 	DisableNonStreaming         *bool
 	FreeOpenAIFast              *bool
+	FreeOpenAIUltrafast         *bool
 	DefaultMappedModel          *string
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
@@ -437,25 +439,26 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
-	ProxyMode            string             // 受限写入在验权后选择代理。
-	InitialOpenAITwoFA   bool               `json:"-"`
-	InitialAdmissionPlan *ScheduledTestPlan `json:"-"`
-	InitialQualityPlan   *ScheduledTestPlan `json:"-"`
-	Name                 string
-	Notes                *string
-	Platform             string
-	Type                 string
-	Credentials          map[string]any
-	Extra                map[string]any
-	ProxyID              *int64
-	Concurrency          int
-	Priority             int
-	RateMultiplier       *float64 // 账号计费倍率（>=0，允许 0）
-	LoadFactor           *int
-	GroupIDs             []int64
-	ExpiresAt            *int64
-	AutoPauseOnExpired   *bool
-	ProbeEnabled         *bool
+	InitialAPIKeyDisposition *OAuthAPIKeyDispositionConfig `json:"-"`
+	ProxyMode                string                        // 受限写入在验权后选择代理。
+	InitialOpenAITwoFA       bool                          `json:"-"`
+	InitialAdmissionPlan     *ScheduledTestPlan            `json:"-"`
+	InitialQualityPlan       *ScheduledTestPlan            `json:"-"`
+	Name                     string
+	Notes                    *string
+	Platform                 string
+	Type                     string
+	Credentials              map[string]any
+	Extra                    map[string]any
+	ProxyID                  *int64
+	Concurrency              int
+	Priority                 int
+	RateMultiplier           *float64 // 账号计费倍率（>=0，允许 0）
+	LoadFactor               *int
+	GroupIDs                 []int64
+	ExpiresAt                *int64
+	AutoPauseOnExpired       *bool
+	ProbeEnabled             *bool
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.

@@ -500,7 +500,7 @@ func (r *openAIOAuthReauthRepository) CancelTask(ctx context.Context, taskID int
 		RETURNING id, account_id, status, stage, COALESCE(worker_id, ''),
 			COALESCE(auth_session_id, ''), expected_credentials_hash,
 			COALESCE(error_message, ''), attempt,
-			created_at, updated_at, finished_at
+			created_at, updated_at, finished_at, oauth_profile
 	`, taskID, service.OpenAIOAuthReauthStatusFailed, service.OpenAIOAuthReauthStageFailed, strings.TrimSpace(reason),
 		service.OpenAIOAuthReauthStatusQueued, service.OpenAIOAuthReauthStatusRunning, service.OpenAIOAuthReauthStatusCallbackProcessing)
 	record, err := scanOpenAIOAuthReauthTask(row)

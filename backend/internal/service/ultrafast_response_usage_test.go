@@ -280,7 +280,7 @@ func TestUltrafastUsageDurableRetryAndCacheRecovery(t *testing.T) {
 	}
 }
 
-func TestUltrafastUsageAccountGroupMultiplierAndZeroRate(t *testing.T) {
+func TestUltrafastUsagePreservesLocalUserGroupRate(t *testing.T) {
 	for _, multiplier := range []float64{0, .8, 2} {
 		t.Run(fmt.Sprint(multiplier), func(t *testing.T) {
 			svc, input, repo, _ := ultrafastUsageHarness(t, ultrafastUsageGroup(), true)
@@ -291,7 +291,9 @@ func TestUltrafastUsageAccountGroupMultiplierAndZeroRate(t *testing.T) {
 			}
 			e := ultrafastUsageEvent(t, repo)
 			standard := 1000*2e-6 + 500*10e-6 + 8000*.2e-6 + 1000*2.5e-6
-			ultrafastUsageNear(t, "charge with independent account group multiplier", QuantizeUsageBillingAmount(standard*2*.25*multiplier), e.Command.BalanceCost)
+			// This deployment resolves customer pricing from the user/group policy;
+			// legacy account GroupRateMultiplier must not add another surcharge.
+			ultrafastUsageNear(t, "charge with local user group rate", QuantizeUsageBillingAmount(standard*2*.25), e.Command.BalanceCost)
 		})
 	}
 }

@@ -375,7 +375,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			return nil, admissionErr
 		}
 		account = latest
-		token, _, err := s.GetAccessToken(upstreamCtx, account)
+		// Credential refresh precedes inference and must stop with the caller.
+		token, _, err := s.GetAccessToken(ctx, account)
 		if err != nil {
 			releaseUpstreamCtx()
 			return nil, err
