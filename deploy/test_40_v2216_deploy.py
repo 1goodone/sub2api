@@ -6,8 +6,10 @@ import unittest
 
 
 class DeploymentGates(unittest.TestCase):
+    script_name = "40-bluegreen-v2216-20261117.sh"
+
     def run_gate(self, commands):
-        source = Path(__file__).with_name("40-bluegreen-v2216-20261117.sh").read_text()
+        source = Path(__file__).with_name(self.script_name).read_text()
         source = source.split('case "${1:-}" in', 1)[0]
         source = source.replace('BASE=$(tr -d \'\\r\\n\' < "$SOURCE/../source-commit")', 'BASE=fixture')
         with tempfile.TemporaryDirectory() as directory:
@@ -49,6 +51,10 @@ class DeploymentGates(unittest.TestCase):
                     'if rollback_compatible; then exit 0; else exit 7; fi'
                 )
                 self.assertEqual(result.returncode, 7, result.stderr)
+
+
+class PR17DeploymentGates(DeploymentGates):
+    script_name = "40-bluegreen-pr17-20261117.sh"
 
 
 if __name__ == "__main__":
