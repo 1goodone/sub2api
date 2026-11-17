@@ -1563,7 +1563,7 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 			normalized = next
 			changed = true
 		}
-		if !opts.Compact && !(opts.PreserveHTTPNamespaceSearchHistory && preserveOpenAIHTTPNamespaceSearchHistoryBody(normalized)) {
+		if !opts.Compact && (!opts.PreserveHTTPNamespaceSearchHistory || !preserveOpenAIHTTPNamespaceSearchHistoryBody(normalized)) {
 			webSearchBody, webSearchChanged, err := ensureOpenAIOAuthWebSearchToolForHistoryBody(normalized, responsesLite)
 			if err != nil {
 				return body, false, fmt.Errorf("normalize websocket body: %w", err)

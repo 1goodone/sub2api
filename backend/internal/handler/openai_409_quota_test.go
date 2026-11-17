@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type recoveryQuotaUpstream struct {
@@ -80,6 +81,7 @@ func testOpenAI409QuotaRecovery(t *testing.T, realRedis bool) {
 	if realRedis {
 		modes = []string{"success", "exhausted", "shadow_plain", "shadow_tools", "owner_failed", "owner_pending", "owner_conflict"}
 	}
+	modes = append(modes, "namespace_sol", "namespace_astra")
 	for _, lite := range []bool{false, true} {
 		for _, mode := range modes {
 			t.Run(fmt.Sprintf("lite=%t/%s", lite, mode), func(t *testing.T) {
@@ -119,6 +121,15 @@ func testOpenAI409QuotaRecovery(t *testing.T, realRedis bool) {
 					h.maxAccountSwitches = 0
 				}
 				request := func(node *OpenAIGatewayHandler, body string) (int, string) {
+					if strings.HasPrefix(mode, "namespace_") {
+						var err error
+						body, err = sjson.SetRaw(body, "tools", `[{"type":"namespace","name":"diagnostic","tools":[{"type":"function","name":"record","parameters":{"type":"object"}}]}]`)
+						require.NoError(t, err)
+						body = strings.ReplaceAll(body, `"name":"record","call_id":"call_done"`, `"namespace":"diagnostic","name":"record","call_id":"call_done"`)
+						if mode == "namespace_astra" {
+							body = strings.ReplaceAll(body, "gpt-6.1-sol", "gpt-6-astra")
+						}
+					}
 					if strings.HasPrefix(mode, "shadow_") {
 						body = strings.ReplaceAll(body, `{"type":"web_search_call","id":"ws_quota","status":"completed"},`, "")
 						if mode == "shadow_plain" {
@@ -145,16 +156,27 @@ func testOpenAI409QuotaRecovery(t *testing.T, realRedis bool) {
 				}
 				accounts[0].Schedulable = false
 				status, answer = request(h, `{"model":"gpt-6.1-sol","stream":true,"instructions":"Keep completed work","input":[`+issue715Agent+`,{"type":"web_search_call","id":"ws_quota","status":"completed"},{"type":"function_call","name":"record","call_id":"call_done","arguments":"{}"},{"type":"function_call_output","call_id":"call_done","output":"already done"},{"role":"user","content":"continue"}],"tools":[{"type":"function","name":"record","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
-				if mode == "success" || mode == "exhausted" || mode == "headers_only" || strings.HasPrefix(mode, "heartbeat") || strings.HasPrefix(mode, "shadow_") {
+				if mode == "success" || mode == "exhausted" || mode == "headers_only" || strings.HasPrefix(mode, "heartbeat") || strings.HasPrefix(mode, "shadow_") || strings.HasPrefix(mode, "namespace_") {
 					require.Equal(t, []int64{1, 2, 3}, upstream.ids, answer)
 					for _, field := range []string{"input", "tools", "tool_choice", "instructions"} {
-						require.JSONEq(t, gjson.GetBytes(upstream.bodies[1], field).Raw, gjson.GetBytes(upstream.bodies[2], field).Raw, field)
+						before, after := gjson.GetBytes(upstream.bodies[1], field), gjson.GetBytes(upstream.bodies[2], field)
+						require.Equal(t, before.Exists(), after.Exists(), field)
+						if before.Exists() {
+							require.JSONEq(t, before.Raw, after.Raw, field)
+						}
+					}
+					if strings.HasPrefix(mode, "namespace_") {
+						for _, wire := range upstream.bodies[1:] {
+							require.Equal(t, "auto", gjson.GetBytes(wire, "tool_choice").String())
+							require.NotContains(t, string(wire), `"type":"web_search"`)
+							require.Contains(t, string(wire), `"type":"namespace"`)
+						}
 					}
 				} else {
 					require.Equal(t, []int64{1, 2}, upstream.ids, answer)
 				}
 				switch mode {
-				case "success", "headers_only", "heartbeat", "shadow_plain", "shadow_tools":
+				case "success", "headers_only", "heartbeat", "shadow_plain", "shadow_tools", "namespace_sol", "namespace_astra":
 					require.Equal(t, 200, status, answer)
 					require.Contains(t, answer, "continued")
 					require.NotContains(t, answer, "response.failed")

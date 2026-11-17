@@ -620,7 +620,7 @@ func prepareOpenAI409OAuthReplay(ctx context.Context, c *gin.Context, body map[s
 	// The ordinary OAuth transform performs this same compatibility step.
 	// Freeze its result now so our own later transform cannot invalidate the
 	// replay. Compact has a separate wire shape and must not inject tools.
-	if !opts.IsCompact && !(opts.PreserveHTTPNamespaceSearchHistory && preserveOpenAIHTTPNamespaceSearchHistory(body)) {
+	if !opts.IsCompact && (!opts.PreserveHTTPNamespaceSearchHistory || !preserveOpenAIHTTPNamespaceSearchHistory(body)) {
 		ensureOpenAIOAuthWebSearchToolForHistory(body, opts.ResponsesLite)
 	}
 	prepared, err := json.Marshal(body)
