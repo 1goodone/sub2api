@@ -130,21 +130,42 @@ build() {
 }
 
 preserve_assets() {
-  local container
-  container=$(sudo -n docker create "$IMAGE-builder")
-  sudo -n docker cp "$container:/app/backend/internal/web/dist/assets" "$BACKUP_DIR/blue-assets"
-  sudo -n docker rm "$container" >/dev/null
+  sudo -n mkdir -p "$BACKUP_DIR/blue-assets"
   python3 - "$BACKUP_DIR/blue-assets" /srv/sub2api-frontend/first-response-save-20261015-legacy/assets <<'PY'
 from pathlib import Path
-import hashlib, os, shutil, sys, urllib.request
+import hashlib, os, re, shutil, sys, urllib.parse, urllib.request
 source, target = map(Path, sys.argv[1:])
-# Frontend sources are unchanged; verify every candidate asset against both blue origins.
-for src in source.rglob('*'):
-    if not src.is_file():
-        continue
-    for port in (18301, 18302):
-        with urllib.request.urlopen(f'http://127.0.0.1:{port}/assets/{src.relative_to(source)}', timeout=15) as response:
-            assert response.read() == src.read_bytes(), src.name
+# Follow Vite's entry modules, imports, dependency maps, and CSS asset references.
+reference = re.compile(r'''["'`(]((?:\.?\.?/|/)?(?:assets/)?[A-Za-z0-9_@./-]+\.(?:js|css|woff2?|ttf|otf|png|jpe?g|gif|webp|svg|ico)(?:\?[^"'`)\s]*)?)["'`)]''')
+for port in (18301, 18302):
+    origin = f'http://127.0.0.1:{port}'
+    pending, seen = ['/'], set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        with urllib.request.urlopen(origin + path, timeout=15) as response:
+            data = response.read()
+            content_type = response.headers.get('Content-Type', '')
+        if path != '/':
+            assert path.startswith('/assets/') and 'text/html' not in content_type, path
+            relative = Path(path.removeprefix('/assets/'))
+            assert '..' not in relative.parts
+            dst = source / relative
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                assert dst.read_bytes() == data, path
+            else:
+                dst.write_bytes(data)
+        if path == '/' or path.endswith(('.js', '.css')):
+            for match in reference.finditer(data.decode()):
+                ref = match.group(1)
+                resolved = urllib.parse.urlsplit(urllib.parse.urljoin(path, ref)).path
+                if resolved.startswith('/assets/'):
+                    pending.append(resolved)
+    assert len(seen) > 100, len(seen)
+    print('blue_asset_graph_verified', port, len(seen)-1)
 for src in source.rglob('*'):
     if not src.is_file():
         continue
