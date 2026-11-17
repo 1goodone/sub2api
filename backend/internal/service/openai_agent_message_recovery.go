@@ -50,7 +50,7 @@ type openAIAgentRecoveryState struct {
 type openAIAgentRecoveryRequest struct {
 	omitted400History    bool // one authorized, same-route HTTP 400 history replacement
 	retry400Route        *openAIAgentRecoveryBinding
-	omittedHistory       bool // explicit Beta sanitization; preserve the resulting input and prohibit replay
+	omittedHistory       bool // explicit Beta sanitization; only proven native HTTP quota refusals may switch accounts
 	disableOwnerBinding  bool
 	previousResponseID   string
 	inputDigest          [32]byte
@@ -718,8 +718,8 @@ func OpenAIAgentToolResultContinuation(ctx context.Context) bool {
 	return r != nil && (r.owner != nil || r.preservesHistory()) && r.toolResult
 }
 
-// Opt-out permits one intact attempt, not automatic cross-account retries or
-// input-rewriting retries. Strict mode retains its existing tool-result rule.
+// Readable recovery prohibits ambiguous replays and input-rewriting retries.
+// A proven native HTTP quota refusal may use the existing next-account budget.
 func OpenAIAgentOmittedHistory(ctx context.Context) bool {
 	r := openAIAgentRecoveryFromContext(ctx)
 	return r != nil && r.omittedHistory
@@ -730,11 +730,30 @@ func OpenAIAgentRecoveryNoReplay(ctx context.Context) bool {
 }
 
 func OpenAIAgentToolResultCanFailover(ctx context.Context, failure *UpstreamFailoverError) bool {
+	if OpenAIAgentOmittedHistory(ctx) {
+		return ctx.Err() == nil && failure != nil && failure.recoveryQuotaRejected && failure.IsAccountQuotaExhausted()
+	}
 	if !OpenAIAgentToolResultContinuation(ctx) {
 		return true
 	}
 	r := openAIAgentRecoveryFromContext(ctx)
 	return !r.omittedHistory && r.canSwitchAccount() && failure != nil && failure.RequestRejected
+}
+
+// Called only after the real native HTTP transport returned a refusal. Neither
+// a stream error nor a WS fallback can mint permission to replay readable work.
+func openAI409QuotaFailoverSafe(ctx context.Context, c *gin.Context, failure *UpstreamFailoverError, attempts int, transport OpenAIUpstreamTransport) bool {
+	r := openAIAgentRecoveryFromContext(ctx)
+	if r == nil || !r.omittedHistory || r.omitted400History || r.disallowLearning || ctx.Err() != nil ||
+		attempts != 1 || transport != OpenAIUpstreamTransportHTTPSSE || failure == nil || !failure.RequestRejected ||
+		!failure.IsAccountQuotaExhausted() || openAIStreamClientOutputStarted(c, false) || OpenAIHeaderWaitDisconnected(c) {
+		return false
+	}
+	d := r.delivery
+	// shadowCandidate is prepared before dispatch; only observed output or
+	// delivery publication prevents retrying an explicit quota refusal.
+	return d != nil && len(r.outputs) == 0 && !r.shadowOutputSafe && !r.shadowUnsafeOutput &&
+		len(d.keys) == 0 && len(d.epochs) == 0 && len(d.tools) == 0 && !d.toolTerminal && !d.toolInvalid
 }
 
 // Native remote compaction v2 consumes an already proven task but proves no new

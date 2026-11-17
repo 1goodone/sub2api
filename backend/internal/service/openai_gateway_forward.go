@@ -1570,7 +1570,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				// text. Do not borrow field/compact/failover retry budgets here.
 				return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
 			}
-			if openAIAgentRecoveryPreservesHistory(ctx) &&
+			// Quota refusals still need the shared cooldown and typed final error.
+			// Replay permission is granted separately at the actual HTTP boundary.
+			recoveryQuota := OpenAIAgentOmittedHistory(ctx) && isOpenAIAccountQuotaExhausted(resp.StatusCode, resp.Header, respBody)
+			if openAIAgentRecoveryPreservesHistory(ctx) && !recoveryQuota &&
 				(OpenAIAgentOmittedHistory(ctx) || (resp.StatusCode != http.StatusUnauthorized &&
 					resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests)) {
 				return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
@@ -1635,6 +1638,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
 				)
 				failover.RequestRejected = resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests
+				failover.recoveryQuotaRejected = openAI409QuotaFailoverSafe(ctx, c, failover, nativeHTTPAttempts, wsDecision.Transport)
 				return nil, failover
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
