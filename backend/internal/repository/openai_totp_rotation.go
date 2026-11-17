@@ -49,18 +49,23 @@ func (r *openAIOAuthReauthRepository) createTOTPRotation(ctx context.Context, ac
 		return nil, err
 	}
 	var current time.Time
-	if err = tx.QueryRowContext(ctx, `SELECT updated_at FROM openai_oauth_reauth_configs WHERE account_id=$1 FOR UPDATE`, accountID).Scan(&current); err != nil {
+	var email string
+	if err = tx.QueryRowContext(ctx, `SELECT updated_at, lower(btrim(login_email)) FROM openai_oauth_reauth_configs WHERE account_id=$1 FOR UPDATE`, accountID).Scan(&current, &email); err != nil {
 		return nil, err
 	}
 	if !current.Equal(version) {
 		return nil, infraerrors.Conflict("TOTP_CONFIG_CHANGED", "Login configuration changed; reload before retrying")
 	}
+	// Different account rows may represent one login identity. Serialize before
+	// the separate READ COMMITTED query so it sees the previous creator's commit.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "totp-identity:"+email); err != nil {
+		return nil, err
+	}
 	// A deleted-account recovery must not turn reimport into another enrollment.
 	var unresolvedIdentity bool
 	err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM openai_totp_rotations r
- JOIN openai_oauth_reauth_configs c ON c.account_id=$1
- WHERE r.account_id<>$1 AND lower(r.login_email)=lower(c.login_email)
- AND r.state NOT IN ('succeeded','failed'))`, accountID).Scan(&unresolvedIdentity)
+ WHERE r.account_id<>$1 AND lower(btrim(r.login_email))=$2
+ AND r.state NOT IN ('succeeded','failed'))`, accountID, email).Scan(&unresolvedIdentity)
 	if err != nil {
 		return nil, err
 	}

@@ -2415,6 +2415,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 				// 已经刷出的前序事件仍然不能重放。
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) || (firstResponseEnabled && firstTokenMs != nil)
 				if !hadFirstResponse && (isOpenAIUpstreamCapacityShedEvent(dataBytes) ||
+					isOpenAIFirstResponseQuotaRejection(account, dataBytes) ||
 					isOpenAIRelayFirstResponseConcurrency(account, dataBytes)) {
 					outputStarted = openAIStreamClientOutputStarted(c, clientOutputStarted)
 				}

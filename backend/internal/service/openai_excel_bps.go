@@ -638,6 +638,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if isExcelBPSClientCancellation(c, proxyErr) {
 			return clientCanceled()
 		}
+		if _, ok := proxyErr.(*UpstreamFailoverError); ok {
+			return nil, proxyErr
+		}
 		return fail(503, "basispoints_proxy_unavailable", "No healthy BPS session proxy is available; retry later")
 	}
 	defer releaseProxy()

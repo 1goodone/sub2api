@@ -70,6 +70,13 @@ func isOpenAIRelayConcurrencyRejection(payload []byte) bool {
 	return openAIStreamFailedEventErrorCode(payload) == "gateway_concurrency_limit"
 }
 
+// Quota rejection before any earlier response is not committed output. This
+// does not authorize replay of tool results or account-bound history.
+func isOpenAIFirstResponseQuotaRejection(account *Account, payload []byte) bool {
+	return account != nil && account.Platform == PlatformOpenAI &&
+		isOpenAIAccountQuotaExhausted(http.StatusTooManyRequests, nil, payload)
+}
+
 func isOpenAIRelayFirstResponseConcurrency(account *Account, payload []byte) bool {
 	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
 		isOpenAIRelayConcurrencyRejection(payload)

@@ -67,6 +67,9 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	}
 	proxyCtx, releaseProxy, proxyErr := s.beginOpenAIRequestProxy(ctx, c, account)
 	if proxyErr != nil {
+		if failure, ok := proxyErr.(*UpstreamFailoverError); ok {
+			writeOpenAIRequestProxyError(c, string(failure.Reason), failure.ClientMessage)
+		}
 		return proxyErr
 	}
 	defer releaseProxy()
@@ -303,6 +306,9 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	}
 	proxyCtx, releaseProxy, proxyErr := s.beginOpenAIRequestProxy(ctx, c, account)
 	if proxyErr != nil {
+		if failure, ok := proxyErr.(*UpstreamFailoverError); ok {
+			writeOpenAIRequestProxyError(c, string(failure.Reason), failure.ClientMessage)
+		}
 		return proxyErr
 	}
 	defer releaseProxy()

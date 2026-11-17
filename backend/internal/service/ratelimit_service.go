@@ -1985,6 +1985,12 @@ func parseOpenAIRateLimitResetTime(body []byte) *int64 {
 
 	errObj, ok := parsed["error"].(map[string]any)
 	if !ok {
+		// SSE response.failed carries the same error fields inside response.
+		if response, exists := parsed["response"].(map[string]any); exists {
+			errObj, ok = response["error"].(map[string]any)
+		}
+	}
+	if !ok {
 		return nil
 	}
 

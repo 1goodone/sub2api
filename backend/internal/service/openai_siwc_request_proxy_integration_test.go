@@ -226,10 +226,11 @@ func TestSIWCRequestProxyUnavailableNeverSends(t *testing.T) {
 			capture := &httpUpstreamRecorder{err: fmt.Errorf("unexpected send")}
 			svc.httpUpstream = capture
 			account.Proxy = &Proxy{ID: 99, Protocol: "http", Host: "old.invalid", Port: 8080, FallbackMode: "direct"}
-			code, response, err := forwardLocalBPSRequest(t.Context(), svc, account, []byte(`{"model":"gpt-5.4","input":"test","stream":true}`))
-			require.Error(t, err)
-			require.Equal(t, http.StatusServiceUnavailable, code)
-			require.Contains(t, response, "openai_proxy_unavailable")
+			_, response, err := forwardLocalBPSRequest(t.Context(), svc, account, []byte(`{"model":"gpt-5.4","input":"test","stream":true}`))
+			var failure *UpstreamFailoverError
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, OpenAIRequestProxyUnavailableReason, failure.Reason)
+			require.Empty(t, response)
 			require.Empty(t, capture.requests)
 			require.Empty(t, observed)
 		})

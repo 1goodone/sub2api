@@ -28,9 +28,14 @@ func TestOpenAIRequestProxyForwardUnavailableDoesNotSendOutsideSelectedPool(t *t
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	_, err := svc.Forward(context.Background(), c, account, body)
-	require.Error(t, err)
-	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	require.Contains(t, rec.Body.String(), "openai_proxy_unavailable")
+	var failure *UpstreamFailoverError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, OpenAIRequestProxyUnavailableReason, failure.Reason)
+	require.True(t, failure.ShouldRetryNextAccount())
+	require.False(t, failure.RequestRejected, "proxy failure must not grant encrypted replay")
+	require.False(t, failure.ShouldReportAccountScheduleFailure())
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 	require.Nil(t, upstream.lastReq, "selected pool failure must not send directly or through the old account proxy")
 }
 
@@ -59,8 +64,16 @@ func TestOpenAIRequestProxyCompatibilityUnavailableNeverSends(t *testing.T) {
 				err = svc.ForwardCountTokensAsAnthropic(t.Context(), c, account, body, "")
 			}
 			require.Error(t, err)
-			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-			require.Contains(t, rec.Body.String(), "openai_proxy_unavailable")
+			if entry == "input_tokens" || entry == "count_tokens" {
+				require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+				require.Contains(t, rec.Body.String(), "openai_proxy_unavailable")
+			} else {
+				var failure *UpstreamFailoverError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, OpenAIRequestProxyUnavailableReason, failure.Reason)
+				require.False(t, c.Writer.Written())
+				require.Empty(t, rec.Body.String())
+			}
 			require.Empty(t, upstream.requests)
 		})
 	}

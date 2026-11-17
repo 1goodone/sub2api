@@ -28,8 +28,10 @@ func TestExcelBPSRequestProxyNeverSendsOutsideSelectedPool(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	_, err := svc.Forward(context.Background(), c, account, body)
-	require.Error(t, err)
-	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	require.Contains(t, rec.Body.String(), "basispoints_proxy_unavailable")
+	var failure *UpstreamFailoverError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, OpenAIRequestProxyUnavailableReason, failure.Reason)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 	require.Nil(t, upstream.lastReq, "an unavailable selected pool must send neither directly nor through the old account proxy")
 }

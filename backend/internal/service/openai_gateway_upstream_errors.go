@@ -482,6 +482,9 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		retryableOnSameAccount || oauth429Retry,
 	)
 	failoverErr.UpstreamQuotaExhausted = isOpenAIAccountQuotaExhausted(statusCode, classificationHeaders, responseBody)
+	if failoverErr.UpstreamQuotaExhausted {
+		failoverErr.RetryableOnSameAccount = false
+	}
 	if shouldDisable && account != nil && account.Platform == PlatformOpenAI && failoverErr.RequestScopedTransient {
 		// A configured model cooldown takes precedence over capacity-shed replay.
 		failoverErr.RetryableOnSameAccount = false
@@ -570,13 +573,17 @@ func isOpenAIAccountQuotaExhausted(statusCode int, headers http.Header, body []b
 	if statusCode != http.StatusTooManyRequests {
 		return false
 	}
+	disposition, _ := classifyOpenAIOAuth429(headers, body)
+	return disposition != openAIOAuth429Transient
+}
+
+func hasOpenAIAccountQuotaCode(body []byte) bool {
 	for _, path := range []string{"error.type", "error.code", "response.error.type", "response.error.code"} {
 		if codexQuotaOverdraftQuotaCode(gjson.GetBytes(body, path).String()) {
 			return true
 		}
 	}
-	disposition, _ := classifyOpenAIOAuth429(headers, body)
-	return disposition != openAIOAuth429Transient
+	return false
 }
 
 func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {

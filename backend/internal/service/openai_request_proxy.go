@@ -13,6 +13,8 @@ import (
 
 var errOpenAIRequestProxyUnavailable = errors.New("selected OpenAI request proxies are unavailable")
 
+const OpenAIRequestProxyUnavailableReason GatewayFailureReason = "openai_proxy_unavailable"
+
 type openAIRequestProxyContextKey struct{}
 
 const openAIRequestProxyOpsKey = "openai_request_proxy_ops_route"
@@ -126,7 +128,17 @@ func (s *OpenAIGatewayService) beginOpenAIRequestProxy(ctx context.Context, c *g
 		if ctx.Err() != nil {
 			return ctx, noop, ctx.Err()
 		}
-		return ctx, noop, writeOpenAIRequestProxyError(c, "openai_proxy_unavailable", "No selected proxy is ready; direct fallback is disabled")
+		// Nothing was sent. Let the handler choose another account without
+		// committing a response or relaxing this account's egress policy.
+		return ctx, noop, &UpstreamFailoverError{
+			StatusCode:              http.StatusServiceUnavailable,
+			ResponseBody:            []byte(`{"error":{"type":"upstream_error","code":"openai_proxy_unavailable","message":"No selected proxy is ready; direct fallback is disabled"}}`),
+			Scope:                   GatewayFailureScopeAccount,
+			Reason:                  OpenAIRequestProxyUnavailableReason,
+			NextAccountAction:       NextAccountRetry,
+			SuppressScheduleFailure: true,
+			ClientMessage:           "No selected proxy is ready; direct fallback is disabled",
+		}
 	}
 	route := &openAIRequestProxyRoute{accountID: account.ID, proxy: lease.ProxyURL, lease: lease}
 	if c != nil {
