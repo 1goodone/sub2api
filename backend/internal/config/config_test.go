@@ -32,6 +32,35 @@ func stubMemoryLimit(t *testing.T, limit uint64) {
 	t.Cleanup(func() { detectMemoryLimitBytes = original })
 }
 
+func TestLoadShutdownBudgets(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml, invalid string
+		delay, timeout      int
+	}{
+		{name: "defaults", delay: 0, timeout: 5},
+		{name: "configured", yaml: "server:\n  shutdown_drain_delay: 4\n  graceful_shutdown_timeout: 9\n", delay: 4, timeout: 9},
+		{name: "negative delay", yaml: "server:\n  shutdown_drain_delay: -1\n", invalid: "shutdown_drain_delay"},
+		{name: "excessive delay", yaml: "server:\n  shutdown_drain_delay: 301\n", invalid: "shutdown_drain_delay"},
+		{name: "negative timeout", yaml: "server:\n  graceful_shutdown_timeout: -1\n", invalid: "graceful_shutdown_timeout"},
+		{name: "excessive timeout", yaml: "server:\n  graceful_shutdown_timeout: 3601\n", invalid: "graceful_shutdown_timeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
+			t.Setenv("CONFIG_FILE", path)
+			cfg, err := Load()
+			if tc.invalid != "" {
+				require.ErrorContains(t, err, tc.invalid)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.delay, cfg.Server.ShutdownDrainDelay)
+			require.Equal(t, tc.timeout, cfg.Server.GracefulShutdownTimeout)
+		})
+	}
+}
+
 func TestAutoRequestBodyMemoryBudget(t *testing.T) {
 	require.Equal(t, int64(1<<30), autoRequestBodyMemoryBudget(0))
 	require.Equal(t, int64(1<<30), autoRequestBodyMemoryBudget(2<<30))

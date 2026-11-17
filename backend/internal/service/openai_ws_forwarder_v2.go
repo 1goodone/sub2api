@@ -1017,7 +1017,7 @@ readLoop:
 				failover := s.openAIUpstreamFailoverError(http.StatusServiceUnavailable, lease.HandshakeHeaders(), message, errMsg, false)
 				return nil, failover
 			}
-			if !(firstResponseEnabled && reqStream) && !wroteDownstream && canFallback {
+			if (!firstResponseEnabled || !reqStream) && !wroteDownstream && canFallback {
 				return nil, wrapOpenAIWSFallback(fallbackReason, errors.New(errMsg))
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)

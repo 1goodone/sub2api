@@ -216,7 +216,7 @@ func NewAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, settings 
 		repo: repo, settings: settings, accounts: accounts, prober: prober, reauth: reauth,
 		leaseOwner: fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.NewString()),
 		rootCtx:    ctx, cancel: cancel,
-		stopCh:     make(chan struct{}), doneCh: make(chan struct{}),
+		stopCh: make(chan struct{}), doneCh: make(chan struct{}),
 	}
 	if reauth != nil {
 		reauth.SetRetiredAccountMarker(svc.MarkAccountRetired)
@@ -610,9 +610,10 @@ func (s *AccountTokenGuardV2Service) runProbe(ctx context.Context, record Accoun
 			followCtx, followCancel := context.WithTimeout(ctx, accountTokenGuardProbeTimeout)
 			state, detail = s.probeAccount(followCtx, account)
 			followCancel()
-			if state == AccountTokenGuardV2ProbeOK {
+			switch state {
+			case AccountTokenGuardV2ProbeOK:
 				detail = "access token refreshed"
-			} else if state == AccountTokenGuardV2ProbeAuth {
+			case AccountTokenGuardV2ProbeAuth:
 				state = AccountTokenGuardV2ProbeTransient
 				detail = "access token refreshed; follow-up inspection was not accepted"
 			}

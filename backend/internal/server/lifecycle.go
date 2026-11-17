@@ -17,7 +17,8 @@ import (
 // Lifecycle counts handlers, including hijacked WebSocket handlers, without
 // wrapping ResponseWriter and losing its streaming or hijacking interfaces.
 type Lifecycle struct {
-	onDrain      []func()
+	onShutdown   []func()
+	stopOnce     sync.Once
 	mu           sync.Mutex
 	draining     bool
 	active       int
@@ -78,11 +79,7 @@ func (l *Lifecycle) BeginDrain() {
 	if l.active == 0 {
 		close(l.idle)
 	}
-	callbacks := append([]func(){}, l.onDrain...)
 	l.mu.Unlock()
-	for _, stop := range callbacks {
-		stop()
-	}
 }
 
 func (l *Lifecycle) Wait(ctx context.Context) error {
@@ -92,6 +89,30 @@ func (l *Lifecycle) Wait(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Shutdown keeps probes reachable during load-balancer propagation, then waits
+// for HTTP and hijacked handlers before the caller closes shared dependencies.
+func (l *Lifecycle) Shutdown(ctx context.Context, srv *http.Server, delay time.Duration) error {
+	defer l.stopOnce.Do(func() {
+		for _, stop := range l.onShutdown {
+			stop()
+		}
+	})
+	l.BeginDrain()
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		return err
+	}
+	return l.Wait(ctx)
 }
 
 func (l *Lifecycle) isDraining() bool {

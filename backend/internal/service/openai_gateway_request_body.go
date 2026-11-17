@@ -2629,7 +2629,7 @@ func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
 			return value
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(raw), "none") && (openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)) {
+	if strings.EqualFold(strings.TrimSpace(raw), "none") && (isOpenAIGPT56Model(model) || openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)) {
 		return "none"
 	}
 	if strings.EqualFold(strings.TrimSpace(raw), "max") && supportsOpenAIReasoningEffortMax(model) {

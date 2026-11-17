@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
@@ -121,7 +122,7 @@ func runSetupServer() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           r,
+		Handler:           server.SetupHandler(r),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		Protocols:         protocols,
@@ -190,10 +191,15 @@ func runMainServer() {
 
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	drainDelay := time.Duration(cfg.Server.ShutdownDrainDelay) * time.Second
+	shutdownTimeout := time.Duration(cfg.Server.GracefulShutdownTimeout) * time.Second
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), drainDelay+shutdownTimeout)
 	defer cancel()
 
-	if err := app.Server.Shutdown(ctx); err != nil {
+	if err := app.Lifecycle.Shutdown(ctx, app.Server, drainDelay); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 

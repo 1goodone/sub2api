@@ -977,7 +977,9 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestExcluded(account *Account
 	if err != nil {
 		return true
 	}
-	return !scope.includes(account)
+	// Account opt-in controls harvesting, not use of an existing valid ticket.
+	// Only the legacy group scope is also a routing restriction.
+	return scope.Mode == "selected" && !scope.includes(account)
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketReadyForRequest(account *Account, requestedModel string, requireCompact bool) bool {

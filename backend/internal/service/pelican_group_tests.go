@@ -522,10 +522,7 @@ func (s *PelicanGroupTestService) newResult(plan *PelicanGroupTestPlan, started,
 // pelicanGroupTestRetryable retries every failed buffered group-test result.
 // Local policy keeps that broad retry instead of excluding model-answer failures.
 func pelicanGroupTestRetryable(result *ScheduledTestResult) bool {
-	if result.Status != "failed" {
-		return false
-	}
-	return true
+	return result.Status == "failed"
 }
 
 func (s *PelicanGroupTestService) ListResults(ctx context.Context, planID int64, page, pageSize int) ([]*PelicanGroupTestResult, int64, error) {

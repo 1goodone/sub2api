@@ -72,6 +72,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, context.Cause(phaseGuard.ctx)
 	}
 	request, safetyInfo := s.applySafetyPromptToRequest(request, account)
+	if err := regionalMeterHTTPRequest(request); err != nil {
+		return nil, err
+	}
 	defer func() {
 		if result != nil {
 			result = s.wrapSafetyPromptResponse(result, safetyInfo)
@@ -90,6 +93,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			return nil, err
 		}
 		if err := s.fenceAuthConnectionEgress(request.Context(), request, account); err != nil {
+			return nil, err
+		}
+		if err := regionalMeterBeforeSend(request.Context()); err != nil {
 			return nil, err
 		}
 		observeAttempt := s.observePriorityAttempt(request, account)
@@ -160,6 +166,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, err
 	}
 	if err := s.fenceAuthConnectionEgress(request.Context(), request, account); err != nil {
+		return nil, err
+	}
+	if err := regionalMeterBeforeSend(request.Context()); err != nil {
 		return nil, err
 	}
 	observeAttempt := s.observePriorityAttempt(request, account)

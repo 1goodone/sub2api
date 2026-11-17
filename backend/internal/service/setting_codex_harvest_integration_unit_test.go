@@ -83,17 +83,18 @@ func TestCodexHarvestWakeThroughSettingsSave(t *testing.T) {
 	svc.StartOpenAICodexTicketHarvester()
 	t.Cleanup(svc.StopOpenAICodexTicketHarvester)
 	require.Eventually(t, func() bool { return repo.reads.Load() > 0 }, time.Second, 10*time.Millisecond)
-	time.Sleep(50 * time.Millisecond) // let the disabled startup round arm its timer
-	require.Zero(t, rounds.Load())
+	// Startup lists candidates even while the global switch is off; eligibility
+	// is checked per account. Count wake-triggered scans after that initial scan.
+	require.Eventually(t, func() bool { return rounds.Load() == 1 }, time.Second, 10*time.Millisecond)
 	settings := &SystemSettings{OpenAICodexTicketEnabled: true, OpenAICodexTicketModels: []string{"gpt-6-astra"}}
 	started := time.Now()
 	require.NoError(t, svc.settingService.UpdateSettings(context.Background(), settings))
-	require.Eventually(t, func() bool { return rounds.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return rounds.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
 	t.Logf("hot enable reached the next round in %s (period=180s)", time.Since(started))
 	settings.OpenAICodexTicketModels = append(settings.OpenAICodexTicketModels, "gpt-5.6-sol")
 	started = time.Now()
 	require.NoError(t, svc.settingService.UpdateSettings(context.Background(), settings))
-	require.Eventually(t, func() bool { return rounds.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return rounds.Load() == 3 }, 5*time.Second, 10*time.Millisecond)
 	t.Logf("new model reached the next round in %s (period=180s)", time.Since(started))
 	require.Len(t, svc.openAICodexTicketConfig().Models, 2)
 }

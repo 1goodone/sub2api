@@ -296,6 +296,8 @@ func TestCodexHarvestSelectedOAuthAccountsUsesAccountSwitch(t *testing.T) {
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{1, 3}, u.ids)
 	require.False(t, s.openAICodexTicketHarvestExcluded(&disabled), "account harvest selection must not become a routing group gate")
+	unselected := harvestScopeAccount(7, true)
+	require.False(t, s.openAICodexTicketHarvestExcluded(&unselected), "missing account opt-in must not invalidate an existing ticket")
 	scope, err := s.settingService.GetCodexTicketHarvestScope(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "selected_accounts", scope.Mode)

@@ -45,10 +45,14 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	}
 	omitted.dropFrom(updates)
 
+	harvestChanged := s.codexHarvestSettingsChanged(ctx, updates)
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	if harvestChanged {
+		s.notifyCodexHarvestAfterSettingsWrite()
+	}
 	return nil
 }
 
@@ -75,10 +79,14 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	}
 	omitted.dropFrom(updates)
 
+	harvestChanged := s.codexHarvestSettingsChanged(ctx, updates)
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	if harvestChanged {
+		s.notifyCodexHarvestAfterSettingsWrite()
+	}
 	return nil
 }
 

@@ -99,7 +99,7 @@ func ProvideRouter(
 	settingService.IPRisk = iprisk.New(settingService.IPRiskStore(), redisClient, serverless.NewGeoJSResolver(redisClient), strings.EqualFold(os.Getenv("IP_RISK_DISABLED"), "true"))
 	settingService.IPRisk.Start()
 	if lifecycle != nil && settingService.IPRisk != nil {
-		lifecycle.onDrain = append(lifecycle.onDrain, settingService.IPRisk.Stop)
+		lifecycle.onShutdown = append(lifecycle.onShutdown, settingService.IPRisk.Stop)
 	}
 	if cfg.Runtime.Role != config.RuntimeRoleGateway && handlers.Admin != nil && handlers.Admin.Setting != nil {
 		handlers.Admin.Setting.SetKeyRiskAPIKeys(apiKeyService)
@@ -107,7 +107,7 @@ func ProvideRouter(
 		if err != nil {
 			slog.Warn("key risk initialization failed")
 		} else if lifecycle != nil {
-			lifecycle.onDrain = append(lifecycle.onDrain, stop)
+			lifecycle.onShutdown = append(lifecycle.onShutdown, stop)
 		}
 	}
 	if handlers.Admin != nil && handlers.Admin.Setting != nil {
@@ -122,7 +122,7 @@ func ProvideRouter(
 		if err != nil {
 			log.Printf("Traffic statistics disabled: %v", err)
 		} else if lifecycle != nil {
-			lifecycle.onDrain = append(lifecycle.onDrain, stop)
+			lifecycle.onShutdown = append(lifecycle.onShutdown, stop)
 		}
 	}
 	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)

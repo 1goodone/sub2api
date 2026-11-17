@@ -189,3 +189,38 @@ func TestRegionalMeterActualRawChatHTTPAndSSE(t *testing.T) {
 		})
 	}
 }
+
+func TestRegionalMeterRawChatRefusesUnsafeSend(t *testing.T) {
+	for _, mode := range []string{"start_commit_unknown", "mapped_model_changed"} {
+		t.Run(mode, func(t *testing.T) {
+			body := []byte(`{"model":"mock-text","messages":[{"role":"user","content":"hi"}],"max_tokens":10}`)
+			upstream := &httpUpstreamRecorder{}
+			s := newOpenAIRejectedFieldTestService(upstream)
+			l := &meterTestLedger{}
+			s.regionalMetering = testRegionalMeter(l)
+			c := newOpenAIRejectedFieldTestContext(body)
+			c.Set("api_key", &APIKey{ID: 4, UserID: 5})
+			account := newOpenAIRejectedFieldTestAccount()
+			account.Extra["openai_responses_supported"] = false
+			if mode == "start_commit_unknown" {
+				l.startErr = errors.New("commit acknowledgement lost")
+			} else {
+				account.Credentials["model_mapping"] = map[string]any{"mock-text": "other"}
+			}
+			_, err := s.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+			require.Error(t, err)
+			var failover *UpstreamFailoverError
+			require.False(t, errors.As(err, &failover), "uncertain metered sends must not switch accounts")
+			require.Empty(t, upstream.bodies)
+			require.Equal(t, 1, l.reservations)
+			require.Zero(t, l.completed)
+			if mode == "start_commit_unknown" {
+				require.Equal(t, 1, l.starts)
+				require.Zero(t, l.canceled, "an uncertain start must retain its hold")
+			} else {
+				require.Zero(t, l.starts)
+				require.Equal(t, 1, l.canceled)
+			}
+		})
+	}
+}
