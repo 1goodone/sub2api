@@ -39,6 +39,17 @@ class DeploymentGates(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 7 if changed or free else 0, result.stderr)
 
+    def test_rollback_rejects_database_read_failure(self):
+        for failure in ("snapshot", "billing"):
+            with self.subTest(failure=failure):
+                result = self.run_gate(
+                    'touch "$BACKUP_DIR/sub2api-totp-before" "$BACKUP_DIR/sub2api_mr-totp-before"\n'
+                    'totp_compat_snapshot() { return ' + ('1' if failure == 'snapshot' else '0') + '; }\n'
+                    'sudo() { echo 0; return ' + ('1' if failure == 'billing' else '0') + '; }\n'
+                    'if rollback_compatible; then exit 0; else exit 7; fi'
+                )
+                self.assertEqual(result.returncode, 7, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

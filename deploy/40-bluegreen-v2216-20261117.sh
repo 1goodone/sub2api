@@ -57,9 +57,9 @@ rollback_compatible() {
   local db enabled
   for db in sub2api sub2api_mr; do
     test -f "$BACKUP_DIR/$db-totp-before" || { echo 'ROLLBACK_BLOCKED: missing pre-upgrade TOTP snapshot'; return 1; }
-    totp_compat_snapshot "$db" > "$BACKUP_DIR/$db-totp-current"
+    totp_compat_snapshot "$db" > "$BACKUP_DIR/$db-totp-current" || { echo 'ROLLBACK_BLOCKED: cannot read TOTP compatibility state'; return 1; }
     cmp --silent "$BACKUP_DIR/$db-totp-before" "$BACKUP_DIR/$db-totp-current" || { echo 'ROLLBACK_BLOCKED: TOTP credentials or recovery state changed; keep the compatible server and worker'; return 1; }
-    enabled=$(sudo -n docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d "$db" -Atc "SELECT count(*) FROM groups WHERE free_openai_ultrafast")
+    enabled=$(sudo -n docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d "$db" -Atc "SELECT count(*) FROM groups WHERE free_openai_ultrafast") || return 1
     test "$enabled" = 0 || { echo 'ROLLBACK_BLOCKED: disable the new UltraFast billing option before rollback'; return 1; }
   done
 }
