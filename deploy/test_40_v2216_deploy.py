@@ -1,8 +1,11 @@
 """Offline checks for deployment drain and data compatibility gates."""
 from pathlib import Path
+import io
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 class DeploymentGates(unittest.TestCase):
@@ -55,6 +58,32 @@ class DeploymentGates(unittest.TestCase):
 
 class PR17DeploymentGates(DeploymentGates):
     script_name = "40-bluegreen-pr17-20261117.sh"
+
+    def test_preserve_blue_asset_graph_and_ignore_external_sdk_paths(self):
+        source = Path(__file__).with_name(self.script_name).read_text()
+        code = source.split("preserve_assets() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        entry = '<script type="module" src="/assets/index-AbCd1234.js"></script>'
+        modules = ','.join('"assets/part-%08d.js"' % i for i in range(101))
+        routes = {'/': entry.encode(), '/assets/index-AbCd1234.js':
+                  (modules + ',"./style-AbCd1234.css","/assets/elements.bundle.min.js"').encode(),
+                  '/assets/style-AbCd1234.css': b'body{color:black}'}
+        routes.update({'/assets/part-%08d.js' % i: b'export default 1' for i in range(101)})
+
+        def read(url, timeout):
+            path = '/' + url.split('/', 3)[3]
+            self.assertIn(path, routes)
+            response = io.BytesIO(routes[path])
+            response.headers = {'Content-Type': 'text/html' if path == '/' else 'application/javascript'}
+            return response
+
+        with tempfile.TemporaryDirectory() as directory:
+            origin, target = Path(directory)/'origin', Path(directory)/'target'
+            origin.mkdir()
+            with patch.object(sys, 'argv', ['fixture', str(origin), str(target)]), \
+                    patch('urllib.request.urlopen', side_effect=read), patch('builtins.print'):
+                exec(compile(code, self.script_name, 'exec'), {})
+            self.assertEqual(len(list(target.rglob('*'))), 103)
+            self.assertEqual((target/'index-AbCd1234.js').read_bytes(), routes['/assets/index-AbCd1234.js'])
 
 
 if __name__ == "__main__":
