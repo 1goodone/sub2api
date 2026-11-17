@@ -161,8 +161,10 @@ for port in (18301, 18302):
         if path == '/' or path.endswith(('.js', '.css')):
             for match in reference.finditer(data.decode()):
                 ref = match.group(1)
+                if ref.startswith('assets/'):
+                    ref = '/' + ref
                 resolved = urllib.parse.urlsplit(urllib.parse.urljoin(path, ref)).path
-                if resolved.startswith('/assets/'):
+                if resolved.startswith('/assets/') and re.search(r'-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$', resolved):
                     pending.append(resolved)
     assert len(seen) > 100, len(seen)
     print('blue_asset_graph_verified', port, len(seen)-1)
@@ -312,7 +314,7 @@ rollback() {
     fi
   done
   if sudo -n test -f "$BACKUP"; then
-    sudo -n cp "$BACKUP" /etc/caddy/Caddyfile || failed=1
+    sudo -n cp -p "$BACKUP" /etc/caddy/Caddyfile || failed=1
     sudo -n caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 && sudo -n systemctl reload caddy || failed=1
   fi
   for i in 0 1; do
@@ -355,7 +357,7 @@ cutover() {
   if sudo -n test -e "$BACKUP"; then
     sudo -n cmp --silent "$BACKUP" /etc/caddy/Caddyfile
   else
-    sudo -n cp /etc/caddy/Caddyfile "$BACKUP"
+    sudo -n cp -p /etc/caddy/Caddyfile "$BACKUP"
   fi
   trap 'trap - ERR; rollback; exit 1' ERR
   worker_control pause
@@ -368,6 +370,8 @@ cutover() {
   sudo -n docker stop --time 60 "${WORKERS[@]}" >/dev/null
   idle
   sudo -n sed 's#127.0.0.1:18301#127.0.0.1:18303#g; s#127.0.0.1:18302#127.0.0.1:18304#g' /etc/caddy/Caddyfile > /etc/caddy/Caddyfile.next-$RELEASE
+  sudo -n chown --reference=/etc/caddy/Caddyfile /etc/caddy/Caddyfile.next-$RELEASE
+  sudo -n chmod --reference=/etc/caddy/Caddyfile /etc/caddy/Caddyfile.next-$RELEASE
   sudo -n caddy validate --config /etc/caddy/Caddyfile.next-$RELEASE --adapter caddyfile >/dev/null 2>&1
   sudo -n mv /etc/caddy/Caddyfile.next-$RELEASE /etc/caddy/Caddyfile
   sudo -n systemctl reload caddy
