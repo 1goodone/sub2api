@@ -33,6 +33,82 @@ var openAIWebSearchHistoryTool = map[string]any{
 	"type": "web_search",
 }
 
+// Only opt in at an OAuth HTTP call site. Current sol/astra HTTP endpoints
+// accept completed search history without re-declaring search, including Lite.
+// Keeping the caller's namespace and choice avoids an unsupported allowed_tools
+// namespace entry without granting a new hosted capability. WS/compact and
+// unverified models retain their existing compatibility policy.
+func preserveOpenAIHTTPNamespaceSearchHistory(body map[string]any) bool {
+	return preserveOpenAIHTTPNamespaceSearchHistoryForModel(body, firstNonEmptyString(body["model"]))
+}
+
+func preserveOpenAIHTTPNamespaceSearchHistoryForModel(body map[string]any, model string) bool {
+	switch model {
+	case "gpt-6.1-sol", "gpt-6-astra":
+	default:
+		return false
+	}
+	if choice, exists := body["tool_choice"]; exists && choice != nil {
+		value, ok := choice.(string)
+		if !ok || (value != "" && value != "auto" && value != "required") {
+			return false
+		}
+	}
+	tools, _ := body["tools"].([]any)
+	declared := append([]any(nil), tools...)
+	input, _ := body["input"].([]any)
+	found := false
+	for _, raw := range input {
+		item, _ := raw.(map[string]any)
+		switch firstNonEmptyString(item["type"]) {
+		case openAICompactionTriggerItemType:
+			return false
+		case openAIWebSearchCallItemType:
+			if item["status"] != "completed" {
+				return false
+			}
+			found = true
+		case openAIAdditionalToolsItemType:
+			additional, _ := item["tools"].([]any)
+			declared = append(declared, additional...)
+		}
+	}
+	if !found || openAIToolsContainWebSearch(declared) {
+		return false
+	}
+	for _, raw := range declared {
+		tool, _ := raw.(map[string]any)
+		if tool["type"] == "namespace" {
+			return true
+		}
+	}
+	return false
+}
+
+func preserveOpenAIHTTPNamespaceSearchHistoryBody(body []byte) bool {
+	if !openAIRequestHasWebSearchHistory(body) {
+		return false
+	}
+	var decoded map[string]any
+	return decodeOpenAIJSONUseNumber(body, &decoded) == nil && preserveOpenAIHTTPNamespaceSearchHistory(decoded)
+}
+
+// Inspect decoded field values, since JSON escapes must not change routing or
+// compatibility policy. Avoid decoding the entire request when no search item
+// exists (input may contain large image payloads).
+func openAIRequestHasWebSearchHistory(body []byte) bool {
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return false
+	}
+	found := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		found = strings.TrimSpace(item.Get("type").String()) == openAIWebSearchCallItemType
+		return !found
+	})
+	return found
+}
+
 func isOpenAIWebSearchToolType(toolType string) bool {
 	return strings.HasPrefix(strings.TrimSpace(toolType), "web_search")
 }

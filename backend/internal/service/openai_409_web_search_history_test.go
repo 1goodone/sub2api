@@ -25,6 +25,8 @@ func TestOpenAI409OAuthWebSearchHistoryFinalSend(t *testing.T) {
 	}{
 		{name: "no_search_history", tools: `[` + function + `]`, choice: `"auto"`, wantChoice: `"auto"`},
 		{name: "caller_function", history: search, tools: `[` + function + `]`, choice: `"auto"`, wantChoice: `{"type":"allowed_tools","mode":"auto","tools":[{"type":"function","name":"record"}]}`, wantSearch: true},
+		{name: "http_namespace", history: search, tools: `[{"type":"namespace","name":"diagnostic","tools":[` + function + `]}]`, choice: `"auto"`, wantChoice: `"auto"`},
+		{name: "http_lite_namespace", history: `,{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"diagnostic","tools":[` + function + `]}]}` + search, tools: `[]`, choice: `"required"`, wantChoice: `"required"`, lite: true},
 		{name: "no_tools", history: search, tools: `[]`, choice: `"auto"`, wantChoice: `"none"`, wantSearch: true},
 		{name: "explicit_none", history: search, tools: `[]`, choice: `"none"`, wantChoice: `"none"`, wantSearch: true},
 		{name: "explicit_function", history: search, tools: `[` + function + `]`, choice: `{"type":"function","name":"record"}`, wantChoice: `{"type":"function","name":"record"}`, wantSearch: true},
@@ -51,7 +53,7 @@ func TestOpenAI409OAuthWebSearchHistoryFinalSend(t *testing.T) {
 			originalInput, originalControls := r.inputDigest, r.replayControlsDigest
 			var decoded map[string]any
 			require.NoError(t, decodeOpenAIJSONUseNumber(clean, &decoded))
-			opts := codexOAuthTransformOptions{PreserveReadableReplay: true, SkipDefaultInstructions: true, ResponsesLite: tc.lite, IsCompact: tc.compact}
+			opts := codexOAuthTransformOptions{PreserveReadableReplay: true, SkipDefaultInstructions: true, ResponsesLite: tc.lite, IsCompact: tc.compact, PreserveHTTPNamespaceSearchHistory: true}
 			require.NoError(t, prepareOpenAI409OAuthReplay(next, c, decoded, opts))
 			transformed := applyCodexOAuthTransformWithOptions(decoded, opts)
 			require.NoError(t, transformed.Error)

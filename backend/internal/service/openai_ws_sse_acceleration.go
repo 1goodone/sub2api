@@ -13,6 +13,8 @@ import (
 
 const openAIOAuthWSSSEAccelerationReason = "oauth_http_sse_acceleration"
 
+const openAINamespaceSearchHTTPReason = "oauth_namespace_search_history_requires_http"
+
 // IsOpenAIOAuthWSSSEAccelerationEnabled is deliberately opt-in and limited to
 // ordinary OAuth accounts. Other credentials and adapters keep their transport.
 func (a *Account) IsOpenAIOAuthWSSSEAccelerationEnabled() bool {
@@ -40,6 +42,18 @@ func (s *OpenAIGatewayService) resolveOpenAIHTTPWSSSEDecision(
 		gjson.GetBytes(body, "stream").Type == gjson.True &&
 		strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()) == "" &&
 		(s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
+		// Decide before the WS transform can inject search and manufacture an
+		// unsupported namespace allowlist. Only bypass optional HTTP acceleration;
+		// native WS clients and explicit session anchors retain their contracts.
+		if openAIRequestHasWebSearchHistory(body) {
+			var request map[string]any
+			if decodeOpenAIJSONUseNumber(body, &request) == nil {
+				_, upstreamModel := resolveOpenAIForwardMappedModels(account, firstNonEmptyString(request["model"]), false)
+				if preserveOpenAIHTTPNamespaceSearchHistoryForModel(request, upstreamModel) {
+					return openAIWSHTTPDecision(openAINamespaceSearchHTTPReason)
+				}
+			}
+		}
 		decision.Reason = openAIOAuthWSSSEAccelerationReason
 		return decision
 	}

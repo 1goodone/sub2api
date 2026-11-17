@@ -743,8 +743,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return nil, decodeErr
 		}
 		readableReplay := false
+		preserveNamespaceSearch := account.IsOpenAIOAuthLike() && wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2
 		if recovery := openAIAgentRecoveryFromContext(ctx); recovery != nil && recovery.omittedHistory {
-			if err := prepareOpenAI409OAuthReplay(ctx, c, decoded, codexOAuthTransformOptions{IsCompact: isCompactRequest, ResponsesLite: responsesLite}); err != nil {
+			if err := prepareOpenAI409OAuthReplay(ctx, c, decoded, codexOAuthTransformOptions{IsCompact: isCompactRequest, ResponsesLite: responsesLite, PreserveHTTPNamespaceSearchHistory: preserveNamespaceSearch}); err != nil {
 				return nil, err
 			}
 			readableReplay = true
@@ -766,6 +767,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				PreserveReadableReplay:              readableReplay || openAIAgentRecoveryPreservesHistory(ctx),
 				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
 				ResponsesLite:                       responsesLite,
+				PreserveHTTPNamespaceSearchHistory:  preserveNamespaceSearch,
 			})
 			ensureCodexOAuthInstructionsField(decoded)
 			markDecodedModified()
@@ -777,6 +779,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				PreserveReadableReplay:              readableReplay || openAIAgentRecoveryPreservesHistory(ctx),
 				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
 				ResponsesLite:                       responsesLite,
+				PreserveHTTPNamespaceSearchHistory:  preserveNamespaceSearch,
 			})
 		}
 		if codexResult.Error != nil {

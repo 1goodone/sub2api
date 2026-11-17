@@ -1482,8 +1482,9 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(cfg *config.Co
 }
 
 type openAIResponsesCompatibilityOptions struct {
-	Config        *config.Config
-	ResponsesLite bool
+	Config                             *config.Config
+	ResponsesLite                      bool
+	PreserveHTTPNamespaceSearchHistory bool
 	// Compact marks the /responses/compact wire shape, which is left as-is
 	// by request-shape compatibility rewrites such as web_search history.
 	Compact bool
@@ -1562,7 +1563,7 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 			normalized = next
 			changed = true
 		}
-		if !opts.Compact {
+		if !opts.Compact && !(opts.PreserveHTTPNamespaceSearchHistory && preserveOpenAIHTTPNamespaceSearchHistoryBody(normalized)) {
 			webSearchBody, webSearchChanged, err := ensureOpenAIOAuthWebSearchToolForHistoryBody(normalized, responsesLite)
 			if err != nil {
 				return body, false, fmt.Errorf("normalize websocket body: %w", err)
