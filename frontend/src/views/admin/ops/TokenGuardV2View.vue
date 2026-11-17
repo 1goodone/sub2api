@@ -433,11 +433,11 @@ const runtimeState = computed(() => {
 })
 const accounts = computed(() => status.accounts)
 const enabledCount = computed(() => accounts.value.filter(item => item.enabled).length)
-const healthyCount = computed(() => accounts.value.filter(item => item.probe_state === 'ok').length)
-const issueCount = computed(() => accounts.value.filter(item => item.probe_state === 'auth' || item.blocked_reason).length)
+const healthyCount = computed(() => accounts.value.filter(isHealthy).length)
+const issueCount = computed(() => accounts.value.filter(needsAttention).length)
 const activeTaskCount = computed(() => worker.queued + worker.running)
-const isHealthy = (item: TokenGuardV2Account) => item.enabled && item.probe_state === 'ok' && item.login_config?.configured && !item.blocked_reason
-const needsAttention = (item: TokenGuardV2Account) => Boolean(item.blocked_reason || !item.login_config?.configured || ['auth', 'transient'].includes(item.probe_state))
+const isHealthy = (item: TokenGuardV2Account) => item.enabled && item.probe_state === 'ok' && !needsAttention(item)
+const needsAttention = (item: TokenGuardV2Account) => Boolean(item.account_status !== 'active' || item.auto_relogin_exhausted || item.blocked_reason || !item.login_config?.configured || ['auth', 'transient', 'blocked'].includes(item.probe_state))
 const accountFilters = computed(() => [
   { value: 'all' as const, label: 'tokenGuardV2.filterAll', count: accounts.value.length },
   { value: 'healthy' as const, label: 'tokenGuardV2.filterHealthy', count: accounts.value.filter(isHealthy).length },

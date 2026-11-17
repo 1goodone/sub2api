@@ -391,6 +391,7 @@ func newOpenAIUpstreamFailoverError(
 		StatusCode:             statusCode,
 		ResponseBody:           responseBody,
 		ResponseHeaders:        responseHeaders.Clone(),
+		UpstreamQuotaExhausted: isOpenAIAccountQuotaExhausted(statusCode, responseHeaders, responseBody),
 		RetryableOnSameAccount: retryableOnSameAccount || requestScopedCapacity,
 		RequestScopedTransient: requestScopedCapacity,
 	}
@@ -480,6 +481,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		upstreamMsg,
 		retryableOnSameAccount || oauth429Retry,
 	)
+	failoverErr.UpstreamQuotaExhausted = isOpenAIAccountQuotaExhausted(statusCode, classificationHeaders, responseBody)
 	if shouldDisable && account != nil && account.Platform == PlatformOpenAI && failoverErr.RequestScopedTransient {
 		// A configured model cooldown takes precedence over capacity-shed replay.
 		failoverErr.RetryableOnSameAccount = false
@@ -555,6 +557,26 @@ func (e *UpstreamFailoverError) IsOpenAIRequestBodyTooLarge() bool {
 // recognized provider overload rather than supplied by an unrelated failure.
 func (e *UpstreamFailoverError) IsOpenAICapacityShed() bool {
 	return e != nil && e.RequestScopedTransient && isOpenAIRequestScopedCapacityResponse(e.StatusCode, e.ResponseHeaders, e.ResponseBody)
+}
+
+// IsAccountQuotaExhausted distinguishes exhausted upstream credentials from
+// transient request rate limits without trusting free-form error messages.
+func (e *UpstreamFailoverError) IsAccountQuotaExhausted() bool {
+	return e != nil && e.StatusCode == http.StatusTooManyRequests &&
+		(e.UpstreamQuotaExhausted || isOpenAIAccountQuotaExhausted(e.StatusCode, nil, e.ResponseBody))
+}
+
+func isOpenAIAccountQuotaExhausted(statusCode int, headers http.Header, body []byte) bool {
+	if statusCode != http.StatusTooManyRequests {
+		return false
+	}
+	for _, path := range []string{"error.type", "error.code", "response.error.type", "response.error.code"} {
+		if codexQuotaOverdraftQuotaCode(gjson.GetBytes(body, path).String()) {
+			return true
+		}
+	}
+	disposition, _ := classifyOpenAIOAuth429(headers, body)
+	return disposition != openAIOAuth429Transient
 }
 
 func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {

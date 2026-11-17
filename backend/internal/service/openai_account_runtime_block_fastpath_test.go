@@ -595,6 +595,32 @@ func TestOpenAIStream429IgnoresSuccessfulQuotaSnapshotHeaders(t *testing.T) {
 	}
 }
 
+func TestOpenAIAccountQuotaClassificationSurvivesStreamNormalization(t *testing.T) {
+	account := &Account{ID: 422, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "666")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	for _, tc := range []struct {
+		name      string
+		payload   string
+		wantQuota bool
+	}{
+		{"quota", `{"type":"error","error":{"type":"usage_limit_reached","message":"The usage limit has been reached"}}`, true},
+		{"transient", `{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			failure := svc.newOpenAIStreamFailoverErrorWithModel(nil, account, false, "", []byte(tc.payload), "stream failed", "gpt-6-astra", headers)
+			require.Equal(t, tc.wantQuota, failure.IsAccountQuotaExhausted())
+			require.Equal(t, "100", failure.ResponseHeaders.Get("x-codex-primary-used-percent"), "diagnostic headers must remain available")
+		})
+	}
+	svc := &OpenAIGatewayService{}
+	failure := svc.newOpenAIAccountFailoverError(account, http.StatusTooManyRequests, headers, nil, "slow down", false, false)
+	require.True(t, failure.IsAccountQuotaExhausted(), "HTTP 429 must still honor its own quota headers")
+}
+
 func TestOpenAIHTTP429StillUsesQuotaResetHeaders(t *testing.T) {
 	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{}}
 	account := &Account{ID: 422, Platform: PlatformOpenAI, Type: AccountTypeOAuth}

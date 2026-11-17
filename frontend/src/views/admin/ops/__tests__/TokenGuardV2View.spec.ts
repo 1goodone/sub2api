@@ -151,6 +151,27 @@ afterEach(() => {
 })
 
 describe('TokenGuardV2View', () => {
+  it.each([
+    { probe_state: 'blocked' },
+    { probe_state: 'transient' },
+    { account_status: 'error' },
+    { auto_relogin_exhausted: true },
+  ])('includes an unhealthy account in attention counts and filters: %j', async (overrides) => {
+    const status = await api.listGuard()
+    status.accounts[0] = { ...status.accounts[0], ...overrides }
+    api.listGuard.mockResolvedValue(status)
+    wrapper = mount(TokenGuardV2View, {
+      global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, SmartOpsNav: true, Icon: true, BaseDialog: true } },
+    })
+    await flushPromises()
+    expect(wrapper.findAll('.summary-card')[2].get('strong').text()).toBe('1')
+    expect(wrapper.get('[data-filter="attention"]').text()).toContain('1')
+    await wrapper.get('[data-filter="attention"]').trigger('click')
+    expect(wrapper.get('tbody').text()).toContain('Primary')
+    await wrapper.get('[data-filter="healthy"]').trigger('click')
+    expect(wrapper.get('tbody').text()).not.toContain('Primary')
+  })
+
   it('supports both per-account login modes without echoing saved secrets', async () => {
     wrapper = mount(TokenGuardV2View, {
       global: {

@@ -1951,6 +1951,12 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 
+	if failoverErr.IsAccountQuotaExhausted() {
+		copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", service.OpenAICapacityShedClientMessage, streamStarted)
+		return
+	}
+
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)

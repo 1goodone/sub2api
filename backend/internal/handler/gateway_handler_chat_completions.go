@@ -434,6 +434,19 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	if lastErr.IsAccountQuotaExhausted() {
+		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
+		service.SetOpsUpstreamError(c, lastErr.StatusCode, service.ExtractUpstreamErrorMessage(lastErr.ResponseBody), "")
+		if streamStarted {
+			service.MarkOpsStreamError(c, "server_error", service.OpenAICapacityShedClientMessage, http.StatusServiceUnavailable)
+			if gatewayStreamHasOnlyHeartbeats(c) {
+				writeChatCompletionFailedSSE(c, service.OpenAICapacityShedClientMessage)
+			}
+			return
+		}
+		h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "server_error", service.OpenAICapacityShedClientMessage)
+		return
+	}
 	if status, message, ok := lastErr.ExcelBPSRecoveryClientResponse(); ok {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
 		service.SetOpsUpstreamError(c, lastErr.StatusCode, service.ExtractUpstreamErrorMessage(lastErr.ResponseBody), "")

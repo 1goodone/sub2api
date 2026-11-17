@@ -719,6 +719,7 @@ type UpstreamFailoverError struct {
 	StatusCode                int
 	ResponseBody              []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders           http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
+	UpstreamQuotaExhausted    bool          // Quota verdict captured before stream error envelopes are normalized.
 	ForceCacheBilling         bool          // Antigravity 粘性会话切换时设为 true
 	RetryableOnSameAccount    bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
 	SameAccountRetryDelay     time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值

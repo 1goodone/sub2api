@@ -260,6 +260,35 @@ func TestAccountTokenGuardV2PolicyClassifierDoesNotTrustMessagesOrEchoes(t *test
 	}
 }
 
+func TestAccountTokenGuardV2Explicit401FailuresDoNotQueueRelogin(t *testing.T) {
+	for _, code := range []string{"account_deactivated", "account_deleted", "account_retired", "phone_verification_required", "mfa_required", "password_rejected", "security_check", "authorization_denied", "rate_limited", "service_error"} {
+		t.Run(code, func(t *testing.T) {
+			reauth, reader, tasks, _, client, _ := newReauthTestService("acct-1")
+			reauth.SetCredentialWriter(guardCredentialWriter{})
+			client.onRefresh = func(context.Context) error {
+				t.Error("explicit account failures must not refresh or create a login")
+				return errors.New("unexpected refresh")
+			}
+			repo := &accountTokenGuardV2TestRepo{record: &AccountTokenGuardV2Record{
+				AccountID: 42, Enabled: true, AutoReloginEnabled: true, FailStreak: 10,
+			}}
+			repo.createTask = tasks.CreateTask
+			body, err := json.Marshal(map[string]any{"error": map[string]string{"code": code, "message": "synthetic-private"}})
+			require.NoError(t, err)
+			svc := NewAccountTokenGuardV2Service(repo, nil, reader, accountTokenGuardV2TestProber{err: &codexModelsManifestUpstreamError{
+				err: errors.New("synthetic-private"), statusCode: http.StatusUnauthorized, body: body,
+			}}, reauth)
+			t.Cleanup(svc.cancel)
+			require.NoError(t, svc.runProbe(context.Background(), *repo.record))
+			require.Equal(t, AccountTokenGuardV2ProbeTransient, repo.completion.ProbeState)
+			require.Equal(t, code, probeOperationFailure(repo.record.ProbeState, repo.record.ProbeDetail, repo.record.LastProbeAt).Code)
+			require.Equal(t, 10, repo.completion.FailStreak)
+			require.Zero(t, tasks.createCalls)
+			require.NotContains(t, repo.record.ProbeDetail, "synthetic-private")
+		})
+	}
+}
+
 func TestAccountTokenGuardV2SecondAuthFailureQueuesRelogin(t *testing.T) {
 	reauth, reader, reauthRepo, _, _, _ := newReauthTestService("acct-1")
 	require.NoError(t, reauthRepo.UpsertConfig(context.Background(), reauthEmailConfig(42, "user@example.com", "encrypted:https://mail.example.com/code")))

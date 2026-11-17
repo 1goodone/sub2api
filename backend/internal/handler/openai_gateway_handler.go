@@ -2210,6 +2210,11 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", service.OpenAICapacityShedClientMessage, streamStarted)
 		return
 	}
+	if failoverErr.IsAccountQuotaExhausted() {
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, service.ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "")
+		h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", service.OpenAICapacityShedClientMessage, streamStarted)
+		return
+	}
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -4708,6 +4713,11 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+
+	if failoverErr.IsAccountQuotaExhausted() {
+		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "server_error", service.OpenAICapacityShedClientMessage, streamStarted)
+		return
+	}
 
 	if code, message, ok := service.OpenAIUpstreamRecoveryRateLimit(statusCode, responseBody); ok {
 		service.SetOpsUpstreamError(c, statusCode, message, "")

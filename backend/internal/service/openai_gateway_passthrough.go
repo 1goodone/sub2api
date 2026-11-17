@@ -1547,6 +1547,8 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		}
 	}
 	switch {
+	case isOpenAIAccountQuotaExhausted(http.StatusTooManyRequests, nil, payload):
+		return http.StatusTooManyRequests
 	case strings.Contains(combined, "rate_limit"):
 		return http.StatusTooManyRequests
 	case strings.Contains(errType, "invalid_request"):

@@ -38,6 +38,28 @@ func guardSchedulerDatabaseNow(t *testing.T) time.Time {
 	return now
 }
 
+func TestAccountTokenGuardV2BlockedProbePersistsAndReleasesLease(t *testing.T) {
+	ctx := context.Background()
+	now := guardSchedulerDatabaseNow(t)
+	id := newGuardSchedulerAccount(t, now.Add(-time.Minute), true)
+	guard := NewAccountTokenGuardV2Repository(integrationDB)
+	claim, err := guard.ClaimAccount(ctx, id, "blocked-probe", time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	require.NoError(t, guard.CompleteProbe(ctx, id, claim.LeaseOwner, service.AccountTokenGuardV2ProbeCompletion{
+		ProbeState: service.AccountTokenGuardV2ProbeBlocked, ProbeDetail: "upstream returned a challenge page",
+		LastProbeAt: now, NextProbeAt: now.Add(time.Minute), BlockedReason: "security_check",
+	}))
+	stored, err := guard.GetAccount(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, service.AccountTokenGuardV2ProbeBlocked, stored.ProbeState)
+	require.Equal(t, "security_check", stored.BlockedReason)
+	require.Empty(t, stored.LeaseOwner)
+	require.Nil(t, stored.LeaseUntil)
+	_, err = integrationDB.ExecContext(ctx, "UPDATE account_token_guard_v2_accounts SET probe_state='invalid' WHERE account_id=$1", id)
+	require.Error(t, err, "unknown inspection states must remain rejected")
+}
+
 func TestAccountTokenGuardV2ClaimDueHonorsCycleCutoffAndDatabaseTime(t *testing.T) {
 	ctx := context.Background()
 	now := guardSchedulerDatabaseNow(t)

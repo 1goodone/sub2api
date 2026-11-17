@@ -741,12 +741,6 @@ func (s *AccountTokenGuardV2Service) probeAccount(ctx context.Context, account *
 		if guardProbeLooksLikeChallenge(body + "\n" + err.Error()) {
 			return AccountTokenGuardV2ProbeBlocked, fmt.Sprintf("upstream returned %d", upstreamErr.statusCode)
 		}
-		switch upstreamErr.statusCode {
-		case http.StatusTooManyRequests:
-			return AccountTokenGuardV2ProbeTransient, "upstream returned 429; rate limited"
-		case http.StatusUnauthorized:
-			return AccountTokenGuardV2ProbeAuth, "upstream returned 401"
-		}
 	}
 	text := strings.ToLower(err.Error())
 	if guardProbeLooksLikeChallenge(text) {
