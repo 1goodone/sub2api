@@ -15,11 +15,12 @@ import (
 // Codex's local context compaction sends the full history with tools:[], so
 // every compaction after a web search fails (#7927).
 //
-// Declare a cached-only web_search tool for such requests. Responses Lite
+// Declare a native-compatible web_search tool for such requests. Do not add
+// external_web_access: the ChatGPT/Codex endpoint rejects that API-only field.
+// Responses Lite
 // rejects hosted tools at the top level, so Lite requests carry it in an
-// input additional_tools item instead. When the caller declared no tools at
-// all, also pin tool_choice to "none" so the injected tool cannot be invoked
-// and the request keeps its no-tools semantics.
+// input additional_tools item instead. Limit tool_choice to the caller's
+// original declarations, or "none" when there were no executable tools.
 
 const (
 	openAIWebSearchCallItemType      = "web_search_call"
@@ -29,8 +30,7 @@ const (
 )
 
 var openAIWebSearchHistoryTool = map[string]any{
-	"type":                "web_search",
-	"external_web_access": false,
+	"type": "web_search",
 }
 
 func isOpenAIWebSearchToolType(toolType string) bool {
@@ -51,19 +51,99 @@ func openAIToolsContainWebSearch(rawTools any) bool {
 	return false
 }
 
-// shouldPinOpenAIWebSearchHistoryToolChoice reports whether tool_choice may be
-// forced to "none": only when the caller offered no tools, so the choice
-// cannot meaningfully be anything else.
-func shouldPinOpenAIWebSearchHistoryToolChoice(choice any) bool {
-	switch typed := choice.(type) {
+// Restrict selection to declarations present before the compatibility tool was
+// injected. Keep explicit choices and existing allowlists; auto/required must
+// not silently grant the newly added hosted tool execution permission.
+func openAIHistoryToolChoice(choice any, tools []any) any {
+	mode := "auto"
+	switch value := choice.(type) {
 	case nil:
-		return true
 	case string:
-		normalized := strings.ToLower(strings.TrimSpace(typed))
-		return normalized == "" || normalized == "auto" || normalized == "none"
+		switch strings.TrimSpace(value) {
+		case "", "auto":
+		case "required":
+			mode = "required"
+		default:
+			return choice
+		}
+	case map[string]any:
+		kind, _ := value["type"].(string)
+		if isOpenAIWebSearchToolType(kind) {
+			return "none"
+		}
+		if kind == "allowed_tools" {
+			allowed, ok := value["tools"].([]any)
+			if !ok {
+				return choice
+			}
+			filtered := make([]any, 0, len(allowed))
+			for _, raw := range allowed {
+				ref, _ := raw.(map[string]any)
+				typ, _ := ref["type"].(string)
+				if !isOpenAIWebSearchToolType(typ) {
+					filtered = append(filtered, raw)
+				}
+			}
+			if len(filtered) != len(allowed) {
+				if len(filtered) == 0 {
+					return "none"
+				}
+				narrowed := make(map[string]any, len(value))
+				for k, v := range value {
+					narrowed[k] = v
+				}
+				narrowed["tools"] = filtered
+				return narrowed
+			}
+		}
+		return choice
 	default:
-		return false
+		return choice
 	}
+	refs := openAIHistoryToolReferences(tools)
+	if len(refs) == 0 {
+		return "none"
+	}
+	return map[string]any{"type": "allowed_tools", "mode": mode, "tools": refs}
+}
+
+func openAIHistoryToolReferences(tools []any) []any {
+	refs := make([]any, 0, len(tools))
+	for _, raw := range tools {
+		// Responses Lite accepts string declarations as named custom tools.
+		// Include them in the selection policy without rewriting the declaration.
+		if name, ok := raw.(string); ok {
+			if strings.TrimSpace(name) != "" {
+				refs = append(refs, map[string]any{"type": "custom", "name": name})
+			}
+			continue
+		}
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := tool["type"].(string)
+		if kind == "" {
+			continue
+		}
+		ref := map[string]any{"type": kind}
+		for _, key := range []string{"name", "namespace", "server_label"} {
+			if value, ok := tool[key].(string); ok && value != "" {
+				ref[key] = value
+			}
+		}
+		if kind == "function" && ref["name"] == nil {
+			if function, ok := tool["function"].(map[string]any); ok {
+				ref["name"] = function["name"]
+			}
+		}
+		if kind == "namespace" {
+			nested, _ := tool["tools"].([]any)
+			ref["tools"] = openAIHistoryToolReferences(nested)
+		}
+		refs = append(refs, ref)
+	}
+	return refs
 }
 
 // openAIAdditionalToolsInsertIndex keeps a trailing compaction trigger last,
@@ -86,7 +166,7 @@ func ensureOpenAIOAuthWebSearchToolForHistory(reqBody map[string]any, responsesL
 		return false
 	}
 	hasWebSearchCall := false
-	callerDeclaredTools := false
+	var callerTools []any
 	var additionalToolsItem map[string]any
 	itemTypes := make([]string, len(input))
 	for i, rawItem := range input {
@@ -102,8 +182,8 @@ func ensureOpenAIOAuthWebSearchToolForHistory(reqBody map[string]any, responsesL
 			if openAIToolsContainWebSearch(item["tools"]) {
 				return false
 			}
-			if tools, _ := item["tools"].([]any); len(tools) > 0 {
-				callerDeclaredTools = true
+			if tools, ok := item["tools"].([]any); ok {
+				callerTools = append(callerTools, tools...)
 			}
 			if additionalToolsItem == nil {
 				additionalToolsItem = item
@@ -114,7 +194,7 @@ func ensureOpenAIOAuthWebSearchToolForHistory(reqBody map[string]any, responsesL
 		return false
 	}
 	tools, _ := reqBody["tools"].([]any)
-	callerDeclaredTools = callerDeclaredTools || len(tools) > 0
+	callerTools = append(callerTools, tools...)
 
 	switch {
 	case !responsesLite:
@@ -135,11 +215,7 @@ func ensureOpenAIOAuthWebSearchToolForHistory(reqBody map[string]any, responsesL
 		next = append(next, input[at:]...)
 		reqBody["input"] = next
 	}
-	if !callerDeclaredTools {
-		if choice, exists := reqBody["tool_choice"]; !exists || shouldPinOpenAIWebSearchHistoryToolChoice(choice) {
-			reqBody["tool_choice"] = "none"
-		}
-	}
+	reqBody["tool_choice"] = openAIHistoryToolChoice(reqBody["tool_choice"], callerTools)
 	return true
 }
 
@@ -155,7 +231,7 @@ func ensureOpenAIOAuthWebSearchToolForHistoryBody(body []byte, responsesLite boo
 	}
 	items := input.Array()
 	hasWebSearchCall := false
-	callerDeclaredTools := false
+	var callerTools []any
 	additionalToolsIndex := -1
 	itemTypes := make([]string, len(items))
 	for i, item := range items {
@@ -168,8 +244,8 @@ func ensureOpenAIOAuthWebSearchToolForHistoryBody(body []byte, responsesLite boo
 			if gjsonToolsContainWebSearch(itemTools) {
 				return body, false, nil
 			}
-			if itemTools.IsArray() && len(itemTools.Array()) > 0 {
-				callerDeclaredTools = true
+			if declared, ok := itemTools.Value().([]any); ok {
+				callerTools = append(callerTools, declared...)
 			}
 			if additionalToolsIndex < 0 {
 				additionalToolsIndex = i
@@ -184,7 +260,9 @@ func ensureOpenAIOAuthWebSearchToolForHistoryBody(body []byte, responsesLite boo
 		return body, false, nil
 	}
 	topLevelTools := tools.IsArray() && len(tools.Array()) > 0
-	callerDeclaredTools = callerDeclaredTools || topLevelTools
+	if declared, ok := tools.Value().([]any); ok {
+		callerTools = append(callerTools, declared...)
+	}
 
 	var (
 		next []byte
@@ -205,14 +283,9 @@ func ensureOpenAIOAuthWebSearchToolForHistoryBody(body []byte, responsesLite boo
 	if err != nil {
 		return body, false, fmt.Errorf("declare web_search tool for web_search_call history: %w", err)
 	}
-	if !callerDeclaredTools {
-		choice := gjson.GetBytes(next, "tool_choice")
-		if !choice.Exists() || choice.Type == gjson.Null || (choice.Type == gjson.String && shouldPinOpenAIWebSearchHistoryToolChoice(choice.String())) {
-			next, err = sjson.SetBytes(next, "tool_choice", "none")
-			if err != nil {
-				return body, false, fmt.Errorf("pin tool_choice for web_search_call history: %w", err)
-			}
-		}
+	next, err = sjson.SetBytes(next, "tool_choice", openAIHistoryToolChoice(gjson.GetBytes(body, "tool_choice").Value(), callerTools))
+	if err != nil {
+		return body, false, fmt.Errorf("restrict tool_choice for web_search_call history: %w", err)
 	}
 	return next, true, nil
 }

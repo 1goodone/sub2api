@@ -744,7 +744,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		readableReplay := false
 		if recovery := openAIAgentRecoveryFromContext(ctx); recovery != nil && recovery.omittedHistory {
-			if err := prepareOpenAI409OAuthReplay(ctx, c, decoded); err != nil {
+			if err := prepareOpenAI409OAuthReplay(ctx, c, decoded, codexOAuthTransformOptions{IsCompact: isCompactRequest, ResponsesLite: responsesLite}); err != nil {
 				return nil, err
 			}
 			readableReplay = true

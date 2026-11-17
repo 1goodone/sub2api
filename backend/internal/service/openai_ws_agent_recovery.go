@@ -195,7 +195,7 @@ func (r *openAIWSAgentRecovery) prepareReadable(account *Account, source []byte)
 		if err := decodeOpenAIJSONUseNumber(clean, &decoded); err != nil {
 			return nil, err
 		}
-		if err := prepareOpenAI409OAuthReplay(ctx, r.c, decoded); err != nil {
+		if err := prepareOpenAI409OAuthReplay(ctx, r.c, decoded, codexOAuthTransformOptions{ResponsesLite: isOpenAIResponsesLiteWebSocketPayload(clean)}); err != nil {
 			return nil, err
 		}
 		var err error
